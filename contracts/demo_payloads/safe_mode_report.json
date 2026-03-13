@@ -1,0 +1,81 @@
+﻿{
+  "mode": "safe_mode",
+  "event": {
+    "title": "网传矿泉水检测截图缺乏完整来源，当前仅能做边界化提示",
+    "summary": "社交平台流传一张“某品牌矿泉水抽检超标”的截图，但没有原始公告链接、批次上下文和发布时间。公开来源未找到可直接对应的监管通报。",
+    "source_url": "https://example.org/demo/water-rumor-post",
+    "source_name": "社交平台截图汇总",
+    "published_at": "2026-03-13T09:45:00+08:00",
+    "keywords": [
+      "抽检截图",
+      "来源不明",
+      "安全模式",
+      "待核查"
+    ],
+    "mode": "safe_mode"
+  },
+  "timeline": [],
+  "claim_results": [
+    {
+      "claim": "监管部门已经就该品牌矿泉水发布正式处罚通报。",
+      "claim_type": "fact",
+      "verdict": "insufficient",
+      "confidence": "low",
+      "evidence": [
+        {
+          "title": "未检索到可直接对应的原始通报",
+          "url": "https://example.org/demo/water-rumor-post",
+          "source_name": "社交平台截图汇总",
+          "published_at": "2026-03-13T09:45:00+08:00",
+          "snippet": "截图未给出可追溯公告编号、发布时间或监管机构主页链接。",
+          "relevance_reason": "当前缺少足够元信息去建立公开来源链路。",
+          "source_tier": "C"
+        }
+      ],
+      "notes": "没有原始公告链接时，不能把截图内容视为已核实事实。"
+    },
+    {
+      "claim": "截图中的批次号对应当前在售产品。",
+      "claim_type": "unverifiable",
+      "verdict": "insufficient",
+      "confidence": "low",
+      "evidence": [
+        {
+          "title": "截图缺少可校验批次元信息",
+          "url": "https://example.org/demo/water-rumor-post",
+          "source_name": "社交平台截图汇总",
+          "published_at": "2026-03-13T09:45:00+08:00",
+          "snippet": "没有包装照、条码或完整检测报告页，无法完成交叉核验。",
+          "relevance_reason": "现有信息不足以判断批次与在售产品的对应关系。",
+          "source_tier": "C"
+        }
+      ],
+      "notes": "该 claim 暂不具备可验证所需的最小上下文。"
+    },
+    {
+      "claim": "这个品牌长期存在质量问题。",
+      "claim_type": "opinion",
+      "verdict": "insufficient",
+      "confidence": "low",
+      "evidence": [],
+      "notes": "这是泛化判断，当前页面只提示其不可直接据截图得出，不做真假强判。"
+    }
+  ],
+  "final_summary": "目前只能确认网上存在一张来源不完整的截图，尚不足以推出监管处罚、产品批次或品牌长期质量问题等更强结论。",
+  "risks": [
+    "时间线未建立成功，当前结果不代表完整传播链。",
+    "截图来源等级偏低，缺少原始公告和多源交叉印证。",
+    "页面仅适合给出待核查点，不应被当作定性结论。"
+  ],
+  "sources": [
+    {
+      "title": "社交平台流传的截图汇总",
+      "url": "https://example.org/demo/water-rumor-post",
+      "source_name": "社交平台截图汇总",
+      "published_at": "2026-03-13T09:45:00+08:00",
+      "snippet": "当前仅有的公开线索是一张未经完整溯源的截图。",
+      "relevance_reason": "说明为何系统被迫进入安全模式。",
+      "source_tier": "C"
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+﻿{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rumor-checking.local/contracts/claim_result.schema.json",
+  "title": "ClaimResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "claim",
+    "claim_type",
+    "verdict",
+    "confidence",
+    "evidence",
+    "notes"
+  ],
+  "properties": {
+    "claim": {
+      "type": "string",
+      "minLength": 1
+    },
+    "claim_type": {
+      "type": "string",
+      "enum": [
+        "fact",
+        "opinion",
+        "prediction",
+        "unverifiable"
+      ]
+    },
+    "verdict": {
+      "type": "string",
+      "enum": [
+        "supported",
+        "refuted",
+        "insufficient",
+        "conflicting"
+      ]
+    },
+    "confidence": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      ]
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "./evidence.schema.json"
+      },
+      "default": []
+    },
+    "notes": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

@@ -1,0 +1,118 @@
+﻿{
+  "mode": "partial_mode",
+  "event": {
+    "title": "景区缆车故障传言出现，但伤亡信息暂未证实",
+    "summary": "景区高峰时段一段缆车停滞视频引发“发生重大事故”的说法。公开来源可以确认短时停运和游客滞留，但关于伤亡和故障原因的公开信息仍不足。",
+    "source_url": "https://example.org/demo/cable-car-update",
+    "source_name": "景区管理处通报",
+    "published_at": "2026-03-12T16:10:00+08:00",
+    "keywords": [
+      "景区",
+      "缆车",
+      "滞留",
+      "伤亡待核实"
+    ],
+    "mode": "partial_mode"
+  },
+  "timeline": [
+    {
+      "node_type": "origin",
+      "title": "游客拍到缆车停滞视频并上传",
+      "url": "https://example.org/demo/cable-car-video",
+      "source_name": "现场视频整理",
+      "published_at": "2026-03-12T13:20:00+08:00",
+      "summary": "视频显示缆车在高空停留数分钟，但未呈现事故后果。",
+      "why_selected": "这是当前可检索到的最早现场素材。"
+    },
+    {
+      "node_type": "clarification",
+      "title": "景区管理处通报短时停运与游客疏散",
+      "url": "https://example.org/demo/cable-car-update",
+      "source_name": "景区管理处通报",
+      "published_at": "2026-03-12T16:10:00+08:00",
+      "summary": "景区称设备临时停运后已完成游客疏散，未在通报中提及伤亡情况。",
+      "why_selected": "官方通报是当前最高优先级的公开信息。"
+    }
+  ],
+  "claim_results": [
+    {
+      "claim": "缆车当天出现了短时停运和游客滞留。",
+      "claim_type": "fact",
+      "verdict": "supported",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "title": "景区管理处说明设备短时停运",
+          "url": "https://example.org/demo/cable-car-update",
+          "source_name": "景区管理处通报",
+          "published_at": "2026-03-12T16:10:00+08:00",
+          "snippet": "设备巡检期间出现短时停运，工作人员随后组织游客分批疏散。",
+          "relevance_reason": "官方通报确认停运和疏散事实。",
+          "source_tier": "S"
+        }
+      ],
+      "notes": "公开来源可确认停运与疏散，但细节较少。"
+    },
+    {
+      "claim": "缆车发生了明确的机械故障。",
+      "claim_type": "fact",
+      "verdict": "insufficient",
+      "confidence": "low",
+      "evidence": [
+        {
+          "title": "景区称正在复核停运原因",
+          "url": "https://example.org/demo/cable-car-update",
+          "source_name": "景区管理处通报",
+          "published_at": "2026-03-12T16:10:00+08:00",
+          "snippet": "通报仅表示设备临时停运，未给出故障定性。",
+          "relevance_reason": "现有公开说明不足以确认是否属于机械故障。",
+          "source_tier": "S"
+        }
+      ],
+      "notes": "缺少事故调查或维修记录，不能将停运直接等同于机械故障。"
+    },
+    {
+      "claim": "网传事故已造成多人伤亡。",
+      "claim_type": "fact",
+      "verdict": "insufficient",
+      "confidence": "low",
+      "evidence": [
+        {
+          "title": "当地媒体汇总通报内容",
+          "url": "https://example.org/demo/cable-car-media-roundup",
+          "source_name": "山地晚报",
+          "published_at": "2026-03-12T17:00:00+08:00",
+          "snippet": "媒体复述景区说明，未找到可核实的伤亡名单或医院通报。",
+          "relevance_reason": "无法支撑伤亡规模这一更激进的说法。",
+          "source_tier": "A"
+        }
+      ],
+      "notes": "目前没有足够公开证据支持或反驳伤亡规模，只能保守处理。"
+    }
+  ],
+  "final_summary": "现有公开信息足以确认缆车短时停运与游客滞留，但关于伤亡和故障原因的关键事实仍未完成核实。",
+  "risks": [
+    "传播链仅拿到起点视频与官方通报，缺少更多中间放大节点。",
+    "核心争议点仍依赖后续调查结果，当前页面不应被理解为完整事故复盘。"
+  ],
+  "sources": [
+    {
+      "title": "景区管理处说明设备短时停运",
+      "url": "https://example.org/demo/cable-car-update",
+      "source_name": "景区管理处通报",
+      "published_at": "2026-03-12T16:10:00+08:00",
+      "snippet": "官方通报确认短时停运和游客疏散。",
+      "relevance_reason": "支撑当前最稳妥的事实边界。",
+      "source_tier": "S"
+    },
+    {
+      "title": "现场视频显示缆车停滞",
+      "url": "https://example.org/demo/cable-car-video",
+      "source_name": "现场视频整理",
+      "published_at": "2026-03-12T13:20:00+08:00",
+      "snippet": "视频提供了事件发生时的直接可视线索。",
+      "relevance_reason": "帮助建立时间线起点。",
+      "source_tier": "B"
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+﻿{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rumor-checking.local/contracts/report.schema.json",
+  "title": "Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "mode",
+    "event",
+    "timeline",
+    "claim_results",
+    "final_summary",
+    "risks",
+    "sources"
+  ],
+  "properties": {
+    "mode": {
+      "type": "string",
+      "enum": [
+        "complete_mode",
+        "partial_mode",
+        "safe_mode"
+      ]
+    },
+    "event": {
+      "$ref": "./event.schema.json"
+    },
+    "timeline": {
+      "type": "array",
+      "items": {
+        "$ref": "./timeline_node.schema.json"
+      },
+      "default": []
+    },
+    "claim_results": {
+      "type": "array",
+      "items": {
+        "$ref": "./claim_result.schema.json"
+      },
+      "default": []
+    },
+    "final_summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "default": []
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "$ref": "./evidence.schema.json"
+      },
+      "default": []
+    }
+  }
+}

@@ -1,0 +1,52 @@
+﻿{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rumor-checking.local/contracts/timeline_node.schema.json",
+  "title": "TimelineNode",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "node_type",
+    "title",
+    "url",
+    "source_name",
+    "published_at",
+    "summary",
+    "why_selected"
+  ],
+  "properties": {
+    "node_type": {
+      "type": "string",
+      "enum": [
+        "origin",
+        "amplification",
+        "peak",
+        "turn",
+        "clarification"
+      ]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "source_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "published_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "why_selected": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

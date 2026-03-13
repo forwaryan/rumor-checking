@@ -1,0 +1,23 @@
+﻿from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+
+from backend.app.main import create_app
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+EVALS_ROOT = REPO_ROOT / "evals" / "minimal_v1"
+
+
+def load_eval_fixture(filename: str):
+    return json.loads((EVALS_ROOT / filename).read_text(encoding="utf-8-sig"))
+
+
+@pytest.fixture()
+def client() -> TestClient:
+    app = create_app()
+    with TestClient(app, raise_server_exceptions=False) as test_client:
+        yield test_client

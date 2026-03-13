@@ -1,8 +1,16 @@
 ﻿# Backend
 
-本目录用于存放后端 API 与核查流水线实现。
+本目录现在承载一个可启动的 FastAPI 基础链路，覆盖：
 
-当前仅预留实现骨架，用于让后端、检索、测试线程在一致目录下并行推进。
+- `GET /api/v1/health`
+- `POST /api/v1/analyze`
+- 统一配置、日志、错误响应
+- mock 版 `input_normalizer / claim_extractor / verdict_engine / report_builder`
+
+## 详细实现记录
+
+- 详细记录见 `backend/docs/api-foundation-implementation-record.md`
+- 内容包括：实现范围、文件职责、主链路编排、规则细节、测试方法、验证结果、已知边界和后续接手建议
 
 ## 目录边界
 
@@ -11,18 +19,22 @@
 - `app/core/`
   - 配置、日志、错误处理等基础设施
 - `app/models/`
-  - 后端内部模型或由 `contracts/` 派生的结构
+  - 当前后端内部 schema
 - `app/services/`
-  - 输入标准化、claim、verdict、report 等业务服务
-- `app/providers/`
-  - Kimi、检索、URL 抽取等外部能力接入
-- `app/repositories/`
-  - 缓存、文件读取、持久化访问层
+  - 输入标准化、claim、verdict、timeline、report 编排
 - `tests/`
-  - pytest、case 驱动回归和 smoke test
+  - pytest、smoke test、主链路回归测试
+- `docs/`
+  - 实现记录、交接文档、设计补充说明
 
-## 并行协作约束
+## 本地运行
 
-- API 基础链路与检索链路都在 `backend/`，但具体 owner 仍按 task 区分
-- 前后端共享协议不在这里直接拍脑袋定义，统一以 `contracts/` 为准
-- 开发期测试数据优先从 `data/evals/` 或根目录 `evals/` 读取，不在服务目录随手复制
+1. `python -m pip install -r backend/requirements-dev.txt`
+2. `uvicorn backend.app.main:app --reload`
+3. 访问 `http://127.0.0.1:8000/docs`
+
+## 当前实现边界
+
+- 还未接入真实检索与 Kimi provider，分析结果来自规则与 mock 数据
+- 共享协议仍以 `contracts/` 为准，后续 schema 冻结后需要再对齐字段
+- 测试数据优先读取根目录 `evals/minimal_v1/`

@@ -1,0 +1,163 @@
+﻿{
+  "mode": "complete_mode",
+  "event": {
+    "title": "夜间施工绕行通知被误传为主城区公交全天停运",
+    "summary": "一张关于夜间道路施工的绕行截图在群聊中被二次转发，部分账号将“23:00 至 05:00 临时调整”误写成“全天停运”，随后市交通部门发布澄清。",
+    "source_url": "https://example.org/demo/night-traffic-clarification",
+    "source_name": "城市交通局通报",
+    "published_at": "2026-03-11T08:30:00+08:00",
+    "keywords": [
+      "公交",
+      "夜间施工",
+      "澄清",
+      "误传"
+    ],
+    "mode": "complete_mode"
+  },
+  "timeline": [
+    {
+      "node_type": "origin",
+      "title": "施工单位发布夜间绕行告示",
+      "url": "https://example.org/demo/night-traffic-origin",
+      "source_name": "道路施工公告",
+      "published_at": "2026-03-10T20:15:00+08:00",
+      "summary": "原始公告仅提到 23:00 至次日 05:00 临时绕行，并未出现全天停运表述。",
+      "why_selected": "这是当前能找到的最早公开说明，且内容与后续误传截图高度一致。"
+    },
+    {
+      "node_type": "amplification",
+      "title": "本地资讯号错误转述为“主城区公交停运”",
+      "url": "https://example.org/demo/night-traffic-blog",
+      "source_name": "本地资讯号",
+      "published_at": "2026-03-10T22:40:00+08:00",
+      "summary": "自媒体标题省略“夜间”限定条件，导致群聊和短视频评论区迅速放大误解。",
+      "why_selected": "该节点解释了误传如何从原始通知扩散成更激进的说法。"
+    },
+    {
+      "node_type": "peak",
+      "title": "通勤话题集中讨论“明早是否停运”",
+      "url": "https://example.org/demo/night-traffic-peak",
+      "source_name": "城市热线整理",
+      "published_at": "2026-03-11T07:10:00+08:00",
+      "summary": "高峰时段咨询量明显增多，讨论重心转向是否影响早高峰出行。",
+      "why_selected": "该时间窗口对应误传影响面最大阶段。"
+    },
+    {
+      "node_type": "turn",
+      "title": "媒体开始引用完整公告截图纠偏",
+      "url": "https://example.org/demo/night-traffic-turn",
+      "source_name": "都市早报",
+      "published_at": "2026-03-11T08:05:00+08:00",
+      "summary": "记者补充完整通知截图，指出绕行限制仅发生在夜间施工窗口。",
+      "why_selected": "这一节点标志叙事从“停运”转向“夜间局部调整”。"
+    },
+    {
+      "node_type": "clarification",
+      "title": "交通局发布正式澄清说明",
+      "url": "https://example.org/demo/night-traffic-clarification",
+      "source_name": "城市交通局通报",
+      "published_at": "2026-03-11T08:30:00+08:00",
+      "summary": "官方明确表示公交未全天停运，仅 7 条线路在夜间施工时段临时绕行。",
+      "why_selected": "官方说明为当前最高优先级证据，直接修正误传。"
+    }
+  ],
+  "claim_results": [
+    {
+      "claim": "主城区公交在 3 月 11 日全天停运。",
+      "claim_type": "fact",
+      "verdict": "refuted",
+      "confidence": "high",
+      "evidence": [
+        {
+          "title": "交通局回应：公交未全天停运",
+          "url": "https://example.org/demo/night-traffic-clarification",
+          "source_name": "城市交通局通报",
+          "published_at": "2026-03-11T08:30:00+08:00",
+          "snippet": "公告明确写明受影响时段为 23:00 至次日 05:00，白天运营维持正常。",
+          "relevance_reason": "直接否定“全天停运”这一表述。",
+          "source_tier": "S"
+        }
+      ],
+      "notes": "核心误传来自截图被二次裁剪，缺失时间限定。"
+    },
+    {
+      "claim": "施工通知只涉及 23:00 至 05:00 的夜间绕行。",
+      "claim_type": "fact",
+      "verdict": "supported",
+      "confidence": "high",
+      "evidence": [
+        {
+          "title": "夜间施工临时绕行公告",
+          "url": "https://example.org/demo/night-traffic-origin",
+          "source_name": "道路施工公告",
+          "published_at": "2026-03-10T20:15:00+08:00",
+          "snippet": "施工占道时段限定为当晚 23:00 至次日 05:00。",
+          "relevance_reason": "原始公告直接给出受影响时段。",
+          "source_tier": "S"
+        },
+        {
+          "title": "交通局发布 FAQ 解释绕行方案",
+          "url": "https://example.org/demo/night-traffic-faq",
+          "source_name": "城市交通局通报",
+          "published_at": "2026-03-11T09:05:00+08:00",
+          "snippet": "绕行措施仅在夜间施工窗口触发，日间班次不受影响。",
+          "relevance_reason": "与原始公告形成交叉确认。",
+          "source_tier": "S"
+        }
+      ],
+      "notes": "该 claim 与官方 FAQ 和原始施工通知一致。"
+    },
+    {
+      "claim": "共有 7 条线路需要临时调整站点。",
+      "claim_type": "fact",
+      "verdict": "supported",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "title": "交通局公布涉及线路清单",
+          "url": "https://example.org/demo/night-traffic-routes",
+          "source_name": "城市交通局通报",
+          "published_at": "2026-03-11T08:32:00+08:00",
+          "snippet": "附件列出 7 条公交线路在夜间施工期间临时调整站点。",
+          "relevance_reason": "官方附件给出具体线路数量。",
+          "source_tier": "S"
+        }
+      ],
+      "notes": "线路数量来自单一官方附件，但内容清晰、指向明确。"
+    }
+  ],
+  "final_summary": "现有公开证据表明，这是一条由夜间绕行通知被误读后放大的误传，全天停运说法不成立。",
+  "risks": [
+    "当前时间线基于公开可检索来源，不代表完整群聊扩散路径。",
+    "高峰阶段主要来自咨询量和媒体整理，缺少平台侧实时流量数据。"
+  ],
+  "sources": [
+    {
+      "title": "夜间施工临时绕行公告",
+      "url": "https://example.org/demo/night-traffic-origin",
+      "source_name": "道路施工公告",
+      "published_at": "2026-03-10T20:15:00+08:00",
+      "snippet": "原始公告为当前可追溯的最早公开文本。",
+      "relevance_reason": "解释误传起点。",
+      "source_tier": "S"
+    },
+    {
+      "title": "交通局回应：公交未全天停运",
+      "url": "https://example.org/demo/night-traffic-clarification",
+      "source_name": "城市交通局通报",
+      "published_at": "2026-03-11T08:30:00+08:00",
+      "snippet": "官方澄清直接否定全天停运。",
+      "relevance_reason": "提供最终校正结论。",
+      "source_tier": "S"
+    },
+    {
+      "title": "媒体补充完整公告截图",
+      "url": "https://example.org/demo/night-traffic-turn",
+      "source_name": "都市早报",
+      "published_at": "2026-03-11T08:05:00+08:00",
+      "snippet": "报道强调截图缺失夜间限定条件。",
+      "relevance_reason": "解释误传传播机制。",
+      "source_tier": "A"
+    }
+  ]
+}

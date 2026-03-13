@@ -1,0 +1,51 @@
+﻿{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rumor-checking.local/contracts/evidence.schema.json",
+  "title": "Evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "title",
+    "url",
+    "source_name",
+    "published_at",
+    "snippet",
+    "relevance_reason",
+    "source_tier"
+  ],
+  "properties": {
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "source_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "published_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "snippet": {
+      "type": "string",
+      "minLength": 1
+    },
+    "relevance_reason": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_tier": {
+      "type": "string",
+      "enum": [
+        "S",
+        "A",
+        "B",
+        "C"
+      ]
+    }
+  }
+}
