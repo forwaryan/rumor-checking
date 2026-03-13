@@ -2,12 +2,12 @@
 
 from typing import List
 
-from backend.app.models.schemas import ClaimItem, EventDraft
+from backend.app.models.schemas import ClaimItem, NormalizedEvent
 from backend.app.services.scenario_library import match_scenario
 
 
 class ClaimExtractor:
-    def extract(self, event: EventDraft) -> List[ClaimItem]:
+    def extract(self, event: NormalizedEvent) -> List[ClaimItem]:
         scenario = match_scenario(" ".join(filter(None, [event.raw_input, event.title, event.summary])))
         if scenario.scenario_id != "generic":
             return list(scenario.claims)

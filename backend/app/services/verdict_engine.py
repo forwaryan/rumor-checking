@@ -2,7 +2,7 @@
 
 from typing import List, Tuple
 
-from backend.app.models.schemas import AnalyzeRequest, ClaimItem, ClaimResult, EventDraft, EvidenceItem
+from backend.app.models.schemas import AnalyzeRequest, ClaimItem, ClaimResult, EvidenceItem, NormalizedEvent
 from backend.app.services.scenario_library import ScenarioTemplate, match_scenario
 
 
@@ -11,7 +11,7 @@ class VerdictEngine:
         self,
         *,
         request: AnalyzeRequest,
-        event: EventDraft,
+        event: NormalizedEvent,
         claims: List[ClaimItem],
     ) -> Tuple[List[ClaimResult], List[EvidenceItem], str]:
         scenario = match_scenario(" ".join(filter(None, [event.raw_input, event.title, event.summary])))
@@ -28,8 +28,10 @@ class VerdictEngine:
                     ClaimResult(
                         claim=claim.claim,
                         claim_type=claim.claim_type,
-                        rationale=self._non_decidable_rationale(claim.claim_type),
-                        status="not_decidable",
+                        verdict="insufficient",
+                        confidence="low",
+                        evidence=[],
+                        notes=self._non_decidable_note(claim.claim_type),
                     )
                 )
                 continue
@@ -39,13 +41,15 @@ class VerdictEngine:
                     ClaimResult(
                         claim=claim.claim,
                         claim_type=claim.claim_type,
-                        rationale="当前输入缺少可核验的证据链，先保持保守。",
-                        status="needs_evidence",
+                        verdict="insufficient",
+                        confidence="low",
+                        evidence=[],
+                        notes="当前输入缺少可核验的证据链，先保持保守。",
                     )
                 )
                 continue
 
-            verdict, confidence, rationale, selected = self._evaluate_fact_claim(
+            verdict, confidence, notes, selected = self._evaluate_fact_claim(
                 scenario=scenario,
                 claim_text=claim.claim,
                 evidence_pool=evidence_pool,
@@ -56,9 +60,8 @@ class VerdictEngine:
                     claim_type=claim.claim_type,
                     verdict=verdict,
                     confidence=confidence,
-                    rationale=rationale,
                     evidence=selected,
-                    status="decidable" if verdict in {"supported", "refuted", "conflicting"} else "needs_review",
+                    notes=notes,
                 )
             )
 
@@ -68,23 +71,23 @@ class VerdictEngine:
         self,
         *,
         request: AnalyzeRequest,
-        event: EventDraft,
+        event: NormalizedEvent,
         scenario: ScenarioTemplate,
     ) -> Tuple[List[EvidenceItem], str]:
         if request.mock_evidence:
             return list(request.mock_evidence), "B"
         if event.input_type == "question_only":
             return [], "D"
-        if event.fallback_used and event.input_type == "url_unknown":
+        if event.fallback_used and event.input_type in {"url_news", "url_unknown"}:
             return [], "D"
         return list(scenario.evidence), scenario.default_evidence_grade
 
-    def _non_decidable_rationale(self, claim_type: str) -> str:
+    def _non_decidable_note(self, claim_type: str) -> str:
         if claim_type == "opinion":
-            return "这是立场或评价，不适合进入标准 verdict。"
+            return "这是立场或评价，当前页面只提示边界，不做真假强判。"
         if claim_type == "prediction":
-            return "这是未来判断，当前证据只能支撑风险提示。"
-        return "这是公开资料通常无法直接验证的说法。"
+            return "这是未来判断，当前证据不足以把它转成标准 verdict。"
+        return "这是公开资料通常无法直接验证的说法，暂保持保守。"
 
     def _evaluate_fact_claim(
         self,

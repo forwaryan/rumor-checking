@@ -1,14 +1,18 @@
 ﻿from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
-InputType = Literal["text_news", "url_news", "url_unknown", "question_only"]
+InternalInputType = Literal["text_news", "url_news", "url_unknown", "question_only"]
 ClaimType = Literal["fact", "opinion", "prediction", "unverifiable"]
 VerdictType = Literal["supported", "refuted", "insufficient", "conflicting"]
 ReportMode = Literal["complete_mode", "partial_mode", "safe_mode"]
+ConfidenceLevel = Literal["high", "medium", "low"]
+ConfidenceValue = Union[ConfidenceLevel, float]
+SourceTier = Literal["S", "A", "B", "C"]
+TimelineNodeType = Literal["origin", "amplification", "peak", "turn", "clarification"]
 
 
 class MockFetchResult(BaseModel):
@@ -23,34 +27,45 @@ class MockFetchResult(BaseModel):
 class EvidenceItem(BaseModel):
     title: str
     url: str
-    source_name: Optional[str] = None
-    published_at: Optional[str] = None
-    snippet: str = ""
-    relevance_reason: Optional[str] = None
-    source_tier: str = "C"
+    source_name: str
+    published_at: str
+    snippet: str
+    relevance_reason: str
+    source_tier: SourceTier = "C"
 
 
 class TimelineNode(BaseModel):
+    node_type: TimelineNodeType = "origin"
     title: str
-    date: Optional[str] = None
-    description: str
-    node_type: str = "event"
-    source_name: Optional[str] = None
-    source_url: Optional[str] = None
-    confidence: str = "medium"
+    url: str
+    source_name: str
+    published_at: str
+    summary: str
+    why_selected: str
 
 
-class EventDraft(BaseModel):
+class NormalizedEvent(BaseModel):
     title: Optional[str] = None
     summary: str
     keywords: List[str] = Field(default_factory=list)
     source_name: Optional[str] = None
+    source_url: Optional[str] = None
     published_at: Optional[str] = None
-    input_type: InputType
+    input_type: InternalInputType
     mode_hint: str = "partial"
     fallback_used: bool = False
     fallback_reason: Optional[str] = None
     raw_input: str
+
+
+class Event(BaseModel):
+    title: str
+    summary: str
+    source_url: str
+    source_name: str
+    published_at: str
+    keywords: List[str] = Field(default_factory=list)
+    mode: ReportMode
 
 
 class ClaimItem(BaseModel):
@@ -61,35 +76,35 @@ class ClaimItem(BaseModel):
 class ClaimResult(BaseModel):
     claim: str
     claim_type: ClaimType
-    verdict: Optional[VerdictType] = None
-    confidence: Optional[str] = None
-    rationale: str
+    verdict: VerdictType
+    confidence: ConfidenceValue
     evidence: List[EvidenceItem] = Field(default_factory=list)
-    status: str = "needs_review"
+    notes: str
 
 
 class Report(BaseModel):
     mode: ReportMode
-    event: EventDraft
-    claim_results: List[ClaimResult] = Field(default_factory=list)
+    event: Event
     timeline: List[TimelineNode] = Field(default_factory=list)
-    evidence: List[EvidenceItem] = Field(default_factory=list)
+    claim_results: List[ClaimResult] = Field(default_factory=list)
     final_summary: str
     risks: List[str] = Field(default_factory=list)
-    unknowns: List[str] = Field(default_factory=list)
-    next_steps: List[str] = Field(default_factory=list)
-    boundary: str
-    fallback: Optional[Dict[str, Any]] = None
+    sources: List[EvidenceItem] = Field(default_factory=list)
 
 
 class AnalyzeRequest(BaseModel):
     raw_input: str = Field(..., min_length=1)
-    input_type: Optional[InputType] = None
+    input_type: Optional[str] = None
     mock_fetch_result: Optional[MockFetchResult] = None
     mock_evidence: List[EvidenceItem] = Field(default_factory=list)
     request_context: Dict[str, Any] = Field(default_factory=dict)
 
-
-class AnalyzeResponse(BaseModel):
-    request_id: str
-    report: Report
+    @model_validator(mode="before")
+    @classmethod
+    def remap_legacy_fields(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            payload = dict(value)
+            if not payload.get("raw_input") and payload.get("input"):
+                payload["raw_input"] = payload["input"]
+            return payload
+        return value

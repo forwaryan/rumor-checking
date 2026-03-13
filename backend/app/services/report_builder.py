@@ -2,14 +2,15 @@
 
 from typing import List, Tuple
 
-from backend.app.models.schemas import ClaimResult, EventDraft, EvidenceItem, Report, TimelineNode
+from backend.app.models.schemas import ClaimResult, Event, EvidenceItem, NormalizedEvent, Report, TimelineNode
+from backend.app.services.contract_utils import default_source_name, default_source_url, ensure_datetime_string
 
 
 class ReportBuilder:
     def build(
         self,
         *,
-        event: EventDraft,
+        event: NormalizedEvent,
         claim_results: List[ClaimResult],
         timeline: List[TimelineNode],
         evidence: List[EvidenceItem],
@@ -21,7 +22,7 @@ class ReportBuilder:
             timeline=timeline,
             evidence_grade=evidence_grade,
         )
-        final_summary, risks, unknowns, next_steps = self._compose_sections(
+        final_summary, risks = self._compose_sections(
             mode=mode,
             event=event,
             claim_results=claim_results,
@@ -29,32 +30,30 @@ class ReportBuilder:
             evidence=evidence,
         )
 
-        fallback = None
-        if event.fallback_used:
-            fallback = {
-                "used": True,
-                "reason": event.fallback_reason,
-                "message": "链接正文不完整，当前结果基于标题、摘要片段和规则推断。",
-            }
+        public_event = Event(
+            title=event.title or "待核实事件",
+            summary=event.summary,
+            source_url=event.source_url or default_source_url(event.input_type, event.raw_input),
+            source_name=event.source_name or default_source_name(event.input_type),
+            published_at=ensure_datetime_string(event.published_at),
+            keywords=event.keywords or ["待核实"],
+            mode=mode,
+        )
 
         return Report(
             mode=mode,
-            event=event,
+            event=public_event,
             claim_results=claim_results,
             timeline=timeline,
-            evidence=evidence,
+            sources=evidence,
             final_summary=final_summary,
             risks=risks,
-            unknowns=unknowns,
-            next_steps=next_steps,
-            boundary="当前结果基于 mock 规则和最小测试集生成，尚未接入真实全网检索与 Kimi provider。",
-            fallback=fallback,
         )
 
     def _select_mode(
         self,
         *,
-        event: EventDraft,
+        event: NormalizedEvent,
         claim_results: List[ClaimResult],
         timeline: List[TimelineNode],
         evidence_grade: str,
@@ -74,13 +73,12 @@ class ReportBuilder:
         self,
         *,
         mode: str,
-        event: EventDraft,
+        event: NormalizedEvent,
         claim_results: List[ClaimResult],
         timeline: List[TimelineNode],
         evidence: List[EvidenceItem],
-    ) -> Tuple[str, List[str], List[str], List[str]]:
+    ) -> Tuple[str, List[str]]:
         strong_claims = [item for item in claim_results if item.verdict in {"supported", "refuted", "conflicting"}]
-        insufficient_claims = [item for item in claim_results if item.verdict == "insufficient" or item.status != "decidable"]
         conflicting_claims = [item for item in claim_results if item.verdict == "conflicting"]
 
         if mode == "complete_mode":
@@ -91,29 +89,16 @@ class ReportBuilder:
         else:
             summary = "当前信息不足以给出确定性判断，系统保持 safe mode，并优先提示待补证据。"
 
-        risks = []
+        risks: List[str] = []
         if conflicting_claims:
             risks.append("存在相互冲突的证据，不能把单一版本当成最终事实。")
         if event.fallback_used:
-            risks.append("链接正文抽取不完整，分析结果依赖片段信息。")
+            risks.append("当前结果基于链接片段或用户输入做保守输出，正文抽取与检索链路仍未完成。")
         if not evidence:
             risks.append("尚未形成稳定证据链。")
-
-        unknowns = [item.claim for item in insufficient_claims[:3]]
-        if not unknowns and not timeline:
-            unknowns.append("尚未建立传播链和关键时间节点。")
-
-        next_steps = []
         if mode == "safe_mode":
-            next_steps.extend(
-                [
-                    "补充完整正文或权威来源链接后重新分析。",
-                    "若是截图传闻，请提供原始通知、机构声明或更完整上下文。",
-                ]
-            )
-        else:
-            next_steps.append("继续补充更高可信来源，确认关键节点是否存在遗漏。")
-        if conflicting_claims:
-            next_steps.append("针对冲突结论优先核对官方通报和一手机构回应。")
+            risks.append("当前页面只适合提示待核查点，不应被当作定性结论。")
+        if not timeline:
+            risks.append("时间线未建立成功，当前结果不代表完整传播链。")
 
-        return summary, risks, unknowns, next_steps
+        return summary, risks

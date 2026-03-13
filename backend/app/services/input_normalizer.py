@@ -6,21 +6,44 @@ from typing import List, Optional
 from fastapi import status
 
 from backend.app.core.exceptions import AppError
-from backend.app.models.schemas import AnalyzeRequest, EventDraft, InputType
+from backend.app.models.schemas import AnalyzeRequest, InternalInputType, NormalizedEvent
+from backend.app.services.contract_utils import default_source_name, default_source_url, ensure_datetime_string, looks_like_url
 from backend.app.services.scenario_library import match_scenario
+
+
+FRONTEND_INPUT_TYPE_MAP = {
+    "text": "text_news",
+    "url": "url_news",
+    "question": "question_only",
+}
 
 
 def _collapse_whitespace(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def _infer_input_type(raw_input: str) -> InputType:
+def _infer_input_type(raw_input: str) -> InternalInputType:
     compact = raw_input.strip()
-    if compact.startswith(("http://", "https://")):
+    if looks_like_url(compact):
         return "url_news"
     if compact.endswith(("?", "？")) or "真的吗" in compact:
         return "question_only"
     return "text_news"
+
+
+def _normalize_requested_input_type(raw_input: str, requested: Optional[str]) -> InternalInputType:
+    if not requested or requested == "auto":
+        return _infer_input_type(raw_input)
+    if requested in FRONTEND_INPUT_TYPE_MAP:
+        return FRONTEND_INPUT_TYPE_MAP[requested]
+    if requested in {"text_news", "url_news", "url_unknown", "question_only"}:
+        return requested  # type: ignore[return-value]
+    raise AppError(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        code="invalid_input_type",
+        message="Unsupported input_type.",
+        details={"input_type": requested},
+    )
 
 
 def _extract_keywords(text: str) -> List[str]:
@@ -53,16 +76,8 @@ def _extract_date(text: str) -> Optional[str]:
 
 
 class InputNormalizer:
-    def normalize(self, payload: AnalyzeRequest) -> EventDraft:
-        input_type = payload.input_type or _infer_input_type(payload.raw_input)
-        if input_type not in {"text_news", "url_news", "url_unknown", "question_only"}:
-            raise AppError(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                code="invalid_input_type",
-                message="Unsupported input_type.",
-                details={"input_type": input_type},
-            )
-
+    def normalize(self, payload: AnalyzeRequest) -> NormalizedEvent:
+        input_type = _normalize_requested_input_type(payload.raw_input, payload.input_type)
         fetch = payload.mock_fetch_result
         composite_text = " ".join(
             part
@@ -80,29 +95,37 @@ class InputNormalizer:
         fallback_reason = None
         title: Optional[str] = None
         source_name: Optional[str] = None
+        source_url: Optional[str] = None
         published_at: Optional[str] = None
 
         if input_type in {"url_news", "url_unknown"}:
+            source_url = payload.raw_input.strip() if looks_like_url(payload.raw_input) else default_source_url(input_type, payload.raw_input)
+            source_name = default_source_name(input_type)
+
             if fetch is None:
-                raise AppError(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    code="missing_mock_fetch_result",
-                    message="URL inputs require mock_fetch_result in the current mock backend.",
-                )
-            title = fetch.title or scenario.title
-            summary_source = fetch.body or fetch.snippet or scenario.summary
-            summary = _collapse_whitespace(summary_source)
-            source_name = fetch.source_name or None
-            published_at = fetch.published_at or None
-            fallback_used = fetch.status != "ok" or not (fetch.body or "").strip()
-            if fallback_used:
-                fallback_reason = "url_content_incomplete"
+                title = "链接内容尚未抽取，当前只能先给出保守提示"
+                summary = "当前只拿到用户提供的链接，后端尚未接入真实正文抽取，因此不能直接核查正文内容。建议补充正文或等待 URL 抽取链路完成。"
+                fallback_used = True
+                fallback_reason = "url_content_missing"
+                input_type = "url_unknown"
+            else:
+                title = fetch.title or scenario.title
+                summary_source = fetch.body or fetch.snippet or scenario.summary
+                summary = _collapse_whitespace(summary_source)
+                source_name = fetch.source_name or default_source_name(input_type)
+                published_at = fetch.published_at or None
+                fallback_used = fetch.status != "ok" or not (fetch.body or "").strip()
+                if fallback_used:
+                    fallback_reason = "url_content_incomplete"
         elif input_type == "question_only":
             summary = _collapse_whitespace(payload.raw_input.rstrip("？?"))
+            source_name = default_source_name(input_type)
+            source_url = default_source_url(input_type, payload.raw_input)
         else:
             title = scenario.title if scenario.scenario_id != "generic" else self._derive_title(payload.raw_input)
             summary = self._derive_summary(payload.raw_input)
-            source_name = self._extract_source_name(payload.raw_input)
+            source_name = self._extract_source_name(payload.raw_input) or default_source_name(input_type)
+            source_url = default_source_url(input_type, payload.raw_input)
             published_at = _extract_date(payload.raw_input)
 
         keywords = self._merge_keywords(
@@ -113,17 +136,16 @@ class InputNormalizer:
         mode_hint = scenario.default_mode_hint
         if input_type == "question_only":
             mode_hint = "safe"
-            source_name = None
-            published_at = None
-        elif fallback_used and input_type == "url_unknown":
+        elif fallback_used and input_type in {"url_news", "url_unknown"}:
             mode_hint = "safe"
 
-        return EventDraft(
+        return NormalizedEvent(
             title=title,
             summary=summary,
             keywords=keywords,
             source_name=source_name,
-            published_at=published_at,
+            source_url=source_url,
+            published_at=ensure_datetime_string(published_at) if published_at else None,
             input_type=input_type,
             mode_hint=mode_hint,
             fallback_used=fallback_used,

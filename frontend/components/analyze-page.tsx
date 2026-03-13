@@ -63,7 +63,7 @@ export function AnalyzePage() {
               : "offline",
         );
         setDemoCases(demoResult.length ? demoResult : idleDemoCases);
-      } catch (error) {
+      } catch {
         if (!active) {
           return;
         }
@@ -114,7 +114,7 @@ export function AnalyzePage() {
       const nextReport = await analyzeReport(target.request);
       setReport(nextReport);
       setStatus(getStatusFromMode(nextReport.mode));
-    } catch (error) {
+    } catch {
       if (target.kind === "analyze") {
         const fallbackReport = buildFallbackReport(target.request.input, target.request.input_type);
         setReport(fallbackReport);
@@ -138,7 +138,7 @@ export function AnalyzePage() {
       return;
     }
 
-    const nextRequest = selectedDemoId
+    const nextRequest: LastRequest = selectedDemoId
       ? { kind: "demo", demoId: selectedDemoId }
       : {
           kind: "analyze",

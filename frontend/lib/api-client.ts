@@ -146,31 +146,58 @@ function parseClaimResults(value: unknown): ClaimResult[] {
   }));
 }
 
+function unwrapReportPayload(value: unknown): unknown {
+  if (isObject(value) && isObject(value.report)) {
+    return value.report;
+  }
+  return value;
+}
+
 export function parseReport(value: unknown): Report {
-  if (!isObject(value)) {
+  const payload = unwrapReportPayload(value);
+  if (!isObject(payload)) {
     throw new ApiClientError("后端返回了无法解析的 Report。");
   }
 
-  const mode = ensureMode(value.mode);
+  const mode = ensureMode(payload.mode);
 
   return {
     mode,
-    event: parseEvent(value.event, mode),
-    timeline: parseTimeline(value.timeline),
-    claim_results: parseClaimResults(value.claim_results),
-    final_summary: ensureString(value.final_summary, "暂无综合结论。"),
-    risks: ensureStringArray(value.risks),
-    sources: parseEvidence(value.sources),
+    event: parseEvent(payload.event, mode),
+    timeline: parseTimeline(payload.timeline),
+    claim_results: parseClaimResults(payload.claim_results),
+    final_summary: ensureString(payload.final_summary, "暂无综合结论。"),
+    risks: ensureStringArray(payload.risks),
+    sources: parseEvidence(payload.sources),
   };
 }
 
 async function parseJson<T>(response: Response) {
+  const rawText = await response.text();
+  const parsed = rawText ? JSON.parse(rawText) : null;
+
   if (!response.ok) {
-    const detail = await response.text();
-    throw new ApiClientError(detail || "请求失败", response.status);
+    if (isObject(parsed) && isObject(parsed.error) && typeof parsed.error.message === "string") {
+      throw new ApiClientError(parsed.error.message, response.status);
+    }
+    throw new ApiClientError(rawText || "请求失败", response.status);
   }
 
-  return (await response.json()) as T;
+  return parsed as T;
+}
+
+function mapAnalyzeRequest(request: AnalyzeRequest) {
+  const inputTypeMap = {
+    auto: undefined,
+    text: "text_news",
+    url: "url_news",
+    question: "question_only",
+  } as const;
+
+  return {
+    raw_input: request.input.trim(),
+    input_type: inputTypeMap[request.input_type],
+  };
 }
 
 export async function analyzeReport(request: AnalyzeRequest): Promise<Report> {
@@ -179,7 +206,7 @@ export async function analyzeReport(request: AnalyzeRequest): Promise<Report> {
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(request),
+    body: JSON.stringify(mapAnalyzeRequest(request)),
     cache: "no-store",
   });
 
