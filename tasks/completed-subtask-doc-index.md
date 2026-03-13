@@ -44,6 +44,7 @@
 3. `backend/docs/api-foundation-implementation-record.md`
 4. `frontend/IMPLEMENTATION_SUMMARY.md`
 5. `overview/07_quality-and-demo-baseline.md`
+6. `overview/08_origin_problem_gap_and_demo_strategy.md`
 
 如果只需要快速改一个点，按下面的路径读：
 
@@ -92,3 +93,4 @@ flowchart LR
 - 每新增一个“已完成”子任务，优先补对应实现记录，而不是只改任务状态。
 - 如果某个 cluster 已经有实现总结，优先更新原文档，不再在别处复制一份平行说明。
 - 如果字段、接口或模式有变化，先更新 `contracts/` 说明，再改前后端实现。
+

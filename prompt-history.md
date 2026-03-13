@@ -189,3 +189,32 @@
 - **⭐ 效果评估**: [待填写]
 
 ---
+### 📅 2026-03-13 22:49
+> **🧵 线程标识**: `T-main`
+> **🏷️ 窗口职责**: 主控
+> **🔗 上下文来源**: `rules/origin_problem_statement.md`、`rules/score_alignment_rules.md`、`README.md`、`overview/06_current_code_implementation.md`、`overview/07_quality-and-demo-baseline.md`、`tasks/completed-subtask-doc-index.md`、`frontend/README.md`、`backend/README.md`、`workflows/prompt_logging_rules.md`
+> **💡 原始指令摘要**: 用户以 `[log]` 方式要求以原始题目规则为基线，判断当前项目已实现与缺失的能力，并进一步考虑如何面向外行表达、演示和展示当前成果，同时评估离目标还有多远、缺什么、下一步最难的部分是什么。
+
+- **🎯 本线程目标 (Context & Goal)**: 从原始题意而不是从 task 自说自话地重新评估当前项目完成度，给出一份兼顾“题目要求对照、外行可理解表达、复试演示结构、距离目标判断和困难度排序”的统一口径文档。
+- **🧩 已知约束 (Known Context)**: 当前仓库已经有前端、后端、contracts、测试与 demo 基线，但“传播链还原”仍未完成真实闭环；题目原始要求强调可 demo、可解释和两条主流程完整；输出必须能被不懂技术的人理解，且要适合 15 分钟产品介绍 + 15 分钟实现介绍的答辩场景。
+- **⚙️ AI 采用的策略 (AI Approach)**: 先读取 `rules/origin_problem_statement.md` 和评分对齐规则，拆解原题的核心任务与权重；再把当前代码与文档状态映射成“已实现 / 部分实现 / 未实现”；最后新增一份图文并茂的总口径文档，重点补“如何讲、如何演、距离目标多远、最难下一步是什么”，并把入口接到 README 与 overview 索引中。
+- **📦 产出与落点 (Artifacts)**: `overview/08_origin_problem_gap_and_demo_strategy.md`、`README.md`、`overview/README.md`、`tasks/completed-subtask-doc-index.md`、`prompt-history.md`
+- **➡️ 交接建议 (Next Handoff)**: 建议后续演示准备先围绕 `overview/08_origin_problem_gap_and_demo_strategy.md` 收口口径，再优先推进 `C10`、`D5 ~ D7`、`F7` 与 `G5 / G6`；如果时间有限，至少保证“传播链还原仍在补、内容核查可稳定演示、三档模式边界清晰”这三个信息在答辩中表达一致。
+- **⭐ 效果评估**: [待填写]
+
+---
+
+### 📅 2026-03-13 23:01
+> **🧵 线程标识**: `T-main`
+> **🏷️ 窗口职责**: 主控
+> **🔗 上下文来源**: `tasks/parallel-execution-playbook.md`、`tasks/cluster-c-api-foundation.md`、`tasks/cluster-d-retrieval-lab.md`、`tasks/cluster-f-quality-gate.md`、`tasks/cluster-g-demo-ops.md`、`workflows/prompt_logging_rules.md`
+> **💡 原始指令摘要**: 用户以 `[log]` 方式要求为并行窗口生成可直接执行的 prompt，覆盖 `C10`、`D5~D7`、`F7`、`G5/G6` 四个当前关键任务，准备开始并行推进。
+
+- **🎯 本线程目标 (Context & Goal)**: 把当前最关键的四个未闭环任务从 task 状态描述，进一步整理成可直接复制给不同窗口的执行 prompt，降低再次口头拆解和边界混乱的成本。
+- **🧩 已知约束 (Known Context)**: 仓库已经有 cluster 级全局 prompt，但用户这次需要的是“针对当前波次四个具体任务”的即拿即用 prompt；各窗口仍必须先回写 task 文件，再开始真实修改；不同窗口边界需要明确，避免 `C10`、`D5~D7`、`F7`、`G5/G6` 互相串线。
+- **⚙️ AI 采用的策略 (AI Approach)**: 先回读并行执行手册和 `Cluster-C / D / F / G` 的当前任务边界，再新增一份当前波次专用 prompt 文档，分别为四个窗口写清“读哪些文件、只能改哪里、本轮最低交付、验收标准、完成后如何回写与交接”。
+- **📦 产出与落点 (Artifacts)**: `tasks/current-wave-window-prompts.md`、`prompt-history.md`
+- **➡️ 交接建议 (Next Handoff)**: 建议主控直接把 `tasks/current-wave-window-prompts.md` 里的四个 prompt 分发给四个窗口；执行顺序上可优先发 `D5~D7` 与 `C10`，同时启动 `F7`，再由 `G5/G6` 在消费现有文档的同时预留一次与 smoke checklist 的收口同步。
+- **⭐ 效果评估**: [待填写]
+
+---
