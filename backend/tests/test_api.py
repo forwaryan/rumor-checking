@@ -1,5 +1,14 @@
 ﻿from __future__ import annotations
 
+from contextlib import contextmanager
+
+import httpx
+from fastapi.testclient import TestClient
+
+from backend.app.core.config import get_settings
+from backend.app.main import create_app
+from backend.app.models.schemas import ClaimItem, ProviderAnalysis, ProviderEventDraft
+from backend.app.services.kimi_provider import KimiProvider
 from backend.tests.conftest import load_eval_fixture
 
 
@@ -9,6 +18,19 @@ REPORT_KEYS = {"mode", "event", "timeline", "claim_results", "final_summary", "r
 def _case_by_id(filename: str, case_id: str):
     cases = load_eval_fixture(filename)
     return next(item for item in cases if item["case_id"] == case_id)
+
+
+@contextmanager
+def _provider_enabled_client(monkeypatch):
+    monkeypatch.setenv("ANALYSIS_PROVIDER", "kimi")
+    monkeypatch.setenv("KIMI_API_KEY", "test-kimi-key")
+    get_settings.cache_clear()
+    try:
+        app = create_app()
+        with TestClient(app, raise_server_exceptions=False) as test_client:
+            yield test_client
+    finally:
+        get_settings.cache_clear()
 
 
 def test_health_endpoint_returns_service_metadata(client):
@@ -95,7 +117,6 @@ def test_analyze_partial_mode_exposes_conflicting_claims(client):
     assert any(item["verdict"] == "conflicting" for item in report["claim_results"])
 
 
-
 def test_analyze_accepts_frontend_payload_shape(client):
     case = _case_by_id("input_cases.json", "I01")
     response = client.post(
@@ -111,6 +132,67 @@ def test_analyze_accepts_frontend_payload_shape(client):
     assert "report" not in report
     assert REPORT_KEYS.issubset(report.keys())
     assert report["mode"] == "complete_mode"
+
+
+def test_provider_enrichment_updates_event_and_claims(monkeypatch):
+    def fake_analyze(self, event):
+        assert event.input_type == "text_news"
+        return ProviderAnalysis(
+            event=ProviderEventDraft(
+                title="省市场监管局核查品牌奶制品抽检情况",
+                summary="省市场监管局已介入核查，企业回应称正在整改。",
+                keywords=["省市场监管局", "抽检", "整改"],
+                source_name="省市场监管局",
+                published_at="2026-03-08",
+            ),
+            claims=[
+                ClaimItem(claim="省市场监管局已经介入核查。", claim_type="fact"),
+                ClaimItem(claim="品牌方的回应明显站不住脚。", claim_type="opinion"),
+            ],
+        )
+
+    monkeypatch.setattr(KimiProvider, "analyze", fake_analyze)
+
+    with _provider_enabled_client(monkeypatch) as provider_client:
+        response = provider_client.post(
+            "/api/v1/analyze",
+            json={
+                "raw_input": "省市场监管部门正核查某品牌奶制品抽检情况，品牌方随后回应并说明整改。",
+                "input_type": "text",
+            },
+        )
+
+    assert response.status_code == 200
+    report = response.json()
+    assert report["event"]["title"] == "省市场监管局核查品牌奶制品抽检情况"
+    assert report["event"]["summary"] == "省市场监管局已介入核查，企业回应称正在整改。"
+    assert report["event"]["source_name"] == "省市场监管局"
+    assert report["event"]["published_at"].startswith("2026-03-08T00:00:00")
+    assert report["claim_results"][0]["claim"] == "省市场监管局已经介入核查。"
+    assert report["claim_results"][1]["claim_type"] == "opinion"
+
+
+def test_provider_failures_fall_back_to_rule_pipeline(monkeypatch):
+    def fake_request_completion(self, event):
+        raise httpx.ReadTimeout("provider timeout")
+
+    monkeypatch.setattr(KimiProvider, "_request_completion", fake_request_completion)
+    case = _case_by_id("input_cases.json", "I01")
+
+    with _provider_enabled_client(monkeypatch) as provider_client:
+        response = provider_client.post(
+            "/api/v1/analyze",
+            json={
+                "raw_input": case["raw_input"],
+                "input_type": case["input_type"],
+            },
+        )
+
+    assert response.status_code == 200
+    report = response.json()
+    assert report["mode"] == "complete_mode"
+    assert "海州市市场监管局" in report["event"]["title"]
+    assert any(item["verdict"] == "supported" for item in report["claim_results"])
 
 
 def test_internal_errors_use_unified_error_shape(client):

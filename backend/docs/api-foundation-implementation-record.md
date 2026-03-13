@@ -2,416 +2,551 @@
 
 ## 1. 文档目的
 
-这份文档记录 `Cluster-C / API Foundation` 当前已经落地的实现，回答四个问题：
+这份文档记录 `Cluster-C / API Foundation` 到 2026-03-13 的实际实现状态。
+它的目标不是写成 PR 摘要，而是作为后续接手、复盘和继续开发时的基线文档。
 
-1. 当前已经做完了什么。
-2. 当前 API 的真实请求和响应是什么。
-3. 后端内部主链路是怎么串起来的。
-4. 后续接手应该从哪里继续。
+这份文档重点回答 4 个问题：
 
-本文反映的是 2026-03-13 最新状态，已经包含两轮实现：
+1. 当前后端到底已经做完了什么。
+2. `POST /api/v1/analyze` 现在是怎么跑起来的。
+3. Kimi provider 是怎么接进来的，什么时候会生效，什么时候会回退。
+4. 还有哪些没有完成，下一步应该从哪里接着做。
 
-- 第一轮：完成 `C1` 到 `C8` 的最小可运行 FastAPI mock 主链路。
-- 第二轮：完成共享 contract 对齐和前后端 integration 对齐。
+## 2. 当前状态总览
 
-## 2. 当前完成范围
+### 2.1 已完成范围
 
-### 已完成
+- `C1` 到 `C8` 的后端基础链路已经完成。
+- 后端输出已经与 `contracts/` 的主结构对齐。
+- 前后端 `analyze` 请求/响应形状已经对齐。
+- `C9` 第一阶段已经完成：Kimi provider 配置、调用封装、结构化解析、事件与 claim enrichment、安全回退、测试。
 
-- `C1` FastAPI 项目骨架。
-- `C2` 统一配置、日志、异常处理。
-- `C3` `GET /api/v1/health` 与统一错误响应。
-- `C4` mock 版 `input_normalizer`。
-- `C5` mock 版 `claim_extractor`。
-- `C6` mock 版 `verdict_engine`。
-- `C7` `report_builder` 与模式选择逻辑。
-- `C8` `POST /api/v1/analyze` 编排接口。
-- `contracts/` 已存在时，对齐后端 `Report` 输出结构。
-- 对齐前端 `api-client` 的请求映射和响应解析。
+### 2.2 未完成范围
 
-### 未完成
+- `C9` 还没有做带真实 key 的在线联调。
+- `C9` 还没有做 prompt 质量调优与真实输出稳定性评估。
+- `C10` 还没有开始，URL 正文抽取仍未接入。
+- verdict、evidence、timeline 还没有接入真实检索链路。
+- 后端 `demo-cases / replay` 仍未实现，但当前前端已经不依赖这两个接口。
 
-- `C9` 真实 Kimi provider 接入。
-- `C10` 真实 URL 正文抽取与 fallback 增强。
-- `demo-cases / replay` 的后端正式接口仍未实现，前端暂走本地 fallback。
+### 2.3 当前对外接口
 
-## 3. 这次实现后的关键结论
+- `GET /api/v1/health`
+- `POST /api/v1/analyze`
 
-### 结论一：`POST /api/v1/analyze` 现在返回裸 `Report`
+## 3. 架构总览图
 
-不再返回临时包装结构：
+下面这张图描述当前后端的整体框架，而不是理想终态架构。
+
+```mermaid
+flowchart LR
+    Client["Frontend / TestClient"] --> App["FastAPI App"]
+    App --> Middleware["request_id Middleware"]
+    Middleware --> Router["/api/v1 Router"]
+    Router --> AnalyzeEndpoint["POST /analyze"]
+    Router --> HealthEndpoint["GET /health"]
+
+    AnalyzeEndpoint --> Pipeline["AnalyzePipeline"]
+
+    subgraph Core["Core Layer"]
+        Config["config.py\nSettings / env"]
+        Exceptions["exceptions.py\n统一错误响应"]
+        Logging["logging.py\n日志初始化"]
+    end
+
+    subgraph Services["Service Layer"]
+        Normalizer["InputNormalizer"]
+        ProviderEnricher["ProviderEnricher"]
+        KimiProvider["KimiProvider"]
+        ClaimExtractor["ClaimExtractor"]
+        VerdictEngine["VerdictEngine"]
+        TimelineBuilder["TimelineBuilder"]
+        ReportBuilder["ReportBuilder"]
+        ScenarioLibrary["scenario_library.py"]
+    end
+
+    subgraph Models["Schema Layer"]
+        Schemas["schemas.py\nAnalyzeRequest / Report / internal provider models"]
+        Contracts["contracts/*.schema.json\n共享协议基线"]
+    end
+
+    Pipeline --> Normalizer
+    Pipeline --> ProviderEnricher
+    ProviderEnricher --> KimiProvider
+    Pipeline --> ClaimExtractor
+    Pipeline --> VerdictEngine
+    Pipeline --> TimelineBuilder
+    Pipeline --> ReportBuilder
+
+    Normalizer --> ScenarioLibrary
+    ClaimExtractor --> ScenarioLibrary
+    VerdictEngine --> ScenarioLibrary
+    TimelineBuilder --> ScenarioLibrary
+
+    Normalizer --> Schemas
+    ProviderEnricher --> Schemas
+    ClaimExtractor --> Schemas
+    VerdictEngine --> Schemas
+    TimelineBuilder --> Schemas
+    ReportBuilder --> Schemas
+    Schemas --> Contracts
+
+    App -.uses.-> Config
+    App -.uses.-> Exceptions
+    App -.uses.-> Logging
+```
+
+## 4. 模块职责框架
+
+| 层级 | 文件/模块 | 当前职责 | 是否已接真实能力 |
+| --- | --- | --- | --- |
+| 应用入口 | `backend/app/main.py` | 创建 FastAPI app、挂载路由、安装异常处理、中间件写入 `request_id` | 是 |
+| 基础设施 | `backend/app/core/config.py` | 读取环境变量与 provider 开关 | 是 |
+| 基础设施 | `backend/app/core/exceptions.py` | 统一 4xx/5xx 错误响应 | 是 |
+| 接口层 | `backend/app/api/v1/endpoints/analyze.py` | 接收请求并返回裸 `Report` | 是 |
+| 输入层 | `backend/app/services/input_normalizer.py` | 输入类型识别、文本摘要、URL fallback、生成 `NormalizedEvent` | 规则实现 |
+| Provider 层 | `backend/app/services/kimi_provider.py` | 调用 Kimi、请求 JSON、解析与清洗 provider 结果 | 第一阶段已接入 |
+| Provider 层 | `backend/app/services/provider_enricher.py` | 把 provider 输出合并回事件与 claims | 第一阶段已接入 |
+| 理解层 | `backend/app/services/claim_extractor.py` | 规则型 claim 抽取，或与 provider claims 合并 | 半真实 |
+| 判定层 | `backend/app/services/verdict_engine.py` | 用规则和场景库给 claim 输出 verdict/confidence | 规则实现 |
+| 时间线层 | `backend/app/services/timeline_builder.py` | 生成 timeline | 规则实现 |
+| 输出层 | `backend/app/services/report_builder.py` | 组装 contract 对齐的最终 `Report` | 是 |
+| 基准数据 | `backend/app/services/scenario_library.py` | 已知 case 的 deterministic fallback | 规则实现 |
+
+这里最关键的一点是：
+当前只有“事件理解 + claim 抽取”的前半段开始接入真实 provider，后半段 verdict / evidence / timeline 仍然是规则型实现。
+
+## 5. `POST /api/v1/analyze` 主流程图
+
+下面这张图描述的是请求进入后端后的真实执行顺序。
+
+```mermaid
+sequenceDiagram
+    participant U as User / Frontend
+    participant A as FastAPI Endpoint
+    participant P as AnalyzePipeline
+    participant N as InputNormalizer
+    participant E as ProviderEnricher
+    participant K as KimiProvider
+    participant C as ClaimExtractor
+    participant V as VerdictEngine
+    participant T as TimelineBuilder
+    participant R as ReportBuilder
+
+    U->>A: POST /api/v1/analyze
+    A->>P: AnalyzeRequest
+    P->>N: normalize(request)
+    N-->>P: NormalizedEvent
+    P->>E: enrich(event)
+    E->>K: analyze(event)
+
+    alt provider enabled and success
+        K-->>E: ProviderAnalysis(event + claims)
+        E-->>P: enriched event + provider claims
+    else provider disabled / failed / invalid
+        K-->>E: None
+        E-->>P: original event + no provider claims
+    end
+
+    P->>C: extract(event, provider_claims)
+    C-->>P: ClaimItem[]
+    P->>V: evaluate(request, event, claims)
+    V-->>P: claim_results + evidence + evidence_grade
+    P->>T: build(event)
+    T-->>P: timeline
+    P->>R: build(event, claim_results, timeline, evidence)
+    R-->>P: Report
+    P-->>A: Report
+    A-->>U: 200 + bare Report
+```
+
+## 6. Provider 分流与回退流程图
+
+这张图专门说明本轮 `C9` 第一阶段最重要的设计约束：provider 不能破坏现有可用链路。
+
+```mermaid
+flowchart TD
+    Start["进入 ProviderEnricher"] --> CheckEnabled{"ANALYSIS_PROVIDER=kimi\n且 KIMI_API_KEY 已配置?"}
+    CheckEnabled -- 否 --> Fallback1["跳过 provider\n继续规则链路"]
+    CheckEnabled -- 是 --> CheckInput{"输入是否为 URL / fallback 场景?"}
+    CheckInput -- 是 --> Fallback2["跳过 provider\n继续规则链路"]
+    CheckInput -- 否 --> CallProvider["调用 KimiProvider"]
+    CallProvider --> HttpResult{"HTTP 成功且返回可解析 JSON?"}
+    HttpResult -- 否 --> Fallback3["记录 warning 日志\n继续规则链路"]
+    HttpResult -- 是 --> ValidData{"是否提取到有效 event 或 claims?"}
+    ValidData -- 否 --> Fallback4["记录 empty_result 日志\n继续规则链路"]
+    ValidData -- 是 --> Merge["合并 title / summary / keywords / claims"]
+    Merge --> Continue["继续 ClaimExtractor / VerdictEngine / TimelineBuilder / ReportBuilder"]
+    Fallback1 --> Continue
+    Fallback2 --> Continue
+    Fallback3 --> Continue
+    Fallback4 --> Continue
+```
+
+## 7. 当前请求处理框架说明
+
+### 7.1 请求入口层
+
+`POST /api/v1/analyze` 当前直接接收 `AnalyzeRequest`，并直接返回裸 `Report`。
+不再使用历史的 `{ request_id, report }` 外层包裹结构。
+
+同时为了兼容前端已经存在的请求体，后端在 schema 层仍支持：
+
+- `input -> raw_input` 的字段映射
+- `text / url / question / auto` 风格的 `input_type`
+
+### 7.2 输入标准化层
+
+`InputNormalizer` 当前负责以下事情：
+
+- 判断输入是文本、链接还是问题
+- 处理 URL 输入的保守 fallback
+- 尽量从文本中提取标题、摘要、关键词、来源名、日期
+- 输出统一内部对象 `NormalizedEvent`
+
+这一层仍主要是规则实现。
+也就是说，provider 不是替代 normalizer，而是在 normalizer 之后进行增强。
+
+### 7.3 Provider 增强层
+
+`ProviderEnricher` 当前只做两件事：
+
+- 调用 `KimiProvider` 获取结构化 `event + claims`
+- 将 provider 的结果合并回 `NormalizedEvent`
+
+当前合并策略是保守的：
+
+- `title / summary / keywords` 可以被 provider 增强
+- `source_name / published_at` 只在 `text_news` 输入里尝试用 provider 值覆盖
+- 如果 provider 没有任何有效结果，就完全保留原规则结果
+
+### 7.4 Claim 抽取层
+
+`ClaimExtractor` 现在有两种路径：
+
+- 没有 provider claims 时，走原规则路径
+- 有 provider claims 时，优先使用 provider claims
+
+但这里有一个关键保护：
+在已知场景中，provider claims 不会粗暴替换掉规则 claims，而是做有序合并。
+
+原因是当前 `verdict_engine` 仍是规则实现，对部分 claim 文案存在命中依赖。
+如果完全替换，会导致已有测试场景回归。
+
+### 7.5 Verdict / Timeline / Report 层
+
+这三层当前仍然是“规则稳定优先”的策略：
+
+- `VerdictEngine` 继续根据场景库 evidence 和规则输出 verdict
+- `TimelineBuilder` 继续根据场景模板或 fallback 输出 timeline
+- `ReportBuilder` 根据 claim、timeline、evidence 选出 `complete_mode / partial_mode / safe_mode`
+
+所以当前系统的真实状态不是“已经 fully AI-native”，而是“前半段开始引入真实 provider，后半段仍然基于 deterministic fallback 保持稳定”。
+
+## 8. Kimi provider 接入细节
+
+### 8.1 配置项
+
+当前新增并生效的配置项如下：
+
+- `ANALYSIS_PROVIDER`
+  可选 `off` 或 `kimi`，默认 `off`
+- `KIMI_API_KEY`
+  未配置时不会发起真实 provider 请求
+- `KIMI_BASE_URL`
+  默认 `https://api.moonshot.cn/v1`
+- `KIMI_MODEL`
+  默认 `moonshot-v1-8k`
+- `PROVIDER_TIMEOUT_SECONDS`
+  默认 `20`
+
+### 8.2 Provider 请求格式
+
+当前 provider 通过 OpenAI-compatible chat completion 接口调用。
+请求里显式要求：
+
+- 返回 JSON 对象
+- 只做事件与 claim 结构化抽取
+- 不要假装已经检索互联网
+- `claims` 最多 5 条
+- `keywords` 最多 6 条
+
+这意味着当前 provider 不是直接输出结论型报告，而是作为中间理解层使用。
+
+### 8.3 Provider 响应清洗策略
+
+后端对 provider 响应做了几层防御：
+
+- 支持纯 JSON 字符串
+- 支持 fenced JSON
+- 非法 JSON 直接判定失败
+- 非法 `claim_type` 直接丢弃
+- `published_at` 统一归一为 datetime string
+- 空字符串、重复关键词、重复 claim 会被清洗
+
+### 8.4 为什么 provider 失败时仍返回 200
+
+这是有意设计，不是遗漏异常处理。
+
+原因是当前 provider 只是增强层，而不是系统唯一主链路。
+如果 provider 失败就直接把 `analyze` 打成 500，会让已经稳定的规则链路失去价值，也会让前端体验明显退化。
+
+所以当前策略是：
+
+- provider 是 best-effort
+- 主接口优先保证可用性
+- provider 失败写 warning 日志，不向用户暴露 provider 级内部错误
+
+## 9. Contract 对齐状态
+
+当前后端对外返回的 `Report` 顶层字段已经和 `contracts/` 保持一致：
+
+- `mode`
+- `event`
+- `timeline`
+- `claim_results`
+- `final_summary`
+- `risks`
+- `sources`
+
+这里有两个接手时容易误判的点：
+
+1. `sources` 是顶层字段，不再叫 `evidence`。
+2. `analyze` 返回的是裸 `Report`，不再是双层包裹对象。
+
+## 10. 关键文件与数据流对应关系
+
+```mermaid
+flowchart TB
+    Request["AnalyzeRequest"] --> Schemas["schemas.py"]
+    Schemas --> NormalizedEvent["NormalizedEvent"]
+    NormalizedEvent --> ProviderAnalysis["ProviderAnalysis"]
+    ProviderAnalysis --> Claims["ClaimItem[]"]
+    Claims --> ClaimResults["ClaimResult[]"]
+    ClaimResults --> Report["Report"]
+
+    InputNormalizer["input_normalizer.py"] --> NormalizedEvent
+    KimiProvider["kimi_provider.py"] --> ProviderAnalysis
+    ProviderEnricher["provider_enricher.py"] --> NormalizedEvent
+    ProviderEnricher --> Claims
+    ClaimExtractor["claim_extractor.py"] --> Claims
+    VerdictEngine["verdict_engine.py"] --> ClaimResults
+    TimelineBuilder["timeline_builder.py"] --> Report
+    ReportBuilder["report_builder.py"] --> Report
+```
+
+## 11. 请求与响应样例走读
+
+这一节不只是贴 JSON，而是说明一条真实样例是如何穿过当前链路的。
+
+### 11.1 样例输入来源
+
+这里使用 `evals/minimal_v1/input_cases.json` 中的 `I01` 文本样例。
+它对应当前最稳定的 `complete_mode` 场景之一。
+
+### 11.2 示例请求体
 
 ```json
 {
-  "request_id": "...",
-  "report": { ... }
+  "raw_input": "【海州市市场监管局通报】2026年3月1日，海州市市场监管局发布通报称，在例行抽检中发现海州新鲜屋连锁门店有2批次酸奶超过保质期，涉事门店已停业整改。目前未发现大规模食物中毒病例。",
+  "input_type": "text_news"
 }
 ```
 
-当前真实返回就是共享 contract 定义的 `Report` 本体。
-
-### 结论二：后端已经兼容前端现有请求字段
-
-后端现在同时接受：
-
-- 新字段：`raw_input`
-- 兼容字段：`input`
-
-这意味着前端不需要先整体重写表单层，API client 可以平滑过渡。
-
-### 结论三：后端内部仍保留 draft 模型，公共输出完全按 contract 组装
-
-内部归一化阶段使用的是 `NormalizedEvent`，而对外输出时会再组装成 contract 要求的 `Event / ClaimResult / TimelineNode / Report`。
-
-这样做的原因：
-
-- 内部逻辑需要保留 `fallback_used`、`raw_input`、`mode_hint` 等调试和编排字段。
-- 共享输出不能泄露这些内部字段，否则会破坏 `contracts/*.schema.json` 的边界。
-
-## 4. 当前关键文件
-
-### 4.1 应用入口与 API
-
-- `backend/app/main.py`
-  - 创建 FastAPI 应用。
-  - 注册 request id 中间件。
-  - 注册统一异常处理。
-  - 以 `/api/v1` 为前缀挂载 API。
-- `backend/app/api/v1/endpoints/health.py`
-  - 健康检查。
-- `backend/app/api/v1/endpoints/analyze.py`
-  - 主分析接口，直接返回 `Report`。
-
-### 4.2 基础设施
-
-- `backend/app/core/config.py`
-  - 环境变量与默认配置。
-- `backend/app/core/logging.py`
-  - 日志初始化。
-- `backend/app/core/exceptions.py`
-  - `AppError` 与统一错误返回结构。
-
-### 4.3 数据模型
-
-- `backend/app/models/schemas.py`
-  - 公共 contract 模型：`Event / EvidenceItem / TimelineNode / ClaimResult / Report`
-  - 内部 draft 模型：`NormalizedEvent`
-  - 请求模型：`AnalyzeRequest`
-
-### 4.4 服务层
-
-- `backend/app/services/contract_utils.py`
-  - 时间格式归一化、默认 source 生成。
-- `backend/app/services/input_normalizer.py`
-  - 输入类型映射、URL fallback、事件草稿归一化。
-- `backend/app/services/claim_extractor.py`
-  - mock claim 输出与基础分类。
-- `backend/app/services/verdict_engine.py`
-  - 规则型 verdict 生成。
-- `backend/app/services/timeline_builder.py`
-  - 最小 timeline 输出。
-- `backend/app/services/report_builder.py`
-  - mode 选择与最终 Report 组装。
-- `backend/app/services/analyze_pipeline.py`
-  - 总编排入口。
-- `backend/app/services/scenario_library.py`
-  - 最小 case 的固定模板库。
-
-### 4.5 前端集成点
-
-- `frontend/lib/api-client.ts`
-  - 把前端的 `AnalyzeRequest` 映射到后端接口字段。
-  - 兼容解析“裸 Report”和旧包装响应。
-- `frontend/types/report.ts`
-  - 前端消费的 Report 类型，当前与 contract 一致。
-- `frontend/components/analyze-page.tsx`
-  - 页面分析提交流程。
-
-## 5. 当前 API 真实定义
-
-### 5.1 根路由
-
-- 路径：`GET /`
-- 用途：暴露服务名、版本、docs 路径和 health 路径。
-
-### 5.2 健康检查
-
-- 路径：`GET /api/v1/health`
-- 返回字段：
-  - `status`
-  - `service`
-  - `environment`
-  - `version`
-
-### 5.3 主分析接口请求
-
-- 路径：`POST /api/v1/analyze`
-
-当前后端接受的最小请求体：
+如果从前端发起，同一条请求也可以使用兼容形式：
 
 ```json
 {
-  "raw_input": "..."
-}
-```
-
-同时兼容前端旧字段：
-
-```json
-{
-  "input": "...",
+  "input": "【海州市市场监管局通报】2026年3月1日，海州市市场监管局发布通报称，在例行抽检中发现海州新鲜屋连锁门店有2批次酸奶超过保质期，涉事门店已停业整改。目前未发现大规模食物中毒病例。",
   "input_type": "text"
 }
 ```
 
-`input_type` 当前接受两套值：
+### 11.3 示例响应体节选
 
-- 前端风格：`auto / text / url / question`
-- 后端内部风格：`text_news / url_news / url_unknown / question_only`
-
-### 5.4 主分析接口响应
-
-当前直接返回 `Report`：
+下面这个响应节选来自当前 contract 对齐后的 `complete_mode` demo payload，字段名与真实接口返回结构一致。
 
 ```json
 {
   "mode": "complete_mode",
-  "event": { ... },
-  "timeline": [ ... ],
-  "claim_results": [ ... ],
-  "final_summary": "...",
-  "risks": [ ... ],
-  "sources": [ ... ]
+  "event": {
+    "title": "海州市市场监管局通报海州新鲜屋酸奶抽检结果",
+    "summary": "海州市市场监管局通报称，海州新鲜屋部分酸奶批次超过保质期，涉事门店已停业整改。",
+    "source_url": "https://example.org/input/text-news",
+    "source_name": "用户提供文本",
+    "published_at": "2026-03-01T00:00:00+08:00",
+    "keywords": ["海州新鲜屋", "酸奶", "停业整改", "海州市市场监管局"],
+    "mode": "complete_mode"
+  },
+  "timeline": [
+    {
+      "node_type": "origin",
+      "title": "监管部门发布抽检通报"
+    },
+    {
+      "node_type": "turn",
+      "title": "品牌方公开致歉并说明整改"
+    }
+  ],
+  "claim_results": [
+    {
+      "claim": "海州市市场监管局已对涉事门店下达停业整改通知。",
+      "claim_type": "fact",
+      "verdict": "supported",
+      "confidence": "high"
+    }
+  ],
+  "final_summary": "当前高可信证据已支撑主链路，核心结论围绕“海州市市场监管局已对涉事门店下达停业整改通知。”展开。",
+  "risks": [],
+  "sources": [
+    {
+      "title": "海州市市场监管局通报海州新鲜屋整改情况",
+      "source_tier": "S"
+    }
+  ]
 }
 ```
 
-## 6. 统一错误响应
+### 11.4 样例数据如何在链路中变化
 
-统一错误体定义在 `backend/app/core/exceptions.py`，格式如下：
-
-```json
-{
-  "error": {
-    "code": "validation_error",
-    "message": "Request validation failed.",
-    "trace_id": "...",
-    "details": {}
-  }
-}
+```mermaid
+flowchart LR
+    Raw["raw_input\n海州市市场监管局通报..."] --> Normalize["InputNormalizer\n提取标题/摘要/关键词/日期"]
+    Normalize --> Event["NormalizedEvent\ntitle=海州市市场监管局通报...\nmode_hint=complete_or_partial"]
+    Event --> Claims["ClaimExtractor\n生成 fact/opinion claims"]
+    Claims --> Verdict["VerdictEngine\n事实 claim -> supported\nopinion -> insufficient"]
+    Verdict --> Timeline["TimelineBuilder\norigin + turn"]
+    Timeline --> Report["ReportBuilder\ncomplete_mode + final_summary + sources"]
 ```
 
-当前覆盖：
+### 11.5 字段解读框架
 
-- `validation_error`
-- `http_error`
-- `internal_server_error`
-- 业务层 `AppError`
+| 返回字段 | 当前来源 | 说明 |
+| --- | --- | --- |
+| `event.title` | `InputNormalizer` 或 provider enrichment | 当前是“规则优先、provider 可增强” |
+| `event.summary` | `InputNormalizer` 或 provider enrichment | 文本输入可被 provider 改写得更像摘要 |
+| `claim_results` | `ClaimExtractor + VerdictEngine` | claim 可能来自 provider，但 verdict 仍来自规则 |
+| `timeline` | `TimelineBuilder` | 目前仍然是规则/模板生成 |
+| `sources` | `VerdictEngine` 的 evidence pool | 目前不是实时检索结果 |
+| `mode` | `ReportBuilder` | 由 evidence 质量、claim 判定、timeline 完整度共同决定 |
 
-## 7. Contract 对齐是怎么做的
+这里最容易误解的是：
+当前看起来最像“最终结果”的 `claim_results / timeline / sources`，实际上还没有进入真实检索阶段。
 
-### 7.1 顶层字段从 `evidence` 改为 `sources`
+## 12. 当前测试与验证
 
-最早的后端临时结构使用的是 `evidence`。现在已经改成和 `contracts/report.schema.json` 一致的 `sources`。
-
-### 7.2 `Event` 不再暴露内部字段
-
-内部仍然保留：
-
-- `raw_input`
-- `input_type`
-- `mode_hint`
-- `fallback_used`
-- `fallback_reason`
-
-但这些字段不会再出现在对外 `Report.event` 中。
-
-### 7.3 `ClaimResult` 不再返回可空 verdict
-
-共享 contract 要求：
-
-- `verdict` 必填
-- `confidence` 必填
-- `notes` 必填
-
-因此对 `opinion / prediction / unverifiable`，当前统一以：
-
-- `verdict = insufficient`
-- `confidence = low`
-- `notes = 明确写清楚为什么不做强判`
-
-### 7.4 `TimelineNode` 字段已经改成 contract 定义
-
-当前对外字段是：
-
-- `node_type`
-- `title`
-- `url`
-- `source_name`
-- `published_at`
-- `summary`
-- `why_selected`
-
-不再使用旧的内部字段组合：
-
-- `date`
-- `description`
-- `source_url`
-- `confidence`
-
-## 8. Input Normalizer 当前规则
-
-### 8.1 输入类型映射
-
-后端现在支持两层映射：
-
-- `text -> text_news`
-- `url -> url_news`
-- `question -> question_only`
-- `auto -> 自动推断`
-
-### 8.2 URL 无正文时不再直接报错
-
-之前 URL 输入没有 `mock_fetch_result` 会直接报错。现在改成：
-
-- 生成一个保守的 `NormalizedEvent`
-- 进入 fallback
-- 最终通常输出 `safe_mode`
-
-这样可以让前端在 URL 抽取链路还没接入时也拿到结构化回退结果，而不是直接 400。
-
-### 8.3 时间字段统一转成 `date-time`
-
-`contracts/` 要求 `published_at` 是 `date-time`。
-
-因此现在：
-
-- 如果原始数据只有 `YYYY-MM-DD`
-- 会统一补成 `YYYY-MM-DDT00:00:00+08:00`
-
-缺失时则回退到当前时间戳。
-
-## 9. 主链路编排
-
-`backend/app/services/analyze_pipeline.py` 当前执行顺序：
-
-1. 接收 `AnalyzeRequest`
-2. `InputNormalizer.normalize()` 输出 `NormalizedEvent`
-3. `ClaimExtractor.extract()` 输出 claim
-4. `VerdictEngine.evaluate()` 生成 claim results 和 sources 候选
-5. `TimelineBuilder.build()` 生成 timeline
-6. `ReportBuilder.build()` 组装最终 `Report`
-
-## 10. 场景库的定位
-
-`scenario_library.py` 当前不是长期架构终态，而是为最小测试集提供稳定输出的中间层。
-
-它当前承担：
-
-- 已知 case 的标题、摘要、关键词模板
-- 固定 claim 模板
-- mock evidence
-- mock timeline
-
-这样做的直接收益：
-
-- 前端和测试可以在 provider 未接入前稳定联调
-- 后续替换真实 provider 时，改造点集中
-
-## 11. 当前已知边界
-
-当前实现仍然是“可联调的 mock 后端”，不是生产级核查系统。
-
-明确缺口：
-
-- 没有真实 LLM provider
-- 没有真实 URL 正文抽取
-- 没有真实检索与时间线生成
-- `demo-cases / replay` 仍未下沉到后端
-- 当前规则覆盖的仍然是最小测试集和少量 generic fallback
-
-## 12. 测试与验证
-
-### 12.1 后端验证
-
-已执行：
+### 12.1 已实际执行的验证命令
 
 ```text
 python -m compileall backend\app backend\tests
 pytest backend\tests -q
 ```
 
-结果：
+### 12.2 当前结果
 
 - `compileall` 通过
-- `pytest backend\tests -q` 通过，当前为 `8 passed`
+- `pytest backend\tests -q` 通过，结果为 `10 passed`
 
-### 12.2 新增覆盖点
+### 12.3 当前测试覆盖内容
 
-相比第一轮实现，这次新增验证了：
+- `GET /api/v1/health`
+- 422 统一错误结构
+- 500 统一错误结构
+- `complete_mode / partial_mode / safe_mode`
+- 前端请求体兼容 `input -> raw_input`
+- 裸 `Report` contract 顶层字段
+- provider 成功路径
+- provider 超时/失败后的规则链路回退
 
-- `POST /api/v1/analyze` 返回的是裸 `Report`
-- 返回顶层字段包含 `sources`
-- 前端风格请求体 `input + input_type=text` 可以直接被后端接收
+### 12.4 当前没有验证到的内容
 
-### 12.3 前端验证
+- 真实 Kimi key 下的在线调用结果
+- 真实 Kimi 返回质量是否稳定
+- 真实 URL 正文抽取
+- 真实检索 evidence 与真实 timeline 生成
 
-已验证前端 TypeScript 类型检查通过，命令实际为：
+## 13. 当前边界与风险
 
-```text
-cmd /c "pushd \\wsl.localhost\Ubuntu-20.04\home\forwaryan\mianshi\rumor-checking\frontend && node node_modules\typescript\bin\tsc --noEmit && popd"
+### 13.1 架构边界
+
+- provider 只负责事件理解和 claim 抽取增强
+- verdict 仍依赖规则与场景库
+- timeline 仍依赖规则与场景库
+- evidence 仍然不是检索产物
+- URL 输入仍未接入真实正文抽取
+
+### 13.2 工程边界
+
+- 还没有 provider 级监控、耗时统计和调用指标
+- 还没有 provider prompt A/B 或质量调优记录
+- 还没有真实 key 的 smoke test 记录
+- `demo-cases / replay` 接口仍未补齐，但现在不是前端阻塞项
+
+## 14. 后续演进路线图
+
+下面这张图不是“理想蓝图”，而是推荐的实际落地顺序。
+
+```mermaid
+flowchart LR
+    Phase1["Phase 1\n已完成\nC1-C8 + C9.1\n基础链路 / contract 对齐 / provider 接线"] --> Phase2["Phase 2\n下一步\nC9 online validation\n真实 key 联调 + prompt 调优"]
+    Phase2 --> Phase3["Phase 3\nC10\nURL 正文抽取 + URL fallback 优化"]
+    Phase3 --> Phase4["Phase 4\nRetrieval-driven analysis\n真实 evidence / timeline / verdict"]
+    Phase4 --> Phase5["Phase 5\nObservability\nprovider 指标 / 监控 / 质量回归"]
 ```
 
-之所以不用直接 `npm run typecheck`，是因为当前环境存在两个独立问题：
+### 14.1 每个阶段要完成什么
 
-- Windows `npm` 无法直接以 UNC 路径作为当前目录
-- WSL 内 Node 版本过旧，无法执行当前 TypeScript 版本
+| 阶段 | 目标 | 当前状态 | 主要风险 |
+| --- | --- | --- | --- |
+| Phase 1 | 让 API 可跑、contract 对齐、provider 可接入且可回退 | 已完成 | 无真实在线结果 |
+| Phase 2 | 验证真实 Kimi 调用是否稳定 | 未完成 | JSON 不稳定、超时、模型兼容性 |
+| Phase 3 | 让 URL 输入不再只能保守 fallback | 未完成 | 正文抓取质量、来源缺失 |
+| Phase 4 | 让 verdict/timeline 建立在真实 evidence 上 | 未完成 | 检索质量、判定一致性 |
+| Phase 5 | 为线上使用补观测与回归手段 | 未完成 | 无法持续评估模型漂移 |
 
-这些都属于环境问题，不是这次改动引入的代码错误。
+### 14.2 为什么不建议跳过 Phase 2 直接做 C10
 
-## 13. 当前环境问题记录
+因为当前 provider 只是“已经接上”，还不是“已经证明可用”。
+如果不先验证真实 provider 输出稳定性，就继续叠加 URL 抽取和更多复杂链路，后续定位问题会非常困难。
 
-运行验证时观察到的环境问题：
+### 14.3 为什么不建议现在就把 verdict 完全交给 LLM
 
-- Python 全局环境有既有依赖冲突告警
-- WSL 内 Node 版本偏旧
-- 直接在 Windows 上对 WSL UNC 路径跑 `npm` 会失败
+当前系统还没有真实检索证据池。
+在 evidence 仍然是模板/规则产物时，把最终 verdict 完全交给 LLM 会让系统既不稳定，也难以做回归。
 
-这些问题没有阻断当前联调，但后续如果继续深入前后端开发，建议尽快补两件事：
+## 15. 后续接手建议
 
-1. 后端使用独立 venv
-2. 前端固定 Node 版本并统一在单一环境中执行
+建议继续按照下面顺序推进，而不是并行乱改：
 
-## 14. 下一步建议
+1. 先做 `C9` 在线联调。
+   用真实 Kimi key 跑最小 smoke cases，确认模型名、超时、返回 JSON 稳定性。
+2. 再做 provider 输出质量调优。
+   重点检查标题、summary、claim_type 是否稳定，必要时优化 prompt 和清洗规则。
+3. 再做 `C10` URL 正文抽取。
+   先让 URL 输入获得正文，再决定是否对 URL 路径也接 provider enrichment。
+4. 最后再做真实检索驱动的 verdict 与 timeline。
+   在 evidence 没有真实化之前，不建议把最终判定直接交给 LLM。
 
-技术上最合理的下一阶段顺序是：
+## 16. 本轮改动落点
 
-1. 先实现后端 `demo-cases / replay` 正式接口，去掉前端本地 fallback 的不一致来源
-2. 再接 `C9`，把事件理解和 claim 抽取替换为真实 provider
-3. 再接 `C10`，补真实 URL 抽取和降级说明
-4. 最后把 timeline 与 evidence 从固定模板迁移到真实检索输出
+本轮为 `C9` 第一阶段新增或重点改动的文件如下：
 
-## 15. 接手时最值得先看的文件
-
+- `backend/app/core/config.py`
+  新增 provider 配置项和启用判断。
 - `backend/app/models/schemas.py`
-- `backend/app/services/input_normalizer.py`
-- `backend/app/services/verdict_engine.py`
-- `backend/app/services/report_builder.py`
+  新增 `ProviderEventDraft` 与 `ProviderAnalysis`。
+- `backend/app/services/kimi_provider.py`
+  新增 Kimi provider 客户端与结构化 JSON 解析。
+- `backend/app/services/provider_enricher.py`
+  新增 provider enrichment 合并层。
+- `backend/app/services/claim_extractor.py`
+  支持 provider claims 与规则 claims 的安全合并。
 - `backend/app/services/analyze_pipeline.py`
-- `frontend/lib/api-client.ts`
+  正式把 provider enrichment 接入主编排流程。
 - `backend/tests/test_api.py`
+  新增 provider 成功路径和失败回退路径测试。
 
-## 16. 当前状态结论
+## 17. 一句话结论
 
-到这一版为止，`Cluster-C / API Foundation` 已经不是“目录骨架”，而是一个可以直接给前端调用、并且与共享 contract 对齐的最小后端实现。
-
-它当前已经具备：
-
-- 可启动的 FastAPI 服务
-- 健康检查
-- 统一错误结构
-- 裸 `Report` 输出
-- 前端兼容请求输入
-- mock 分析主链路
-- 回归测试与类型验证
-
-后续工作重点不再是“先把 API 壳搭起来”，而是“在不破坏 contract 的前提下，逐步把 mock 能力替换成真实能力”。
+当前 Cluster-C 的真实状态是：
+后端基础链路已经稳定，contract 已对齐，Kimi provider 已经以“可开关、可回退、不破主链路”的方式接入第一阶段；下一步不该继续补文案，而该进入真实在线联调和 URL 抽取实现。

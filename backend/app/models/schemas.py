@@ -73,6 +73,19 @@ class ClaimItem(BaseModel):
     claim_type: ClaimType
 
 
+class ProviderEventDraft(BaseModel):
+    title: Optional[str] = None
+    summary: Optional[str] = None
+    keywords: List[str] = Field(default_factory=list)
+    source_name: Optional[str] = None
+    published_at: Optional[str] = None
+
+
+class ProviderAnalysis(BaseModel):
+    event: ProviderEventDraft = Field(default_factory=ProviderEventDraft)
+    claims: List[ClaimItem] = Field(default_factory=list)
+
+
 class ClaimResult(BaseModel):
     claim: str
     claim_type: ClaimType

@@ -3,6 +3,7 @@
 from backend.app.models.schemas import AnalyzeRequest, Report
 from backend.app.services.claim_extractor import ClaimExtractor
 from backend.app.services.input_normalizer import InputNormalizer
+from backend.app.services.provider_enricher import ProviderEnricher
 from backend.app.services.report_builder import ReportBuilder
 from backend.app.services.timeline_builder import TimelineBuilder
 from backend.app.services.verdict_engine import VerdictEngine
@@ -11,6 +12,7 @@ from backend.app.services.verdict_engine import VerdictEngine
 class AnalyzePipeline:
     def __init__(self) -> None:
         self.input_normalizer = InputNormalizer()
+        self.provider_enricher = ProviderEnricher()
         self.claim_extractor = ClaimExtractor()
         self.verdict_engine = VerdictEngine()
         self.timeline_builder = TimelineBuilder()
@@ -21,7 +23,8 @@ class AnalyzePipeline:
             raise RuntimeError("forced_error_for_testing")
 
         event = self.input_normalizer.normalize(request)
-        claims = self.claim_extractor.extract(event)
+        event, provider_claims = self.provider_enricher.enrich(event)
+        claims = self.claim_extractor.extract(event, provider_claims=provider_claims)
         claim_results, evidence, evidence_grade = self.verdict_engine.evaluate(
             request=request,
             event=event,
