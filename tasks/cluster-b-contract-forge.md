@@ -24,10 +24,10 @@
 你现在负责 Cluster-B / Contract Forge。
 你的目标是维护 contracts 作为前后端唯一共享协议中心，优先处理本文件中“进行中/未完成”的子任务。
 请先完整阅读本文件、contracts/README、contracts/*.schema.json、frontend/types/report.ts、backend/app/models/schemas.py，再决定本轮具体改动。
-执行时必须先把当前要处理的子任务拆成 3 到 7 个更细步骤，再开始改 schema 或文档。
+执行时必须先把当前要处理的子任务拆成 3 到 7 个更细步骤，并先把“本轮执行任务 / 执行步骤”写回本文件对应子任务下，再开始改 schema 或文档。
 你可以修改 contracts/ 和必要的说明文档，但不要直接扩前后端业务行为；如果发现需要破坏性改动，先按 Cluster-A 的口径处理。
 完成后必须：
-1. 回写本文件中对应子任务的状态和实现备注。
+1. 回写本文件中对应子任务的状态，并补充本轮完成记录：改了哪些文件、怎么完成、验证如何、剩余问题是什么。
 2. 说明 contracts、前端类型、后端 schema 是否仍然一致。
 3. 给出下一个应接手的 cluster。
 如果用户要求 [log]，同步更新 prompt-history.md。

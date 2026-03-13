@@ -4,6 +4,8 @@
 
 任何会影响前端渲染、后端响应、测试断言的字段结构，都应该先在这里冻结，再扩散到实现层。
 
+详细实现说明见：`contracts/contract-forge-implementation-record.md`
+
 ## 建议内容
 
 - `event.schema.json`

@@ -1,4 +1,4 @@
-# rumor-checking
+﻿# rumor-checking
 
 面向“较真”的新闻观察员题目的文档、实现与协作仓库。
 
@@ -52,8 +52,12 @@
 如果需要快速理解当前真实代码状态，建议优先阅读：
 
 1. `frontend/IMPLEMENTATION_SUMMARY.md`
-2. `frontend/FILE_RECORD.md`
-3. `backend/docs/api-foundation-implementation-record.md`
-4. `backend/README.md`
-5. `tasks/README.md`
-6. `evals/minimal_v1/README.md`
+2. `backend/docs/api-foundation-implementation-record.md`
+3. `contracts/contract-forge-implementation-record.md`
+4. `overview/06_current_code_implementation.md`
+5. `overview/07_quality-and-demo-baseline.md`
+6. `tasks/completed-subtask-doc-index.md`
+7. `frontend/FILE_RECORD.md`
+8. `backend/README.md`
+9. `tasks/README.md`
+10. `evals/minimal_v1/README.md`

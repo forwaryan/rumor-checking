@@ -18,10 +18,10 @@
 你现在负责 Cluster-A / Control Tower。
 你的目标是维护当前阶段的总控口径，而不是编写大块业务功能。
 请先完整阅读本文件、tasks/README、顶层 README，以及当前正在进行中的 cluster 文件；只围绕本文件中“进行中/未完成”的子任务推进。
-执行时必须先把当前要处理的子任务拆成 3 到 7 个更细步骤，再开始改文档或状态文件。
+执行时必须先把当前要处理的子任务拆成 3 到 7 个更细步骤，并先把“本轮执行任务 / 执行步骤”写回本文件对应子任务下，再开始改文档或状态文件。
 你可以修改 tasks/、README、overview/ 等说明文档来同步范围、状态、优先级和交接建议，但不要直接改前后端核心业务实现，除非只是为状态说明补链接或备注。
 完成后必须：
-1. 回写本文件中对应子任务的状态和实现备注。
+1. 回写本文件中对应子任务的状态，并补充本轮完成记录：改了哪些文件、怎么完成、验证如何、剩余问题是什么。
 2. 更新需要同步的总控说明文档。
 3. 给出下一步应交给哪个 cluster，以及是否达到 go / no-go 条件。
 如果用户要求 [log]，同步更新 prompt-history.md。
@@ -66,7 +66,23 @@
 - 给第一波、第二波、第三波任务排定启动顺序。
 - 记录每个 cluster 当前负责人和当前状态。
 - 在任务发生阻塞时更新优先级和下一步动作。
-实现备注：这是当前最需要补的一项。`Cluster-C`、`Cluster-E` 已明显超出任务文件里的默认状态，但 `tasks/` 还没有形成统一的最新状态板。
+实现备注：这是当前最需要补的一项。`Cluster-C`、`Cluster-E` 已明显超出任务文件里的默认状态，但 `tasks/` 还没有形成统一的最新状态板。当前已补充统一任务执行记录规则：所有窗口执行前必须在对应 task 文件登记“本轮执行任务 / 执行步骤”，完成后必须回写完成方式与验证结论。
+本轮执行任务：
+- 把“执行前登记、完成后回写完成方式”的要求正式写入 `tasks/` 体系。
+- 给所有 cluster 的全局 prompt 同步这条规则，避免执行窗口漏记。
+
+执行步骤：
+- 盘点 `tasks/README.md`、`parallel-execution-playbook.md` 和各 `cluster-*.md` 中缺失的记录要求。
+- 在 `tasks/README.md` 中加入执行记录要求和固定模板。
+- 在 `parallel-execution-playbook.md` 中加入先登记再执行、完成后回写的流程规则。
+- 在各 cluster 的“窗口执行 Prompt（全局）”中同步加入登记与完成记录要求。
+- 回读关键文档，确认规则已经落到入口说明和执行 prompt 中。
+
+完成记录：
+- 改动文件：`tasks/README.md`、`tasks/parallel-execution-playbook.md`、`tasks/cluster-a-control-tower.md`、`tasks/cluster-b-contract-forge.md`、`tasks/cluster-c-api-foundation.md`、`tasks/cluster-d-retrieval-lab.md`、`tasks/cluster-e-experience-shell.md`、`tasks/cluster-f-quality-gate.md`、`tasks/cluster-g-demo-ops.md`。
+- 完成方式：在总入口、执行手册和各 cluster 全局 prompt 三层同时加规则，强制要求执行窗口先把本轮任务写入 task，再开始改动；完成后补完成记录，而不是只改状态词。
+- 验证结果：已回读 `tasks/README.md`、`tasks/parallel-execution-playbook.md` 和全部 `cluster-*.md` 的全局 prompt，确认“本轮执行任务 / 执行步骤 / 完成记录”规则已经出现。
+- 剩余问题：后续每次实际执行子任务时，仍需由对应窗口在目标子任务下继续补充自己的本轮记录；这条规则不会自动替代具体执行记录。
 
 ### A4 审核共享 schema 变更
 状态：进行中

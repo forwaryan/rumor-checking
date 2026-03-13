@@ -10,6 +10,9 @@
 2. `02_folder_rationale.md`
 3. `03_v1_zero_key_blueprint.md`
 4. `04_prompt_inventory.md`
+5. `05_v1_architecture_and_task_board.md`
+6. `06_current_code_implementation.md`
+7. `07_quality-and-demo-baseline.md`
 
 补充说明：
 
@@ -23,4 +26,4 @@
 - 想知道某个文件夹为什么存在、应该去哪找某类信息
 - 想把 `overview/` 直接翻译成“当前 V1 到底怎么做、做到什么边界”
 - 想回看当前项目里到底用过哪些 Prompt、触发词和对话主题
-
+- 想快速理解当前已经落地的代码结构、测试基线和 demo 基线

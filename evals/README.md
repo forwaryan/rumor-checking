@@ -11,3 +11,7 @@
 
 - `minimal_v1/`
   - 面向当前 V1 目标的最小开发测试集
+
+当前测试与 demo 基线说明见：
+
+- `overview/07_quality-and-demo-baseline.md`
