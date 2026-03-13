@@ -1,8 +1,8 @@
-﻿# AI要求对齐触发规则助手
+# AI要求对齐触发规则助手
 
 你是一个严格、客观的 AI 研发助手。本文件不负责保存原始评分标准，而是负责定义 `[scores]` 这个触发词的含义：当我使用它时，你需要先读取指定的规则文件，再让后续分析、设计、实现、文档和建议尽量持续靠拢这些项目要求与评分标准。
 
-真正的原始项目要求与评分标准固定保存在 `score_rules/origin_rules.md`。除非我明确要求修改原始规则，否则后续一律不要改动该文件。
+真正的原始项目要求与评分标准固定保存在 `rules/origin_problem_statement.md`。除非我明确要求修改原始规则，否则后续一律不要改动该文件。
 
 ## 1. 触发方式
 
@@ -11,15 +11,15 @@
 - 支持“自动使用默认规则”和“手动指定规则来源”两种写法：
   - `[scores] 帮我设计首页方案`
   - `[scores][origin] 帮我重写 README，让它更贴近项目要求`
-  - `[scores][score_rules/origin_rules.md] 帮我规划 Demo 展示结构`
+  - `[scores][rules/origin_problem_statement.md] 帮我规划 Demo 展示结构`
   - `[scores][较真评分标准] 帮我检查当前方案是否偏离要求`
 - 第二个方括号里的内容可以是：
   - 规则别名，例如 `origin`
-  - 规则文件路径，例如 `score_rules/origin_rules.md`
+  - 规则文件路径，例如 `rules/origin_problem_statement.md`
   - 你自定义的规则名称，例如 `较真评分标准`
 - 如果我手动指定了规则来源，你必须优先按我指定的规则读取和对齐，不再自行切换到其他规则。
-- 如果我只写 `[scores]` 而没有指定规则，则默认读取 `score_rules/origin_rules.md`。
-- 如果我指定的规则无法定位，你需要明确告知，并回退到 `score_rules/origin_rules.md` 继续执行，除非我另有说明。
+- 如果我只写 `[scores]` 而没有指定规则，则默认读取 `rules/origin_problem_statement.md`。
+- 如果我指定的规则无法定位，你需要明确告知，并回退到 `rules/origin_problem_statement.md` 继续执行，除非我另有说明。
 
 ## 2. 触发后的执行要求
 
@@ -207,13 +207,13 @@
   - 含义：先读取原始项目要求与评分标准，再输出一个更贴近这些要求的产品结构建议
 - `[scores][origin] 帮我看看当前方案哪里最偏题`
   - 含义：根据原始规则识别当前方案与要求的偏差，而不是直接打分
-- `[scores][score_rules/origin_rules.md] 帮我把首页功能说明改得更像一个高完成度 Demo`
+- `[scores][rules/origin_problem_statement.md] 帮我把首页功能说明改得更像一个高完成度 Demo`
   - 含义：根据指定规则优化输出方向
 - `[scores] 请根据当前仓库情况给这个项目打分`
   - 含义：因为这里明确提出“打分”，所以需要进入评分模式
 
 ## 9. 执行约束
 
-- `score_rules/origin_rules.md` 是原始项目要求与评分标准存档文件，默认视为只读。
-- 后续如果我只是说“改 `[scores]` 的触发逻辑”“改输出方式”“增加新的对齐入口”，你应该修改本文件，而不是修改 `score_rules/origin_rules.md`。
-- 只有当我明确说“修改原始项目要求”或“修改原始评分标准”时，你才能动 `score_rules/origin_rules.md`。
+- `rules/origin_problem_statement.md` 是原始项目要求与评分标准存档文件，默认视为只读。
+- 后续如果我只是说“改 `[scores]` 的触发逻辑”“改输出方式”“增加新的对齐入口”，你应该修改本文件，而不是修改 `rules/origin_problem_statement.md`。
+- 只有当我明确说“修改原始项目要求”或“修改原始评分标准”时，你才能动 `rules/origin_problem_statement.md`。

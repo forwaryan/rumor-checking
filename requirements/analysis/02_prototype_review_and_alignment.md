@@ -14,7 +14,7 @@
 
 ### 2.1 产品题目原型
 
-- 文件：[score_rules/rules.md](../score_rules/rules.md)
+- 文件：[rules/score_alignment_rules.md](../../rules/score_alignment_rules.md)
 - 原型类型：产品原型 / 需求原型
 - 作用：定义业务目标、交付形式、评分标准
 
@@ -27,7 +27,7 @@
 
 ### 2.2 Git Commit 规范原型
 
-- 文件：[score_rules/git_commit_rules.md](../score_rules/git_commit_rules.md)
+- 文件：[rules/commit_rules.md](../../rules/commit_rules.md)
 - 原型类型：工程协作原型
 - 作用：约束 AI 如何基于 `git diff` 生成中文 Conventional Commits
 
@@ -35,7 +35,7 @@
 
 ### 2.3 Prompt 回执原型
 
-- 文件：[prompt_receipt/receipt_rules.md](../prompt_receipt/receipt_rules.md)
+- 文件：[workflows/prompt_logging_rules.md](../../workflows/prompt_logging_rules.md)
 - 原型类型：AI 研发流程原型
 - 作用：当指令以 `[Log]` 开头时，自动记录本次 Prompt 的背景、目标和 AI 处理策略
 
@@ -221,7 +221,7 @@
 
 ### 6.1 业务产品层
 
-对应 `score_rules/rules.md`。
+对应 `rules/score_alignment_rules.md`。
 
 负责回答：
 
@@ -242,7 +242,7 @@
 
 ### 6.3 研发治理层
 
-对应 `git_commit_rules.md` 和 `prompt_receipt/receipt_rules.md`。
+对应 `commit_rules.md` 和 `workflows/prompt_logging_rules.md`。
 
 负责回答：
 
