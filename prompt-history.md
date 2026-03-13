@@ -71,3 +71,48 @@
 - **⭐ 效果评估**: [待填写]
 
 ---
+
+### 📅 2026-03-13 17:12
+> **🧵 线程标识**: `T-main`
+> **🏷️ 窗口职责**: 主控
+> **🔗 上下文来源**: `overview/05_v1_architecture_and_task_board.md`、`requirements/analysis/07_v1_execution_plan.md`、`evals/minimal_v1/README.md`、`workflows/prompt_logging_rules.md`
+> **💡 原始指令摘要**: 进一步细化当前 V1 的并行方案，要求把能并行的前后端任务拆得更细，并为每个分工方案起明确名字，方便直接分配给不同窗口或集群执行。
+
+- **🎯 本线程目标 (Context & Goal)**: 把已有 task board 从“里程碑级任务”细化为“可直接派发的并行工作包”，让前端、后端、检索、测试和文档类任务都有明确 owner、边界、输入输出和启动条件，降低多窗口协作时的冲突成本。
+- **🧩 已知约束 (Known Context)**: 当前仓库仍处于实现前与实现初期的规划阶段；用户准备按窗口/集群并行推进；前后端都需要明确分工；schema 只能有单一 owner，前端不应等待真实后端，测试线程应尽量与实现线程解耦。
+- **⚙️ AI 采用的策略 (AI Approach)**: 基于现有 `T00 ~ T26` task board，重新组织成多个具名 cluster，把原任务映射到更细的子任务和阶段波次中；同时补上启动条件、依赖关系和不该做的事项，让每个 cluster 可以被单独下发而不互相踩边界。
+- **📦 产出与落点 (Artifacts)**: `overview/05_v1_architecture_and_task_board.md`；`prompt-history.md`
+- **➡️ 交接建议 (Next Handoff)**: 建议由 `T-main` 先按 cluster 数量决定窗口分配；如果窗口足够，优先单独启动 `Cluster-B / Contract Forge`、`Cluster-C / API Foundation`、`Cluster-E / Experience Shell`、`Cluster-F / Quality Gate`；如果窗口较少，则按文档中的 3 窗口或 4 窗口组合方案合并执行。
+- **⭐ 效果评估**: [待填写]
+
+---
+
+### 📅 2026-03-13 17:19
+> **🧵 线程标识**: `T-main`
+> **🏷️ 窗口职责**: 主控
+> **🔗 上下文来源**: `overview/05_v1_architecture_and_task_board.md`、`tasks/`、`workflows/prompt_logging_rules.md`
+> **💡 原始指令摘要**: 在已有并行 cluster 方案基础上，创建独立的 `tasks/` 文件夹，并为每个可独立并行的任务单独建立 md 文件，文件内说明任务目的、必要性、并行原因和未完成的细分子任务。
+
+- **🎯 本线程目标 (Context & Goal)**: 把“可并行分工方案”进一步沉淀为可直接分发的任务资产，让每个窗口都能拿到一份独立任务文档开始执行，并且后续可由用户手动更新完成状态。
+- **🧩 已知约束 (Known Context)**: 用户希望每个并行任务都有独立 md 文件；每个文件必须说明做什么、为什么需要、为什么能并行；每个子任务都要初始化为“未完成”；当前仓库还没有正式代码骨架，但已有 cluster 级任务拆分文档。
+- **⚙️ AI 采用的策略 (AI Approach)**: 以 cluster 为单位创建 `tasks/` 目录和独立 md 文件，而不是把所有任务塞进一个总表；每个文件使用统一模板，保证跨窗口阅读体验一致，并保留足够细的子任务颗粒度，方便后续逐项手动更新。
+- **📦 产出与落点 (Artifacts)**: `tasks/README.md`、`tasks/cluster-a-control-tower.md`、`tasks/cluster-b-contract-forge.md`、`tasks/cluster-c-api-foundation.md`、`tasks/cluster-d-retrieval-lab.md`、`tasks/cluster-e-experience-shell.md`、`tasks/cluster-f-quality-gate.md`、`tasks/cluster-g-demo-ops.md`；`prompt-history.md`
+- **➡️ 交接建议 (Next Handoff)**: 建议用户直接按 `tasks/` 中的 cluster 文件分配窗口；若准备开始编码，可优先分发 `cluster-b-contract-forge.md`、`cluster-c-api-foundation.md`、`cluster-e-experience-shell.md`、`cluster-f-quality-gate.md` 作为第一波。
+- **⭐ 效果评估**: [待填写]
+
+---
+
+### 📅 2026-03-13 17:28
+> **🧵 线程标识**: `T-main`
+> **🏷️ 窗口职责**: 主控
+> **🔗 上下文来源**: `tasks/README.md`、`tasks/cluster-a-control-tower.md`、`tasks/cluster-b-contract-forge.md`、`tasks/cluster-c-api-foundation.md`、`tasks/cluster-d-retrieval-lab.md`、`tasks/cluster-e-experience-shell.md`、`tasks/cluster-f-quality-gate.md`、`tasks/cluster-g-demo-ops.md`、`workflows/prompt_logging_rules.md`
+> **💡 原始指令摘要**: 检查当前各 task 是否足够详细，并继续把每个子 task 细化成列表化的“子子 task”，让任务颗粒度更小，便于并行分工和手动更新状态。
+
+- **🎯 本线程目标 (Context & Goal)**: 把 `tasks/` 目录中的 cluster 任务从“子 task 级别”继续下钻到“子子 task 级别”，让每个并行窗口都能拿到更细的可执行步骤，不必自行再次拆解任务。
+- **🧩 已知约束 (Known Context)**: 用户希望每个 cluster 文件内的每个子 task 都有更小颗粒度的列表步骤；所有子任务默认保持“未完成”；当前 `tasks/` 已经存在独立 cluster 文件，但此前粒度还偏粗。
+- **⚙️ AI 采用的策略 (AI Approach)**: 先通读所有 cluster 文件，确认当前结构一致但步骤不够细；再统一为每个子 task 增加“子子任务清单”，确保每一项都具备可直接执行的最小动作，同时保留目标、产出和前置依赖，方便不同窗口并行推进。
+- **📦 产出与落点 (Artifacts)**: `tasks/README.md`、`tasks/cluster-a-control-tower.md`、`tasks/cluster-b-contract-forge.md`、`tasks/cluster-c-api-foundation.md`、`tasks/cluster-d-retrieval-lab.md`、`tasks/cluster-e-experience-shell.md`、`tasks/cluster-f-quality-gate.md`、`tasks/cluster-g-demo-ops.md`；`prompt-history.md`
+- **➡️ 交接建议 (Next Handoff)**: 建议用户现在直接按 `tasks/` 目录分发窗口；每个窗口只需围绕自己任务文件中的“子子任务清单”推进，并在完成后手动更新状态，不需要再额外拆分第一轮任务。
+- **⭐ 效果评估**: [待填写]
+
+---

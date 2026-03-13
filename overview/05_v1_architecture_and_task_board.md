@@ -404,12 +404,12 @@ V1 必须先冻结 4 个对象：
 
 ## 7.2 Task 状态定义
 
-统一只用 4 种状态：
+总看板使用英文状态，cluster 子任务文件使用中文状态；两者必须按下列映射保持一致：
 
-- `todo`
-- `doing`
-- `blocked`
-- `done`
+- `todo` = `未完成`
+- `doing` = `进行中`
+- `blocked` = `阻塞`
+- `done` = `已完成`
 
 ## 7.3 Task Board
 
@@ -476,7 +476,470 @@ V1 必须先冻结 4 个对象：
 - `T-doc`
   - README、样例说明、运行指南、答辩口径
 
-## 8.2 如果单线程推进
+## 8.2 推荐并行分工包
+
+下面不是泛泛的“谁做前端谁做后端”，而是可以直接分发给不同窗口的独立工作包。
+
+每个工作包都尽量满足：
+
+- 改动目录边界清晰
+- 依赖关系明确
+- 可以单独验收
+- 不会在第一天就频繁冲突
+
+### `Cluster-A / Control Tower`
+
+线程名建议：
+
+- `T-main`
+
+职责：
+
+- 冻结目录结构、技术方案和依赖边界
+- 维护 task board 状态
+- 审核 schema 变更
+- 处理跨线程冲突和优先级调整
+
+主任务：
+
+- `T00`
+- 审核 `T03`
+- 追踪 `T01 ~ T26` 状态
+- 执行 `T26`
+
+可直接拆出去的子任务：
+
+- `A1` 确认第一阶段只做 mock 闭环，不提前接真实检索
+- `A2` 冻结前后端目录结构和命名
+- `A3` 维护 task 状态表与里程碑说明
+- `A4` 负责每轮集成验收和 go / no-go 决策
+
+输入：
+
+- 当前方案文档
+- 各线程汇报的完成情况
+
+输出：
+
+- 最新 task 状态
+- 是否允许进入下一波开发的决策
+
+不应该做：
+
+- 大量改业务代码
+- 与其他线程并行改同一个实现文件
+
+### `Cluster-B / Contract Forge`
+
+线程名建议：
+
+- `T-contract`
+
+职责：
+
+- 作为前后端共享协议 owner
+- 固定 schema，避免前后端各自漂移
+
+主任务：
+
+- `T03`
+
+可直接拆出去的子任务：
+
+- `B1` 定义 `Event` schema
+- `B2` 定义 `TimelineNode` schema
+- `B3` 定义 `ClaimResult` schema
+- `B4` 定义 `Report` schema
+- `B5` 产出 demo payload 示例
+- `B6` 给前后端分别提供字段说明和最小示例
+
+输入：
+
+- `rules/`
+- `evals/minimal_v1/`
+- 当前 V1 蓝图
+
+输出：
+
+- `contracts/` 下的共享 schema
+- 前端 mock payload
+- 后端响应模型
+
+启动条件：
+
+- `T00` 完成后即可开始
+
+依赖关系：
+
+- 会阻塞 `T05 ~ T16`
+
+不应该做：
+
+- 接真实 provider
+- 改前端 UI 组件
+
+### `Cluster-C / API Foundation`
+
+线程名建议：
+
+- `T-impl-api-foundation`
+
+职责：
+
+- 起后端骨架
+- 负责 mock 闭环主链路
+- 把输入、claim、verdict、report 串起来
+
+主任务：
+
+- `T01`
+- `T05`
+- `T06`
+- `T07`
+- `T10`
+- `T11`
+- `T19`
+- `T20`
+
+可直接拆出去的子任务：
+
+- `C1` 初始化 FastAPI 项目结构、配置、日志、中间件
+- `C2` 建立统一错误响应和状态码规范
+- `C3` 实现 `input_normalizer` mock 版
+- `C4` 实现 `claim_extractor` mock 版
+- `C5` 实现 `verdict_engine` mock 版
+- `C6` 实现 `report_builder` 和 mode 判断
+- `C7` 实现 `POST /api/v1/analyze`
+- `C8` 接入真实 Kimi provider
+- `C9` 实现 URL 抽取和失败 fallback
+
+输入：
+
+- `contracts/` schema
+- `evals/minimal_v1` case
+- `rules/evidence_and_verdict_rules.md`
+- `rules/failure_handling_rules.md`
+
+输出：
+
+- 可运行后端服务
+- mock 与真实模式都可用的分析接口
+
+启动条件：
+
+- `T01` 在 `T00` 后即可开始
+- `T05 ~ T07` 需要 `T03`、`T04`
+
+依赖关系：
+
+- 会阻塞 `T11` 之后的大多数前端联调
+
+不应该做：
+
+- 负责前端页面细节
+- 主导检索和时间线的真实 provider 设计
+
+### `Cluster-D / Retrieval Lab`
+
+线程名建议：
+
+- `T-impl-api-retrieval`
+
+职责：
+
+- 负责检索、结果标准化、去重归并和时间线
+- 与主链路后端解耦并行推进
+
+主任务：
+
+- `T08`
+- `T09`
+- `T21`
+- `T22`
+
+可直接拆出去的子任务：
+
+- `D1` 统一 `SearchResult` 与 `Evidence` 结构
+- `D2` 实现 mock 检索结果读取与标准化
+- `D3` 实现去重归并规则
+- `D4` 实现 `origin / turn` 候选识别
+- `D5` 接真实公开来源检索 provider
+- `D6` 接本地缓存与 replay 支持
+- `D7` 强化真实时间线构建逻辑
+
+输入：
+
+- `retrieval_cases.json`
+- 传播链规则
+- 共享 schema
+
+输出：
+
+- `retriever`
+- `timeline_builder`
+- 检索缓存层
+
+启动条件：
+
+- `T08` 在 `T03`、`T04` 后可启动
+- `T21` 需要 `T19` 基本稳定
+
+依赖关系：
+
+- `T09` 依赖 `T08`
+- `T22` 依赖 `T21`
+- 结果提供给 `T10`、`T24`
+
+不应该做：
+
+- 修改前端渲染逻辑
+- 改写 claim/verdict 规则
+
+### `Cluster-E / Experience Shell`
+
+线程名建议：
+
+- `T-impl-web`
+
+职责：
+
+- 负责单页 Web Demo 的全部用户界面
+- 不等待真实后端，先基于 mock `Report` 开发
+
+主任务：
+
+- `T02`
+- `T12`
+- `T13`
+- `T14`
+- `T15`
+- `T16`
+- `T23`
+
+可直接拆出去的子任务：
+
+- `E1` 初始化 Next.js 项目与页面骨架
+- `E2` 定义前端类型和 API client
+- `E3` 实现输入区与 loading/error 状态
+- `E4` 实现事件概览卡片和结论展示
+- `E5` 实现时间线视图
+- `E6` 实现 claim 表与 evidence 列表
+- `E7` 联通 `complete / partial / safe_mode`
+- `E8` 增加 demo 边界说明、空态和失败提示
+
+输入：
+
+- `Report` mock payload
+- `contracts/` schema
+- 后端 API 约定
+
+输出：
+
+- 单页可交互 Demo
+- 可消费真实或 mock `Report` 的组件层
+
+启动条件：
+
+- `T02` 在 `T00` 后即可开始
+- 组件开发最好在 `T03` 后固定字段
+
+依赖关系：
+
+- `T16` 依赖 `T12 ~ T15`
+- `T23` 依赖 `T16`、`T18`
+
+不应该做：
+
+- 自己发明新的响应字段
+- 等后端完全做好才开始写页面
+
+### `Cluster-F / Quality Gate`
+
+线程名建议：
+
+- `T-test`
+
+职责：
+
+- 维护最小测试集接入
+- 负责 case 回归和阶段验收
+
+主任务：
+
+- `T04`
+- `T17`
+- `T24`
+
+可直接拆出去的子任务：
+
+- `F1` 把 `evals/minimal_v1` 接到开发目录
+- `F2` 为输入标准化写 case 驱动测试
+- `F3` 为 claim 分类写 case 驱动测试
+- `F4` 为 verdict 写 case 驱动测试
+- `F5` 为 retrieval / timeline 写 case 驱动测试
+- `F6` 为 report mode 写 case 驱动测试
+- `F7` 建立演示前 smoke checklist
+- `F8` 跑随机 case 和稳定 demo case
+
+输入：
+
+- `evals/minimal_v1/*.json`
+- 后端 API 或服务层实现
+
+输出：
+
+- 回归测试
+- 阶段验收结论
+- 演示前风险清单
+
+启动条件：
+
+- `T04` 在 `T00` 后即可开始
+- `T17` 随 `T05 ~ T10` 同步推进
+
+依赖关系：
+
+- 会反向阻塞 `T19 ~ T26`
+
+不应该做：
+
+- 成为主业务实现 owner
+- 与实现线程混合修改大量业务逻辑
+
+### `Cluster-G / Demo Ops`
+
+线程名建议：
+
+- `T-doc-demo`
+
+职责：
+
+- 负责 demo case、回放、README、演示说明
+- 让项目在“能跑”和“能演示”之间补齐最后一段距离
+
+主任务：
+
+- `T18`
+- `T25`
+
+可直接拆出去的子任务：
+
+- `G1` 整理 3 到 5 条稳定 demo case
+- `G2` 设计 replay 数据格式
+- `G3` 写运行步骤和环境变量说明
+- `G4` 写已知限制和降级边界
+- `G5` 写演示顺序和口播要点
+
+输入：
+
+- 后端接口
+- 前端页面
+- 测试线程的通过结论
+
+输出：
+
+- 本地 demo 回放能力
+- 对外 README
+- 演示材料口径
+
+启动条件：
+
+- `T18` 在 `T11`、`T16` 后可启动
+- `T25` 在 `T24` 后收口
+
+依赖关系：
+
+- 支撑 `T23 ~ T26`
+
+不应该做：
+
+- 修改核心业务规则
+- 在没有验证的情况下编造 demo 结果
+
+## 8.3 推荐并行波次
+
+### 波次 1：最适合立即并行
+
+- `Cluster-A / Control Tower`
+- `Cluster-B / Contract Forge`
+- `Cluster-C / API Foundation` 的 `C1 ~ C2`
+- `Cluster-E / Experience Shell` 的 `E1 ~ E2`
+- `Cluster-F / Quality Gate` 的 `F1`
+
+目标：
+
+- 不互相阻塞地把项目骨架、schema 和测试入口立起来
+
+### 波次 2：mock 闭环并行
+
+- `Cluster-C / API Foundation` 的 `C3 ~ C7`
+- `Cluster-D / Retrieval Lab` 的 `D1 ~ D4`
+- `Cluster-E / Experience Shell` 的 `E3 ~ E7`
+- `Cluster-F / Quality Gate` 的 `F2 ~ F6`
+
+目标：
+
+- 跑通 mock 版 end-to-end
+
+### 波次 3：真实能力并行
+
+- `Cluster-C / API Foundation` 的 `C8 ~ C9`
+- `Cluster-D / Retrieval Lab` 的 `D5 ~ D7`
+- `Cluster-E / Experience Shell` 的 `E8`
+- `Cluster-F / Quality Gate` 的 `F7 ~ F8`
+- `Cluster-G / Demo Ops` 的 `G1 ~ G2`
+
+目标：
+
+- 接真实模型、真实检索、时间线增强和演示回放
+
+### 波次 4：演示收口
+
+- `Cluster-G / Demo Ops` 的 `G3 ~ G5`
+- `Cluster-A / Control Tower`
+- `Cluster-F / Quality Gate`
+
+目标：
+
+- README、演示 case、最终验收和冻结
+
+## 8.4 如果你的集群数量有限
+
+### 3 个窗口
+
+- `窗口 1`
+  - `Cluster-A + Cluster-B`
+- `窗口 2`
+  - `Cluster-C + Cluster-D`
+- `窗口 3`
+  - `Cluster-E + Cluster-F + Cluster-G`
+
+### 4 个窗口
+
+- `窗口 1`
+  - `Cluster-A + Cluster-B`
+- `窗口 2`
+  - `Cluster-C`
+- `窗口 3`
+  - `Cluster-D + Cluster-F`
+- `窗口 4`
+  - `Cluster-E + Cluster-G`
+
+### 6 到 7 个窗口
+
+- 每个 Cluster 单独一个窗口
+
+这时最稳，不容易互相踩文件。
+
+## 8.5 分工时的硬约束
+
+1. `Cluster-B / Contract Forge` 必须是 schema 唯一 owner
+2. `Cluster-A / Control Tower` 负责所有跨线程优先级决策
+3. `Cluster-E / Experience Shell` 不等待真实后端，先用 mock payload 开发
+4. `Cluster-F / Quality Gate` 尽量不直接改业务实现，只提回归结果和问题
+5. `Cluster-G / Demo Ops` 只能消费已验证通过的结果，不自己造数据
+
+## 8.6 如果单线程推进
 
 单线程时不建议前后端来回切太早，最稳的顺序是：
 
@@ -522,3 +985,5 @@ V1 必须先冻结 4 个对象：
 > **可以开始写代码，但必须按 task board 推进，且第一阶段只做 mock 驱动的最小闭环，不直接跳进真实外部依赖。**
 
 只要我们按这份任务看板推进，每完成一个 task 就更新状态，这个 V1 就会始终处于可控范围内。
+
+

@@ -4,6 +4,11 @@
 
 本文件用于统一整理**当前仓库可见范围内已经使用过的 Prompt**，并把原先散落在 `02_prompt_asset_templates.md` 中的 Prompt 资产模板一并合并进来。
 
+补充说明：
+
+- 这里是可复用 Prompt 资产与规范化说明的正式入口
+- 项目历史轨迹与上下文还原请参考 `overview/04_prompt_inventory.md`
+
 目标有三个：
 
 1. 盘点目前到底用过哪些 Prompt
@@ -390,3 +395,5 @@
 - 真实用过哪些 Prompt
 - 它们属于什么家族
 - 后续该怎么把 Prompt 做成真正可复用资产
+
+

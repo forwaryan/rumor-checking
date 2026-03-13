@@ -1,0 +1,95 @@
+﻿# Cluster-F / Quality Gate
+
+## 这个子 task 是干什么的
+
+这个工作包负责最小测试集接入、case 驱动回归、阶段验收和演示前检查。
+
+## 为什么要有这个子 task
+
+当前 V1 最大的风险不是“写不出来”，而是“写出来但不稳”。如果没有一个独立的测试与验收工作包，主链路很容易边改边漂，最后没人知道哪些能力真的过线了。
+
+## 为什么这个子 task 可以并行
+
+它主要消费 `evals/minimal_v1` 和后端接口，不需要主导业务实现。测试线程可以在主链路开发过程中同步补测试和记录结果，而不是等实现全部完成后再一次性发现问题。
+
+## 详细子任务
+
+### F1 接入最小测试集目录
+状态：未完成
+目标：把 `evals/minimal_v1` 接到后端测试能够直接消费的位置。
+产出：统一的测试数据入口。
+前置依赖：无。
+子子任务清单：
+- 确认测试目录中的样例文件组织方式。
+- 让测试代码可直接读取最小 case 数据。
+- 补一个统一的 case 加载工具。
+
+### F2 输入标准化 case 回归
+状态：未完成
+目标：为 `input_cases.json` 建立 case 驱动测试。
+产出：输入标准化回归测试。
+前置依赖：F1、输入模块初版。
+子子任务清单：
+- 读取输入标准化样例并逐条执行。
+- 验证必须字段、fallback 和不能伪造字段的规则。
+- 输出通过率和失败 case 列表。
+
+### F3 claim 分类 case 回归
+状态：未完成
+目标：为 `claim_classification_cases.json` 建立回归测试。
+产出：claim 分类测试。
+前置依赖：F1、claim 模块初版。
+子子任务清单：
+- 执行 claim 分类样例。
+- 检查 fact、opinion、prediction、unverifiable 的命中情况。
+- 输出误分类清单。
+
+### F4 verdict case 回归
+状态：未完成
+目标：为 `verdict_cases.json` 建立回归测试。
+产出：verdict 测试。
+前置依赖：F1、verdict 模块初版。
+子子任务清单：
+- 执行 verdict 样例。
+- 检查 verdict 和 confidence 是否对齐预期。
+- 检查是否出现无证据强判。
+
+### F5 retrieval / timeline case 回归
+状态：未完成
+目标：为 `retrieval_cases.json` 建立检索与时间线测试。
+产出：retrieval / timeline 测试。
+前置依赖：F1、检索模块初版。
+子子任务清单：
+- 执行检索样例并统计相关结果数。
+- 检查高可信来源、origin 候选、turn 候选识别。
+- 输出检索与时间线的失败原因。
+
+### F6 report mode case 回归
+状态：未完成
+目标：为 `report_mode_cases.json` 建立模式选择测试。
+产出：report mode 测试。
+前置依赖：F1、report builder 初版。
+子子任务清单：
+- 执行模式选择样例。
+- 检查 `complete / partial / safe_mode` 是否命中预期。
+- 检查是否出现模式越界表述。
+
+### F7 建立演示前 smoke checklist
+状态：未完成
+目标：定义一套演示前必须检查的接口、页面、demo case 和 fallback 检查单。
+产出：smoke checklist。
+前置依赖：mock 闭环打通。
+子子任务清单：
+- 列出演示前必须检查的页面和接口。
+- 列出必须跑过的 demo case 和失败 case。
+- 形成可重复执行的 smoke checklist。
+
+### F8 跑随机 case 与稳定 demo case
+状态：未完成
+目标：做最终随机 case 和预设 demo case 的通过记录。
+产出：演示前通过结论和风险清单。
+前置依赖：真实能力基本接通。
+子子任务清单：
+- 跑稳定 demo case 并记录结果。
+- 跑随机输入样例并记录模式分布。
+- 汇总演示前残余风险。
