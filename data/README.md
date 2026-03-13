@@ -4,6 +4,8 @@
 
 根目录 `evals/` 仍保留为原始评测资产入口；当后端或前端需要更贴近运行时的目录布局时，再把稳定资产映射到这里。
 
+当前 mock 检索仍以 `evals/minimal_v1/retrieval_cases.json` 作为稳定输入资产；`data/cache/` 会在 D5 / D6 接入真实 provider 和 replay 时再承接检索缓存。
+
 ## 目录边界
 
 - `evals/`

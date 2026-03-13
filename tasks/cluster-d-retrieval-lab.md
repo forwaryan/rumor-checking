@@ -18,11 +18,11 @@
 你现在负责 Cluster-D / Retrieval Lab。
 你的目标是把当前规则型时间线/证据占位链路推进成真正可复用的检索、标准化、去重和时间线能力，优先处理本文件中“进行中/未完成”的子任务。
 请先完整阅读本文件、backend/app/services/、evals/minimal_v1/retrieval_cases.json、data/README.md，以及与它直接耦合的 Cluster-C、Cluster-F、Cluster-G 状态说明。
-执行时必须先把当前要处理的子任务拆成 3 到 7 个更细步骤，再开始编码。
+执行时必须先把当前要处理的子任务拆成 3 到 7 个更细步骤，并先把“本轮执行任务 / 执行步骤”写回本文件对应子任务下，再开始编码。
 你可以修改检索、时间线、缓存相关的后端代码与测试，也可以补必要的数据目录说明，但不要顺手重写前端或 analyze 主接口框架。
 如果需要改 contracts 或跨 cluster 核心文件，先按 Cluster-A 的边界口径处理。
 完成后必须：
-1. 回写本文件中对应子任务的状态和实现备注。
+1. 回写本文件中对应子任务的状态，并补充本轮完成记录：改了哪些文件、怎么完成、验证如何、剩余问题是什么。
 2. 给出检索/时间线验证结果。
 3. 说明后续应交给 Cluster-F 还是 Cluster-G。
 如果用户要求 [log]，同步更新 prompt-history.md。
@@ -37,7 +37,7 @@
 ## 详细子任务
 
 ### D1 定义 `SearchResult` 与 `Evidence` 内部结构
-状态：进行中
+状态：已完成
 目标：统一检索结果和证据对象的内部结构，确保后续标准化容易复用。
 产出：检索层内部数据模型。
 前置依赖：共享 schema 基本稳定。
@@ -45,10 +45,10 @@
 - 列出 `SearchResult` 内部字段和来源等级字段。
 - 统一内部 `Evidence` 结构与 verdict 模块的对接方式。
 - 给出检索层内部对象的最小示例。
-实现备注：对外 `Evidence` 结构已稳定，但后端内部 `SearchResult` 还没有独立冻结成清晰的数据模型。
+实现备注：已新增 `backend/app/services/retrieval_models.py`，定义了内部 `SearchResult` 与 `RetrievalBundle`，并使用 `to_evidence()` / `to_evidence_items()` 稳定映射到对外 `EvidenceItem` 结构。
 
 ### D2 实现 mock 检索读取与标准化
-状态：进行中
+状态：已完成
 目标：基于 `retrieval_cases.json` 输出统一格式的检索结果。
 产出：mock `retriever`。
 前置依赖：D1。
@@ -56,10 +56,10 @@
 - 从最小 case 中读取 mock 搜索结果。
 - 把原始 case 结构转成统一内部对象。
 - 输出可供 timeline 和 report 使用的标准化结果。
-实现备注：当前更多是 `scenario_library` 驱动的 deterministic 结果，还不是一个独立的 mock retriever 层。
+实现备注：已新增 `backend/app/services/mock_retriever.py`，可从 `evals/minimal_v1/retrieval_cases.json` 载入 mock 检索集，按 query / event 进行匹配，并在 `AnalyzePipeline` 中作为独立检索层接入。
 
 ### D3 实现去重归并规则
-状态：未完成
+状态：已完成
 目标：根据题目规则实现标题相似、转载链、近重复结果的归并逻辑。
 产出：去重与归并逻辑。
 前置依赖：D2。
@@ -67,18 +67,18 @@
 - 定义重复、转载、弱重复的判断规则。
 - 对 mock 数据实现归并和保留策略。
 - 输出归并后的结果列表与被归并说明。
-实现备注：当前没有看到独立成型的去重归并层。
+实现备注：已在 `MockRetriever` 中实现显式 `is_duplicate_of` 、标题弱重复、转载前缀识别与 canonical 保留策略，归并结果会附带 `merged_result_ids` / `merged_notes` 供后续 timeline 和验证使用。
 
 ### D4 实现时间线候选识别
-状态：进行中
+状态：已完成
 目标：识别 `origin / amplification / peak / turn / clarification` 的候选节点。
 产出：mock `timeline_builder`。
 前置依赖：D2、D3。
 子子任务清单：
 - 实现 origin 候选识别。
 - 实现 turn 或 clarification 候选识别。
-- 为每个被选中节点补 `why_selected` 说明。
-实现备注：`timeline_builder.py` 已存在并能返回规则型 timeline，但它仍依赖场景库，不是基于真实检索结果构造的时间线。
+- 为每一个被选中节点补 `why_selected` 说明。
+实现备注：`timeline_builder.py` 已优先基于 `RetrievalBundle` 输出时间线，可识别 origin / amplification / peak / turn / clarification 节点，并保留无检索命中时的 scenario fallback。
 
 ### D5 接真实公开来源检索 provider
 状态：未完成

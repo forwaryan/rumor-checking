@@ -1,8 +1,9 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from typing import List, Tuple
 
 from backend.app.models.schemas import AnalyzeRequest, ClaimItem, ClaimResult, EvidenceItem, NormalizedEvent
+from backend.app.services.retrieval_models import RetrievalBundle
 from backend.app.services.scenario_library import ScenarioTemplate, match_scenario
 
 
@@ -13,12 +14,14 @@ class VerdictEngine:
         request: AnalyzeRequest,
         event: NormalizedEvent,
         claims: List[ClaimItem],
+        retrieval_bundle: RetrievalBundle | None = None,
     ) -> Tuple[List[ClaimResult], List[EvidenceItem], str]:
         scenario = match_scenario(" ".join(filter(None, [event.raw_input, event.title, event.summary])))
         evidence_pool, evidence_grade = self._resolve_evidence_pool(
             request=request,
             event=event,
             scenario=scenario,
+            retrieval_bundle=retrieval_bundle,
         )
 
         results: List[ClaimResult] = []
@@ -73,6 +76,7 @@ class VerdictEngine:
         request: AnalyzeRequest,
         event: NormalizedEvent,
         scenario: ScenarioTemplate,
+        retrieval_bundle: RetrievalBundle | None = None,
     ) -> Tuple[List[EvidenceItem], str]:
         if request.mock_evidence:
             return list(request.mock_evidence), "B"
@@ -80,14 +84,16 @@ class VerdictEngine:
             return [], "D"
         if event.fallback_used and event.input_type in {"url_news", "url_unknown"}:
             return [], "D"
+        if retrieval_bundle and retrieval_bundle.canonical_results:
+            return retrieval_bundle.to_evidence_items(), retrieval_bundle.evidence_grade
         return list(scenario.evidence), scenario.default_evidence_grade
 
     def _non_decidable_note(self, claim_type: str) -> str:
         if claim_type == "opinion":
-            return "这是立场或评价，当前页面只提示边界，不做真假强判。"
+            return "这是评价性说法，当前不做真假强判。"
         if claim_type == "prediction":
-            return "这是未来判断，当前证据不足以把它转成标准 verdict。"
-        return "这是公开资料通常无法直接验证的说法，暂保持保守。"
+            return "这是未来判断，当前证据不足。"
+        return "这是公开资料难以直接核验的说法。"
 
     def _evaluate_fact_claim(
         self,

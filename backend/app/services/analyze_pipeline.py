@@ -1,8 +1,9 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from backend.app.models.schemas import AnalyzeRequest, Report
 from backend.app.services.claim_extractor import ClaimExtractor
 from backend.app.services.input_normalizer import InputNormalizer
+from backend.app.services.mock_retriever import MockRetriever
 from backend.app.services.provider_enricher import ProviderEnricher
 from backend.app.services.report_builder import ReportBuilder
 from backend.app.services.timeline_builder import TimelineBuilder
@@ -13,6 +14,7 @@ class AnalyzePipeline:
     def __init__(self) -> None:
         self.input_normalizer = InputNormalizer()
         self.provider_enricher = ProviderEnricher()
+        self.retriever = MockRetriever()
         self.claim_extractor = ClaimExtractor()
         self.verdict_engine = VerdictEngine()
         self.timeline_builder = TimelineBuilder()
@@ -24,13 +26,15 @@ class AnalyzePipeline:
 
         event = self.input_normalizer.normalize(request)
         event, provider_claims = self.provider_enricher.enrich(event)
+        retrieval_bundle = self.retriever.retrieve_for_event(event)
         claims = self.claim_extractor.extract(event, provider_claims=provider_claims)
         claim_results, evidence, evidence_grade = self.verdict_engine.evaluate(
             request=request,
             event=event,
             claims=claims,
+            retrieval_bundle=None if event.input_type == "question_only" else retrieval_bundle,
         )
-        timeline = self.timeline_builder.build(event)
+        timeline = self.timeline_builder.build(event, retrieval_bundle=retrieval_bundle)
         return self.report_builder.build(
             event=event,
             claim_results=claim_results,
