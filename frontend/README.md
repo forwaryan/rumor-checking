@@ -1,5 +1,7 @@
 # Frontend
 
+详细实现总结见：`frontend/IMPLEMENTATION_SUMMARY.md`
+
 本目录提供 `Cluster-E / Experience Shell` 的 Next.js 单页前端壳，当前已经从“纯 mock 页面”推进到“优先走真实 `POST /api/v1/analyze`，失败时回退本地 demo payload”的状态。
 
 ## 已完成内容
