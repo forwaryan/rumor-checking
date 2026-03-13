@@ -218,3 +218,60 @@
 - **⭐ 效果评估**: [待填写]
 
 ---
+---
+### 📅 2026-03-13 23:11
+> **🧵 线程标识**: `T-impl-api-foundation`
+> **🏷️ 窗口职责**: 实现
+> **🔗 上下文来源**: `tasks/cluster-c-api-foundation.md`、`backend/app/core/config.py`、`backend/.env.example`、`backend/README.md`、`backend/tests/test_api.py`、`workflows/prompt_logging_rules.md`
+> **💡 原始指令摘要**: 用户以 `[log]` 方式说明希望提供自己的 Kimi key，让当前项目真正走真实大模型 provider 路径，以便继续完善“较真”新闻应用的能力和完成度。
+
+- **🎯 本线程目标 (Context & Goal)**: 把当前仓库从“代码里支持 Kimi provider，但使用入口不够顺手”的状态推进到“用户可以安全提供 key，并且项目有明确启用、启动和最小联调路径”的状态。
+- **🧩 已知约束 (Known Context)**: 当前 `C9` 第一阶段已经完成 provider 封装、融合层和回退测试，但仍缺真实 key 在线联调；仓库中虽然已有 `backend/.env.example`，但配置层此前不会自动加载 `.env` 文件；用户刚刚要求所有执行任务都必须先写进 task 并记录完成方式。
+- **⚙️ AI 采用的策略 (AI Approach)**: 先修复并回写 `Cluster-C / C9` 任务文档，确保本轮工作被登记；再在配置层补 `.env` 自动加载能力，使真实 key 可以通过仓库内文件提供；随后补齐 `backend/.env.example` 与 `backend/README.md` 的 Kimi 配置、启用步骤和最小联调说明；最后跑现有后端 API 测试，确认新增配置路径没有破坏既有行为。
+- **📦 产出与落点 (Artifacts)**: `tasks/cluster-c-api-foundation.md`、`backend/app/core/config.py`、`backend/.env.example`、`backend/README.md`、`prompt-history.md`
+- **➡️ 交接建议 (Next Handoff)**: 下一步由用户提供真实 `KIMI_API_KEY` 并写入 `backend/.env`，随后可由 `T-impl-api-foundation` 继续执行真实在线联调、小样本输出验收和 prompt/输出质量调优；如果要验证前端联调，再交给 `Cluster-E` 或 `Cluster-F` 做 smoke。
+- **⭐ 效果评估**: [待填写]
+
+---
+### 📅 2026-03-13 23:24
+> **🧵 线程标识**: T-impl-retrieval-real
+> **🏷️ 窗口职责**: 实现
+> **🔗 上下文来源**: 	asks/cluster-d-retrieval-lab.md、	asks/current-wave-window-prompts.md、ackend/app/services/mock_retriever.py、ackend/app/services/retrieval_models.py、ackend/app/services/timeline_builder.py、ackend/app/services/analyze_pipeline.py、ackend/tests/test_retrieval.py、data/README.md、ules/propagation_chain_rules.md、workflows/prompt_logging_rules.md
+> **💡 原始指令摘要**: 用户以 [log] 方式追问当前系统为什么不能对任意新闻做“上网找证据再判断”，并要求确认这项真实检索能力是否已由其他线程在做；若没有，则由当前窗口按 Cluster-D / D5~D7 开始执行。
+
+- **🎯 本线程目标 (Context & Goal)**: 把当前仅有 mock retrieval 的后端能力推进到“真实公开来源检索 + 本地缓存 + 可解释时间线”的最小可用版本，优先让 question_only 和随机新闻输入不再只能停留在纯保守空证据模式。
+- **🧩 已知约束 (Known Context)**: 工作区中已存在 Cluster-D 任务定义和当前波次窗口分配，但 D5/D6/D7 仍未登记执行步骤，也没有任何真实检索 provider、缓存或对应测试代码在更新；主链路必须保留 fallback，不能因真实检索失败而让 analyze 崩掉。
+- **⚙️ AI 采用的策略 (AI Approach)**: 先核对任务状态与工作区改动，确认这项能力尚未被别的窗口真正实现；随后按 task 要求先回写 D5~D7 的本轮执行任务与步骤，再实现真实检索 provider 抽象、缓存层、时间线集成与回退测试，最后回写验证结果和交接边界。
+- **📦 产出与落点 (Artifacts)**: 	asks/cluster-d-retrieval-lab.md、ackend/app/services/*retrieval*、ackend/tests/test_retrieval.py、data/cache/、prompt-history.md
+- **➡️ 交接建议 (Next Handoff)**: 当前由 T-impl-retrieval-real 接手 D5~D7，后续若需要把随机新闻问题链路进一步接到前端演示或 smoke，应再交给 Cluster-F / Cluster-G 做回归与演示收口。
+- **⭐ 效果评估**: [待填写]
+
+---
+
+### 📅 2026-03-13 23:40
+> **🧵 线程标识**: `T-main`
+> **🏷️ 窗口职责**: 主控
+> **🔗 上下文来源**: `tasks/README.md`、`tasks/cluster-a-control-tower.md`、`tasks/cluster-b-contract-forge.md`、`tasks/cluster-c-api-foundation.md`、`tasks/cluster-d-retrieval-lab.md`、`tasks/cluster-e-experience-shell.md`、`tasks/cluster-f-quality-gate.md`、`tasks/cluster-g-demo-ops.md`、`frontend/components/analyze-page.tsx`、`frontend/lib/demo-cases.ts`、`frontend/lib/report-utils.ts`、`backend/docs/api-foundation-implementation-record.md`
+> **💡 原始指令摘要**: 用户以 `[log]` 方式要求深度分析当前所有 task 的完成度、同步回写已完成项，并把“当前前后端更多是在消费缓存、样例 JSON 或 fallback 渲染，而不是真实 reasoning”单独拆成更细重点任务，给出并行推进到 V1 可执行版本的方案。
+
+- **🎯 本线程目标 (Context & Goal)**: 形成一份能直接指导下一波并行开发的最新状态板，明确哪些 cluster 已完成基础阶段、哪些任务仍未完成，以及当前最优先要解决的真实能力缺口。
+- **🧩 已知约束 (Known Context)**: 当前仓库已经具备前后端最小闭环、合同与基础测试；`Cluster-D` 的 mock retrieval / timeline 已闭环，`Cluster-E` 页面壳已完成，但后端主链仍存在 `scenario_library` / 模板 evidence 依赖，前端也仍会在真实请求失败时渲染本地 demo payload 或 frontend fallback 结果，因此系统“能跑”不等于“已具备真实分析能力”。
+- **⚙️ AI 采用的策略 (AI Approach)**: 先逐个回读 `tasks/` 中 A 到 G 的状态锚点，确认已完成与未完成项；随后修复被截断或污染的任务文档，更新已完成状态；再新增 `C11` 与 `E9`，把“真实 reasoning 主链”和“结果来源 provenance”显式拉成当前最高优先级；最后把这轮判断同步进总览与日志。
+- **📦 产出与落点 (Artifacts)**: `tasks/README.md`、`tasks/cluster-a-control-tower.md`、`tasks/cluster-c-api-foundation.md`、`tasks/cluster-e-experience-shell.md`、`tasks/cluster-f-quality-gate.md`、`prompt-history.md`
+- **➡️ 交接建议 (Next Handoff)**: 下一波并行应按 `Cluster-C (C10/C11)`、`Cluster-D (D5~D7)`、`Cluster-F (F2/F3/F4/F6/F7)`、`Cluster-E (E9)` 的顺序展开，其中 `Cluster-G` 继续后置，等真实 URL、真实检索、provenance 和 smoke checklist 至少形成一条稳定演示路径后再接 replay / README / 口播收口。
+- **⭐ 效果评估**: [待填写]
+
+---
+
+### 📅 2026-03-14 00:12
+> **🧵 线程标识**: `T-main`
+> **🏷️ 窗口职责**: 主控
+> **🔗 上下文来源**: `tasks/README.md`、`tasks/cluster-a-control-tower.md`、`tasks/cluster-b-contract-forge.md`、`tasks/cluster-c-api-foundation.md`、`tasks/cluster-d-retrieval-lab.md`、`tasks/cluster-e-experience-shell.md`、`tasks/cluster-f-quality-gate.md`、`tasks/cluster-g-demo-ops.md`、`overview/README.md`、`frontend/components/analyze-page.tsx`、`frontend/lib/demo-cases.ts`、`frontend/lib/report-utils.ts`、`backend/docs/api-foundation-implementation-record.md`
+> **💡 原始指令摘要**: 用户以 `[log]` 方式要求把刚才的任务盘点整理成一份阶段性报告，要求图文并茂，并明确列出对 task 任务做了哪些分析和修改，以及各 task 下目前仍未完成的子任务。
+
+- **🎯 本线程目标 (Context & Goal)**: 产出一份可以直接给团队或评审阅读的阶段报告，把项目当前完成度、任务状态、关键短板和下一波并行推进路径一次性讲清楚。
+- **🧩 已知约束 (Known Context)**: 当前仓库已经具备最小闭环，但仍存在“真实 analyze 与 demo/fallback 易混淆”的核心问题；用户特别要求把这一点单独展开，并且需要明确任务层面哪些子任务还没完成。
+- **⚙️ AI 采用的策略 (AI Approach)**: 以 `tasks/` 当前状态为底板，结合前后端实际代码路径和上轮回写结果，新增一份 `overview/09` 阶段报告；报告中加入 Mermaid 图示、状态表、任务修改记录和逐 cluster 的未完成清单，同时把该报告接入 `overview/README.md` 入口。
+- **📦 产出与落点 (Artifacts)**: `overview/09_stage-progress-and-task-audit.md`、`overview/README.md`、`prompt-history.md`
+- **➡️ 交接建议 (Next Handoff)**: 下一步建议直接以这份报告为主控材料分发给 `Cluster-C`、`Cluster-D`、`Cluster-F`、`Cluster-E` 四个窗口；执行顺序仍应保持 `C10/C11 -> D5-D7 -> F2/F3/F4/F6/F7 -> E9 -> G2-G6`。
+- **⭐ 效果评估**: [待填写]

@@ -1,4 +1,4 @@
-# Cluster-E / Experience Shell
+﻿# Cluster-E / Experience Shell
 
 ## 这个子 task 是干什么的
 
@@ -16,7 +16,7 @@
 
 ```text
 你现在负责 Cluster-E / Experience Shell。
-当前这个 cluster 主体已完成，因此默认只处理本文件中仍需联调、验证、文档收口或用户明确重新打开的任务，不重做已完成页面骨架。
+当前这个 cluster 主体已完成，因此默认只处理本文件中仍需联调、验证、文档收口或用户明确重新打开的任务；如果重新打开实现，优先处理 `E9`，不重做已完成页面骨架。
 请先完整阅读本文件、frontend/IMPLEMENTATION_SUMMARY.md、frontend/FILE_RECORD.md、frontend/README.md，再决定本轮是否真的需要改动前端实现。
 执行时如果要继续处理残余任务，必须先把当前要处理的目标拆成 3 到 7 个更细步骤，并先把“本轮执行任务 / 执行步骤”写回本文件对应子任务下，再开始修改。
 你可以修改 frontend/、对应的前端测试和前端文档，但不要越界去改后端检索系统或总控文档，除非只是同步前端侧说明。
@@ -31,7 +31,7 @@
 
 - 详细实现总结：`frontend/IMPLEMENTATION_SUMMARY.md`
 - 逐文件记录：`frontend/FILE_RECORD.md`
-- 当前状态说明：`E1` 到 `E8` 已完成，页面已进入“真实 analyze 优先，本地 payload 兜底”的可运行状态。
+- 当前状态说明：`E1` 到 `E8` 已完成；新增的 `E9` 负责把“真实 analyze / mock retrieval / demo payload / 前端 fallback”在界面上明确区分开。
 
 ## 详细子任务
 
@@ -122,3 +122,15 @@
 - 明确展示 fallback 和边界化提示文案。
 - 补充 demo 场景下的说明和重试入口。
 实现备注：当前 demo 离线回退、接口失败安全回退和边界说明都已经接通。
+
+### E9 明确结果来源与运行模式 provenance
+状态：未完成
+目标：让用户能明确区分真实 analyze 结果、mock retrieval / replay、前端 demo payload 和 safe fallback，避免把任何缓存或样例渲染误判成真实推理。
+产出：结果来源标识与 provenance 展示。
+前置依赖：E7、E8，并需与 `Cluster-C`、`Cluster-D` 对齐 provenance 输入。
+子子任务清单：
+- 在顶部状态区或报告头部展示当前结果来源、运行模式和 fallback 原因。
+- 区分“后端真实返回”“后端 mock / replay 返回”“前端本地 demo payload”“前端安全回退生成报告”四类来源。
+- 对来源不明或字段不足的旧 payload 做保守展示，不伪装成真实分析。
+- 补充前端测试与 README/说明，确保演示时口径一致。
+实现备注：当前页面壳已经可运行，但同一套 UI 会渲染真实报告、本地 demo payload 和前端 fallback 结果；在没有 provenance 显示前，用户很容易误判系统已经完成真实推理。

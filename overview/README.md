@@ -14,6 +14,7 @@
 6. `06_current_code_implementation.md`
 7. `07_quality-and-demo-baseline.md`
 8. `08_origin_problem_gap_and_demo_strategy.md`
+9. `09_stage-progress-and-task-audit.md`
 
 补充说明：
 
@@ -28,4 +29,5 @@
 - 想把 `overview/` 直接翻译成“当前 V1 到底怎么做、做到什么边界”
 - 想回看当前项目里到底用过哪些 Prompt、触发词和对话主题
 - 想快速理解当前已经落地的代码结构、测试基线和 demo 基线
+
 

@@ -1,4 +1,4 @@
-# Cluster-F / Quality Gate
+﻿# Cluster-F / Quality Gate
 
 ## 这个子 task 是干什么的
 
@@ -30,8 +30,8 @@
 ## 当前实现判断
 
 - 后端测试已经接上 `evals/minimal_v1`，并覆盖了 health、analyze、模式、provider 回退和错误响应等核心 API 路径。
-- 前端也已补了最小 Vitest 覆盖，用于保护 parser 和展示辅助函数。
-- 但 `Cluster-F` 目标里的“按 eval 文件分层的系统性回归”和“演示前 smoke checklist”目前还没有真正完成，因此当前测试是“基础可用”，不是“验收闭环”。
+- `F5` 已完成，`backend/tests/test_retrieval.py` 已能基于 `retrieval_cases.json` 回归 mock 检索标准化、去重 canonical、`origin` / `turn` 节点识别和时间线构建。
+- 但 `F2 / F3 / F4 / F6 / F7 / F8` 仍未形成按 eval 文件分层的完整验收闭环，因此当前测试仍是“基础可用”，不是“演示前冻结”。
 
 ## 详细子任务
 
@@ -80,7 +80,7 @@
 实现备注：当前 API 测试已间接覆盖 `supported / conflicting / insufficient` 路径，但还没有独立消化 `verdict_cases.json`。
 
 ### F5 retrieval / timeline case 回归
-状态：未完成
+状态：已完成
 目标：为 `retrieval_cases.json` 建立检索与时间线测试。
 产出：retrieval / timeline 测试。
 前置依赖：F1、检索模块初版。
@@ -88,7 +88,7 @@
 - 执行检索样例并统计相关结果数。
 - 检查高可信来源、origin 候选、turn 候选识别。
 - 输出检索与时间线的失败原因。
-实现备注：由于 `Cluster-D` 仍未闭环，这部分回归也还没有真正建立。
+实现备注：已新增 `backend/tests/test_retrieval.py`，直接消费 `evals/minimal_v1/retrieval_cases.json`，覆盖 mock 检索标准化、去重 canonical、`origin` / `turn` 节点识别与 `timeline_builder` 集成；当前 `pytest backend/tests -q` 通过。真实公开检索 provider 仍待 `D5 ~ D7` 完成后继续扩展。
 
 ### F6 report mode case 回归
 状态：进行中
@@ -110,6 +110,13 @@
 - 列出演示前必须检查的页面和接口。
 - 列出必须跑过的 demo case 和失败 case。
 - 形成可重复执行的 smoke checklist。
+本轮执行任务：基于现有前后端 README、测试样例与 demo 注册表，补一份面向主控或演示者的可执行 smoke checklist，覆盖环境启动、三条 demo、接口检查、失败回退与已知限制确认，并回写当前可通过项与依赖项。
+执行步骤：
+1. 阅读 F7 相关任务说明与必读文档，确认当前 demo 目标、三档模式和前后端启动方式。
+2. 对齐后端 API 测试、retrieval 测试和前端 demo case，提炼可直接输入的 smoke 样例与预期结果。
+3. 设计仓库内显眼且可交付的 checklist 文档落点，按顺序组织环境、后端、前端、demo、fallback、限制确认。
+4. 视需要补最小命令或脚本入口，确保非开发者能按文档启动、检查和失败处理。
+5. 回写 F7 完成记录、验证结论、残余风险及后续交接窗口。
 实现备注：当前还没有独立 smoke checklist 文档，这是演示前最大的测试侧缺口。
 
 ### F8 跑随机 case 与稳定 demo case
@@ -122,3 +129,5 @@
 - 跑随机输入样例并记录模式分布。
 - 汇总演示前残余风险。
 实现备注：当前还没有形成最终通过记录。
+
+
