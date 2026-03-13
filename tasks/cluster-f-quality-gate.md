@@ -1,4 +1,4 @@
-﻿# Cluster-F / Quality Gate
+# Cluster-F / Quality Gate
 
 ## 这个子 task 是干什么的
 
@@ -12,10 +12,16 @@
 
 它主要消费 `evals/minimal_v1` 和后端接口，不需要主导业务实现。测试线程可以在主链路开发过程中同步补测试和记录结果，而不是等实现全部完成后再一次性发现问题。
 
+## 当前实现判断
+
+- 后端测试已经接上 `evals/minimal_v1`，并覆盖了 health、analyze、模式、provider 回退和错误响应等核心 API 路径。
+- 前端也已补了最小 Vitest 覆盖，用于保护 parser 和展示辅助函数。
+- 但 `Cluster-F` 目标里的“按 eval 文件分层的系统性回归”和“演示前 smoke checklist”目前还没有真正完成，因此当前测试是“基础可用”，不是“验收闭环”。
+
 ## 详细子任务
 
 ### F1 接入最小测试集目录
-状态：未完成
+状态：已完成
 目标：把 `evals/minimal_v1` 接到后端测试能够直接消费的位置。
 产出：统一的测试数据入口。
 前置依赖：无。
@@ -23,9 +29,10 @@
 - 确认测试目录中的样例文件组织方式。
 - 让测试代码可直接读取最小 case 数据。
 - 补一个统一的 case 加载工具。
+实现备注：`backend/tests/conftest.py` 已能直接读取 `evals/minimal_v1/*.json`。
 
 ### F2 输入标准化 case 回归
-状态：未完成
+状态：进行中
 目标：为 `input_cases.json` 建立 case 驱动测试。
 产出：输入标准化回归测试。
 前置依赖：F1、输入模块初版。
@@ -33,6 +40,7 @@
 - 读取输入标准化样例并逐条执行。
 - 验证必须字段、fallback 和不能伪造字段的规则。
 - 输出通过率和失败 case 列表。
+实现备注：`backend/tests/test_api.py` 已覆盖代表性输入 case，但还没有把 `input_cases.json` 全量逐条回归成独立测试组。
 
 ### F3 claim 分类 case 回归
 状态：未完成
@@ -43,9 +51,10 @@
 - 执行 claim 分类样例。
 - 检查 fact、opinion、prediction、unverifiable 的命中情况。
 - 输出误分类清单。
+实现备注：当前没有看到独立的 claim 分类 case 回归层。
 
 ### F4 verdict case 回归
-状态：未完成
+状态：进行中
 目标：为 `verdict_cases.json` 建立回归测试。
 产出：verdict 测试。
 前置依赖：F1、verdict 模块初版。
@@ -53,6 +62,7 @@
 - 执行 verdict 样例。
 - 检查 verdict 和 confidence 是否对齐预期。
 - 检查是否出现无证据强判。
+实现备注：当前 API 测试已间接覆盖 `supported / conflicting / insufficient` 路径，但还没有独立消化 `verdict_cases.json`。
 
 ### F5 retrieval / timeline case 回归
 状态：未完成
@@ -63,9 +73,10 @@
 - 执行检索样例并统计相关结果数。
 - 检查高可信来源、origin 候选、turn 候选识别。
 - 输出检索与时间线的失败原因。
+实现备注：由于 `Cluster-D` 仍未闭环，这部分回归也还没有真正建立。
 
 ### F6 report mode case 回归
-状态：未完成
+状态：进行中
 目标：为 `report_mode_cases.json` 建立模式选择测试。
 产出：report mode 测试。
 前置依赖：F1、report builder 初版。
@@ -73,6 +84,7 @@
 - 执行模式选择样例。
 - 检查 `complete / partial / safe_mode` 是否命中预期。
 - 检查是否出现模式越界表述。
+实现备注：当前通过 API 测试已覆盖几个代表性模式 case，但仍缺独立的 `report_mode_cases.json` 驱动回归。
 
 ### F7 建立演示前 smoke checklist
 状态：未完成
@@ -83,6 +95,7 @@
 - 列出演示前必须检查的页面和接口。
 - 列出必须跑过的 demo case 和失败 case。
 - 形成可重复执行的 smoke checklist。
+实现备注：当前还没有独立 smoke checklist 文档，这是演示前最大的测试侧缺口。
 
 ### F8 跑随机 case 与稳定 demo case
 状态：未完成
@@ -93,3 +106,4 @@
 - 跑稳定 demo case 并记录结果。
 - 跑随机输入样例并记录模式分布。
 - 汇总演示前残余风险。
+实现备注：当前还没有形成最终通过记录。

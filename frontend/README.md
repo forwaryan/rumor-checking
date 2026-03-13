@@ -30,10 +30,38 @@
 
 ## 运行方式
 
+标准方式：
+
 ```bash
 cd frontend
 npm install
 npm run dev
+```
+
+如果仓库当前是通过 `\\wsl.localhost\...` 挂到 Windows 下运行，Next.js dev watcher 可能卡在文件监听上，页面长时间不返回。
+这种情况下优先使用仓库内的 Windows 本地镜像启动脚本：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\frontend\start-local-windows.ps1
+```
+
+这个脚本会：
+
+- 把 `frontend/` 和 `contracts/` 镜像到 Windows 本地临时目录
+- 自动设置 `NEXT_PUBLIC_API_BASE_URL`
+- 在本地镜像目录里启动 `next dev`
+- 避开 `\\wsl.localhost` / 映射盘下的 watcher 问题
+
+默认前端地址是：
+
+```text
+http://127.0.0.1:3020
+```
+
+也可以自定义：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\frontend\start-local-windows.ps1 -BackendUrl http://127.0.0.1:8000 -Port 3020
 ```
 
 常用验证命令：
@@ -43,19 +71,6 @@ npm test
 npm run typecheck
 npm run build
 ```
-
-默认请求：
-
-```bash
-http://localhost:8000/api/v1/*
-```
-
-如需覆盖后端地址：
-
-```bash
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
-```
-
 ## 目录说明
 
 - `app/`

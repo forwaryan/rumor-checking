@@ -1,4 +1,4 @@
-﻿# Cluster-D / Retrieval Lab
+# Cluster-D / Retrieval Lab
 
 ## 这个子 task 是干什么的
 
@@ -12,10 +12,16 @@
 
 它和 `Cluster-C` 一样属于后端，但关注点不同。它可以在 schema 固定后独立实现 mock 检索、真实检索和 timeline 逻辑，只在 `Report` 集成点和测试环节汇合。
 
+## 当前实现判断
+
+- 当前后端已经有 `timeline_builder.py`、`scenario_library.py` 和规则化 evidence/timeline 结果，因此“最小时间线展示”并非空白。
+- 但当前实现更接近“规则型占位链路”，不等于真实检索系统。
+- 真实公开来源检索、去重归并、缓存与 replay 入口目前还没有形成真正闭环，因此 `Cluster-D` 仍是当前最关键的功能缺口之一。
+
 ## 详细子任务
 
 ### D1 定义 `SearchResult` 与 `Evidence` 内部结构
-状态：未完成
+状态：进行中
 目标：统一检索结果和证据对象的内部结构，确保后续标准化容易复用。
 产出：检索层内部数据模型。
 前置依赖：共享 schema 基本稳定。
@@ -23,9 +29,10 @@
 - 列出 `SearchResult` 内部字段和来源等级字段。
 - 统一内部 `Evidence` 结构与 verdict 模块的对接方式。
 - 给出检索层内部对象的最小示例。
+实现备注：对外 `Evidence` 结构已稳定，但后端内部 `SearchResult` 还没有独立冻结成清晰的数据模型。
 
 ### D2 实现 mock 检索读取与标准化
-状态：未完成
+状态：进行中
 目标：基于 `retrieval_cases.json` 输出统一格式的检索结果。
 产出：mock `retriever`。
 前置依赖：D1。
@@ -33,6 +40,7 @@
 - 从最小 case 中读取 mock 搜索结果。
 - 把原始 case 结构转成统一内部对象。
 - 输出可供 timeline 和 report 使用的标准化结果。
+实现备注：当前更多是 `scenario_library` 驱动的 deterministic 结果，还不是一个独立的 mock retriever 层。
 
 ### D3 实现去重归并规则
 状态：未完成
@@ -43,9 +51,10 @@
 - 定义重复、转载、弱重复的判断规则。
 - 对 mock 数据实现归并和保留策略。
 - 输出归并后的结果列表与被归并说明。
+实现备注：当前没有看到独立成型的去重归并层。
 
 ### D4 实现时间线候选识别
-状态：未完成
+状态：进行中
 目标：识别 `origin / amplification / peak / turn / clarification` 的候选节点。
 产出：mock `timeline_builder`。
 前置依赖：D2、D3。
@@ -53,6 +62,7 @@
 - 实现 origin 候选识别。
 - 实现 turn 或 clarification 候选识别。
 - 为每个被选中节点补 `why_selected` 说明。
+实现备注：`timeline_builder.py` 已存在并能返回规则型 timeline，但它仍依赖场景库，不是基于真实检索结果构造的时间线。
 
 ### D5 接真实公开来源检索 provider
 状态：未完成
@@ -63,6 +73,7 @@
 - 选定可用的公开来源检索方案。
 - 封装 provider 调用与超时处理。
 - 把真实返回结果映射到统一结构。
+实现备注：当前还没有真实检索 provider，这也是题目能力与当前系统之间最明显的差距之一。
 
 ### D6 接本地缓存与 replay 支持
 状态：未完成
@@ -73,6 +84,7 @@
 - 设计检索缓存 key 和缓存格式。
 - 接入写缓存与读缓存逻辑。
 - 为 demo replay 预留固定缓存读取入口。
+实现备注：`data/cache/` 目录已预留，但目前仍为空壳。
 
 ### D7 强化真实时间线构建
 状态：未完成
@@ -83,3 +95,4 @@
 - 对真实结果做去重、排序和节点筛选。
 - 输出 2 到 10 个关键时间线节点。
 - 验证部分模式下的时间线降级策略。
+实现备注：当前是下一阶段最关键的后端增强项之一。

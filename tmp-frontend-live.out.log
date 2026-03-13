@@ -1,0 +1,16 @@
+
+> dev
+> next dev
+
+   ▲ Next.js 15.5.12
+   - Local:        http://localhost:3000
+   - Network:      http://28.0.0.1:3000
+   - Experiments (use with caution):
+     ✓ externalDir
+
+ ✓ Starting...
+ ✓ Ready in 40.4s
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 1165.2s (537 modules)
+ ✓ Compiled in 93.7s (523 modules)
+[?25h
