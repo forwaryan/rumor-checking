@@ -4,6 +4,7 @@ import logging
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.api.router import router as api_router
 from backend.app.core.config import get_settings
@@ -18,6 +19,15 @@ def create_app() -> FastAPI:
     configure_logging(settings)
 
     app = FastAPI(title=settings.app_name, version=settings.version, debug=settings.debug)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[],
+        allow_origin_regex=settings.cors_allow_origin_regex,
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["X-Request-ID"],
+    )
 
     @app.middleware("http")
     async def attach_request_id(request: Request, call_next):

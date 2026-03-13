@@ -41,6 +41,15 @@ def test_health_endpoint_returns_service_metadata(client):
     assert body["service"] == "rumor-checking-backend"
 
 
+def test_health_endpoint_allows_local_frontend_origin(client):
+    response = client.get(
+        "/api/v1/health",
+        headers={"Origin": "http://127.0.0.1:3123"},
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:3123"
+
+
 def test_validation_errors_use_unified_error_shape(client):
     response = client.post("/api/v1/analyze", json={})
     assert response.status_code == 422

@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$BackendUrl = 'http://127.0.0.1:8000',
     [int]$Port = 3020,
     [string]$MirrorRoot = ''
@@ -44,10 +44,10 @@ if (Test-Path $mirrorNext) {
 
 Write-Host "Mirrored frontend to: $mirrorFrontend"
 Write-Host "Mirrored contracts to: $mirrorContracts"
-Write-Host "Backend URL: $BackendUrl"
+Write-Host "Backend proxy target: $BackendUrl"
 Write-Host "Frontend URL: http://127.0.0.1:$Port"
 Write-Host ''
 Write-Host 'Starting Next.js from the Windows-local mirror to avoid WSL/UNC watcher issues...'
 
-$cmd = "cd /d `"$mirrorFrontend`" && set NEXT_PUBLIC_API_BASE_URL=$BackendUrl && node node_modules\next\dist\bin\next dev -p $Port"
+$cmd = "cd /d `"$mirrorFrontend`" && set BACKEND_PROXY_TARGET=$BackendUrl && set NEXT_PUBLIC_API_BASE_URL= && node node_modules\next\dist\bin\next dev -p $Port"
 cmd.exe /c $cmd

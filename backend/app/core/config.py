@@ -36,6 +36,7 @@ class Settings:
     kimi_base_url: str
     kimi_model: str
     provider_timeout_seconds: float
+    cors_allow_origin_regex: str
 
     @property
     def kimi_enabled(self) -> bool:
@@ -59,4 +60,8 @@ def get_settings() -> Settings:
         kimi_base_url=os.getenv("KIMI_BASE_URL", "https://api.moonshot.cn/v1").rstrip("/"),
         kimi_model=os.getenv("KIMI_MODEL", "moonshot-v1-8k"),
         provider_timeout_seconds=_as_float(os.getenv("PROVIDER_TIMEOUT_SECONDS"), 20.0),
+        cors_allow_origin_regex=os.getenv(
+            "CORS_ALLOW_ORIGIN_REGEX",
+            r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+        ),
     )

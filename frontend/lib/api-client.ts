@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   AnalyzeRequest,
   ClaimResult,
   ConfidenceValue,
@@ -11,10 +11,11 @@ import type {
   Verdict,
 } from "@/types/report";
 
-const DEFAULT_API_BASE = "http://localhost:8000";
+const DEFAULT_API_BASE = "";
 
 function getApiBase() {
-  return (process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE).replace(/\/$/, "");
+  const configuredBase = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+  return configuredBase ? configuredBase.replace(/\/$/, "") : DEFAULT_API_BASE;
 }
 
 export class ApiClientError extends Error {
