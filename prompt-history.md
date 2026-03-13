@@ -26,3 +26,18 @@
 - **⭐ 效果评估**: [待填写]
 
 ---
+
+### 📅 2026-03-13 15:49
+> **🧵 线程标识**: `T-research`
+> **🏷️ 窗口职责**: 调研
+> **🔗 上下文来源**: `rules/random_news_demo_rules.md`、`requirements/guides/03_random_news_eval_template.md`、`rules/evidence_and_verdict_rules.md`、`rules/failure_handling_rules.md`、FEVER、FEVEROUS、AVeriTeC、MuMiN、Google Fact Check Tools API、GDELT 公开资料
+> **💡 原始指令摘要**: 判断是否存在可用于测试当前工程效果与评分表现的数据集或 benchmark，并分析哪些能直接复用、哪些只能做代理评测。
+
+- **🎯 本线程目标 (Context & Goal)**: 回答“当前项目能否用现成 benchmark 来测工程表现”这个问题，并把可直接评测的能力与必须人工验收的能力拆开。
+- **🧩 已知约束 (Known Context)**: 当前项目评分不只看 claim/verdict 正确性，还看产品体验、Demo 稳定性、工程质量与边界感，因此不存在一个单一公开 benchmark 能直接还原总评分。
+- **⚙️ AI 采用的策略 (AI Approach)**: 先对照仓库内已有随机新闻评测规则与模板，明确当前项目已经在评哪些维度；再补充外部事实核查 benchmark，区分 verdict/evidence、传播链代理、随机输入稳定性和人工答辩评分四类评测来源，避免把学术 benchmark 误当成完整工程评分。
+- **📦 产出与落点 (Artifacts)**: 本次对话中的 benchmark 适配结论与建议；`prompt-history.md`
+- **➡️ 交接建议 (Next Handoff)**: 建议由 `T-main` 或 `T-doc` 把本次结论沉淀成一份 `benchmark_strategy` 文档，明确“公开 benchmark + 随机新闻评测 + 人工评分 rubric”三层评测方案。
+- **⭐ 效果评估**: [待填写]
+
+---
