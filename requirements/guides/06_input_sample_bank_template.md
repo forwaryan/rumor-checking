@@ -1,6 +1,6 @@
 ﻿# 20 条输入样本清单骨架
 
-本文档用于配合 `guides/04_validation_execution_checklist.md` 的“输入验证”部分使用。
+本文档用于配合 `guides/05_validation_execution_checklist.md` 的“输入验证”部分使用。
 
 目标不是现在就找齐最终案例，而是先把 20 条样本的坑位和分布定死，避免后面临时凑 case、类型失衡、验证结果不可比。
 
@@ -122,8 +122,9 @@
    - 只把 20 个样本坑位填满
    - 不纠结质量打分
 2. 第二轮
-   - 再按 `04_validation_execution_checklist.md` 做正式验证记录
+   - 再按 `05_validation_execution_checklist.md` 做正式验证记录
 
 ## 8. 最终目的
 
 这份样本骨架的作用，是让你的输入验证从“随手测几个链接”升级成“有覆盖度、有分布、有复测价值”的正式验证集合。
+

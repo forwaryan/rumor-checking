@@ -158,7 +158,7 @@
 
 - 轻日志仍然走 `workflows/prompt_logging_rules.md`
 - 一旦进入 Prompt 设计、调优、评测任务，必须同时遵循本文件
-- 模板参考统一放在 `requirements/guides/02_prompt_asset_templates.md`
+- 模板参考统一放在 `requirements/guides/04_prompt_inventory.md`
 
 ## 7. 输出要求
 
@@ -172,3 +172,4 @@
 - eval case 表
 
 而不是只给一段泛泛而谈的 Prompt 设计说明。
+

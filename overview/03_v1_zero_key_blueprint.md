@@ -240,14 +240,14 @@ V1 不能只有代码，至少要同步维护下面这些文档产物：
 | --- | --- | --- |
 | 本文档 | 统一 V1 边界、能力矩阵和执行口径 | 是 |
 | 根目录 [README.md](../README.md) | 对外说明项目是什么、怎么跑、有哪些限制 | 是 |
-| [requirements/guides/04_validation_execution_checklist.md](../requirements/guides/04_validation_execution_checklist.md) | 记录验证项和执行检查清单 | 是 |
-| [requirements/guides/05_input_sample_bank_template.md](../requirements/guides/05_input_sample_bank_template.md) | 沉淀 demo case 与失败 case | 是 |
+| [requirements/guides/05_validation_execution_checklist.md](../requirements/guides/05_validation_execution_checklist.md) | 记录验证项和执行检查清单 | 是 |
+| [requirements/guides/06_input_sample_bank_template.md](../requirements/guides/06_input_sample_bank_template.md) | 沉淀 demo case 与失败 case | 是 |
 | [prompt-history.md](../prompt-history.md) | 留痕各线程推进过程 | 是 |
 
 如果 V1 后续进入 Prompt 调优、schema 演化和 case 回归，则还要同步进入：
 
 - [rules/prompt_and_eval_rules.md](../rules/prompt_and_eval_rules.md)
-- [requirements/guides/02_prompt_asset_templates.md](../requirements/guides/02_prompt_asset_templates.md)
+- [requirements/guides/04_prompt_inventory.md](../requirements/guides/04_prompt_inventory.md)
 
 ## 11. 推荐的 V1 执行顺序
 
@@ -311,3 +311,4 @@ V1 不能只有代码，至少要同步维护下面这些文档产物：
 - `requirements/analysis/` 的最小可行结论
 - `rules/` 的硬边界约束
 - 复试场景对稳定性、可解释性和可演示性的要求
+

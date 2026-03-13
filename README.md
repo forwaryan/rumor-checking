@@ -36,4 +36,5 @@
 1. `overview/README.md`
 2. `overview/01_current_goal_and_layers.md`
 3. `overview/02_folder_rationale.md`
-4. `evals/minimal_v1/README.md`
+4. `overview/04_prompt_inventory.md`
+5. `evals/minimal_v1/README.md`

@@ -56,3 +56,18 @@
 - **⭐ 效果评估**: [待填写]
 
 ---
+
+### 📅 2026-03-13 17:01
+> **🧵 线程标识**: `T-main`
+> **🏷️ 窗口职责**: 主控
+> **🔗 上下文来源**: `overview/01_current_goal_and_layers.md`、`overview/03_v1_zero_key_blueprint.md`、`requirements/analysis/07_v1_execution_plan.md`、`rules/evidence_and_verdict_rules.md`、`rules/propagation_chain_rules.md`、`rules/failure_handling_rules.md`、`evals/minimal_v1/README.md`、`workflows/prompt_logging_rules.md`
+> **💡 原始指令摘要**: 按照当前分析好的 V1 版本，给出完整的前后端与整体实现方案，拆成详细 task，在开始写代码前先形成可持续更新的任务清单。
+
+- **🎯 本线程目标 (Context & Goal)**: 把现有仓库从“文档与规则冻结阶段”进一步推进到“可执行的实现规划阶段”，给出明确的前后端分工、共享协议、实施里程碑与 task board，作为后续编码的统一基线。
+- **🧩 已知约束 (Known Context)**: 当前仓库仍然以文档、规则和最小测试集为主，尚无正式代码骨架；V1 必须优先保证文本输入、claim/verdict、关键时间线和三档模式，不应直接跳入重型检索或复杂前端；用户希望每完成一个目标就同步更新 task 状态。
+- **⚙️ AI 采用的策略 (AI Approach)**: 先复核当前 V1 蓝图、执行清单、三份硬规则和最小测试集，确认可承诺边界；再选择“Next.js 前端 + FastAPI 后端 + Kimi API + 本地缓存”的默认实现路径；最后按 mock 先行、真实能力后接的思路拆出可落地的里程碑和细粒度任务，避免边写边漂移 scope。
+- **📦 产出与落点 (Artifacts)**: `overview/05_v1_architecture_and_task_board.md`；`prompt-history.md`
+- **➡️ 交接建议 (Next Handoff)**: 建议先由 `T-main` 认可并冻结当前 task board，随后由 `T-impl-api` 优先启动 `T01`、`T03`、`T04`，先搭后端骨架、共享 schema 和最小测试接入，再进入 mock 闭环开发。
+- **⭐ 效果评估**: [待填写]
+
+---

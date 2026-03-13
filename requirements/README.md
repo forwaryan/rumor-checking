@@ -20,8 +20,8 @@
 ## guides
 
 - `guides/01_bracket_trigger_commands_guide.md`：统一整理 `[Log]`、`[scores]`、`[Commit]` 等方括号触发指令、参数位和执行逻辑图
-- `guides/02_prompt_asset_templates.md`：Prompt 版本、失败修复、schema、幻觉防控、上下文超限和 eval 的模板
+- `guides/02_prompt_asset_templates.md`：兼容旧引用的 Prompt 模板入口，模板内容已并入 `04_prompt_inventory.md`
 - `guides/03_random_news_eval_template.md`：随机新闻输入下的评测表模板、通过标准与 case 配比建议
-- `guides/04_validation_execution_checklist.md`：输入验证、检索验证、verdict 验证的执行清单、case 配置与通过标准
-- `guides/05_input_sample_bank_template.md`：20 条输入样本骨架，覆盖标准新闻 URL、抽取不稳定 URL 和文本输入
-
+- `guides/04_prompt_inventory.md`：当前仓库已使用 Prompt 的总清单、可复用 Prompt 家族，以及合并后的 Prompt 资产模板附录
+- `guides/05_validation_execution_checklist.md`：输入验证、检索验证、verdict 验证的执行清单、case 配置与通过标准
+- `guides/06_input_sample_bank_template.md`：20 条输入样本骨架，覆盖标准新闻 URL、抽取不稳定 URL 和文本输入
