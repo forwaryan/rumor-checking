@@ -1,0 +1,216 @@
+﻿[
+  {
+    "case_id": "V01",
+    "claim": "海州市市场监管局已对涉事门店下达停业整改通知。",
+    "claim_type": "fact",
+    "evidence": [
+      {
+        "title": "海州市市场监管局通报海州新鲜屋整改情况",
+        "url": "https://gov.example.cn/hzsamr/2026-03-01",
+        "source_name": "海州市市场监管局",
+        "published_at": "2026-03-01",
+        "snippet": "通报显示，涉事门店已被责令停业整改。",
+        "relevance_reason": "直接说明处理措施。",
+        "source_tier": "S"
+      },
+      {
+        "title": "海州新鲜屋两门店停售整改",
+        "url": "https://news.example.cn/local/2026-03-01-1",
+        "source_name": "海州日报",
+        "published_at": "2026-03-01",
+        "snippet": "当地市场监管部门要求门店停业整改。",
+        "relevance_reason": "与官方通报一致。",
+        "source_tier": "A"
+      }
+    ],
+    "expected": {
+      "verdict": "supported",
+      "confidence": "high"
+    }
+  },
+  {
+    "case_id": "V02",
+    "claim": "清河市渡轮停航的原因是大雾临时管制。",
+    "claim_type": "fact",
+    "evidence": [
+      {
+        "title": "清河市交通局发布停航说明",
+        "url": "https://gov.example.cn/qhjt/2026-03-05",
+        "source_name": "清河市交通局",
+        "published_at": "2026-03-05",
+        "snippet": "因江面大雾导致能见度低，渡轮上午临时停航。",
+        "relevance_reason": "直接解释停航原因。",
+        "source_tier": "S"
+      },
+      {
+        "title": "渡轮下午恢复运行",
+        "url": "https://news.example.cn/metro/2026-03-05-2",
+        "source_name": "清河日报",
+        "published_at": "2026-03-05",
+        "snippet": "交通局称停航与大雾天气有关。",
+        "relevance_reason": "主流媒体转述官方说法。",
+        "source_tier": "A"
+      }
+    ],
+    "expected": {
+      "verdict": "supported",
+      "confidence": "high"
+    }
+  },
+  {
+    "case_id": "V03",
+    "claim": "晨星生物已经宣布裁员40%。",
+    "claim_type": "fact",
+    "evidence": [
+      {
+        "title": "晨星生物关于网络传言的声明",
+        "url": "https://ir.example.com/morningstar/2026-03-06",
+        "source_name": "晨星生物",
+        "published_at": "2026-03-06",
+        "snippet": "公司未发布任何40%裁员计划，相关截图不实。",
+        "relevance_reason": "公司直接否认裁员比例传言。",
+        "source_tier": "S"
+      },
+      {
+        "title": "交易所问询后晨星生物回应裁员传闻",
+        "url": "https://finance.example.cn/2026-03-06-3",
+        "source_name": "证券时报",
+        "published_at": "2026-03-06",
+        "snippet": "公司回复称未有40%裁员安排。",
+        "relevance_reason": "可信媒体二次确认。",
+        "source_tier": "A"
+      }
+    ],
+    "expected": {
+      "verdict": "refuted",
+      "confidence": "high"
+    }
+  },
+  {
+    "case_id": "V04",
+    "claim": "北川中学将从下周起全面停课一个月。",
+    "claim_type": "fact",
+    "evidence": [
+      {
+        "title": "北川市教育局辟谣说明",
+        "url": "https://edu.example.cn/beichuan/2026-03-07",
+        "source_name": "北川市教育局",
+        "published_at": "2026-03-07",
+        "snippet": "网传全面停课一个月消息不实，学校下周正常上课。",
+        "relevance_reason": "直接否定 claim。",
+        "source_tier": "S"
+      }
+    ],
+    "expected": {
+      "verdict": "refuted",
+      "confidence": "high"
+    }
+  },
+  {
+    "case_id": "V05",
+    "claim": "海州新鲜屋过去三年一直故意销售过期酸奶。",
+    "claim_type": "fact",
+    "evidence": [
+      {
+        "title": "博主汇总多次投诉截图",
+        "url": "https://we-media.example.com/post/991",
+        "source_name": "城市观察员",
+        "published_at": "2026-03-02",
+        "snippet": "多张网友截图称该品牌长期存在过期问题。",
+        "relevance_reason": "只提供零散二手线索。",
+        "source_tier": "C"
+      },
+      {
+        "title": "地方论坛讨论过期酸奶传闻",
+        "url": "https://forum.example.com/thread/12345",
+        "source_name": "海州论坛",
+        "published_at": "2026-03-02",
+        "snippet": "用户讨论是否曾遇到类似问题。",
+        "relevance_reason": "无法形成稳定证据链。",
+        "source_tier": "C"
+      }
+    ],
+    "expected": {
+      "verdict": "insufficient",
+      "confidence": "low"
+    }
+  },
+  {
+    "case_id": "V06",
+    "claim": "很多内部员工提前收到晨星生物裁员名单。",
+    "claim_type": "fact",
+    "evidence": [
+      {
+        "title": "匿名群聊截图流传",
+        "url": "https://social.example.com/post/abc",
+        "source_name": "匿名用户",
+        "published_at": "2026-03-06",
+        "snippet": "截图声称已经有名单，但无法核验来源。",
+        "relevance_reason": "来源不明且不可核验。",
+        "source_tier": "C"
+      }
+    ],
+    "expected": {
+      "verdict": "insufficient",
+      "confidence": "low"
+    }
+  },
+  {
+    "case_id": "V07",
+    "claim": "清河渡轮事故中共有5人受伤。",
+    "claim_type": "fact",
+    "evidence": [
+      {
+        "title": "本地电视台称5人送医",
+        "url": "https://tv.example.cn/qh/2026-03-08-1",
+        "source_name": "清河电视台",
+        "published_at": "2026-03-08",
+        "snippet": "报道中提到5人受伤后送医。",
+        "relevance_reason": "给出明确数字。",
+        "source_tier": "A"
+      },
+      {
+        "title": "医院通报称3人接受留观",
+        "url": "https://hospital.example.cn/notice/2026-03-08",
+        "source_name": "清河市人民医院",
+        "published_at": "2026-03-08",
+        "snippet": "目前共有3人留观，无重伤。",
+        "relevance_reason": "与前述数字冲突。",
+        "source_tier": "A"
+      }
+    ],
+    "expected": {
+      "verdict": "conflicting",
+      "confidence": "medium"
+    }
+  },
+  {
+    "case_id": "V08",
+    "claim": "北城区化工厂已经完全停产。",
+    "claim_type": "fact",
+    "evidence": [
+      {
+        "title": "财经媒体称化工厂停产整顿",
+        "url": "https://finance.example.cn/industry/2026-03-05-2",
+        "source_name": "财经观察",
+        "published_at": "2026-03-05",
+        "snippet": "报道提到工厂已停产整顿。",
+        "relevance_reason": "支持完全停产说法。",
+        "source_tier": "A"
+      },
+      {
+        "title": "公司回应仅暂停一条产线",
+        "url": "https://company.example.cn/news/2026-03-05",
+        "source_name": "北城区化工厂",
+        "published_at": "2026-03-05",
+        "snippet": "公司称仅有一条产线暂停，其余产线正常。",
+        "relevance_reason": "与完全停产说法冲突。",
+        "source_tier": "A"
+      }
+    ],
+    "expected": {
+      "verdict": "conflicting",
+      "confidence": "medium"
+    }
+  }
+]

@@ -1,0 +1,94 @@
+﻿[
+  {
+    "case_id": "I01",
+    "input_type": "text_news",
+    "raw_input": "【海州市市场监管局通报】2026年3月1日，海州市市场监管局发布通报称，在例行抽检中发现海州新鲜屋连锁门店有2批次酸奶超过保质期，涉事门店已停业整改。目前未发现大规模食物中毒病例。",
+    "mock_fetch_result": null,
+    "expected": {
+      "should_normalize": true,
+      "must_have_fields": ["title", "summary", "keywords"],
+      "title_contains": ["海州市市场监管局", "通报"],
+      "keywords_should_include": ["海州新鲜屋", "酸奶", "停业整改"],
+      "should_trigger_fallback": false,
+      "expected_mode_hint": "complete_or_partial"
+    }
+  },
+  {
+    "case_id": "I02",
+    "input_type": "text_news",
+    "raw_input": "清河日报3月5日报道：清河市交通局通报称，当日上午渡轮停航半日，原因是江面大雾导致能见度过低。有评论认为，这次停航暴露了清河渡运系统长期管理混乱。",
+    "mock_fetch_result": null,
+    "expected": {
+      "should_normalize": true,
+      "must_have_fields": ["title", "summary", "keywords"],
+      "keywords_should_include": ["清河市交通局", "渡轮", "大雾"],
+      "should_trigger_fallback": false,
+      "expected_mode_hint": "partial"
+    }
+  },
+  {
+    "case_id": "I03",
+    "input_type": "question_only",
+    "raw_input": "晨星生物裁员40%是真的吗？",
+    "mock_fetch_result": null,
+    "expected": {
+      "should_normalize": true,
+      "must_have_fields": ["summary", "keywords"],
+      "must_not_fake_fields": ["source_name", "published_at"],
+      "keywords_should_include": ["晨星生物", "裁员40%"],
+      "should_trigger_fallback": false,
+      "expected_mode_hint": "safe"
+    }
+  },
+  {
+    "case_id": "I04",
+    "input_type": "url_news",
+    "raw_input": "https://news.example.com/2026/03/05/ferry-delay",
+    "mock_fetch_result": {
+      "status": "ok",
+      "title": "清河市渡轮停航半日 官方通报称因大雾临时管制",
+      "body": "2026年3月5日上午，清河市交通局发布通报称，因江面大雾导致能见度过低，城区渡轮临时停航半日，下午恢复通行。",
+      "source_name": "清河市交通局",
+      "published_at": "2026-03-05"
+    },
+    "expected": {
+      "should_normalize": true,
+      "must_have_fields": ["title", "summary", "source_name", "published_at"],
+      "keywords_should_include": ["清河市交通局", "渡轮", "大雾"],
+      "should_trigger_fallback": false,
+      "expected_mode_hint": "complete_or_partial"
+    }
+  },
+  {
+    "case_id": "I05",
+    "input_type": "url_unknown",
+    "raw_input": "https://m.example.com/topic/rumor-123",
+    "mock_fetch_result": {
+      "status": "partial",
+      "title": "网传北川中学将全面停课一个月",
+      "snippet": "多名家长转发截图称学校即将全面停课，但页面无完整正文与来源信息。",
+      "body": "",
+      "source_name": "",
+      "published_at": ""
+    },
+    "expected": {
+      "should_normalize": true,
+      "must_have_fields": ["title", "summary"],
+      "should_trigger_fallback": true,
+      "expected_mode_hint": "safe"
+    }
+  },
+  {
+    "case_id": "I06",
+    "input_type": "text_news",
+    "raw_input": "3月1日，北城区化工厂被居民投诉夜间异味。3月2日，公司表示设备检修正常。3月3日，区生态环境局称已进场核查。3月4日，厂方又表示仅有一条产线暂停。3月5日，居民仍在社交平台称异味持续。",
+    "mock_fetch_result": null,
+    "expected": {
+      "should_normalize": true,
+      "must_have_fields": ["summary", "keywords"],
+      "keywords_should_include": ["北城区化工厂", "生态环境局", "异味"],
+      "should_trigger_fallback": false,
+      "expected_mode_hint": "partial"
+    }
+  }
+]

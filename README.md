@@ -6,6 +6,8 @@
 
 ## 目录总览
 
+- `evals/`
+  - 开发期最小测试集、回归样本和评测数据
 - `overview/`
   - 仓库总览、项目地图、分层解释和文件夹职责说明
 - `requirements/analysis/`
@@ -34,3 +36,4 @@
 1. `overview/README.md`
 2. `overview/01_current_goal_and_layers.md`
 3. `overview/02_folder_rationale.md`
+4. `evals/minimal_v1/README.md`

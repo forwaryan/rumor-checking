@@ -1,0 +1,38 @@
+﻿[
+  {
+    "case_id": "C01",
+    "claim": "海州市市场监管局在2026年3月1日发布了酸奶抽检通报。",
+    "expected_claim_type": "fact",
+    "notes": "时间、机构、动作都可被公开证据验证。"
+  },
+  {
+    "case_id": "C02",
+    "claim": "这次通报明显只是企业公关，不值得相信。",
+    "expected_claim_type": "opinion",
+    "notes": "带明显立场和评价。"
+  },
+  {
+    "case_id": "C03",
+    "claim": "晨星生物下周肯定会继续裁员。",
+    "expected_claim_type": "prediction",
+    "notes": "属于未来趋势判断。"
+  },
+  {
+    "case_id": "C04",
+    "claim": "很多内部员工其实早就知道这次检查结果。",
+    "expected_claim_type": "unverifiable",
+    "notes": "公开资料通常无法直接验证。"
+  },
+  {
+    "case_id": "C05",
+    "claim": "清河市渡轮在3月5日上午停航半日。",
+    "expected_claim_type": "fact",
+    "notes": "属于可验证的事件事实。"
+  },
+  {
+    "case_id": "C06",
+    "claim": "我觉得北城区化工厂一直在隐瞒真实污染情况。",
+    "expected_claim_type": "opinion",
+    "notes": "主观判断，不应进入标准 verdict。"
+  }
+]

@@ -1,4 +1,4 @@
-﻿# 当前目标与项目分层说明
+# 当前目标与项目分层说明
 
 ## 1. 现在的目标是什么
 
@@ -59,19 +59,17 @@
 ## 5. 项目分层图
 
 ```mermaid
-flowchart TD
-    A["项目最终目标：做出可演示的 V1 新闻观察员"] --> B["目标与分析层"]
-    A --> C["规则与判定层"]
-    A --> D["协作与流程层"]
-    A --> E["留痕与复盘层"]
-
-    B --> B1["requirements/analysis"]
-    B --> B2["requirements/research"]
-    B --> B3["requirements/guides"]
-
-    C --> C1["rules"]
-    D --> D1["workflows"]
-    E --> E1["prompt-history.md"]
+graph TD
+    A[项目最终目标 做出可演示的 V1 新闻观察员] --> B[目标与分析层]
+    A --> C[规则与判定层]
+    A --> D[协作与流程层]
+    A --> E[留痕与复盘层]
+    B --> B1[requirements/analysis]
+    B --> B2[requirements/research]
+    B --> B3[requirements/guides]
+    C --> C1[rules]
+    D --> D1[workflows]
+    E --> E1[prompt-history.md]
 ```
 
 这张图表达的是：
@@ -174,4 +172,3 @@ flowchart TD
 对这个仓库来说，当前最重要的一句话是：
 
 **我们已经基本完成“理解题目”和“冻结方向”的阶段，下一步应该进入“冻结硬规则 + 三项验证 + 最小骨架”的实现前收口阶段。**
-

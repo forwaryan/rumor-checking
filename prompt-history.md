@@ -41,3 +41,18 @@
 - **⭐ 效果评估**: [待填写]
 
 ---
+
+### 📅 2026-03-13 15:53
+> **🧵 线程标识**: `T-doc`
+> **🏷️ 窗口职责**: 文档
+> **🔗 上下文来源**: `overview/01_current_goal_and_layers.md`、`overview/02_folder_rationale.md`、`requirements/analysis/01_scope_and_v1_design.md`、`requirements/analysis/02_prototype_review_and_alignment.md`、`requirements/analysis/03_high_score_gap_analysis.md`、`requirements/analysis/04_implementation_difficulty_analysis.md`、`requirements/analysis/05_difficulty_summary_and_boundary_confirmation.md`、`requirements/analysis/06_propagation_vs_verification_depth_review.md`、`requirements/analysis/07_v1_execution_plan.md`
+> **💡 原始指令摘要**: 基于现有 overview 和最小可行方案，制定一版 V1 文档，要求除大模型 API key 调用外尽量做到零额外 key，并将文档与现有分析文档全部关联起来。
+
+- **🎯 本线程目标 (Context & Goal)**: 把当前仓库的总览层和分析层压缩成一份可执行的 V1 蓝图，明确“当前第一版到底做什么、不做什么、哪些能力不应再额外依赖新 key、实现时还要同步维护哪些文档”。
+- **🧩 已知约束 (Known Context)**: 当前仓库仍是实现前阶段的文档仓库；V1 必须优先保证传播链时间线和 claim 核查表的最小闭环；用户已决定 V1 先接 Kimi API，后续再对比其他模型；需要避免覆盖已有未提交改动。
+- **⚙️ AI 采用的策略 (AI Approach)**: 先读取 overview、分析文档和三份硬规则，整理出一份兼顾边界、能力矩阵、流程图、页面骨架和文档交付物的桥接蓝图；再把该蓝图放进 `overview/`，作为从“项目地图”走向“V1 实施”的过渡文档，并更新入口索引与日志。
+- **📦 产出与落点 (Artifacts)**: `overview/03_v1_zero_key_blueprint.md`、`overview/README.md`、`prompt-history.md`
+- **➡️ 交接建议 (Next Handoff)**: 建议 `T-main` 基于本蓝图冻结 V1 边界；随后可由 `T-impl` 按文中 schema 与模块顺序搭后端骨架，再由 `T-doc` 补根目录 README 和样例文档。
+- **⭐ 效果评估**: [待填写]
+
+---

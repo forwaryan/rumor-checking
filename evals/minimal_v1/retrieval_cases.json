@@ -1,0 +1,184 @@
+﻿[
+  {
+    "case_id": "R01",
+    "query": "海州市 酸奶 过期 通报 海州新鲜屋",
+    "mock_search_results": [
+      {
+        "result_id": "R01-1",
+        "title": "海州市市场监管局通报海州新鲜屋整改情况",
+        "url": "https://gov.example.cn/hzsamr/2026-03-01",
+        "source_name": "海州市市场监管局",
+        "published_at": "2026-03-01",
+        "snippet": "发现2批次酸奶超过保质期，涉事门店停业整改。",
+        "source_tier": "S",
+        "is_duplicate_of": null
+      },
+      {
+        "result_id": "R01-2",
+        "title": "海州日报：海州新鲜屋两门店停售整改",
+        "url": "https://news.example.cn/local/2026-03-01-1",
+        "source_name": "海州日报",
+        "published_at": "2026-03-01",
+        "snippet": "当地市场监管部门要求门店停业整改。",
+        "source_tier": "A",
+        "is_duplicate_of": null
+      },
+      {
+        "result_id": "R01-3",
+        "title": "转载：海州新鲜屋两门店停售整改",
+        "url": "https://aggregate.example.cn/repost/778",
+        "source_name": "聚合快讯",
+        "published_at": "2026-03-01",
+        "snippet": "转载海州日报内容。",
+        "source_tier": "B",
+        "is_duplicate_of": "R01-2"
+      },
+      {
+        "result_id": "R01-4",
+        "title": "海州新鲜屋发布致歉说明",
+        "url": "https://brand.example.cn/apology/2026-03-03",
+        "source_name": "海州新鲜屋",
+        "published_at": "2026-03-03",
+        "snippet": "公司致歉并公布整改措施。",
+        "source_tier": "A",
+        "is_duplicate_of": null
+      },
+      {
+        "result_id": "R01-5",
+        "title": "自媒体称多人中毒",
+        "url": "https://we-media.example.com/post/888",
+        "source_name": "民生爆料",
+        "published_at": "2026-02-28",
+        "snippet": "声称已有多人中毒，但未给出权威来源。",
+        "source_tier": "C",
+        "is_duplicate_of": null
+      }
+    ],
+    "expected": {
+      "min_related_results": 4,
+      "min_high_trust_results": 2,
+      "expected_origin_result_id": "R01-1",
+      "expected_turning_point_result_id": "R01-4",
+      "expected_mode_hint": "complete"
+    }
+  },
+  {
+    "case_id": "R02",
+    "query": "清河市 渡轮 停航 大雾 通报",
+    "mock_search_results": [
+      {
+        "result_id": "R02-1",
+        "title": "清河市交通局发布停航说明",
+        "url": "https://gov.example.cn/qhjt/2026-03-05",
+        "source_name": "清河市交通局",
+        "published_at": "2026-03-05",
+        "snippet": "因江面大雾导致能见度低，渡轮上午停航。",
+        "source_tier": "S",
+        "is_duplicate_of": null
+      },
+      {
+        "result_id": "R02-2",
+        "title": "渡轮下午恢复运行",
+        "url": "https://news.example.cn/metro/2026-03-05-2",
+        "source_name": "清河日报",
+        "published_at": "2026-03-05",
+        "snippet": "下午恢复运行，上午停航原因为大雾。",
+        "source_tier": "A",
+        "is_duplicate_of": null
+      },
+      {
+        "result_id": "R02-3",
+        "title": "乘客抱怨清河渡运调度混乱",
+        "url": "https://comment.example.cn/post/99",
+        "source_name": "城市论坛",
+        "published_at": "2026-03-05",
+        "snippet": "论坛用户抱怨调度问题。",
+        "source_tier": "C",
+        "is_duplicate_of": null
+      }
+    ],
+    "expected": {
+      "min_related_results": 3,
+      "min_high_trust_results": 2,
+      "expected_origin_result_id": "R02-1",
+      "expected_turning_point_result_id": null,
+      "expected_mode_hint": "complete_or_partial"
+    }
+  },
+  {
+    "case_id": "R03",
+    "query": "晨星生物 裁员40% 传闻",
+    "mock_search_results": [
+      {
+        "result_id": "R03-1",
+        "title": "晨星生物回应裁员传闻",
+        "url": "https://ir.example.com/morningstar/2026-03-06",
+        "source_name": "晨星生物",
+        "published_at": "2026-03-06",
+        "snippet": "公司否认40%裁员计划。",
+        "source_tier": "S",
+        "is_duplicate_of": null
+      },
+      {
+        "result_id": "R03-2",
+        "title": "自媒体爆料晨星生物将大裁员",
+        "url": "https://we-media.example.com/post/321",
+        "source_name": "职场速递",
+        "published_at": "2026-03-05",
+        "snippet": "爆料称多个部门将裁员40%。",
+        "source_tier": "C",
+        "is_duplicate_of": null
+      },
+      {
+        "result_id": "R03-3",
+        "title": "证券时报：公司否认裁员40%",
+        "url": "https://finance.example.cn/2026-03-06-3",
+        "source_name": "证券时报",
+        "published_at": "2026-03-06",
+        "snippet": "交易所问询后公司否认传闻。",
+        "source_tier": "A",
+        "is_duplicate_of": null
+      }
+    ],
+    "expected": {
+      "min_related_results": 3,
+      "min_high_trust_results": 2,
+      "expected_origin_result_id": "R03-2",
+      "expected_turning_point_result_id": "R03-1",
+      "expected_mode_hint": "partial"
+    }
+  },
+  {
+    "case_id": "R04",
+    "query": "北川中学 全面停课 一个月",
+    "mock_search_results": [
+      {
+        "result_id": "R04-1",
+        "title": "家长群截图称北川中学将停课",
+        "url": "https://social.example.com/post/777",
+        "source_name": "家长群转发",
+        "published_at": "2026-03-07",
+        "snippet": "截图称学校即将停课一个月。",
+        "source_tier": "C",
+        "is_duplicate_of": null
+      },
+      {
+        "result_id": "R04-2",
+        "title": "聚合页：北川中学停课传闻持续发酵",
+        "url": "https://aggregate.example.cn/topic/901",
+        "source_name": "资讯聚合",
+        "published_at": "2026-03-07",
+        "snippet": "聚合多个转发，无正式来源。",
+        "source_tier": "B",
+        "is_duplicate_of": null
+      }
+    ],
+    "expected": {
+      "min_related_results": 2,
+      "min_high_trust_results": 0,
+      "expected_origin_result_id": null,
+      "expected_turning_point_result_id": null,
+      "expected_mode_hint": "safe"
+    }
+  }
+]

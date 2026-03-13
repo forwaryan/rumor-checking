@@ -1,0 +1,70 @@
+﻿[
+  {
+    "case_id": "P01",
+    "context": {
+      "input_type": "text_news",
+      "evidence_grade": "A",
+      "claim_count": 4,
+      "decidable_claim_count": 3,
+      "timeline_node_count": 6,
+      "fallback_used": false
+    },
+    "expected": {
+      "mode": "complete_mode",
+      "required_sections": ["event", "timeline", "claim_results", "final_summary", "evidence"],
+      "must_show_boundary": true,
+      "must_not_hide_conflicts": true
+    }
+  },
+  {
+    "case_id": "P02",
+    "context": {
+      "input_type": "text_news",
+      "evidence_grade": "C",
+      "claim_count": 4,
+      "decidable_claim_count": 1,
+      "timeline_node_count": 3,
+      "fallback_used": false
+    },
+    "expected": {
+      "mode": "partial_mode",
+      "required_sections": ["event", "timeline", "claim_results", "final_summary"],
+      "must_show_boundary": true,
+      "must_not_overstate_timeline": true
+    }
+  },
+  {
+    "case_id": "P03",
+    "context": {
+      "input_type": "question_only",
+      "evidence_grade": "D",
+      "claim_count": 2,
+      "decidable_claim_count": 0,
+      "timeline_node_count": 0,
+      "fallback_used": false
+    },
+    "expected": {
+      "mode": "safe_mode",
+      "required_sections": ["event", "unknowns", "next_steps"],
+      "must_show_boundary": true,
+      "must_not_output_strong_verdict": true
+    }
+  },
+  {
+    "case_id": "P04",
+    "context": {
+      "input_type": "url_unknown",
+      "evidence_grade": "B",
+      "claim_count": 3,
+      "decidable_claim_count": 1,
+      "timeline_node_count": 2,
+      "fallback_used": true
+    },
+    "expected": {
+      "mode": "partial_mode",
+      "required_sections": ["event", "claim_results", "final_summary"],
+      "must_show_boundary": true,
+      "must_explicitly_mark_fallback": true
+    }
+  }
+]

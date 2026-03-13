@@ -8,9 +8,11 @@
 
 1. `01_current_goal_and_layers.md`
 2. `02_folder_rationale.md`
+3. `03_v1_zero_key_blueprint.md`
 
 适合以下场景：
 
 - 刚进入仓库，想先建立整体理解
 - 需要向别人解释当前项目到底发展到了哪一步
 - 想知道某个文件夹为什么存在、应该去哪找某类信息
+- 想把 `overview/` 直接翻译成“当前 V1 到底怎么做、做到什么边界”
