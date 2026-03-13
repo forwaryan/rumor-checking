@@ -6,6 +6,8 @@
 
 ## 目录总览
 
+- `overview/`
+  - 仓库总览、项目地图、分层解释和文件夹职责说明
 - `requirements/analysis/`
   - 核心需求、方案边界、原型对齐、实现难点和高分缺口分析
 - `requirements/research/`
@@ -26,3 +28,9 @@
 1. 先验证输入抽取、证据检索和 claim 核查这三条最小链路
 2. 再冻结 V1 的功能边界和演示用例
 3. 最后再搭建真正的 Web Demo 和代码骨架
+
+如果需要先理解整个仓库为什么这样分层，建议优先阅读：
+
+1. `overview/README.md`
+2. `overview/01_current_goal_and_layers.md`
+3. `overview/02_folder_rationale.md`

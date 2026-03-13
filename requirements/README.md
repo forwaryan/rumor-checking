@@ -9,6 +9,8 @@
 - `analysis/03_high_score_gap_analysis.md`：从高分目标出发，对当前规则与内容的缺口分析，以及建议新增的规则清单
 - `analysis/04_implementation_difficulty_analysis.md`：对当前项目真正的实现难点、风险优先级以及两天内可落地策略的分析
 - `analysis/05_difficulty_summary_and_boundary_confirmation.md`：面向沟通场景汇总实现难点、待确认边界、默认口径与流程图
+- `analysis/06_propagation_vs_verification_depth_review.md`：复盘“传播链还原”和“内容核查”两大核心任务目前分析到了什么深度、还缺什么规则，以及薄弱点的根因
+- `analysis/07_v1_execution_plan.md`：从当前文档阶段进入实现阶段的开工顺序、验证任务、首批模块和完成标准
 
 ## research
 
@@ -18,3 +20,8 @@
 ## guides
 
 - `guides/01_bracket_trigger_commands_guide.md`：统一整理 `[Log]`、`[scores]`、`[Commit]` 等方括号触发指令、参数位和执行逻辑图
+- `guides/02_prompt_asset_templates.md`：Prompt 版本、失败修复、schema、幻觉防控、上下文超限和 eval 的模板
+- `guides/03_random_news_eval_template.md`：随机新闻输入下的评测表模板、通过标准与 case 配比建议
+- `guides/04_validation_execution_checklist.md`：输入验证、检索验证、verdict 验证的执行清单、case 配置与通过标准
+- `guides/05_input_sample_bank_template.md`：20 条输入样本骨架，覆盖标准新闻 URL、抽取不稳定 URL 和文本输入
+
