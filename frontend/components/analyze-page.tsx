@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { ClaimTable } from "@/components/claim-table";
@@ -8,8 +8,9 @@ import { InputPanel } from "@/components/input-panel";
 import { RiskPanel } from "@/components/risk-panel";
 import { StatusBanner } from "@/components/status-banner";
 import { TimelinePanel } from "@/components/timeline-panel";
-import { analyzeReport, getDemoCases, getDemoReport, getHealth } from "@/lib/api-client";
-import { buildFallbackReport, getIdleDemoHints, getStatusFromMode, validateInput } from "@/lib/report-utils";
+import { analyzeReport, getHealth } from "@/lib/api-client";
+import { getLocalDemoCaseSummaries, getLocalDemoReport } from "@/lib/demo-cases";
+import { buildFallbackReport, getStatusFromMode, validateInput } from "@/lib/report-utils";
 import type { AnalyzeRequest, AnalysisStatus, DemoCaseSummary, InputType, Report } from "@/types/report";
 
 type BackendState = "checking" | "online" | "offline" | "degraded";
@@ -20,7 +21,7 @@ interface LastRequest {
 }
 
 export function AnalyzePage() {
-  const idleDemoCases = useMemo(() => getIdleDemoHints(), []);
+  const idleDemoCases = useMemo(() => getLocalDemoCaseSummaries(), []);
   const [demoCases, setDemoCases] = useState<DemoCaseSummary[]>(idleDemoCases);
   const [inputValue, setInputValue] = useState("");
   const [inputType, setInputType] = useState<InputType>("auto");
@@ -36,32 +37,20 @@ export function AnalyzePage() {
     let active = true;
 
     async function hydrate() {
-      try {
-        const [healthResult, demoResult] = await Promise.all([
-          getHealth().catch(() => ({ status: "error" as const })),
-          getDemoCases(),
-        ]);
+      const healthResult = await getHealth().catch(() => ({ status: "error" as const }));
 
-        if (!active) {
-          return;
-        }
-
-        setBackendState(
-          healthResult.status === "ok"
-            ? "online"
-            : healthResult.status === "degraded"
-              ? "degraded"
-              : "offline",
-        );
-        setDemoCases(demoResult.length ? demoResult : idleDemoCases);
-      } catch {
-        if (!active) {
-          return;
-        }
-
-        setBackendState("offline");
-        setDemoCases(idleDemoCases);
+      if (!active) {
+        return;
       }
+
+      setBackendState(
+        healthResult.status === "ok"
+          ? "online"
+          : healthResult.status === "degraded"
+            ? "degraded"
+            : "offline",
+      );
+      setDemoCases(idleDemoCases);
     }
 
     void hydrate();
@@ -94,7 +83,7 @@ export function AnalyzePage() {
     setFallbackMessage(null);
 
     if (target.demoId && backendState === "offline") {
-      const localReport = getDemoReport(target.demoId);
+      const localReport = getLocalDemoReport(target.demoId);
       if (localReport) {
         setReport(localReport);
         setStatus(getStatusFromMode(localReport.mode));
@@ -109,7 +98,7 @@ export function AnalyzePage() {
       setStatus(getStatusFromMode(nextReport.mode));
     } catch {
       if (target.demoId) {
-        const localReport = getDemoReport(target.demoId);
+        const localReport = getLocalDemoReport(target.demoId);
         if (localReport) {
           setReport(localReport);
           setStatus(getStatusFromMode(localReport.mode));

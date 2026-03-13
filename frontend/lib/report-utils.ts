@@ -1,14 +1,12 @@
-﻿import type {
+import type {
   AnalysisStatus,
   ConfidenceValue,
-  DemoCaseSummary,
   Evidence,
   InputType,
   OutputMode,
   Report,
   Verdict,
 } from "@/types/report";
-import { getLocalDemoCaseSummaries } from "@/lib/demo-cases";
 
 const modeCopy: Record<
   OutputMode,
@@ -175,8 +173,4 @@ export function buildFallbackReport(input: string, inputType: InputType): Report
     ],
     sources: [],
   };
-}
-
-export function getIdleDemoHints(): DemoCaseSummary[] {
-  return getLocalDemoCaseSummaries();
 }

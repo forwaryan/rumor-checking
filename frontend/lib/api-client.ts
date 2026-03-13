@@ -1,9 +1,7 @@
-﻿import { getLocalDemoCaseSummaries, getLocalDemoReport } from "@/lib/demo-cases";
 import type {
   AnalyzeRequest,
   ClaimResult,
   ConfidenceValue,
-  DemoCaseSummary,
   Evidence,
   Event,
   HealthResponse,
@@ -205,12 +203,4 @@ export async function getHealth(): Promise<HealthResponse> {
   }
 
   return { status: "ok" };
-}
-
-export async function getDemoCases(): Promise<DemoCaseSummary[]> {
-  return getLocalDemoCaseSummaries();
-}
-
-export function getDemoReport(id: string): Report | null {
-  return getLocalDemoReport(id);
 }
