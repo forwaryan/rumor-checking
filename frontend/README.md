@@ -1,4 +1,4 @@
-﻿# Frontend
+# Frontend
 
 本目录提供 `Cluster-E / Experience Shell` 的 Next.js 单页前端壳，当前已经从“纯 mock 页面”推进到“优先走真实 `POST /api/v1/analyze`，失败时回退本地 demo payload”的状态。
 
@@ -12,6 +12,7 @@
 - 三条与后端 scenario 对齐的稳定 demo 输入
 - 后端离线或请求失败时的本地 demo payload / safe fallback
 - 共享 contract schema 与 demo payload（位于 `contracts/`）
+- 基于 Vitest 的最小单元测试覆盖（`parseReport / validateInput / getStatusFromMode / collectEvidence`）
 
 ## 当前接口假设
 
@@ -33,6 +34,14 @@ npm install
 npm run dev
 ```
 
+常用验证命令：
+
+```bash
+npm test
+npm run typecheck
+npm run build
+```
+
 默认请求：
 
 ```bash
@@ -52,7 +61,7 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 - `components/`
   - 页面各个可复用展示模块
 - `lib/`
-  - API client、demo 注册、模式和 fallback 辅助逻辑
+  - API client、demo 注册、模式和 fallback 辅助逻辑、单元测试
 - `types/`
   - 前端消费的 Report 类型
 
@@ -65,6 +74,7 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 
 ## 验证说明
 
+- `npm test` 已通过（2 个测试文件，6 个测试）
 - `npm run typecheck` 已通过
 - `npm run build` 已通过
-- 直接在 `\\wsl.localhost\...` 路径上使用 Windows Node 构建会遇到路径兼容问题；如需稳定构建，优先在 WSL 内或 Windows 本机目录执行
+- 当前项目存在 Windows Node 直接操作 `\\wsl.localhost\...` 路径的兼容性问题；如需稳定执行 `test / build`，优先在 WSL 内或 Windows 本机目录执行

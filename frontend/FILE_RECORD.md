@@ -1,6 +1,6 @@
-﻿# Cluster-E / Experience Shell 文件记录
+# Cluster-E / Experience Shell 文件记录
 
-更新时间：2026-03-13 19:16（Asia/Shanghai）
+更新时间：2026-03-13 20:35（Asia/Shanghai）
 
 ## 1. 记录目的
 
@@ -20,6 +20,7 @@
 - 页面优先调用真实 `POST /api/v1/analyze`。
 - 后端离线或请求失败时，若当前是 demo 输入，则回退到同主题本地 payload。
 - 若不是 demo 输入，则回退到通用 `safe_mode` fallback。
+- 解析与展示用到的纯函数已经补上最小单元测试。
 
 当前后端真实已存在的接口只有：
 
@@ -30,10 +31,11 @@
 
 ## 3. 本次记录覆盖范围
 
-本次记录覆盖两类内容：
+本次记录覆盖三类内容：
 
 - `frontend/` 下的 Next.js 单页壳实现。
 - 为前端渲染提供稳定输入的 `contracts/` schema 与 demo payload。
+- 这次新增的 Vitest 配置和最小测试文件。
 
 不覆盖以下工作区变更：
 
@@ -58,18 +60,21 @@
 补充说明：
 
 - 三份 demo payload 现在不再是独立于后端的自造案例，而是与后端真实 scenario 对齐的离线回退版本。
+- 本轮已统一把这些 JSON 转成 UTF-8 无 BOM，避免 Windows Node / Vite 读取配置或 payload 时出现解析问题。
 - 后端一旦改变字段名或模式切换规则，优先先改 `contracts/` 和后端 schema，再同步前端。
 
 ### 4.2 前端工程与配置文件
 
 | 文件 | 当前职责 | 关键内容 | 后续通常由谁继续改 |
 | --- | --- | --- | --- |
-| `frontend/package.json` | 定义前端依赖与脚本 | 当前使用 `next@15.5.12`、`react@19.2.4`、`react-dom@19.2.4`；脚本为 `dev / build / start / typecheck` | `T-impl-web` |
+| `frontend/package.json` | 定义前端依赖与脚本 | 当前使用 `next@15.5.12`、`react@19.2.4`、`react-dom@19.2.4`、`vitest@1.6.0`；脚本为 `dev / build / start / typecheck / test` | `T-impl-web` |
+| `frontend/package-lock.json` | 固化依赖解析结果 | 锁定 Node 18 下可用的前端与测试依赖版本 | `T-impl-web` |
 | `frontend/tsconfig.json` | TypeScript 编译边界 | 开启严格模式、JSON 导入、`@/*` 路径别名 | `T-impl-web` |
 | `frontend/next-env.d.ts` | Next.js TS 环境声明 | 标准 `next` 类型声明 | 一般无需手改 |
 | `frontend/next.config.ts` | Next.js 工程配置 | 打开 `externalDir`，允许从 `frontend/` 读取上层 `contracts/` | `T-impl-web` |
+| `frontend/vitest.config.ts` | Vitest 配置 | 定义 `@` 别名、`node` 测试环境和 `lib/**/*.test.ts` 测试发现范围 | `T-impl-web`、`T-test` |
 | `frontend/.gitignore` | 前端本地忽略规则 | 忽略 `node_modules / .next / out` 等产物 | 一般无需手改 |
-| `frontend/README.md` | 前端运行与协作说明 | 已更新为真实 `analyze / health` 接口假设和 demo 回退策略 | `T-doc`、`T-impl-web` |
+| `frontend/README.md` | 前端运行与协作说明 | 已更新为真实 `analyze / health` 接口假设、demo 回退策略与测试命令 | `T-doc`、`T-impl-web` |
 | `frontend/tsconfig.tsbuildinfo` | TypeScript 增量检查副产物 | 由 `tsc --noEmit` 自动更新；不是业务源代码 | 不建议手工维护 |
 
 补充说明：
@@ -84,15 +89,28 @@
 | `frontend/types/report.ts` | 前端类型总入口 | 定义 `Report / Event / TimelineNode / Evidence / ClaimResult / DemoCase`，并把 `AnalyzeRequest` 对齐到真实后端 `raw_input / input_type` | `T-impl-web` |
 | `frontend/lib/demo-cases.ts` | 本地 demo 索引层 | 注册 `expired-yogurt / chemical-odor / morningstar-layoff` 三条与后端 scenario 对齐的示例输入与本地 payload | `T-impl-web`、`T-demo` |
 | `frontend/lib/report-utils.ts` | 前端模式与展示辅助函数 | 负责 mode 文案、时间格式化、confidence 展示、输入校验、fallback report 生成、证据聚合 | `T-impl-web` |
-| `frontend/lib/api-client.ts` | 后端 API client 与本地 demo 访问层 | 当前只请求真实 `analyze / health`，`getDemoCases()` 返回本地示例摘要，`getDemoReport()` 提供离线 fallback | `T-impl-web`、`T-impl-api` |
+| `frontend/lib/api-client.ts` | 后端 API client 与 Report parser | 当前只请求真实 `analyze / health`，并负责把后端返回的未知 JSON 保守解析成前端 `Report` | `T-impl-web`、`T-impl-api` |
 
 补充说明：
 
 - `api-client.ts` 默认请求 `http://localhost:8000/api/v1/*`，可通过 `NEXT_PUBLIC_API_BASE_URL` 覆盖。
 - 当前前端不再主动请求不存在的 `GET /api/v1/demo-cases` 或 `POST /api/v1/replay`。
+- 为了让 Vitest 只覆盖纯函数，本轮已把本地 demo payload 访问从 `api-client.ts` / `report-utils.ts` 中拆出，保留在页面层直接引用。
 - `report-utils.ts` 中的 `buildFallbackReport()` 仍然保留，用于“非 demo 输入 + 后端失败”时的通用安全模式回退。
 
-### 4.4 前端页面组件层
+### 4.4 前端测试文件
+
+| 文件 | 当前职责 | 关键内容 | 后续通常由谁继续改 |
+| --- | --- | --- | --- |
+| `frontend/lib/__tests__/api-client.test.ts` | 覆盖 Report parser 的最小单元测试 | 验证完整 payload、稀疏 payload 默认值、非法 payload 抛错 | `T-impl-web`、`T-test` |
+| `frontend/lib/__tests__/report-utils.test.ts` | 覆盖展示辅助函数的最小单元测试 | 验证输入校验、mode 到 status 的映射、证据去重和倒序排序 | `T-impl-web`、`T-test` |
+
+补充说明：
+
+- 当前测试刻意只覆盖纯函数，不直接挂 React 组件，不依赖浏览器环境。
+- 如果后续继续扩测试，优先先补 parser 边界和页面 smoke test，再考虑更重的 UI 交互测试。
+
+### 4.5 前端页面组件层
 
 | 文件 | 当前职责 | 关键内容 | 后续通常由谁继续改 |
 | --- | --- | --- | --- |
@@ -109,9 +127,10 @@
 补充说明：
 
 - `analyze-page.tsx` 是当前前端最核心的调度文件。
+- 本轮已把本地 demo 摘要和本地 payload 读取留在该页面层，避免底层 parser / util 模块与上层演示数据形成耦合。
 - 如果后续要接真实轮询、取消请求、缓存、query client 或 reducer，优先从这里抽离，而不是让子组件各自发请求。
 
-### 4.5 Next.js 页面入口与视觉样式
+### 4.6 Next.js 页面入口与视觉样式
 
 | 文件 | 当前职责 | 关键内容 | 后续通常由谁继续改 |
 | --- | --- | --- | --- |
@@ -131,6 +150,7 @@
 6. demo 场景在后端离线或请求失败时，会回退到同主题本地 payload。
 7. 非 demo 输入在接口失败时，会回退到通用 `safe_mode` fallback。
 8. 时间线、claim 表、证据列表和风险提示都已有空态与边界文案。
+9. parser 与展示辅助函数已有最小自动化测试覆盖。
 
 ## 6. 当前未完成或待继续项
 
@@ -139,7 +159,7 @@
 - 真实后端返回结构与前端 parser 的最终联调验收。
 - 更细的错误码、请求超时、取消请求和并发提交保护。
 - 如果后端未来补 `demo-cases / replay` 接口，决定是否恢复远端 demo 索引能力。
-- 组件级测试、页面 smoke test、视觉回归记录。
+- 页面级 smoke test、视觉回归记录。
 - 如果后续要接真实 schema 校验库，还需要补前后端同源校验方案。
 
 ## 7. 验证记录
@@ -147,19 +167,23 @@
 ### 7.1 已完成验证
 
 - 依赖安装：已完成。
+- Vitest 单元测试：已通过。
 - TypeScript 检查：已通过。
 - Next.js 生产构建：已通过。
 
 ### 7.2 具体验证结论
 
-1. `frontend/package.json` 依赖已调整为 Node 18 可运行的组合：`next@15.5.12 + react@19.2.4 + react-dom@19.2.4`。
-2. 直接在当前 `\\wsl.localhost\...` 工作区上用 Windows Node 运行 `next build`，会触发 WSL 挂载路径上的 `readlink` 兼容问题。
-3. 将 `frontend/` 与 `contracts/` 复制到 Windows 本机临时目录后，`npm run build` 成功通过，说明当前失败不是业务代码错误，而是路径/运行时环境问题。
+1. `frontend/package.json` 依赖已调整为 Node 18 可运行的组合：`next@15.5.12 + react@19.2.4 + react-dom@19.2.4 + vitest@1.6.0`。
+2. 本轮新增单元测试共 2 个测试文件、6 个测试，当前已全部通过。
+3. 为了让测试稳定执行，本轮已把 demo payload 的静态读取留在页面层，避免纯函数测试跟随 import 链跨到演示数据文件。
+4. 本轮已统一清理前端与 contract JSON 的 UTF-8 BOM，解决了 Vite / PostCSS 在 Windows Node 下读取配置时报 `Unexpected token` 的问题。
+5. 直接在当前 `\\wsl.localhost\...` 工作区上用 Windows Node 运行 `test / build`，仍可能触发 WSL 挂载路径兼容问题。
+6. 将 `frontend/` 与 `contracts/` 复制到 Windows 本机临时目录后，`npm test`、`npm run typecheck`、`npm run build` 都可以通过，说明当前主要剩余问题在路径/运行时环境，而不是业务代码本身。
 
 ### 7.3 当前推荐验证方式
 
 - 开发期：优先在 WSL 内或 Windows 本机盘符路径下跑前端命令。
-- 如果继续通过 Windows Node 操作 `\\wsl.localhost\...` 路径，构建类命令仍可能复现同类兼容问题。
+- 如果继续通过 Windows Node 操作 `\\wsl.localhost\...` 路径，测试和构建类命令仍可能复现同类兼容问题。
 
 ## 8. 当前工作区观察（避免串线）
 
@@ -183,5 +207,5 @@
 
 1. 先确认真实后端 `Report` 输出与前端 parser 在所有 scenario 下都一致。
 2. 再给 `analyze-page.tsx` 增加更细的 loading / abort / retry 策略。
-3. 如需提升演示稳定性，优先补前端 smoke test 与 parser test。
+3. 如需提升演示稳定性，优先补页面 smoke test 与 parser 边界测试。
 4. 如果后端以后补齐 `demo-cases / replay`，再决定是否恢复远端 demo 注册能力。
