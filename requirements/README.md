@@ -8,6 +8,7 @@
 - `analysis/02_prototype_review_and_alignment.md`：对当前仓库内所有原型文档的实现逻辑、实现思路、实现技术和需求对齐总结
 - `analysis/03_high_score_gap_analysis.md`：从高分目标出发，对当前规则与内容的缺口分析，以及建议新增的规则清单
 - `analysis/04_implementation_difficulty_analysis.md`：对当前项目真正的实现难点、风险优先级以及两天内可落地策略的分析
+- `analysis/05_difficulty_summary_and_boundary_confirmation.md`：面向沟通场景汇总实现难点、待确认边界、默认口径与流程图
 
 ## research
 
