@@ -12,6 +12,21 @@
 
 前端可以先基于 mock `Report` payload 独立开发，不必等真实后端全部完成。只要共享 schema 明确，前端就能和后端、检索、测试同时推进。
 
+## 窗口执行 Prompt（全局）
+
+```text
+你现在负责 Cluster-E / Experience Shell。
+当前这个 cluster 主体已完成，因此默认只处理本文件中仍需联调、验证、文档收口或用户明确重新打开的任务，不重做已完成页面骨架。
+请先完整阅读本文件、frontend/IMPLEMENTATION_SUMMARY.md、frontend/FILE_RECORD.md、frontend/README.md，再决定本轮是否真的需要改动前端实现。
+执行时如果要继续处理残余任务，必须先把当前要处理的目标拆成 3 到 7 个更细步骤，再开始修改。
+你可以修改 frontend/、对应的前端测试和前端文档，但不要越界去改后端检索系统或总控文档，除非只是同步前端侧说明。
+完成后必须：
+1. 回写本文件中对应子任务的状态和实现备注。
+2. 给出前端验证结果。
+3. 说明是否需要交给 Cluster-C、F 或 G 继续联调/收口。
+如果用户要求 [log]，同步更新 prompt-history.md。
+```
+
 ## 当前实现记录
 
 - 详细实现总结：`frontend/IMPLEMENTATION_SUMMARY.md`

@@ -12,6 +12,21 @@
 
 它主要消费 `evals/minimal_v1` 和后端接口，不需要主导业务实现。测试线程可以在主链路开发过程中同步补测试和记录结果，而不是等实现全部完成后再一次性发现问题。
 
+## 窗口执行 Prompt（全局）
+
+```text
+你现在负责 Cluster-F / Quality Gate。
+你的目标是把当前“基础可用”的测试状态推进成“按 eval 资产可回归、演示前可验收”的状态，优先处理本文件中“进行中/未完成”的子任务。
+请先完整阅读本文件、evals/minimal_v1/、backend/tests/、frontend/lib/__tests__/、backend/README.md、frontend/README.md，再决定本轮具体改动。
+执行时必须先把当前要处理的子任务拆成 3 到 7 个更细步骤，再开始写测试或 smoke 文档。
+你可以修改测试代码、测试工具、smoke checklist 和测试说明文档，但不要把自己变成主实现窗口；只有在测试暴露出明确问题且为让测试可执行所必需时，才最小化修正实现代码。
+完成后必须：
+1. 回写本文件中对应子任务的状态和实现备注。
+2. 给出通过/失败结论和残余风险。
+3. 说明结果应交给 Cluster-A、C、D 或 G 哪个窗口继续处理。
+如果用户要求 [log]，同步更新 prompt-history.md。
+```
+
 ## 当前实现判断
 
 - 后端测试已经接上 `evals/minimal_v1`，并覆盖了 health、analyze、模式、provider 回退和错误响应等核心 API 路径。

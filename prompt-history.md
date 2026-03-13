@@ -175,3 +175,17 @@
 - **⭐ 效果评估**: [待填写]
 
 ---
+### 📅 2026-03-13 21:23
+> **🧵 线程标识**: `T-impl-web`
+> **🏷️ 窗口职责**: 实现
+> **🔗 上下文来源**: `tasks/README.md`、`tasks/cluster-a-control-tower.md`、`tasks/cluster-b-contract-forge.md`、`tasks/cluster-c-api-foundation.md`、`tasks/cluster-d-retrieval-lab.md`、`tasks/cluster-f-quality-gate.md`、`tasks/cluster-g-demo-ops.md`、`README.md`、`workflows/prompt_logging_rules.md`
+> **💡 原始指令摘要**: 用户要求继续处理未完成任务，并补一份能直接支撑并行开发的模块责任分析与执行手册：不仅要说明每个模块负责什么，还要给每个未完成子 task 准备可直接发给窗口的 prompt，并要求窗口在真正执行时再按 task 提示拆成更细步骤完成。
+
+- **🎯 本线程目标 (Context & Goal)**: 把 `tasks/` 从“状态板”升级为“可直接派工”的执行体系，让后续窗口拿到未完成子 task 后不用再自己编 prompt 和拆步骤，就能在边界清晰的前提下并行推进。
+- **🧩 已知约束 (Known Context)**: `tasks/cluster-*.md` 当前更适合作为状态基线，不适合塞入过长的复制式 prompt；因此需要用一份独立手册承接模块责任分析、子 task 执行 prompt 和更细执行步骤；同时 `tasks/README.md` 需要补入口说明，避免新手只看到状态文件而看不到执行手册。
+- **⚙️ AI 采用的策略 (AI Approach)**: 先识别所有仍未闭环的 cluster 和子 task，再新增 `tasks/parallel-execution-playbook.md` 作为并行执行手册，按 cluster 统一写出“模块责任分析 + 每个未完成子 task 的窗口 prompt + 更细执行步骤”，并在 `tasks/README.md` 中补上使用方式与入口链接，让状态文件和执行手册分层协作。
+- **📦 产出与落点 (Artifacts)**: `tasks/parallel-execution-playbook.md`、`tasks/README.md`、`prompt-history.md`
+- **➡️ 交接建议 (Next Handoff)**: 之后如果要继续开并行窗口，建议先在 `tasks/cluster-*.md` 里确认状态，再直接从 `tasks/parallel-execution-playbook.md` 复制对应子 task prompt 给新窗口；当前最适合优先派发的是 `D5 / C10 / F2 or F7 / G3-G5 / A3`。
+- **⭐ 效果评估**: [待填写]
+
+---

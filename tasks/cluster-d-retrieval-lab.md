@@ -12,6 +12,22 @@
 
 它和 `Cluster-C` 一样属于后端，但关注点不同。它可以在 schema 固定后独立实现 mock 检索、真实检索和 timeline 逻辑，只在 `Report` 集成点和测试环节汇合。
 
+## 窗口执行 Prompt（全局）
+
+```text
+你现在负责 Cluster-D / Retrieval Lab。
+你的目标是把当前规则型时间线/证据占位链路推进成真正可复用的检索、标准化、去重和时间线能力，优先处理本文件中“进行中/未完成”的子任务。
+请先完整阅读本文件、backend/app/services/、evals/minimal_v1/retrieval_cases.json、data/README.md，以及与它直接耦合的 Cluster-C、Cluster-F、Cluster-G 状态说明。
+执行时必须先把当前要处理的子任务拆成 3 到 7 个更细步骤，再开始编码。
+你可以修改检索、时间线、缓存相关的后端代码与测试，也可以补必要的数据目录说明，但不要顺手重写前端或 analyze 主接口框架。
+如果需要改 contracts 或跨 cluster 核心文件，先按 Cluster-A 的边界口径处理。
+完成后必须：
+1. 回写本文件中对应子任务的状态和实现备注。
+2. 给出检索/时间线验证结果。
+3. 说明后续应交给 Cluster-F 还是 Cluster-G。
+如果用户要求 [log]，同步更新 prompt-history.md。
+```
+
 ## 当前实现判断
 
 - 当前后端已经有 `timeline_builder.py`、`scenario_library.py` 和规则化 evidence/timeline 结果，因此“最小时间线展示”并非空白。
