@@ -1,0 +1,14 @@
+Mirrored frontend to: C:\Users\WarYan\AppData\Local\Temp\rumor-checking-live-20260313221225\frontend
+Mirrored contracts to: C:\Users\WarYan\AppData\Local\Temp\rumor-checking-live-20260313221225\contracts
+Backend proxy target: http://127.0.0.1:8000
+Frontend URL: http://127.0.0.1:3124
+
+Starting Next.js from the Windows-local mirror to avoid WSL/UNC watcher issues...
+   ▲ Next.js 15.5.12
+   - Local:        http://localhost:3124
+   - Network:      http://28.0.0.1:3124
+   - Experiments (use with caution):
+     ✓ externalDir
+
+ ✓ Starting...
+ ✓ Ready in 4.7s

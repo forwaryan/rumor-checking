@@ -51,3 +51,5 @@ Write-Host 'Starting Next.js from the Windows-local mirror to avoid WSL/UNC watc
 
 $cmd = "cd /d `"$mirrorFrontend`" && set BACKEND_PROXY_TARGET=$BackendUrl && set NEXT_PUBLIC_API_BASE_URL= && node node_modules\next\dist\bin\next dev -p $Port"
 cmd.exe /c $cmd
+
+

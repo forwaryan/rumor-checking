@@ -1,0 +1,35 @@
+'\\wsl.localhost\Ubuntu-20.04\home\forwaryan\mianshi\rumor-checking'
+用作为当前目录的以上路径启动了 CMD.EXE。
+UNC 路径不受支持。默认值设为 Windows 目录。
+node:events:495
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: EPERM: operation not permitted, open 'C:\Users\WarYan\AppData\Local\Temp\rumor-checking-live\frontend\.next\trace'
+Emitted 'error' event on WriteStream instance at:
+    at emitErrorNT (node:internal/streams/destroy:151:8)
+    at emitErrorCloseNT (node:internal/streams/destroy:116:3)
+    at process.processTicksAndRejections (node:internal/process/task_queues:82:21) {
+  errno: -4048,
+  code: 'EPERM',
+  syscall: 'open',
+  path: 'C:\\Users\\WarYan\\AppData\\Local\\Temp\\rumor-checking-live\\frontend\\.next\\trace'
+}
+
+Node.js v18.19.0
+node:events:495
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: EPERM: operation not permitted, open 'C:\Users\WarYan\AppData\Local\Temp\rumor-checking-live\frontend\.next\trace'
+Emitted 'error' event on WriteStream instance at:
+    at emitErrorNT (node:internal/streams/destroy:151:8)
+    at emitErrorCloseNT (node:internal/streams/destroy:116:3)
+    at process.processTicksAndRejections (node:internal/process/task_queues:82:21) {
+  errno: -4048,
+  code: 'EPERM',
+  syscall: 'open',
+  path: 'C:\\Users\\WarYan\\AppData\\Local\\Temp\\rumor-checking-live\\frontend\\.next\\trace'
+}
+
+Node.js v18.19.0
