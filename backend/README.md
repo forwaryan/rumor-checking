@@ -6,11 +6,12 @@
 - `POST /api/v1/analyze`
 - 统一配置、日志、错误响应
 - mock 版 `input_normalizer / claim_extractor / verdict_engine / report_builder`
+- 与 `contracts/` 对齐的裸 `Report` 输出
 
 ## 详细实现记录
 
 - 详细记录见 `backend/docs/api-foundation-implementation-record.md`
-- 内容包括：实现范围、文件职责、主链路编排、规则细节、测试方法、验证结果、已知边界和后续接手建议
+- 内容包括：实现范围、文件职责、主链路编排、contract 对齐、前后端集成、测试方法、验证结果、已知边界和后续接手建议
 
 ## 目录边界
 
@@ -19,7 +20,7 @@
 - `app/core/`
   - 配置、日志、错误处理等基础设施
 - `app/models/`
-  - 当前后端内部 schema
+  - 当前后端内部 schema 与对外 contract 模型
 - `app/services/`
   - 输入标准化、claim、verdict、timeline、report 编排
 - `tests/`
@@ -36,5 +37,6 @@
 ## 当前实现边界
 
 - 还未接入真实检索与 Kimi provider，分析结果来自规则与 mock 数据
-- 共享协议仍以 `contracts/` 为准，后续 schema 冻结后需要再对齐字段
+- `demo-cases / replay` 后端接口仍未正式实现，前端当前带本地 fallback
+- 共享协议仍以 `contracts/` 为准，后续 schema 继续变化时需要同步对齐
 - 测试数据优先读取根目录 `evals/minimal_v1/`

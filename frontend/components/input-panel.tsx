@@ -58,8 +58,8 @@ export function InputPanel({
       </div>
 
       <p className="panel-copy">
-        支持 URL、正文和问题输入。页面默认优先回放稳定 demo；接通后端后，会自动转向真实
-        <code>/api/v1/*</code> 接口。
+        支持 URL、正文和问题输入。示例输入会优先走真实 <code>POST /api/v1/analyze</code>；只有后端离线或请求失败时，
+        才回退到本地 demo payload。
       </p>
 
       <div className="type-switcher" role="tablist" aria-label="输入类型">
@@ -92,7 +92,7 @@ export function InputPanel({
       <div className="demo-strip">
         <div className="demo-strip__header">
           <span className="field-label">稳定 demo case</span>
-          <span className="demo-strip__hint">点击后会填充输入并切换到对应模式</span>
+          <span className="demo-strip__hint">示例输入已对齐当前后端 scenario；离线时会回退到同主题本地 payload</span>
         </div>
         <div className="demo-grid">
           {demoCases.map((demoCase) => {
@@ -114,7 +114,7 @@ export function InputPanel({
 
       <div className="action-row">
         <button type="button" className="button button--primary" onClick={onSubmit} disabled={isSubmitting}>
-          {isSubmitting ? "分析中..." : selectedDemoId ? "回放 demo" : "开始分析"}
+          {isSubmitting ? "分析中..." : selectedDemoId ? "运行 demo" : "开始分析"}
         </button>
         <button type="button" className="button button--ghost" onClick={onReset} disabled={isSubmitting}>
           清空输入

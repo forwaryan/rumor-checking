@@ -131,3 +131,18 @@
 - **⭐ 效果评估**: [待填写]
 
 ---
+
+### 📅 2026-03-13 18:53
+> **🧵 线程标识**: `T-impl-web`
+> **🏷️ 窗口职责**: 实现
+> **🔗 上下文来源**: `tasks/cluster-e-experience-shell.md`、`overview/03_v1_zero_key_blueprint.md`、`overview/05_v1_architecture_and_task_board.md`、`rules/evidence_and_verdict_rules.md`、`rules/propagation_chain_rules.md`、`rules/failure_handling_rules.md`、`contracts/`、`frontend/`、`workflows/prompt_logging_rules.md`
+> **💡 原始指令摘要**: 窗口 5 负责 `T-impl-web`，先实现 `Cluster-E / Experience Shell` 的前端单页壳；随后用户要求在继续后续任务前，对目前修改过的代码补一份详细文件记录。
+
+- **🎯 本线程目标 (Context & Goal)**: 基于 `Cluster-E / Experience Shell` 任务文档落下可运行的 Next.js 单页前端壳，覆盖输入区、状态条、事件概览、风险提示、时间线、claim 表和证据列表，并在继续后续联调前产出可交接的逐文件记录。
+- **🧩 已知约束 (Known Context)**: 当前仓库最初只有 `frontend/` 空骨架，前端可先基于 mock `Report` payload 独立开发；三档模式必须明确区分；接口失败时不能伪装成完整结果；当前机器 Node 版本为 `18.19.0`，因此前端依赖需要与 Node 18 兼容；工作区存在其他窗口推进的后端改动，不应串线覆盖。
+- **⚙️ AI 采用的策略 (AI Approach)**: 先从 `tasks/cluster-e-experience-shell.md`、`overview/` 与 `rules/` 中抽取最小可用协议、页面结构和模式边界；再补 `contracts/*.schema.json` 与 `contracts/demo_payloads/*.json`，保证前端有稳定输入；随后落 `frontend/` 的 Next.js 配置、类型层、API client、demo 注册、页面组件和全局样式；最后完成依赖安装、类型检查、构建验证，并按用户要求补 `frontend/FILE_RECORD.md` 做逐文件交接记录。
+- **📦 产出与落点 (Artifacts)**: `contracts/event.schema.json`、`contracts/timeline_node.schema.json`、`contracts/evidence.schema.json`、`contracts/claim_result.schema.json`、`contracts/report.schema.json`、`contracts/demo_payloads/*.json`、`frontend/package.json`、`frontend/tsconfig.json`、`frontend/next.config.ts`、`frontend/README.md`、`frontend/types/report.ts`、`frontend/lib/demo-cases.ts`、`frontend/lib/report-utils.ts`、`frontend/lib/api-client.ts`、`frontend/components/*.tsx`、`frontend/app/layout.tsx`、`frontend/app/page.tsx`、`frontend/app/globals.css`、`frontend/FILE_RECORD.md`、`prompt-history.md`
+- **➡️ 交接建议 (Next Handoff)**: 建议后续继续任务时，由 `T-impl-web` 先拿 `frontend/FILE_RECORD.md` 作为当前前端状态基线，再与 `T-impl-api` 对齐真实 `Report` 返回结构；如果先做演示稳定性，则优先联通 `demo-cases / replay / analyze` 三类接口，不要先扩 UI 范围。
+- **⭐ 效果评估**: [待填写]
+
+---

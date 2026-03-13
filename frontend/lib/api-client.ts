@@ -1,4 +1,4 @@
-﻿import { getLocalDemoCase, getLocalDemoCaseSummaries } from "@/lib/demo-cases";
+﻿import { getLocalDemoCaseSummaries, getLocalDemoReport } from "@/lib/demo-cases";
 import type {
   AnalyzeRequest,
   ClaimResult,
@@ -146,58 +146,31 @@ function parseClaimResults(value: unknown): ClaimResult[] {
   }));
 }
 
-function unwrapReportPayload(value: unknown): unknown {
-  if (isObject(value) && isObject(value.report)) {
-    return value.report;
-  }
-  return value;
-}
-
 export function parseReport(value: unknown): Report {
-  const payload = unwrapReportPayload(value);
-  if (!isObject(payload)) {
+  if (!isObject(value)) {
     throw new ApiClientError("后端返回了无法解析的 Report。");
   }
 
-  const mode = ensureMode(payload.mode);
+  const mode = ensureMode(value.mode);
 
   return {
     mode,
-    event: parseEvent(payload.event, mode),
-    timeline: parseTimeline(payload.timeline),
-    claim_results: parseClaimResults(payload.claim_results),
-    final_summary: ensureString(payload.final_summary, "暂无综合结论。"),
-    risks: ensureStringArray(payload.risks),
-    sources: parseEvidence(payload.sources),
+    event: parseEvent(value.event, mode),
+    timeline: parseTimeline(value.timeline),
+    claim_results: parseClaimResults(value.claim_results),
+    final_summary: ensureString(value.final_summary, "暂无综合结论。"),
+    risks: ensureStringArray(value.risks),
+    sources: parseEvidence(value.sources),
   };
 }
 
 async function parseJson<T>(response: Response) {
-  const rawText = await response.text();
-  const parsed = rawText ? JSON.parse(rawText) : null;
-
   if (!response.ok) {
-    if (isObject(parsed) && isObject(parsed.error) && typeof parsed.error.message === "string") {
-      throw new ApiClientError(parsed.error.message, response.status);
-    }
-    throw new ApiClientError(rawText || "请求失败", response.status);
+    const detail = await response.text();
+    throw new ApiClientError(detail || "请求失败", response.status);
   }
 
-  return parsed as T;
-}
-
-function mapAnalyzeRequest(request: AnalyzeRequest) {
-  const inputTypeMap = {
-    auto: undefined,
-    text: "text_news",
-    url: "url_news",
-    question: "question_only",
-  } as const;
-
-  return {
-    raw_input: request.input.trim(),
-    input_type: inputTypeMap[request.input_type],
-  };
+  return (await response.json()) as T;
 }
 
 export async function analyzeReport(request: AnalyzeRequest): Promise<Report> {
@@ -206,7 +179,7 @@ export async function analyzeReport(request: AnalyzeRequest): Promise<Report> {
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(mapAnalyzeRequest(request)),
+    body: JSON.stringify(request),
     cache: "no-store",
   });
 
@@ -235,56 +208,9 @@ export async function getHealth(): Promise<HealthResponse> {
 }
 
 export async function getDemoCases(): Promise<DemoCaseSummary[]> {
-  try {
-    const response = await fetch(`${getApiBase()}/api/v1/demo-cases`, {
-      cache: "no-store",
-    });
-    const payload = await parseJson<unknown>(response);
-
-    if (Array.isArray(payload)) {
-      return payload
-        .filter(isObject)
-        .map((item, index) => ({
-          id: ensureString(item.id, `demo-${index + 1}`),
-          title: ensureString(item.title, "未命名 demo"),
-          description: ensureString(item.description, "暂无说明"),
-          input_type:
-            item.input_type === "text" ||
-            item.input_type === "url" ||
-            item.input_type === "question" ||
-            item.input_type === "auto"
-              ? item.input_type
-              : "auto",
-          sample_input: ensureString(item.sample_input, ""),
-          mode: ensureMode(item.mode),
-        }));
-    }
-  } catch (error) {
-    return getLocalDemoCaseSummaries();
-  }
-
   return getLocalDemoCaseSummaries();
 }
 
-export async function replayDemoCase(id: string): Promise<Report> {
-  try {
-    const response = await fetch(`${getApiBase()}/api/v1/replay`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ demo_case_id: id }),
-      cache: "no-store",
-    });
-
-    const payload = await parseJson<unknown>(response);
-    return parseReport(payload);
-  } catch (error) {
-    const local = getLocalDemoCase(id);
-    if (local) {
-      return local.report;
-    }
-
-    throw error instanceof Error ? error : new ApiClientError("无法回放 demo case。");
-  }
+export function getDemoReport(id: string): Report | null {
+  return getLocalDemoReport(id);
 }

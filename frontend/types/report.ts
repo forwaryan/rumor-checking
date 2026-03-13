@@ -77,9 +77,9 @@ export interface Report {
 }
 
 export interface AnalyzeRequest {
-  input: string;
+  raw_input: string;
   input_type: InputType;
-  use_demo_case: boolean;
+  request_context?: Record<string, unknown>;
 }
 
 export interface HealthResponse {

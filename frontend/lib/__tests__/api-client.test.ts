@@ -1,0 +1,72 @@
+﻿import { describe, expect, it } from "vitest";
+import { parseReport } from "@/lib/api-client";
+
+describe("parseReport", () => {
+  it("parses a full backend report payload", () => {
+    const report = parseReport({
+      mode: "partial_mode",
+      event: {
+        title: "北城区化工厂异味投诉仍处在核查阶段",
+        summary: "居民投诉、企业回应与环保部门核查信息同时存在。",
+        source_url: "https://example.org/input/text-news",
+        source_name: "用户提供文本",
+        published_at: "2026-03-03T00:00:00+08:00",
+        keywords: ["北城区化工厂", "异味"],
+        mode: "partial_mode",
+      },
+      timeline: [
+        {
+          node_type: "turn",
+          title: "环保部门进场核查",
+          url: "https://env.example.cn/beicheng/2026-03-03",
+          source_name: "北城区生态环境局",
+          published_at: "2026-03-03T09:00:00+08:00",
+          summary: "区生态环境局确认已进场核查。",
+          why_selected: "它把事件从投诉转入监管核查阶段。",
+        },
+      ],
+      claim_results: [
+        {
+          claim: "区生态环境局已经进场核查。",
+          claim_type: "fact",
+          verdict: "supported",
+          confidence: "high",
+          evidence: [
+            {
+              title: "区生态环境局称已进场核查",
+              url: "https://env.example.cn/beicheng/2026-03-03",
+              source_name: "北城区生态环境局",
+              published_at: "2026-03-03T09:00:00+08:00",
+              snippet: "生态环境局表示已对居民投诉启动现场核查。",
+              relevance_reason: "官方确认介入调查。",
+              source_tier: "S",
+            },
+          ],
+          notes: "环保部门材料直接支持该说法。",
+        },
+      ],
+      final_summary: "当前已有部分可核验结论，但证据链或时间线仍不完整，需要保留边界。",
+      risks: ["存在相互冲突的证据，不能把单一版本当成最终事实。"],
+      sources: [],
+    });
+
+    expect(report.mode).toBe("partial_mode");
+    expect(report.event.title).toContain("北城区化工厂");
+    expect(report.timeline[0]?.node_type).toBe("turn");
+    expect(report.claim_results[0]?.evidence[0]?.source_tier).toBe("S");
+  });
+
+  it("fills conservative defaults for sparse payloads", () => {
+    const report = parseReport({ mode: "safe_mode" });
+
+    expect(report.event.title).toBe("未命名事件");
+    expect(report.final_summary).toBe("暂无综合结论。");
+    expect(report.timeline).toEqual([]);
+    expect(report.claim_results).toEqual([]);
+    expect(report.sources).toEqual([]);
+  });
+
+  it("throws on non-object payloads", () => {
+    expect(() => parseReport(null)).toThrow("后端返回了无法解析的 Report。");
+  });
+});

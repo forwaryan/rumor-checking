@@ -8,24 +8,15 @@ import { InputPanel } from "@/components/input-panel";
 import { RiskPanel } from "@/components/risk-panel";
 import { StatusBanner } from "@/components/status-banner";
 import { TimelinePanel } from "@/components/timeline-panel";
-import { analyzeReport, getDemoCases, getHealth, replayDemoCase } from "@/lib/api-client";
+import { analyzeReport, getDemoCases, getDemoReport, getHealth } from "@/lib/api-client";
 import { buildFallbackReport, getIdleDemoHints, getStatusFromMode, validateInput } from "@/lib/report-utils";
 import type { AnalyzeRequest, AnalysisStatus, DemoCaseSummary, InputType, Report } from "@/types/report";
 
 type BackendState = "checking" | "online" | "offline" | "degraded";
 
-type LastRequest =
-  | {
-      kind: "demo";
-      demoId: string;
-    }
-  | {
-      kind: "analyze";
-      request: AnalyzeRequest;
-    };
-
-function wait(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+interface LastRequest {
+  demoId: string | null;
+  request: AnalyzeRequest;
 }
 
 export function AnalyzePage() {
@@ -102,31 +93,39 @@ export function AnalyzePage() {
     setErrorMessage(null);
     setFallbackMessage(null);
 
-    try {
-      if (target.kind === "demo") {
-        await wait(650);
-        const nextReport = await replayDemoCase(target.demoId);
-        setReport(nextReport);
-        setStatus(getStatusFromMode(nextReport.mode));
+    if (target.demoId && backendState === "offline") {
+      const localReport = getDemoReport(target.demoId);
+      if (localReport) {
+        setReport(localReport);
+        setStatus(getStatusFromMode(localReport.mode));
+        setFallbackMessage("后端当前离线，页面已直接回退到本地 demo payload。需要真实联调时请先恢复后端服务。");
         return;
       }
+    }
 
+    try {
       const nextReport = await analyzeReport(target.request);
       setReport(nextReport);
       setStatus(getStatusFromMode(nextReport.mode));
     } catch {
-      if (target.kind === "analyze") {
-        const fallbackReport = buildFallbackReport(target.request.input, target.request.input_type);
-        setReport(fallbackReport);
-        setStatus("safe_mode");
-        setFallbackMessage(
-          "真实接口当前不可用，页面已自动切换到安全模式回退结果，方便继续演示边界和空态。",
-        );
-        return;
+      if (target.demoId) {
+        const localReport = getDemoReport(target.demoId);
+        if (localReport) {
+          setReport(localReport);
+          setStatus(getStatusFromMode(localReport.mode));
+          setFallbackMessage(
+            "真实 analyze 请求失败，页面已回退到同主题本地 demo payload，方便继续演示页面结构和三档模式。",
+          );
+          return;
+        }
       }
 
-      setStatus("error");
-      setErrorMessage("demo 回放失败，请稍后再试或换一个示例。");
+      const fallbackReport = buildFallbackReport(target.request.raw_input, target.request.input_type);
+      setReport(fallbackReport);
+      setStatus("safe_mode");
+      setFallbackMessage(
+        "真实接口当前不可用，页面已自动切换到安全模式回退结果，方便继续演示边界和空态。",
+      );
     }
   }
 
@@ -138,16 +137,13 @@ export function AnalyzePage() {
       return;
     }
 
-    const nextRequest: LastRequest = selectedDemoId
-      ? { kind: "demo", demoId: selectedDemoId }
-      : {
-          kind: "analyze",
-          request: {
-            input: inputValue.trim(),
-            input_type: inputType,
-            use_demo_case: false,
-          },
-        };
+    const nextRequest: LastRequest = {
+      demoId: selectedDemoId,
+      request: {
+        raw_input: inputValue.trim(),
+        input_type: inputType,
+      },
+    };
 
     setLastRequest(nextRequest);
     await executeSubmission(nextRequest);
@@ -161,8 +157,6 @@ export function AnalyzePage() {
     await executeSubmission(lastRequest);
   }
 
-  const retryHandler = lastRequest ? retryLastRequest : null;
-
   return (
     <main className="page-shell">
       <header className="hero">
@@ -170,14 +164,14 @@ export function AnalyzePage() {
           <p className="eyebrow">Cluster-E / Experience Shell</p>
           <h1>单页 rumor-checking 工作台</h1>
           <p>
-            这个前端壳按“先看结论，再看传播链，再看 claim，再看证据”的顺序组织页面，专门为
-            V1 演示稳定性设计。
+            当前示例输入已对齐后端真实 scenario。页面会优先走真实 <code>analyze</code> 链路，只有在后端离线或请求失败时，
+            才回退到同主题本地 payload。
           </p>
         </div>
         <div className="hero__card">
           <span>三档模式</span>
           <strong>complete / partial / safe</strong>
-          <p>本地 demo 可独立回放，后端接通后自动复用相同 Report 结构。</p>
+          <p>在线时看真实 Report，离线时仍能稳定演示同主题页面，不再依赖缺失的 replay 接口。</p>
         </div>
       </header>
 
@@ -208,7 +202,7 @@ export function AnalyzePage() {
         report={report}
         errorMessage={errorMessage}
         fallbackMessage={fallbackMessage}
-        onRetry={retryHandler ? () => void retryHandler() : null}
+        onRetry={lastRequest ? () => void retryLastRequest() : null}
       />
 
       <section className="dashboard-grid">
