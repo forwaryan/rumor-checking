@@ -116,3 +116,18 @@
 - **⭐ 效果评估**: [待填写]
 
 ---
+
+### 📅 2026-03-13 17:49
+> **🧵 线程标识**: `T-main`
+> **🏷️ 窗口职责**: 主控
+> **🔗 上下文来源**: `tasks/README.md`、`tasks/cluster-a-control-tower.md`、`tasks/cluster-b-contract-forge.md`、`tasks/cluster-c-api-foundation.md`、`tasks/cluster-d-retrieval-lab.md`、`tasks/cluster-e-experience-shell.md`、`tasks/cluster-f-quality-gate.md`、`tasks/cluster-g-demo-ops.md`、`workflows/prompt_logging_rules.md`
+> **💡 原始指令摘要**: 在 `tasks/README.md` 中明确标出各个窗口负责什么、对应拿哪个任务文件，以及不同窗口数量下应该如何分配。
+
+- **🎯 本线程目标 (Context & Goal)**: 让 `tasks/README.md` 不只是索引，而是可以直接指导分工的窗口分配说明，帮助用户一眼判断“哪个窗口负责什么、应该谁来拿”。
+- **🧩 已知约束 (Known Context)**: 用户已经有基于 cluster 的任务文件，但缺少顶层 README 中的窗口级分配说明；需要明确职责、推荐 owner 类型，以及 3 窗口、4 窗口、6-7 窗口下的合并策略。
+- **⚙️ AI 采用的策略 (AI Approach)**: 在不改动 cluster 任务文件主体的前提下，增强 `tasks/README.md`，新增“窗口分配建议”和“窗口不足时的合并方案”两部分，让 README 本身就能作为分发入口使用。
+- **📦 产出与落点 (Artifacts)**: `tasks/README.md`；`prompt-history.md`
+- **➡️ 交接建议 (Next Handoff)**: 建议用户先按 README 中的窗口说明分发 cluster；如果当前窗口足够，优先单独启动窗口 2、3、5、6；如果窗口不足，则按 README 的 4 窗口或 3 窗口组合方案合并分工。
+- **⭐ 效果评估**: [待填写]
+
+---
