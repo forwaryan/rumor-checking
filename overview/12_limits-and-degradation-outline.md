@@ -1,134 +1,94 @@
-﻿# 12 限制与降级边界章节骨架
+﻿# 12 当前限制与降级边界
 
-更新时间：2026-03-14（Asia/Shanghai）
+更新时间：2026-03-14 21:46（Asia/Shanghai）
+对应验收：`overview/13_f8-random-acceptance.md`
 
 ## 1. 这份文档的定位
 
-这份文档是 `G4` 第一阶段的边界说明骨架。
+这份文档是当前限制与降级边界的终稿，不再保留骨架式占位。
 
-目标是让后续窗口能直接在固定章节里补最终内容，而不是继续在：
+它只处理一件事：把当前能讲什么、不能讲什么，以及 live / mock / replay / fallback 的边界一次写清，避免 README、Smoke、口播脚本各讲一套。
 
-- `README.md`
-- `backend/README.md`
-- `frontend/README.md`
-- `DEMO_SCRIPT.md`
-- `SMOKE_CHECKLIST.md`
+## 2. 当前可以讲什么
 
-之间反复复制不同版本的边界描述。
+- 可以讲：后端测试基线稳定，`health`、API、retrieval 基础测试和 provider 基础测试都有通过记录。
+- 可以讲：页面已经能区分 `backend_live / backend_mock / backend_replay / demo_payload / frontend_fallback`，不会把本地 fallback 伪装成 live 结果。
+- 可以讲：`expired-yogurt` 仍可作为稳定 mock demo 演示完整结构化输出。
+- 可以讲：系统已经能把保守路径标记出来，`fallback_used=true` 或 `evidence_source=none` 不会再被当成“已较真成功”。
 
-## 2. 最终建议的章节顺序
+## 3. 当前不能讲什么
 
-### 2.1 不应过度宣称什么
+- 不能讲：当前随机输入已经验证了“任意新闻都能较真”。`F8` 的 `real_live` 样本数是 `0`。
+- 不能讲：三条稳定 demo 都已在真实检索路径上通过。当前默认环境主要还是 `mock` 路径。
+- 不能讲：`chemical-odor` 仍是稳定 `partial_mode` demo。它在 `F8` 中已漂移到 `safe_mode`。
+- 不能讲：`morningstar-layoff` 仍是稳定 `safe_mode` demo。它在 `F8` 中已漂移到 `complete_mode`。
+- 不能讲：frontend fallback、demo payload 或 mock retrieval 等同于实时联网分析结果。
 
-[待补骨架]
+## 4. `live / mock / replay / fallback` 判定方式
 
-建议最终固定成一组短句，给 README、演示口播和 smoke 文档共用。
+| 分类 | 判定方式 | 当前怎么讲 |
+| --- | --- | --- |
+| `live` | `source_type=backend_live` 且 `evidence_source=retrieval_live` 且没有 fallback | 只有满足这组条件，才可以说拿到了真实后端 + 真实检索路径 |
+| `mock` | `source_type=backend_mock`，或 `evidence_source=retrieval_mock / request_mock` | 这是当前默认联调和稳定 demo 的主要路径，只能讲 mock/demo 能力 |
+| `replay` | 后端显式返回 `source_type=backend_replay` | 当前没有公开 replay 接口，因此不是默认交付路径 |
+| `fallback` | `fallback_used=true`、`evidence_source=none`，或前端进入 `demo_payload / frontend_fallback` | 只能讲保守降级或保底演示，不能讲“已经核查成功” |
 
-当前已知会进这里的主题：
+## 5. `complete / partial / safe_mode` 的当前讲法
 
-- 不要把系统说成任意新闻都能完成真实传播链还原
-- 不要把 demo payload 说成实时分析结果
-- 不要把 `safe_mode` 说成“已经证明是假的”
+### `complete_mode`
 
-### 2.2 输入边界
+- 只表示当前链路给出了相对完整的结构化结果。
+- 如果 provenance 仍是 `backend_mock` 或 `retrieval_mock`，它也不能被讲成真实检索通过。
+- `morningstar-layoff` 当前默认环境下会漂移到 `complete_mode`，这说明 mode 本身不能脱离 provenance 单独宣称能力。
 
-[待补骨架]
+### `partial_mode`
 
-建议按输入类型拆：
+- 适合讲“部分结果可用、但冲突仍需保留”。
+- 当前没有通过 `F8` 重新验证的稳定 partial demo，因此不要把 `chemical-odor` 继续当作默认演示素材。
+- 如果后续要恢复 partial 演示，必须先由实现窗口复核并重新验收。
 
-- 文本新闻
-- 问题输入
-- URL 输入
+### `safe_mode`
 
-其中 URL 输入的最终能力边界必须等 `C10` 后再写死。
+- 只表示当前证据不足、输入不完整或链路发生保守回退。
+- 它不代表传闻为假，也不代表系统已经完成了全网搜索。
+- URL 抽取失败、live retrieval 失败、provider 超时等场景都可能把结果推回 `safe_mode`。
 
-### 2.3 主链与证据边界
+## 6. 输入与主链边界
 
-[待补骨架]
+- 文本输入：当前能走完整 analyze 主链，但默认环境下仍多落在 `mock` 路径。
+- 问题输入：可以触发后端主链，但在默认环境和 live probe 中都还没有形成稳定的真实检索通过样本。
+- URL 输入：只支持公开 HTML 页面；登录页、强反爬、浏览器渲染页面、PDF 和图片正文都仍会触发保守路径。
+- verdict、evidence、timeline 仍是基于当前检索结果和规则链路的 V1 组合，不应讲成完整 RAG 或 agent 搜证系统。
 
-建议覆盖：
+## 7. 当前降级层级
 
-- Kimi provider 当前只负责什么，不负责什么
-- retrieval 当前解决什么，不解决什么
-- verdict / evidence / timeline 和真实检索之间的关系怎么讲
+1. `backend_live + retrieval_live`
+   当前尚未形成正式通过样本，不能作为默认对外交付口径。
+2. `backend_mock / retrieval_mock`
+   当前最稳定的联调与 demo 路径，可交付但必须明确说明是 mock/demo。
+3. `backend_replay`
+   只保留为后端显式产物，不作为公开启动方式。
+4. `demo_payload`
+   前端演示用的本地稳定 payload，只用于保住 demo 结构。
+5. `frontend_fallback`
+   后端不可达或请求失败时的保守 `safe_mode` 报告壳，只说明页面降级成功。
 
-这里的正式措辞必须等 `C11` 冻结。
+## 8. `F8` 暴露的主要风险与临时规避
 
-### 2.4 模式语义边界
+| 风险 | 证据 | 当前影响 | 临时规避 |
+| --- | --- | --- | --- |
+| 默认环境 retrieval 仍是 `mock` | `F8` 默认快照 `RETRIEVAL_PROVIDER=mock` | 默认演示和随机输入都不能代表真实检索 | README、Smoke、口播统一写成 mock/demo 边界 |
+| `chemical-odor` 漂移到 `safe_mode` | 稳定 demo 明细里 `DEMO02` 失败 | 不能继续当 partial demo 使用 | 从默认演示主线移除，待实现窗口复核 |
+| `morningstar-layoff` 漂移到 `complete_mode` | 稳定 demo 明细里 `DEMO03` 高风险失败 | 会把本该保守的 case 误讲成确定性结论 | 从默认演示主线移除，禁止作为 safe demo 口播 |
+| live retrieval 未通过验收 | `gdelt_live_probe` 为 `0/4 real_live` | 当前不能讲真实检索较真 | 只保留为内部 probe，不纳入对外通过口径 |
+| provider 在线批次存在超时 | 随机批次多次 `ReadTimeout` | 开放输入帮助性不稳定，且会悄悄回到规则链路 | 对外交付时不要把 provider 打开讲成稳定增益 |
 
-[待补骨架]
+## 9. 当前 go / no-go 结论
 
-建议分别说明：
+- `Go / 讲 mock demo + 边界`：可以。
+- `Go / 讲 frontend fallback 是保底演示`：可以，但必须明确说明不是 live 结果。
+- `No-Go / 讲真实检索较真已经稳定通过`：当前不可以。
 
-- `complete_mode`
-- `partial_mode`
-- `safe_mode`
+## 10. 一句话结论
 
-重点不是“页面长什么样”，而是“在什么条件下可以这么讲，不能怎么讲”。
-
-### 2.5 降级与回退层级
-
-[待补骨架]
-
-建议把回退链路分成几层：
-
-- 真实后端结果
-- 后端内部保守回退
-- 前端本地 demo payload
-- 前端 safe fallback
-
-这些术语的最终写法要等 `C11` 冻结 provenance 后再统一。
-
-### 2.6 demo、replay 与验收记录的边界
-
-[待补骨架]
-
-建议分别说明：
-
-- 稳定 demo case 是什么
-- replay 草案现在是什么
-- 什么条件下才能把 replay 或 smoke 记录写成“正式验收结果”
-
-这里要等 `F8` 后再补最终判断。
-
-### 2.7 已知风险与临时规避办法
-
-[待补骨架]
-
-建议保留两类信息：
-
-- 技术风险：例如 URL、retrieval、provider 或 watcher 的已知不稳定点
-- 讲法风险：例如哪些话会把未完成能力讲成已完成
-
-## 3. 当前可引用的事实来源
-
-后续窗口补内容时，建议先复核这些来源：
-
-| 来源 | 当前可提供什么 |
-| --- | --- |
-| `README.md` | 顶层演示入口与已有“不要过度宣称”的摘要 |
-| `backend/README.md` | provider / retrieval / URL 缺口的后端事实 |
-| `frontend/README.md` | 页面 fallback 与前端行为事实 |
-| `DEMO_SCRIPT.md` | 演示口播边界 |
-| `SMOKE_CHECKLIST.md` | 上台前检查和失败后怎么讲 |
-
-## 4. 必须等后续任务的段落
-
-下面这些段落本轮必须只留占位：
-
-- URL 输入最终边界：等 `C10`
-- analyze 主链是否可以说成“真实输入 + 检索证据驱动”：等 `C11`
-- provenance / replay / fallback 的正式术语：等 `C11`
-- 哪些限制已经被真实随机 case 验收过：等 `F8`
-
-## 5. 后续收口建议
-
-建议最后由 `G4` 终稿窗口做这件事：
-
-1. 先以 `F8` 验收结果更新“能怎么讲 / 不能怎么讲”
-2. 再同步回顶层 README、Demo Script 和 Smoke Checklist
-3. 最后检查前后端 README 是否仍与顶层口径一致
-
-## 6. 当前一句话结论
-
-截至 2026-03-14，边界说明可以先收口结构，但不应该在 `C10 / C11 / F8` 之前抢写最终能力结论。
+截至 2026-03-14，当前系统已经具备“路径清楚、边界明确、mock/demo 可交付”的 V1 形态，但真实检索链路仍未通过 `F8` 最终验收，因此任何对外说明都必须把 live 能力与降级/演示路径明确拆开。

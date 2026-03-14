@@ -1,6 +1,6 @@
 ﻿# 当前已核验状态
 
-更新时间：2026-03-14（Asia/Shanghai）
+更新时间：2026-03-14 22:11（Asia/Shanghai）
 
 这份文档只保留已经被项目代码核验过的事实，用来处理 README、overview、tasks 之间的状态冲突。
 
@@ -54,7 +54,7 @@
 
 - `VerdictEngine` 仍以关键词重合、来源等级和启发式规则为主。
 - `TimelineBuilder` 仍以启发式节点选取为主，不是完整传播链求解器。
-- `F8` 随机 case 最终验收记录仍未完成，所以不能把系统表述成“开放新闻场景稳定较真已完成”。
+- `F8` 已形成正式验收记录，但真实 live 路径当前仍未通过最终验收。
 
 ### 4. 前端 provenance 展示已经真实落地
 
@@ -76,22 +76,22 @@
 
 ## 当前仍未完成的事项
 
-- `F8`：随机新闻与稳定 demo 的最终验收记录。
+- 真实 live retrieval 路径的稳定通过样本。
 - 公开 HTML 之外的 URL 抽取扩展。
-- 更稳定的 verdict / timeline 回归闭环。
+- 某些稳定 demo case 的模式漂移收口。
 - replay 的正式对外操作说明与公开接口是否需要暴露的最终决策。
 
 ## 现行阅读顺序
 
 1. [../../README.md](../../README.md)
 2. [../README.md](../README.md)
-3. [../../backend/README.md](../../backend/README.md)
-4. [../../frontend/README.md](../../frontend/README.md)
-5. [../../overview/06_current_code_implementation.md](../../overview/06_current_code_implementation.md)
+3. [document-conflict-register.md](document-conflict-register.md)
+4. [../../backend/README.md](../../backend/README.md)
+5. [../../frontend/README.md](../../frontend/README.md)
 6. [../../overview/09_stage-progress-and-task-audit.md](../../overview/09_stage-progress-and-task-audit.md)
 7. [../../overview/10_unfinished-task-priority-and-parallel-analysis.md](../../overview/10_unfinished-task-priority-and-parallel-analysis.md)
 
 ## 冲突处理规则
 
 - 若 README、overview、tasks 中出现状态冲突，以本文件和对应代码实现为准。
-- 被替换下来的冲突旧稿统一保留在 [../archive/conflicts/](../archive/conflicts/)。
+- 冲突问题统一登记在 [document-conflict-register.md](document-conflict-register.md)，原文件直接更新，不再旁路保存一份“冲突原件”。

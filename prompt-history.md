@@ -395,3 +395,18 @@
 - **📦 产出与落点 (Artifacts)**: `overview/10_unfinished-task-priority-and-parallel-analysis.md`、`overview/README.md`、`prompt-history.md`
 - **➡️ 交接建议 (Next Handoff)**: 接下来直接按 `overview/10_unfinished-task-priority-and-parallel-analysis.md` 第 `7`、`8` 节分发剩余窗口即可；建议执行顺序为第三波 `F2 / F4 / F6 / E9`，第四波 `F8`，第五波 `G3 / G4`。
 - **⭐ 效果评估**: 剩余任务现在已经按“波次图 + 任务表 + 详细 prompt”三层结构写成可执行手册，不需要再额外生成一份并行 prompt 文档。
+
+---
+
+### 📅 2026-03-14 22:11
+> **🧵 线程标识**: `T-doc-fix`
+> **🏷️ 窗口职责**: 文档纠偏
+> **🔗 上下文来源**: `README.md`、`docs/status/current-verified-state.md`、`overview/09_stage-progress-and-task-audit.md`、`overview/10_unfinished-task-priority-and-parallel-analysis.md`、`tasks/README.md`、`tasks/origin-problem-goal-matrix.md`、`tasks/cluster-f-quality-gate.md`、`tasks/cluster-a-control-tower.md`、`tasks/cluster-g-demo-ops.md`
+> **💡 原始指令摘要**: 用户指出文档整理方式有误，要求不要保留冲突原件归档，而是直接更新原文件；同时需要保留一份问题表，并把全局任务表恢复为可持续观察的最新状态。
+
+- **🎯 本线程目标 (Context & Goal)**: 回收上一轮错误的 conflicts 归档方案，改成“问题登记表 + 原文件直接修正”的做法，并把全局任务状态同步到最新实现与验收结论。
+- **🧩 已知约束 (Known Context)**: `C10`、`C11` 第一阶段、前端 provenance 展示、`F2/F3/F4/F5/F6/F7` 和 `F8` 的状态都已在代码、测试或验收记录中发生更新；用户明确要求任务表继续作为长期观察入口，而不是被旁路归档。
+- **⚙️ AI 采用的策略 (AI Approach)**: 先枚举当前仍残留的冲突正文与旧优先级，再新建一份问题登记表集中记录；随后直接改写原始文档和全局任务矩阵，把最新状态写回文件本身；最后删除临时的 conflicts 原件归档，并补 Prompt 日志。
+- **📦 产出与落点 (Artifacts)**: `docs/status/document-conflict-register.md`、`docs/README.md`、`docs/status/current-verified-state.md`、`overview/08_stage-progress-and-task-audit.md` 相关修正、`overview/09_stage-progress-and-task-audit.md`、`overview/10_unfinished-task-priority-and-parallel-analysis.md`、`tasks/README.md`、`tasks/origin-problem-goal-matrix.md`、若干 cluster task 状态修正、`prompt-history.md`
+- **➡️ 交接建议 (Next Handoff)**: 建议后续所有文档冲突都继续走“登记问题表 -> 直接更新原文件”的路径；下一步应优先由 `Cluster-D` 与 `Cluster-C` 处理 live retrieval 稳定性和模式漂移，再由 `Cluster-G` 做最终口径同步。
+- **⭐ 效果评估**: [待填写]

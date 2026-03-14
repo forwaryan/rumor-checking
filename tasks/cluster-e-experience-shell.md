@@ -1,188 +1,40 @@
-# Cluster-E / Experience Shell
+﻿# Cluster-E / Experience Shell
 
-## 这个子 task 是干什么的
+## 杩欎釜瀛?task 鏄共浠€涔堢殑
 
-这个工作包负责单页 Web Demo 的全部界面和交互层，是用户真正看到的系统外壳。
+杩欎釜宸ヤ綔鍖呰礋璐ｅ崟椤?Web Demo 鐨勫叏閮ㄧ晫闈㈠拰浜や簰灞傦紝鏄敤鎴风湡姝ｇ湅鍒扮殑绯荤粺澶栧３銆?
+## 涓轰粈涔堣鏈夎繖涓瓙 task
 
-## 为什么要有这个子 task
+鍗充娇鍚庣閫昏緫瀹屾垚锛屽鏋滄病鏈変竴涓竻鏅扮殑鍗曢〉宸ヤ綔鍙帮紝浼犳挱閾俱€乧laim銆乪vidence銆侀闄╂彁绀哄氨涓嶈兘琚洿瑙傚睍绀猴紝V1 鐨勬紨绀轰环鍊间細澶у箙涓嬮檷銆?
+## 涓轰粈涔堣繖涓瓙 task 鍙互骞惰
 
-即使后端逻辑完成，如果没有一个清晰的单页工作台，传播链、claim、evidence、风险提示就不能被直观展示，V1 的演示价值会大幅下降。
-
-## 为什么这个子 task 可以并行
-
-前端可以先基于 mock `Report` payload 独立开发，不必等真实后端全部完成。只要共享 schema 明确，前端就能和后端、检索、测试同时推进。
-
-## 窗口执行 Prompt（全局）
-
+鍓嶇鍙互鍏堝熀浜?mock `Report` payload 鐙珛寮€鍙戯紝涓嶅繀绛夌湡瀹炲悗绔叏閮ㄥ畬鎴愩€傚彧瑕佸叡浜?schema 鏄庣‘锛屽墠绔氨鑳藉拰鍚庣銆佹绱€佹祴璇曞悓鏃舵帹杩涖€?
+## 绐楀彛鎵ц Prompt锛堝叏灞€锛?
 ```text
-你现在负责 Cluster-E / Experience Shell。
-当前这个 cluster 主体已完成，因此默认只处理本文件中仍需联调、验证、文档收口或用户明确重新打开的任务；如果重新打开实现，优先处理 `E9`，不重做已完成页面骨架。
-请先完整阅读本文件、frontend/IMPLEMENTATION_SUMMARY.md、frontend/FILE_RECORD.md、frontend/README.md，再决定本轮是否真的需要改动前端实现。
-执行时如果要继续处理残余任务，必须先把当前要处理的目标拆成 3 到 7 个更细步骤，并先把“本轮执行任务 / 执行步骤”写回本文件对应子任务下，再开始修改。
-你可以修改 frontend/、对应的前端测试和前端文档，但不要越界去改后端检索系统或总控文档，除非只是同步前端侧说明。
-完成后必须：
-1. 回写本文件中对应子任务的状态，并补充本轮完成记录：改了哪些文件、怎么完成、验证如何、剩余问题是什么。
-2. 给出前端验证结果。
-3. 说明是否需要交给 Cluster-C、F 或 G 继续联调/收口。
-如果用户要求 [log]，同步更新 prompt-history.md。
-```
+浣犵幇鍦ㄨ礋璐?Cluster-E / Experience Shell銆?褰撳墠杩欎釜 cluster 涓讳綋宸插畬鎴愶紝鍥犳榛樿鍙鐞嗘湰鏂囦欢涓粛闇€鑱旇皟銆侀獙璇併€佹枃妗ｆ敹鍙ｆ垨鐢ㄦ埛鏄庣‘閲嶆柊鎵撳紑鐨勪换鍔★紱濡傛灉閲嶆柊鎵撳紑瀹炵幇锛屼紭鍏堝鐞?`E9`锛屼笉閲嶅仛宸插畬鎴愰〉闈㈤鏋躲€?璇峰厛瀹屾暣闃呰鏈枃浠躲€乫rontend/IMPLEMENTATION_SUMMARY.md銆乫rontend/FILE_RECORD.md銆乫rontend/README.md锛屽啀鍐冲畾鏈疆鏄惁鐪熺殑闇€瑕佹敼鍔ㄥ墠绔疄鐜般€?鎵ц鏃跺鏋滆缁х画澶勭悊娈嬩綑浠诲姟锛屽繀椤诲厛鎶婂綋鍓嶈澶勭悊鐨勭洰鏍囨媶鎴?3 鍒?7 涓洿缁嗘楠わ紝骞跺厛鎶娾€滄湰杞墽琛屼换鍔?/ 鎵ц姝ラ鈥濆啓鍥炴湰鏂囦欢瀵瑰簲瀛愪换鍔′笅锛屽啀寮€濮嬩慨鏀广€?浣犲彲浠ヤ慨鏀?frontend/銆佸搴旂殑鍓嶇娴嬭瘯鍜屽墠绔枃妗ｏ紝浣嗕笉瑕佽秺鐣屽幓鏀瑰悗绔绱㈢郴缁熸垨鎬绘帶鏂囨。锛岄櫎闈炲彧鏄悓姝ュ墠绔晶璇存槑銆?瀹屾垚鍚庡繀椤伙細
+1. 鍥炲啓鏈枃浠朵腑瀵瑰簲瀛愪换鍔＄殑鐘舵€侊紝骞惰ˉ鍏呮湰杞畬鎴愯褰曪細鏀逛簡鍝簺鏂囦欢銆佹€庝箞瀹屾垚銆侀獙璇佸浣曘€佸墿浣欓棶棰樻槸浠€涔堛€?2. 缁欏嚭鍓嶇楠岃瘉缁撴灉銆?3. 璇存槑鏄惁闇€瑕佷氦缁?Cluster-C銆丗 鎴?G 缁х画鑱旇皟/鏀跺彛銆?濡傛灉鐢ㄦ埛瑕佹眰 [log]锛屽悓姝ユ洿鏂?prompt-history.md銆?```
 
-## 当前实现记录
+## 褰撳墠瀹炵幇璁板綍
 
-- 详细实现总结：`frontend/IMPLEMENTATION_SUMMARY.md`
-- 逐文件记录：`frontend/FILE_RECORD.md`
-- 当前状态说明：`E1` 到 `E8` 已完成；新增的 `E9` 负责把“真实 analyze / mock retrieval / demo payload / 前端 fallback”在界面上明确区分开。
+- 璇︾粏瀹炵幇鎬荤粨锛歚frontend/IMPLEMENTATION_SUMMARY.md`
+- 閫愭枃浠惰褰曪細`frontend/FILE_RECORD.md`
+- 褰撳墠鐘舵€佽鏄庯細`E1` 鍒?`E8` 宸插畬鎴愶紱鏂板鐨?`E9` 璐熻矗鎶娾€滅湡瀹?analyze / mock retrieval / demo payload / 鍓嶇 fallback鈥濆湪鐣岄潰涓婃槑纭尯鍒嗗紑銆?
+## 璇︾粏瀛愪换鍔?
+### E1 鍒濆鍖?Next.js 椤圭洰楠ㄦ灦
+鐘舵€侊細宸插畬鎴?鐩爣锛氬垱寤哄墠绔」鐩粨鏋勩€侀〉闈㈠叆鍙ｃ€佸熀纭€鏍峰紡鍜岃繍琛岃剼鏈€?浜у嚭锛氬彲杩愯鐨勫墠绔崟椤靛３銆?鍓嶇疆渚濊禆锛氭棤銆?瀛愬瓙浠诲姟娓呭崟锛?- 鍒濆鍖?Next.js 涓?TypeScript 椤圭洰銆?- 寤虹珛鍗曢〉鍏ュ彛鍜屽熀纭€甯冨眬鏂囦欢銆?- 纭繚鏈湴鍙互鍚姩鍓嶇椤甸潰銆?瀹炵幇澶囨敞锛歚frontend/` 宸插叿澶囧畬鏁?Next.js 宸ョ▼缁撴瀯銆佽繍琛岃剼鏈拰鍏ㄥ眬鏍峰紡銆?
+### E2 瀹氫箟鍓嶇绫诲瀷涓?API client
+鐘舵€侊細宸插畬鎴?鐩爣锛氭牴鎹叡浜?schema 鍥哄畾鍓嶇绫诲瀷锛屽苟寤虹珛璋冪敤鍚庣鐨?API client銆?浜у嚭锛氬墠绔被鍨嬪眰鍜岃姹傚眰銆?鍓嶇疆渚濊禆锛歴chema 鍒濈増鍙敤銆?瀛愬瓙浠诲姟娓呭崟锛?- 鏍规嵁 `Report` schema 瀹氫箟鍓嶇绫诲瀷銆?- 灏佽 analyze銆乭ealth銆乨emo 绛?API 璋冪敤銆?- 澶勭悊璇锋眰寮傚父鍜屽熀纭€杩斿洖瑙ｆ瀽銆?瀹炵幇澶囨敞锛氬墠绔凡瀵归綈鐪熷疄 `GET /api/v1/health` 鍜?`POST /api/v1/analyze`锛涙湰鍦?demo 璇诲彇鐣欏湪椤甸潰灞傦紝涓嶅啀鍋囪鍚庣瀛樺湪 `demo-cases / replay`銆?
+### E3 瀹炵幇杈撳叆鍖轰笌鎻愪氦鐘舵€?鐘舵€侊細宸插畬鎴?鐩爣锛氭敮鎸佹枃鏈€乁RL銆侀棶棰樿緭鍏ワ紝骞跺睍绀?loading銆乪rror 绛夌姸鎬併€?浜у嚭锛歚InputPanel + StatusBanner`銆?鍓嶇疆渚濊禆锛欵1銆丒2銆?瀛愬瓙浠诲姟娓呭崟锛?- 瀹炵幇杈撳叆妗嗐€佺ず渚嬫寜閽拰鎻愪氦鎸夐挳銆?- 瀹炵幇鎻愪氦涓€佸け璐ャ€侀噸璇曠瓑鐘舵€佸睍绀恒€?- 鎺ュソ鍩虹鎻愪氦浜嬩欢鍜屽墠绔牎楠屻€?瀹炵幇澶囨敞锛氳緭鍏ユ牎楠屻€佹彁浜ゃ€侀噸璇曘€侀敊璇彁绀哄拰 fallback 鎻愮ず鍧囧凡鎺ラ€氥€?
+### E4 瀹炵幇浜嬩欢姒傝涓庣粨璁哄尯
+鐘舵€侊細宸插畬鎴?鐩爣锛氬睍绀轰簨浠舵憳瑕併€佷竴鍙ヨ瘽缁撹銆佸綋鍓嶆ā寮忓拰椋庨櫓姒傝銆?浜у嚭锛歚EventCard + RiskPanel`銆?鍓嶇疆渚濊禆锛欵2銆?瀛愬瓙浠诲姟娓呭崟锛?- 娓叉煋浜嬩欢鏍囬銆佹憳瑕佸拰鏉ユ簮淇℃伅銆?- 娓叉煋涓€鍙ヨ瘽缁撹鍜屽綋鍓嶆ā寮忔爣璇嗐€?- 娓叉煋椋庨櫓鎻愮ず涓庤竟鐣岃鏄庡尯鍩熴€?瀹炵幇澶囨敞锛氫簨浠舵瑙堛€侀闄╁垪琛ㄣ€佺粺璁′俊鎭拰妯″紡杈圭晫閮藉凡钀藉湴銆?
+### E5 瀹炵幇鏃堕棿绾块潰鏉?鐘舵€侊細宸插畬鎴?鐩爣锛氬睍绀哄畬鏁存ā寮忓拰閮ㄥ垎妯″紡涓嬬殑鏃堕棿绾胯妭鐐广€?浜у嚭锛歚TimelinePanel`銆?鍓嶇疆渚濊禆锛欵2銆乵ock payload銆?瀛愬瓙浠诲姟娓呭崟锛?- 璁捐鏃堕棿绾胯妭鐐瑰崱鐗囨垨鍒楄〃鏍峰紡銆?- 鏀寔鑺傜偣绫诲瀷鏍囩鍜屾椂闂存帓搴忓睍绀恒€?- 澶勭悊鏃犳椂闂寸嚎鎴栭儴鍒嗘椂闂寸嚎鐨勭┖鎬併€?瀹炵幇澶囨敞锛氬綋鍓嶅凡鏀寔鎺掑簭銆佺┖鎬佸拰鑺傜偣绫诲瀷灞曠ず銆?
+### E6 瀹炵幇 claim 琛ㄤ笌璇佹嵁鍒楄〃
+鐘舵€侊細宸插畬鎴?鐩爣锛氬睍绀?claim銆乧laim_type銆乿erdict銆乧onfidence 鍜?evidence 鍒楄〃銆?浜у嚭锛歚ClaimTable + EvidenceList`銆?鍓嶇疆渚濊禆锛欵2銆乵ock payload銆?瀛愬瓙浠诲姟娓呭崟锛?- 娓叉煋 claim 琛ㄦ牸鎴栧崱鐗囩粨鏋勩€?- 灞曠ず claim_type銆乿erdict銆乧onfidence 鍜?notes銆?- 娓叉煋 evidence 鍒楄〃鍙婃潵婧愪俊鎭€?瀹炵幇澶囨敞锛氬綋鍓嶅凡鏀寔 claim 琛ㄤ笌璇佹嵁鑱氬悎鍒楄〃锛屽苟鏈夊熀鏈帓搴忎笌鍘婚噸閫昏緫銆?
+### E7 鑱旈€氫笁妗ｆā寮?鐘舵€侊細宸插畬鎴?鐩爣锛氭妸 `complete_mode / partial_mode / safe_mode` 鍦ㄩ〉闈笂瀹屾暣鍖哄垎寮€銆?浜у嚭锛氭ā寮忚仈閫氬悗鐨勫畬鏁撮〉闈€?鍓嶇疆渚濊禆锛欵3銆丒4銆丒5銆丒6銆?瀛愬瓙浠诲姟娓呭崟锛?- 鍖哄垎涓夌妯″紡鐨勯〉闈㈢粨鏋勫拰鏂囨銆?- 纭繚 safe 妯″紡涓嶄細灞曠ず杩囧害纭畾鐨勭粨璁恒€?- 纭繚 partial 妯″紡涓嶄細浼鎴愬畬鏁寸粨鏋溿€?瀹炵幇澶囨敞锛氫笁妗ｆā寮忓凡缁忓湪鐘舵€佹潯銆侀闄╁尯銆佺┖鎬佸拰 fallback 鏂囨涓娓呮櫚鍖哄垎銆?
+### E8 澧炲姞绌烘€併€佸け璐ユ彁绀哄拰杈圭晫璇存槑
+鐘舵€侊細宸插畬鎴?鐩爣锛氳ˉ瓒冲け璐ユ彁绀恒€佺┖鎬佹枃妗堛€乨emo 杈圭晫璇存槑鍜?fallback 鎻愮ず銆?浜у嚭锛氭紨绀烘洿绋崇殑鍓嶇鐘舵€佽〃杈俱€?鍓嶇疆渚濊禆锛欵7銆?瀛愬瓙浠诲姟娓呭崟锛?- 涓虹┖缁撴灉銆佹帴鍙ｅけ璐ャ€侀儴鍒嗙粨鏋滆璁＄┖鎬併€?- 鏄庣‘灞曠ず fallback 鍜岃竟鐣屽寲鎻愮ず鏂囨銆?- 琛ュ厖 demo 鍦烘櫙涓嬬殑璇存槑鍜岄噸璇曞叆鍙ｃ€?瀹炵幇澶囨敞锛氬綋鍓?demo 绂荤嚎鍥為€€銆佹帴鍙ｅけ璐ュ畨鍏ㄥ洖閫€鍜岃竟鐣岃鏄庨兘宸茬粡鎺ラ€氥€?
+### E9 鏄庣‘缁撴灉鏉ユ簮涓庤繍琛屾ā寮?provenance
+鐘舵€侊細宸插畬鎴愶紙绗竴闃舵 UI 澹?+ 绗簩闃舵鐪熷疄鎺ョ嚎锛?鐩爣锛氳鐢ㄦ埛鑳芥槑纭尯鍒嗙湡瀹?analyze 缁撴灉銆乵ock retrieval / replay銆佸墠绔?demo payload 鍜?safe fallback锛岄伩鍏嶆妸浠讳綍缂撳瓨鎴栨牱渚嬫覆鏌撹鍒ゆ垚鐪熷疄鎺ㄧ悊銆?浜у嚭锛氱粨鏋滄潵婧愭爣璇嗕笌 provenance 灞曠ず銆?鍓嶇疆渚濊禆锛欵7銆丒8锛屽苟闇€涓?`Cluster-C`銆乣Cluster-D` 瀵归綈 provenance 杈撳叆銆?瀛愬瓙浠诲姟娓呭崟锛?- 鍦ㄩ《閮ㄧ姸鎬佸尯鎴栨姤鍛婂ご閮ㄥ睍绀哄綋鍓嶇粨鏋滄潵婧愩€佽繍琛屾ā寮忓拰 fallback 鍘熷洜銆?- 鍖哄垎鈥滃悗绔湡瀹炶繑鍥炩€濃€滃悗绔?mock / replay 杩斿洖鈥濃€滃墠绔湰鍦?demo payload鈥濃€滃墠绔畨鍏ㄥ洖閫€鐢熸垚鎶ュ憡鈥濆洓绫绘潵婧愩€?- 瀵规潵婧愪笉鏄庢垨瀛楁涓嶈冻鐨勬棫 payload 鍋氫繚瀹堝睍绀猴紝涓嶄吉瑁呮垚鐪熷疄鍒嗘瀽銆?- 琛ュ厖鍓嶇娴嬭瘯涓?README/璇存槑锛岀‘淇濇紨绀烘椂鍙ｅ緞涓€鑷淬€?鏈疆鎵ц浠诲姟锛?- 鍏堝熀浜庡綋鍓嶅墠绔凡鐭ョ姸鎬併€乨emo 鍏ュ彛鍜岃姹傚け璐ヨ矾寰勶紝鎼ソ provenance UI 澹充笌淇濆畧鏍囩閫昏緫銆?- 鏈疆鍙尯鍒嗏€滅湡瀹炲悗绔搷搴斺€濃€滄湰鍦?demo payload鈥濃€滃墠绔?safe fallback鈥濃€滄潵婧愪笉鏄庨渶淇濆畧灞曠ず鈥濆洓绫诲墠绔彲璇嗗埆鐘舵€侊紝涓嶇瓑寰?`C11` 鍐荤粨鏈€缁?provenance 瀛楁銆?- 鍚屾琛ユ渶灏忔祴璇曚笌鍓嶇璇存槑锛岀‘淇濅笂绾?UI 澹虫椂涓嶄細鎶婃棫 payload 鎴栧瓧娈典笉瓒崇粨鏋滆璁叉垚鐪熷疄鍒嗘瀽銆?鎵ц姝ラ锛?- 鍦?`frontend/components/analyze-page.tsx` 姊崇悊鐪熷疄 analyze銆乨emo 鍥為€€鍜?safe fallback 鐨勭幇鏈夊垎鍙夛紝骞舵妸鏉ユ簮鐘舵€佹樉寮忎紶缁欓《閮ㄧ姸鎬佸尯銆?- 鍦?`frontend/components/status-banner.tsx` 澧炲姞 provenance 灞曠ず澹筹紝灞曠ず鏉ユ簮绫诲瀷銆乫allback 鐘舵€佸拰淇濆畧璇存槑銆?- 鍦?`frontend/types/` 涓庡墠绔伐鍏峰嚱鏁颁腑琛ユ渶灏?provenance 绫诲瀷鍜屽吋瀹归€昏緫锛岀‘淇濇棫 payload 鎴栫己瀛楁缁撴灉榛樿璧颁繚瀹堟爣绛俱€?- 琛?provenance 鐩稿叧鏈€灏忓崟娴嬩笌 `frontend/README.md` 璇存槑鏂囨锛屾槑纭涓€闃舵鍙仛 UI 澹筹紝涓嶄緷璧栧悗绔湰杞敼 schema銆?瀹炵幇澶囨敞锛氬綋鍓嶉〉闈㈠３宸茬粡鍙繍琛岋紝浣嗗悓涓€濂?UI 浼氭覆鏌撶湡瀹炴姤鍛娿€佹湰鍦?demo payload 鍜屽墠绔?fallback 缁撴灉锛涘湪娌℃湁 provenance 鏄剧ず鍓嶏紝鐢ㄦ埛寰堝鏄撹鍒ょ郴缁熷凡缁忓畬鎴愮湡瀹炴帹鐞嗐€?鏈疆瀹屾垚璁板綍锛?- `frontend/components/analyze-page.tsx`锛氭柊澧炲墠绔潵婧愮姸鎬佺紪鎺掞紝鍦ㄧ湡瀹?analyze 鎴愬姛銆佹湰鍦?demo 鍥為€€銆佸墠绔?safe fallback 涓夋潯璺緞涓婃樉寮忓啓鍏?provenance銆?- `frontend/components/status-banner.tsx`銆乣frontend/app/globals.css`锛氬湪椤堕儴鐘舵€佸尯鏂板 provenance 灞曠ず澹筹紝灞曠ず鏉ユ簮鏍囩銆佹ā寮?pill銆乫allback 鐘舵€佸拰淇濆畧璇存槑銆?- `frontend/types/report.ts`銆乣frontend/lib/report-utils.ts`锛氭柊澧炲墠绔?provenance state 绫诲瀷鍜屼繚瀹堟槧灏勯€昏緫锛涚己鏉ユ簮淇℃伅鐨勬暟鎹粯璁よ惤鍒扳€滄潵婧愪笉鏄庘€濄€?- `frontend/lib/__tests__/report-utils.test.ts`銆乣frontend/README.md`锛氳ˉ provenance 鍗曟祴鍜岀涓€闃舵璇存槑鏂囨锛屼繚璇佹紨绀哄彛寰勪笉鎶?demo 鎴?fallback 璇鎴愮湡瀹炲垎鏋愩€?楠岃瘉锛?- `node .\node_modules\vitest\vitest.mjs run`锛堝湪 Windows 鏈湴涓存椂闀滃儚鐩綍杩愯锛夐€氳繃锛? 涓祴璇曟枃浠躲€?0 涓祴璇曞叏閮ㄩ€氳繃銆?- `node .\node_modules\typescript\bin\tsc --noEmit`锛堝湪 Windows 鏈湴涓存椂闀滃儚鐩綍杩愯锛夐€氳繃銆?- `node .\node_modules\next\dist\bin\next build`锛堝湪 Windows 鏈湴涓存椂闀滃儚鐩綍杩愯锛夐€氳繃銆?鍓╀綑闂锛?- 浠嶆湭鎺ュ悗绔渶缁?provenance 瀛楁锛屽洜姝も€滃悗绔?mock / replay 杩斿洖鈥濇殏鏃犵嫭绔嬫爣绛撅紝褰撳墠缂哄瓧娈电粨鏋滅粺涓€淇濆畧钀藉埌鈥滄潵婧愪笉鏄庘€濄€?- 绛?`Cluster-C / C11` 鍐荤粨 provenance 瀛楁鍚庯紝闇€瑕佽繘鍏?E9 绗簩闃舵锛屾妸鐪熷疄鍚庣 source kind / fallback reason 鎺ュ埌鍓嶇绫诲瀷涓?UI銆?浜ゆ帴寤鸿锛?- `Cluster-C`锛氬喕缁?`Report` provenance 瀛楁锛屽苟璇存槑 mock / replay 涓?fallback 鐨勫尯鍒嗚竟鐣屻€?- `Cluster-F`锛氬悗缁殢鏈?case / 婕旂ず楠屾敹鏃讹紝纭椤甸潰鏍囩涓庣湡瀹炶繍琛岃矾寰勪竴鑷达紝涓嶆妸 demo payload 鎴?safe fallback 璁叉垚鐪熷疄鍒嗘瀽銆?
+鏈疆鎵ц浠诲姟锛?- 鎶婂悗绔凡鍐荤粨鐨?`report.provenance` 鎺ュ埌鍓嶇绫诲瀷銆佽В鏋愬眰鍜岄〉闈㈢姸鎬佸尯锛屾寮忔秷璐?`backend_live / backend_mock / backend_replay`銆?- 缁х画淇濈暀鍓嶇鏈湴 `demo_payload / frontend_fallback` 涓ょ被鏈湴鏉ユ簮锛屽苟鎶婂畠浠拰鍚庣涓夌被鏉ユ簮缁熶竴鎴愪簲绫诲睍绀哄彛寰勩€?- 瀵规棫 payload銆佺己 `provenance` 瀛楁鎴栧瓧娈典笉瀹屾暣鐨勭粨鏋滅淮鎸佷繚瀹堣矾寰勶紝閬垮厤鎶婁换浣曞彲娓叉煋鏁版嵁璇爣鎴愮湡瀹炲垎鏋愩€?- 琛ユ渶灏忓墠绔祴璇曚笌 `frontend/README.md` 绗簩闃舵璇存槑锛屽苟鍦ㄦ湰浠诲姟涓嬪洖鍐欏畬鎴愯褰曟垨鍓╀綑闂銆?
+鎵ц姝ラ锛?- 鎵╁睍 `frontend/types/report.ts` 鐨?`Report` 涓?provenance 鐩稿叧绫诲瀷锛屽榻?`C11` 鍐荤粨瀛楁锛屽悓鏃朵繚鐣欏墠绔湰鍦?fallback reason銆?- 璋冩暣 `frontend/lib/api-client.ts` 涓?`frontend/lib/report-utils.ts`锛岃В鏋愬悗绔?provenance 骞堕泦涓骇鍑轰簲绫绘潵婧愮殑 UI 鍏冩暟鎹紱瀛楁涓嶈冻鏃跺洖閫€鍒颁繚瀹堟爣绛俱€?- 淇敼 `frontend/components/analyze-page.tsx` 鍜?`frontend/components/status-banner.tsx`锛岃鐪熷疄 analyze 鎴愬姛鏃剁洿鎺ュ睍绀哄悗绔?provenance锛屾湰鍦?demo 涓庡墠绔?fallback 缁х画璧版樉寮忔湰鍦版爣绛俱€?- 琛?`frontend/lib/__tests__/api-client.test.ts`銆乣frontend/lib/__tests__/report-utils.test.ts` 鐨勬渶灏忓洖褰掓祴璇曪紝骞跺悓姝ユ洿鏂?`frontend/README.md` 鍜屾湰浠诲姟璁板綍銆?瀹炵幇澶囨敞锛堢浜岄樁娈碉級锛氬墠绔凡姝ｅ紡娑堣垂鍚庣 `report.provenance`銆傜湡瀹?analyze 鎴愬姛鏃朵細鐩存帴灞曠ず `backend_live / backend_mock / backend_replay`锛屾湰鍦?demo 涓庡墠绔畨鍏ㄥ洖閫€鍒嗗埆鍥哄畾涓?`demo_payload / frontend_fallback`锛涙棫 payload 鎴栫己瀛楁缁撴灉浠嶄細淇濆畧钀藉埌 `unknown`锛屼笉浼氫吉瑁呮垚鐪熷疄鍒嗘瀽銆?鏈疆瀹屾垚璁板綍锛堢浜岄樁娈碉級锛?- `frontend/types/report.ts`銆乣frontend/lib/api-client.ts`锛氳ˉ榻?`report.provenance` 绫诲瀷涓庤В鏋愰€昏緫锛屽榻?`C11` 鍐荤粨瀛楁锛涘瓧娈电己澶辨垨涓嶅畬鏁存椂涓嶆姏寮傚父锛岀洿鎺ヤ繚瀹堣惤鍒?`provenance=null`銆?- `frontend/lib/report-utils.ts`銆乣frontend/components/status-banner.tsx`銆乣frontend/app/globals.css`锛氭妸 provenance 灞曠ず浠庘€滃洓绫诲墠绔姸鎬佲€濆崌绾ф垚鈥滀簲绫荤湡瀹炴潵婧?+ unknown 淇濆畧鍏滃簳鈥濓紝骞舵柊澧?`claims:* / evidence:* / timeline:* / provider:* / cache:*` 绛?provenance 缁嗚妭 badge銆?- `frontend/components/analyze-page.tsx`锛氱湡瀹?analyze 鎴愬姛鏃剁洿鎺ユ秷璐瑰悗绔?`source_type`锛沝emo 绂荤嚎/澶辫触鍥為€€鍥哄畾鏍囪涓?`demo_payload`锛屾櫘閫氳緭鍏ュけ璐ュ洖閫€鍥哄畾鏍囪涓?`frontend_fallback`銆?- `frontend/lib/__tests__/api-client.test.ts`銆乣frontend/lib/__tests__/report-utils.test.ts`銆乣frontend/README.md`锛氳ˉ瑙ｆ瀽/灞曠ず鍥炲綊娴嬭瘯涓庣浜岄樁娈佃鏄庢枃妗ｏ紝鏄庣‘椤甸潰濡備綍鍖哄垎 live/mock/replay/demo/fallback锛屼互鍙婃棫 payload 鐨勪繚瀹堣矾寰勩€?楠岃瘉锛堢浜岄樁娈碉級锛?- `cmd /c "pushd \\wsl.localhost\Ubuntu-20.04\home\forwaryan\mianshi\rumor-checking\frontend && npm run typecheck"` 閫氳繃銆?- `cmd /c "pushd \\wsl.localhost\Ubuntu-20.04\home\forwaryan\mianshi\rumor-checking\frontend && npm test"` 閫氳繃锛宍2` 涓祴璇曟枃浠躲€乣13` 涓祴璇曞叏閮ㄩ€氳繃銆?- 鍩轰簬 Windows 鏈湴闀滃儚鐩綍鐨?`next build` 閫氳繃锛屽彲瀹屾垚鐢熶骇鏋勫缓楠岃瘉銆?鍓╀綑闂锛堢浜岄樁娈碉級锛?- 鐩存帴鍦?`\\wsl.localhost\...` 璺緞涓嬭繍琛?`next build` 浠嶄細閬囧埌 Windows `UNC/readlink` 鍏煎闂锛涢渶瑕佺ǔ瀹氭瀯寤烘椂锛岀户缁娇鐢?`frontend/start-local-windows.ps1` 鎴栨湰鍦伴暅鍍忕洰褰曘€?- 浠撳簱鍐呯ǔ瀹?demo payload 鐩墠浠嶆槸鏃ф牱渚?JSON锛屾湰杞敱鍓嶇鏈湴鏉ユ簮鐘舵€佹樉寮忔爣璁颁负 `demo_payload`锛涘鏋滃悗缁笇鏈涘湪闈欐€佹牱渚嬮噷涔熺湅鍒板畬鏁?provenance 瀛楁锛屽彲鍐嶅崟鐙ˉ鍚堝悓姝ワ紝浣嗗綋鍓嶄笂绾夸笉渚濊禆瀹冦€?浜ゆ帴寤鸿锛堢浜岄樁娈碉級锛?- `Cluster-F / F8`锛氭渶缁堥獙鏀舵椂鎸夐〉闈㈡爣绛惧拰 `evidence_source` 涓€璧峰綊绫伙紱鍙湁 `backend_live + retrieval_live` 鎵嶅簲绠楃湡瀹炶矾寰勯€氳繃鏍锋湰銆?- `Cluster-C`锛氬綋鍓?schema 宸茶冻澶熷墠绔笂绾匡紝涓嶉渶瑕佸啀鏀瑰瓧娈碉紱鍙湁褰?provenance 鏋氫妇鎴栫粏鑺傚瓧娈电户缁墿寮犳椂锛屾墠闇€瑕佹柊涓€杞墠绔榻愩€?
 
-## 详细子任务
-
-### E1 初始化 Next.js 项目骨架
-状态：已完成
-目标：创建前端项目结构、页面入口、基础样式和运行脚本。
-产出：可运行的前端单页壳。
-前置依赖：无。
-子子任务清单：
-- 初始化 Next.js 与 TypeScript 项目。
-- 建立单页入口和基础布局文件。
-- 确保本地可以启动前端页面。
-实现备注：`frontend/` 已具备完整 Next.js 工程结构、运行脚本和全局样式。
-
-### E2 定义前端类型与 API client
-状态：已完成
-目标：根据共享 schema 固定前端类型，并建立调用后端的 API client。
-产出：前端类型层和请求层。
-前置依赖：schema 初版可用。
-子子任务清单：
-- 根据 `Report` schema 定义前端类型。
-- 封装 analyze、health、demo 等 API 调用。
-- 处理请求异常和基础返回解析。
-实现备注：前端已对齐真实 `GET /api/v1/health` 和 `POST /api/v1/analyze`；本地 demo 读取留在页面层，不再假设后端存在 `demo-cases / replay`。
-
-### E3 实现输入区与提交状态
-状态：已完成
-目标：支持文本、URL、问题输入，并展示 loading、error 等状态。
-产出：`InputPanel + StatusBanner`。
-前置依赖：E1、E2。
-子子任务清单：
-- 实现输入框、示例按钮和提交按钮。
-- 实现提交中、失败、重试等状态展示。
-- 接好基础提交事件和前端校验。
-实现备注：输入校验、提交、重试、错误提示和 fallback 提示均已接通。
-
-### E4 实现事件概览与结论区
-状态：已完成
-目标：展示事件摘要、一句话结论、当前模式和风险概览。
-产出：`EventCard + RiskPanel`。
-前置依赖：E2。
-子子任务清单：
-- 渲染事件标题、摘要和来源信息。
-- 渲染一句话结论和当前模式标识。
-- 渲染风险提示与边界说明区域。
-实现备注：事件概览、风险列表、统计信息和模式边界都已落地。
-
-### E5 实现时间线面板
-状态：已完成
-目标：展示完整模式和部分模式下的时间线节点。
-产出：`TimelinePanel`。
-前置依赖：E2、mock payload。
-子子任务清单：
-- 设计时间线节点卡片或列表样式。
-- 支持节点类型标签和时间排序展示。
-- 处理无时间线或部分时间线的空态。
-实现备注：当前已支持排序、空态和节点类型展示。
-
-### E6 实现 claim 表与证据列表
-状态：已完成
-目标：展示 claim、claim_type、verdict、confidence 和 evidence 列表。
-产出：`ClaimTable + EvidenceList`。
-前置依赖：E2、mock payload。
-子子任务清单：
-- 渲染 claim 表格或卡片结构。
-- 展示 claim_type、verdict、confidence 和 notes。
-- 渲染 evidence 列表及来源信息。
-实现备注：当前已支持 claim 表与证据聚合列表，并有基本排序与去重逻辑。
-
-### E7 联通三档模式
-状态：已完成
-目标：把 `complete_mode / partial_mode / safe_mode` 在页面上完整区分开。
-产出：模式联通后的完整页面。
-前置依赖：E3、E4、E5、E6。
-子子任务清单：
-- 区分三种模式的页面结构和文案。
-- 确保 safe 模式不会展示过度确定的结论。
-- 确保 partial 模式不会伪装成完整结果。
-实现备注：三档模式已经在状态条、风险区、空态和 fallback 文案中被清晰区分。
-
-### E8 增加空态、失败提示和边界说明
-状态：已完成
-目标：补足失败提示、空态文案、demo 边界说明和 fallback 提示。
-产出：演示更稳的前端状态表达。
-前置依赖：E7。
-子子任务清单：
-- 为空结果、接口失败、部分结果设计空态。
-- 明确展示 fallback 和边界化提示文案。
-- 补充 demo 场景下的说明和重试入口。
-实现备注：当前 demo 离线回退、接口失败安全回退和边界说明都已经接通。
-
-### E9 明确结果来源与运行模式 provenance
-状态：已完成（第一阶段 UI 壳 + 第二阶段真实接线）
-目标：让用户能明确区分真实 analyze 结果、mock retrieval / replay、前端 demo payload 和 safe fallback，避免把任何缓存或样例渲染误判成真实推理。
-产出：结果来源标识与 provenance 展示。
-前置依赖：E7、E8，并需与 `Cluster-C`、`Cluster-D` 对齐 provenance 输入。
-子子任务清单：
-- 在顶部状态区或报告头部展示当前结果来源、运行模式和 fallback 原因。
-- 区分“后端真实返回”“后端 mock / replay 返回”“前端本地 demo payload”“前端安全回退生成报告”四类来源。
-- 对来源不明或字段不足的旧 payload 做保守展示，不伪装成真实分析。
-- 补充前端测试与 README/说明，确保演示时口径一致。
-本轮执行任务：
-- 先基于当前前端已知状态、demo 入口和请求失败路径，搭好 provenance UI 壳与保守标签逻辑。
-- 本轮只区分“真实后端响应”“本地 demo payload”“前端 safe fallback”“来源不明需保守展示”四类前端可识别状态，不等待 `C11` 冻结最终 provenance 字段。
-- 同步补最小测试与前端说明，确保上线 UI 壳时不会把旧 payload 或字段不足结果误讲成真实分析。
-执行步骤：
-- 在 `frontend/components/analyze-page.tsx` 梳理真实 analyze、demo 回退和 safe fallback 的现有分叉，并把来源状态显式传给顶部状态区。
-- 在 `frontend/components/status-banner.tsx` 增加 provenance 展示壳，展示来源类型、fallback 状态和保守说明。
-- 在 `frontend/types/` 与前端工具函数中补最小 provenance 类型和兼容逻辑，确保旧 payload 或缺字段结果默认走保守标签。
-- 补 provenance 相关最小单测与 `frontend/README.md` 说明文案，明确第一阶段只做 UI 壳，不依赖后端本轮改 schema。
-实现备注：当前页面壳已经可运行，但同一套 UI 会渲染真实报告、本地 demo payload 和前端 fallback 结果；在没有 provenance 显示前，用户很容易误判系统已经完成真实推理。
-本轮完成记录：
-- `frontend/components/analyze-page.tsx`：新增前端来源状态编排，在真实 analyze 成功、本地 demo 回退、前端 safe fallback 三条路径上显式写入 provenance。
-- `frontend/components/status-banner.tsx`、`frontend/app/globals.css`：在顶部状态区新增 provenance 展示壳，展示来源标签、模式 pill、fallback 状态和保守说明。
-- `frontend/types/report.ts`、`frontend/lib/report-utils.ts`：新增前端 provenance state 类型和保守映射逻辑；缺来源信息的数据默认落到“来源不明”。
-- `frontend/lib/__tests__/report-utils.test.ts`、`frontend/README.md`：补 provenance 单测和第一阶段说明文案，保证演示口径不把 demo 或 fallback 误讲成真实分析。
-验证：
-- `node .\node_modules\vitest\vitest.mjs run`（在 Windows 本地临时镜像目录运行）通过，2 个测试文件、10 个测试全部通过。
-- `node .\node_modules\typescript\bin\tsc --noEmit`（在 Windows 本地临时镜像目录运行）通过。
-- `node .\node_modules\next\dist\bin\next build`（在 Windows 本地临时镜像目录运行）通过。
-剩余问题：
-- 仍未接后端最终 provenance 字段，因此“后端 mock / replay 返回”暂无独立标签，当前缺字段结果统一保守落到“来源不明”。
-- 等 `Cluster-C / C11` 冻结 provenance 字段后，需要进入 E9 第二阶段，把真实后端 source kind / fallback reason 接到前端类型与 UI。
-交接建议：
-- `Cluster-C`：冻结 `Report` provenance 字段，并说明 mock / replay 与 fallback 的区分边界。
-- `Cluster-F`：后续随机 case / 演示验收时，确认页面标签与真实运行路径一致，不把 demo payload 或 safe fallback 讲成真实分析。
-
-本轮执行任务：
-- 把后端已冻结的 `report.provenance` 接到前端类型、解析层和页面状态区，正式消费 `backend_live / backend_mock / backend_replay`。
-- 继续保留前端本地 `demo_payload / frontend_fallback` 两类本地来源，并把它们和后端三类来源统一成五类展示口径。
-- 对旧 payload、缺 `provenance` 字段或字段不完整的结果维持保守路径，避免把任何可渲染数据误标成真实分析。
-- 补最小前端测试与 `frontend/README.md` 第二阶段说明，并在本任务下回写完成记录或剩余问题。
-
-执行步骤：
-- 扩展 `frontend/types/report.ts` 的 `Report` 与 provenance 相关类型，对齐 `C11` 冻结字段，同时保留前端本地 fallback reason。
-- 调整 `frontend/lib/api-client.ts` 与 `frontend/lib/report-utils.ts`，解析后端 provenance 并集中产出五类来源的 UI 元数据；字段不足时回退到保守标签。
-- 修改 `frontend/components/analyze-page.tsx` 和 `frontend/components/status-banner.tsx`，让真实 analyze 成功时直接展示后端 provenance，本地 demo 与前端 fallback 继续走显式本地标签。
-- 补 `frontend/lib/__tests__/api-client.test.ts`、`frontend/lib/__tests__/report-utils.test.ts` 的最小回归测试，并同步更新 `frontend/README.md` 和本任务记录。
-实现备注（第二阶段）：前端已正式消费后端 `report.provenance`。真实 analyze 成功时会直接展示 `backend_live / backend_mock / backend_replay`，本地 demo 与前端安全回退分别固定为 `demo_payload / frontend_fallback`；旧 payload 或缺字段结果仍会保守落到 `unknown`，不会伪装成真实分析。
-本轮完成记录（第二阶段）：
-- `frontend/types/report.ts`、`frontend/lib/api-client.ts`：补齐 `report.provenance` 类型与解析逻辑，对齐 `C11` 冻结字段；字段缺失或不完整时不抛异常，直接保守落到 `provenance=null`。
-- `frontend/lib/report-utils.ts`、`frontend/components/status-banner.tsx`、`frontend/app/globals.css`：把 provenance 展示从“四类前端状态”升级成“五类真实来源 + unknown 保守兜底”，并新增 `claims:* / evidence:* / timeline:* / provider:* / cache:*` 等 provenance 细节 badge。
-- `frontend/components/analyze-page.tsx`：真实 analyze 成功时直接消费后端 `source_type`；demo 离线/失败回退固定标记为 `demo_payload`，普通输入失败回退固定标记为 `frontend_fallback`。
-- `frontend/lib/__tests__/api-client.test.ts`、`frontend/lib/__tests__/report-utils.test.ts`、`frontend/README.md`：补解析/展示回归测试与第二阶段说明文档，明确页面如何区分 live/mock/replay/demo/fallback，以及旧 payload 的保守路径。
-验证（第二阶段）：
-- `cmd /c "pushd \\wsl.localhost\Ubuntu-20.04\home\forwaryan\mianshi\rumor-checking\frontend && npm run typecheck"` 通过。
-- `cmd /c "pushd \\wsl.localhost\Ubuntu-20.04\home\forwaryan\mianshi\rumor-checking\frontend && npm test"` 通过，`2` 个测试文件、`13` 个测试全部通过。
-- 基于 Windows 本地镜像目录的 `next build` 通过，可完成生产构建验证。
-剩余问题（第二阶段）：
-- 直接在 `\\wsl.localhost\...` 路径下运行 `next build` 仍会遇到 Windows `UNC/readlink` 兼容问题；需要稳定构建时，继续使用 `frontend/start-local-windows.ps1` 或本地镜像目录。
-- 仓库内稳定 demo payload 目前仍是旧样例 JSON，本轮由前端本地来源状态显式标记为 `demo_payload`；如果后续希望在静态样例里也看到完整 provenance 字段，可再单独补合同步，但当前上线不依赖它。
-交接建议（第二阶段）：
-- `Cluster-F / F8`：最终验收时按页面标签和 `evidence_source` 一起归类；只有 `backend_live + retrieval_live` 才应算真实路径通过样本。
-- `Cluster-C`：当前 schema 已足够前端上线，不需要再改字段；只有当 provenance 枚举或细节字段继续扩张时，才需要新一轮前端对齐。

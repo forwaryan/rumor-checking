@@ -1,6 +1,6 @@
 ﻿# Docs Hub
 
-本仓库保留“代码邻近文档不乱搬、项目级文档统一导航、冲突旧稿单独归档”这三个原则。
+本仓库保留“代码邻近文档不乱搬、项目级文档统一导航、冲突问题集中登记”这三个原则。
 
 ## 先看这里
 
@@ -8,8 +8,8 @@
   - 仓库总入口，给第一次进入项目的人用。
 - [status/current-verified-state.md](status/current-verified-state.md)
   - 2026-03-14 按代码核验后的当前状态。
-- [archive/conflicts/README.md](archive/conflicts/README.md)
-  - 已归档的冲突旧稿与归档原因。
+- [status/document-conflict-register.md](status/document-conflict-register.md)
+  - 本轮发现的文档冲突问题、核验结果和处理动作表。
 
 ## 1. 演示与运行
 
@@ -30,6 +30,10 @@
   - 项目地图与阶段说明。
 - [../overview/06_current_code_implementation.md](../overview/06_current_code_implementation.md)
   - 当前代码实现总览。
+- [../overview/09_stage-progress-and-task-audit.md](../overview/09_stage-progress-and-task-audit.md)
+  - 当前阶段审计与真实状态。
+- [../overview/10_unfinished-task-priority-and-parallel-analysis.md](../overview/10_unfinished-task-priority-and-parallel-analysis.md)
+  - 当前剩余任务优先级与并行建议。
 - [../backend/docs/api-foundation-implementation-record.md](../backend/docs/api-foundation-implementation-record.md)
   - 后端主链实现记录。
 - [../backend/docs/real-retrieval-pipeline.md](../backend/docs/real-retrieval-pipeline.md)
@@ -50,6 +54,8 @@
 
 - [../tasks/README.md](../tasks/README.md)
   - 当前任务板与 cluster 文档入口。
+- [../tasks/origin-problem-goal-matrix.md](../tasks/origin-problem-goal-matrix.md)
+  - 全局任务状态矩阵。
 - [../workflows/README.md](../workflows/README.md)
   - 协作流程文档入口。
 - [../prompt-history.md](../prompt-history.md)
@@ -67,5 +73,5 @@
 ## 6. 结构约定
 
 - `backend/`、`frontend/`、`contracts/`、`data/`、`evals/` 下的文档继续贴着代码和资产放。
-- `docs/` 负责统一导航、现状核验和冲突归档，不替代代码邻近文档。
-- 如果旧文档和代码事实冲突，先在 [status/current-verified-state.md](status/current-verified-state.md) 中给出核验结论，再把旧版本归档到 [archive/conflicts/](archive/conflicts/)。
+- `docs/` 负责统一导航、现状核验和冲突问题登记，不替代代码邻近文档。
+- 如果旧文档和代码事实冲突，先在 [status/document-conflict-register.md](status/document-conflict-register.md) 中登记问题，再直接更新原文件本身。

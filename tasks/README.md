@@ -1,4 +1,5 @@
-﻿> 本目录主要记录执行分工和回写状态，不是代码事实的唯一来源。若与代码实现冲突，先看 `../docs/status/current-verified-state.md`，旧稿见 `../docs/archive/conflicts/`。
+﻿> 本目录主要记录执行分工和回写状态，不是代码事实的唯一来源。若与代码实现冲突，先看 `../docs/status/current-verified-state.md`；冲突问题统一登记在 `../docs/status/document-conflict-register.md`，原文件直接更新。
+
 # Tasks Index
 
 本目录用于存放可独立并行推进的任务文件。
@@ -23,78 +24,43 @@
 - `cluster-f-quality-gate.md`
 - `cluster-g-demo-ops.md`
 
+## 当前全局状态
+
+截至 `2026-03-14 22:11`，当前已经确认：
+
+- `C10` 已完成第一阶段。
+- `C11` 已完成第一阶段。
+- `E9` 当前 provenance 展示已落地。
+- `F2 / F3 / F4 / F5 / F6 / F7` 已完成。
+- `F8` 已形成正式验收记录，但结论是“真实 live 路径当前未通过最终验收”。
+
+因此当前真正还没收口的，不再是“主链有没有”，而是：
+
+- live retrieval 稳不稳定。
+- 稳定 demo 是否存在模式漂移。
+- README / 演示稿 / 边界说明是否已经同步最新结论。
+- replay 草案何时适合冻结为最终口径。
+
 ## 当前最高优先级
 
-截至 `2026-03-14` 晚间复查，第一波与第二波的主实现已经基本到位：
-
-- `C10` 已完成。
-- `C11` 已完成第一阶段“主链去占位 + provenance 冻结”。
-- 当前真正还没收口的，不再是“有没有主链”，而是“主链能不能稳定撑住随机新闻 + 能不能被前端和文档正确表达”。
-
-按当前目标“继续逼近任意新闻都能较真”，建议优先级如下：
-
-1. `Cluster-F / Quality Gate`
-   - 核心是 `F2 / F4 / F6 / F8`。
-   - 现在最缺的是输入、verdict、report mode 和随机 case 的最终验收闭环。
-2. `Cluster-E / Experience Shell`
-   - 核心是 `E9` 第二阶段。
-   - 后端 provenance 字段已经冻结，前端可以正式把 `backend_live / backend_mock / backend_replay / demo_payload / frontend_fallback` 分清楚。
+1. `Cluster-D / Retrieval Lab`
+   - 核心是 live retrieval 稳定性。
+   - 当前没有 `backend_live + retrieval_live` 的通过样本，这是最直接的阻塞。
+2. `Cluster-C / API Foundation`
+   - 核心是稳定 demo 的模式漂移、provider / retrieval 质量与主链边界收口。
 3. `Cluster-G / Demo Ops`
-   - 核心是 `G3 / G4` 最终收口，`G2` 视 replay 需要补最终定稿。
-   - 这条线要等 `F8` 给出真实验收记录后再写最终口径。
-4. `Cluster-C / API Foundation`
-   - `C10 / C11` 第一阶段已完成，当前只建议处理 `F2 / F4 / F6` 反馈回来的最小修正，以及 `C9` 相关的残余质量测试适配。
-5. `Cluster-D / Retrieval Lab`
-   - 当前不是新的主阻塞项，更适合作为 `F8` 随机 live case 验收时的检索质量支撑。
+   - 核心是把 `F8` 的正式结论同步到 README、演示脚本和边界文档。
+4. `Cluster-G / G2`
+   - replay 仍应继续保留为草案，等真实路径和术语更稳定后再定稿。
 
 ## 当前建议窗口
 
-```mermaid
-flowchart LR
-    A["C10/C11 第一阶段已完成"] --> B["下一波重点转向验收与表达"]
-    B --> C1["窗口 A: F2 输入回归"]
-    B --> C2["窗口 B: F4 verdict 调优"]
-    B --> C3["窗口 C: F6 report/provenance 回归"]
-    B --> C4["窗口 D: E9 provenance UI 第二阶段"]
-    B --> C5["窗口 E: F8 随机 case 验收"]
-    C5 --> C6["窗口 F: G3/G4 最终文档收口"]
-```
-
 | 窗口 | 建议任务 | 主要文件范围 | 为什么现在适合并行 |
 | --- | --- | --- | --- |
-| `W-A` | `F2` 输入标准化回归收口 | `backend/eval_regression_tests/test_input_eval_regression.py`、`backend/app/services/input_normalizer.py` | 主要是输入字段/关键词/mode_hint 收敛，和 verdict/UI 冲突小。 |
-| `W-B` | `F4` verdict 回归收口 | `backend/eval_regression_tests/test_verdict_eval_regression.py`、`backend/app/services/verdict_engine.py` | 主要是 verdict/confidence/冲突保留逻辑，和前端文档窗口隔离。 |
-| `W-C` | `F6` report mode + provenance 回归收口 | `backend/eval_regression_tests/test_report_mode_eval_regression.py`、`backend/app/services/report_builder.py` | 当前最大的直接阻塞是 provenance 参数已冻结，但 F6 测试入口还没跟上。 |
-| `W-D` | `E9` 第二阶段 | `frontend/components/analyze-page.tsx`、`frontend/components/status-banner.tsx`、`frontend/types/report.ts` | 后端 provenance 已冻结，可以正式接真实标签。 |
-| `W-E` | `F8` 随机 case / 稳定 demo 最终验收 | `SMOKE_CHECKLIST.md`、`overview/07_quality-and-demo-baseline.md`、验收记录文档 | 主要消费已有能力，尽量不再改主实现。 |
-| `W-F` | `G3/G4` 最终文档收口 | `README.md`、`overview/11_runtime-and-env-outline.md`、`overview/12_limits-and-degradation-outline.md` | 必须等 `F8` 给出口径后再写最终版，避免再次漂移。 |
-
-## 如果窗口不够怎么合并
-
-### 3 个窗口
-
-- `窗口 1`
-  - 拿 `cluster-a-control-tower.md` + `cluster-b-contract-forge.md`
-- `窗口 2`
-  - 拿 `cluster-c-api-foundation.md` + `cluster-f-quality-gate.md`
-- `窗口 3`
-  - 拿 `cluster-e-experience-shell.md` + `cluster-g-demo-ops.md`
-
-### 4 个窗口
-
-- `窗口 1`
-  - 拿 `cluster-a-control-tower.md` + `cluster-b-contract-forge.md`
-- `窗口 2`
-  - 拿 `cluster-c-api-foundation.md`
-- `窗口 3`
-  - 拿 `cluster-f-quality-gate.md`
-- `窗口 4`
-  - 拿 `cluster-e-experience-shell.md` + `cluster-g-demo-ops.md`
-
-### 6 到 7 个窗口
-
-- 每个窗口各拿一个 cluster 文件，最稳。
-- 如果要继续细拆，优先在 `Cluster-F` 内部分 `F2 / F4 / F6 / F8`，不要再把 `C10 / C11` 当成当前默认主窗口。
+| `W-A` | live retrieval 稳定性 | `backend/app/services/retrieval_*.py`、`backend/tests/test_retrieval.py` | 直接解决真实路径无通过样本的问题。 |
+| `W-B` | demo 模式漂移与质量收口 | `backend/app/services/verdict_engine.py`、`report_builder.py`、相关验收文档 | 直接影响稳定 demo 与最终演示口径。 |
+| `W-C` | 文档与演示口径同步 | `README.md`、`DEMO_SCRIPT.md`、`overview/11`、`overview/12` | 需要基于 `F8` 结论同步当前说法。 |
+| `W-D` | replay 最终定稿 | `data/demos/README.md`、相关说明文档 | 适合在前几项稳定后继续推进。 |
 
 ## 执行记录要求
 
@@ -131,19 +97,3 @@ flowchart LR
 - 验证结果：...
 - 剩余问题：...
 ```
-
-## 配套执行手册
-
-当前最应优先看的执行手册是：
-
-- `overview/10_unfinished-task-priority-and-parallel-analysis.md`
-  - 已包含历史波次分析，以及本轮应继续执行的窗口 prompt。
-- `overview/09_stage-progress-and-task-audit.md`
-  - 用于看当前真实进度、测试面和剩余阻塞。
-
-推荐顺序：
-
-1. 先读 `tasks/cluster-c-api-foundation.md` 确认 `C10 / C11` 已完成到哪一层。
-2. 再读 `tasks/cluster-f-quality-gate.md` 看 `F2 / F4 / F6 / F8` 还差什么。
-3. 然后按 `overview/10_unfinished-task-priority-and-parallel-analysis.md` 的最新窗口 prompt 分发下一波。
-

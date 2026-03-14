@@ -31,7 +31,7 @@
 
 - 后端测试已经接上 `evals/minimal_v1`，并覆盖了 health、analyze、模式、provider 回退和错误响应等核心 API 路径。
 - `F5` 已完成，`backend/tests/test_retrieval.py` 已能基于 `retrieval_cases.json` 回归 mock 检索标准化、去重 canonical、`origin` / `turn` 节点识别和时间线构建。
-- 当前真正未收口的是 `F2 / F4 / F6 / F8`；其中 `F3 / F5 / F7` 已完成，但最新复查显示 `F2` 当前 `1/6`、`F4` 当前 `4/8`，`F6` 的独立回归入口仍待适配新的 `provenance` 参数，因此当前测试仍是“基础可用”，不是“演示前冻结”。
+- 当前测试层主体已基本收口：`F2 / F3 / F4 / F5 / F6 / F7` 已完成，`F8` 也已形成正式验收记录；当前真正未收口的是“为什么真实 live 路径仍未通过最终验收”，因此后续重点转向 live retrieval 稳定性、模式漂移和文档口径同步。
 
 ## 详细子任务
 
@@ -245,9 +245,9 @@
 - `F7` 交付物通过，smoke checklist 已形成。
 - 当前仓库“真实后端 smoke 可通过”结论未通过，仍需依赖 `Cluster-D / D5 ~ D7` 收口后复跑。
 残余风险：
-- `C10` 未完成，URL 输入仍是保守 fallback，不能把 URL 正文抽取讲成已完成能力。
+- `C10` 已完成公开 HTML URL 抽取与 fallback，但 smoke 和演示仍不能把“任意 URL 都可稳定抽取”讲成已完成能力。
 - `D5 ~ D7` 相关 retrieval 文件当前存在接口版本漂移，已直接阻断后端导入与自动化 smoke。
-- `G5 / G6` 尚未最终收口，因此 checklist 还没有同步并入最终口播脚本和 README。
+- `G3 / G4` 仍需根据 `F8` 结论继续同步最终运行口径与边界说明。
 建议交接窗口：
 - `Cluster-D`：先统一 retrieval 相关实现与测试接口，恢复后端可启动和回归可跑。
 - `Cluster-C`：在 retrieval 修复后复跑 `health / analyze` 主链路，确认三档模式没被回归破坏。
@@ -262,7 +262,7 @@
 - 跑稳定 demo case 并记录结果。
 - 跑随机输入样例并记录模式分布。
 - 汇总演示前残余风险。
-实现备注：当前还没有形成最终通过记录。
+实现备注：正式验收记录已落库，但当前结论是“真实 live 路径未通过最终验收”。
 
 本轮执行任务：
 - 按 `C11` 的 provenance 验收口径，对当前主链做最终验收，覆盖稳定 demo case 与随机文本 / URL / question 输入。
@@ -303,6 +303,7 @@
 - `Cluster-G / G3 / G4`：直接复用 `overview/13_f8-random-acceptance.md` 里的“能讲什么 / 不能讲什么”和风险表，更新 README、口播与交付边界。
 - `Cluster-D`：优先收 live retrieval 的 `ConnectError / 429 / JSONDecodeError`，否则无法补齐 `backend_live + retrieval_live` 通过样本。
 - `Cluster-C`：优先复核 `chemical-odor` 与 `morningstar-layoff` 的模式漂移，防止 safe / partial / complete 边界继续失真。
+
 
 
 

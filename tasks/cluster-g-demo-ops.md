@@ -31,7 +31,7 @@
 
 - 当前已经有 3 条稳定 demo case，并且前端本地 payload 与后端 scenario 已基本对齐。
 - 前端 README、前端实现总结、后端 README 和后端实现记录都已经存在。
-- 但顶层 README 仍旧过时，replay 数据和演示脚本没有真正落地，因此 `Cluster-G` 目前属于“资料有了不少，但还没形成最终交付包”。
+- 顶层 README、`DEMO_SCRIPT.md` 和 `SMOKE_CHECKLIST.md` 已经落地；当前 `Cluster-G` 真正未收口的是把 `F8` 的结论同步到最终文档与演示口径，以及继续推进 `G2` replay 定稿。
 
 ## 详细子任务
 
@@ -76,63 +76,62 @@
 - `F8` 完成后，再决定哪些 replay 应升级为“正式验收记录”，哪些只保留为演示辅助资产。
 
 ### G3 写运行方式与环境变量说明
-状态：进行中
+状态：已完成
 目标：说明前后端如何启动、需要哪些环境变量、如何跑 demo。
-产出：README 运行说明初稿。
-前置依赖：前后端项目已初始化。
+产出：README 运行说明终稿、运行路径与环境变量文档终稿。
+前置依赖：前后端项目已初始化；`F8` 验收记录已落库。
 子子任务清单：
 - 写清前端启动步骤。
 - 写清后端启动步骤和环境变量要求。
 - 写清如何跑 demo 和如何使用 replay。
-实现备注：已新增 `overview/11_runtime-and-env-outline.md` 作为第一阶段骨架；顶层 README 先补入口链接，不抢写 `C10 / C11 / F8` 未稳定的最终运行口径。
+实现备注：已按 `overview/13_f8-random-acceptance.md` 更新 `README.md`、`overview/README.md` 与 `overview/11_runtime-and-env-outline.md`，运行说明不再沿用骨架占位，而是直接区分 `mock demo / live probe / replay / frontend fallback`。
 本轮执行任务：
-- 把“怎么跑、环境变量放哪里、怎样做演示前检查”的说明拆成清晰章节骨架，而不是继续堆在顶层 README。
-- 明确顶层 README、前端 README、后端 README、Smoke Checklist 在运行说明里的角色边界。
-- 把 replay 运行方式先留成占位章节，只说明落点和后续依赖，不伪造尚未落地的使用流程。
+- 基于 `overview/13_f8-random-acceptance.md` 的正式验收结论，重写当前可交付的运行路径，明确区分 `mock demo / live probe / replay / frontend fallback`。
+- 把环境变量建议收敛到“默认验收快照 / live probe 专用 / 前端 API 指向”三组，只保留仓库里已经存在的真实变量和启动方式。
+- 同步顶层 README、`overview/11_runtime-and-env-outline.md` 与 `overview/README.md` 的入口，让协作者先看到今天能交付哪条路径、不能把哪条路径讲成已验收通过。
 执行步骤：
-1. 对照顶层 README、前端 README、后端 README 和 smoke checklist，梳理哪些说明已经存在，哪些还只是分散在不同文档里。
-2. 设计一份独立的运行与环境变量章节骨架，覆盖启动路径、环境变量矩阵、验证入口和演示路径。
-3. 在骨架里标出“当前引用来源”和“最终定稿依赖”，避免后续窗口重复搬运或提前写死结论。
-4. 回写 `G3` 状态和交接建议，说明哪些章节能先补，哪些必须等 `C10 / C11 / F8`。
+1. 先以 `F8` 验收记录冻结默认环境快照和 live probe 结论，避免继续引用旧波次描述。
+2. 对照 README、前后端 README 与 `SMOKE_CHECKLIST.md` 中已存在的启动命令和环境变量，只保留当前真实可跑的路径。
+3. 更新顶层 README 与 `overview/11_runtime-and-env-outline.md` 的最终运行说明，明确 replay 仍无公开接口，frontend fallback 只算保底演示。
+4. 回写 `G3` 完成记录，标出哪些路径可以交付、哪些只应用于内部诊断。
 本轮完成记录：
-- 修改文件：`tasks/cluster-g-demo-ops.md`、`overview/11_runtime-and-env-outline.md`、`overview/README.md`、`README.md`
-- 完成方式：新增运行方式与环境变量的章节骨架文档，拆出“启动路径矩阵 / 环境变量矩阵 / 演示前检查 / replay 运行占位 / 待冻结章节”等明确落点，并在 README 中补了入口链接。
-- 验证如何：逐项对照 `README.md`、`backend/README.md`、`frontend/README.md`、`SMOKE_CHECKLIST.md` 现有内容，确认本轮只做结构拆分，不覆盖现有实现说明。
-- 剩余问题：URL 输入主路径、真实检索默认建议、provider/retrieval/replay 的最终推荐组合，仍待 `C10 / C11 / F8` 验证后再落最终文案。
+- 修改文件：`tasks/cluster-g-demo-ops.md`、`README.md`、`overview/README.md`、`overview/11_runtime-and-env-outline.md`、`SMOKE_CHECKLIST.md`、`DEMO_SCRIPT.md`
+- 完成方式：以 `F8` 验收记录为唯一运行口径来源，收口为四类路径矩阵：`mock demo`、`live probe`、`replay`、`frontend fallback`；同时补齐默认环境快照、live probe 专用变量和前端 API 指向。
+- 验证如何：逐项对照 `overview/13_f8-random-acceptance.md`、`backend/README.md`、`frontend/README.md` 与 `SMOKE_CHECKLIST.md`，确认所有运行说明都明确区分 live / mock / replay / fallback，且没有新增伪接口或伪运行步骤。
+- 剩余问题：`live probe` 仍停留在内部诊断阶段，`backend_live + retrieval_live` 的正式通过样本仍待 `Cluster-D` 修复 live retrieval 后重新验收。
 交接建议：
-- 顶层 README 继续只保留“第一次进仓库先看什么”，不要再把全部运行细节重新复制一遍。
-- 后续窗口补运行说明时，优先往 `overview/11_runtime-and-env-outline.md` 的既有章节里填，不再新开平行文档。
-- `F8` 完成前，不要把“推荐默认启动路径”写成已经通过随机 case 验收的口径。
+- 对外交付默认只讲 `mock demo + provenance 边界`，不要再把默认环境讲成真实检索路径。
+- 如果后续要恢复 `live` 口径，必须先有新的正式验收记录，再同步更新 README、Smoke 与口播。
+- replay 继续只保留为内部预留能力，除非后端实现公开接口，否则不要新增交付说明。
 
 ### G4 写已知限制与降级边界
-状态：进行中
+状态：已完成
 目标：把当前 V1 的不做范围、失败模式、fallback 逻辑明确写出来。
-产出：README 中的限制说明和边界说明。
-前置依赖：真实能力与 fallback 基本确定。
+产出：README 中的限制说明和边界说明终稿。
+前置依赖：真实能力与 fallback 基本确定；`F8` 已给出正式结论。
 子子任务清单：
 - 列出 V1 不做和弱化的能力。
 - 列出 partial/safe 模式的触发场景。
 - 列出已知风险和临时规避办法。
-实现备注：已新增 `overview/12_limits-and-degradation-outline.md` 作为第一阶段骨架；当前只整理章节和占位，不提前定稿 `C10 / C11 / F8` 尚未验证的最终边界口径。
+实现备注：已按 `F8` 风险表收口 `README.md`、`overview/12_limits-and-degradation-outline.md`、`SMOKE_CHECKLIST.md` 和 `DEMO_SCRIPT.md`，不再沿用“三条稳定 demo 全部通过”的旧口径。
 本轮执行任务：
-- 把“不要过度宣称什么、哪些会降级、哪些只是 demo/fallback”整理成可直接收口的章节骨架。
-- 先统一边界的分类方式：输入边界、检索边界、模式边界、fallback 边界、演示口径边界、待验收风险。
-- 在 task 文档里明确哪些段落必须等 `C10 / C11 / F8` 后再最终落笔。
+- 基于 `F8` 的“能讲什么 / 不能讲什么”和风险表，冻结当前对外口径，不再保留骨架式占位。
+- 明确 `live / mock / replay / fallback` 的判定方式，以及 `complete / partial / safe_mode` 在当前验收状态下分别能怎么讲。
+- 同步 README、`overview/12_limits-and-degradation-outline.md` 与 `SMOKE_CHECKLIST.md` 的 go/no-go 结论，移除“三条稳定 demo 已全部通过”的旧口径。
 执行步骤：
-1. 复核现有 README、后端 README、前端 README、DEMO_SCRIPT 和 smoke checklist 里已经出现的边界表述，避免再出现多套说法。
-2. 设计限制与降级说明的章节顺序，让后续窗口可以直接按章节补最终内容。
-3. 把“必须等待后续任务”的段落单独列出来，避免文档窗口提前替实现窗口做结论。
-4. 回写 `G4` 状态和交接建议，说明最终定稿依赖哪些窗口结果。
+1. 复核 `F8` 验收记录、README、前后端 README 与 smoke checklist，抽出必须统一的边界结论与失败样本。
+2. 更新 `overview/12_limits-and-degradation-outline.md` 与 README 的最终限制说明，明确哪些是 live 能力、哪些只是 mock/demo 或保守降级。
+3. 同步 `SMOKE_CHECKLIST.md` 的演示入口、demo 使用建议与 go/no-go 结论，避免继续把漂移样本当作稳定 demo。
+4. 回写 `G4` 完成记录，保留仍需 `Cluster-C / D` 处理的残余风险，但不再把 `F8` 已给出的结论写成“待定”。
 本轮完成记录：
-- 修改文件：`tasks/cluster-g-demo-ops.md`、`overview/12_limits-and-degradation-outline.md`、`overview/README.md`、`README.md`
-- 完成方式：新增限制与降级边界骨架文档，按“不应过度宣称 / 输入与主链边界 / 模式与回退 / 演示与 replay 边界 / 已知风险 / 待冻结章节”拆出落点，并补充了后续依赖说明。
-- 验证如何：对照 `README.md`、`backend/README.md`、`frontend/README.md`、`DEMO_SCRIPT.md`、`SMOKE_CHECKLIST.md` 中现有边界表述，确认骨架没有越界去宣布 `C10 / C11 / F8` 尚未稳定的结论。
-- 剩余问题：URL 输入最终能力边界、真实检索与 verdict 的最终关系、provenance / replay / fallback 的正式展示口径仍待 `C10 / C11 / F8`。
+- 修改文件：`tasks/cluster-g-demo-ops.md`、`README.md`、`overview/12_limits-and-degradation-outline.md`、`SMOKE_CHECKLIST.md`、`DEMO_SCRIPT.md`
+- 完成方式：以 `F8` 的“能讲什么 / 不能讲什么”和风险表为准，明确 `live / mock / replay / fallback` 判定、`complete / partial / safe_mode` 讲法，以及当前 `Go / mock demo + 边界`、`No-Go / 真实检索较真` 的 go/no-go 结论。
+- 验证如何：对照 `overview/13_f8-random-acceptance.md`、`README.md`、`SMOKE_CHECKLIST.md`、`DEMO_SCRIPT.md` 与前后端 README，确认 `expired-yogurt` 是唯一默认稳定 demo，`chemical-odor` / `morningstar-layoff` 已从默认主线移除。
+- 剩余问题：`chemical-odor` 与 `morningstar-layoff` 的模式漂移仍需 `Cluster-C` 复核；`live retrieval` 的 `0/4 real_live` 仍需 `Cluster-D` 处理。
 交接建议：
-- 最终边界定稿必须以 `F8` 验收记录为准，不能只根据 README 或 smoke checklist 的历史描述。
-- `C11` 冻结 provenance 之前，不要把“真实后端 / demo payload / replay / frontend safe fallback”的最终术语写死。
-- 后续窗口补边界文案时，优先复用 `overview/12_limits-and-degradation-outline.md` 的章节，不再在多个 README 里各写一套。
-
+- 所有对外文案继续以 `F8` 验收记录为上限，不要绕过 provenance 或 mode 漂移结果。
+- 若后续修复 demo 漂移或 live retrieval，可在新的验收通过后再升级 Smoke 和 Demo Script。
+- 当前任何协作者都应先区分 `mock demo` 与 `frontend fallback`，再决定是否需要做内部 `live probe`。
 ### G5 写演示顺序与口播要点
 状态：已完成
 目标：整理“先输入什么、再看哪里、怎么解释 partial/safe_mode”的演示脚本。
@@ -144,7 +143,7 @@
 - 形成 5 到 10 分钟可复用的演示流程。
 实现备注：已新增根目录 `DEMO_SCRIPT.md`，覆盖 5 到 10 分钟演示顺序、三条 demo case 的输入/亮点/推荐讲法，以及不要说过头的边界提醒。
 本轮执行任务：
-- 基于现有三条稳定 demo case，整理一份 5 到 10 分钟可复用的演示顺序与口播提纲。
+- 基于当时可用的 demo case 整理一份 5 到 10 分钟可复用的演示顺序与口播提纲，并在 `F8` 后同步到当前 `expired-yogurt + provenance / fallback` 主线。
 - 在演示文档中写清每个 case 的输入、亮点、推荐讲法，以及不要说过头的边界提醒。
 - 同步判断当前材料是否已足够支撑演示，并把需要 `Cluster-F` 或 `Cluster-C / D` 继续补的点写清楚。
 执行步骤：
@@ -154,12 +153,12 @@
 4. 回写 G5 状态、完成记录和交接建议，说明当前演示材料是否还依赖 smoke checklist 或核心能力补强。
 本轮完成记录：
 - 修改文件：`DEMO_SCRIPT.md`、`README.md`、`tasks/cluster-g-demo-ops.md`
-- 完成方式：基于现有三条稳定 demo case、前后端 README、实现总结、demo strategy 与三份 demo payload，整理出一份可直接复用的 5 到 10 分钟演示顺序与口播稿。
+- 完成方式：先基于当时可用的 demo case、前后端 README、实现总结、demo strategy 与 demo payload 整理出演示口播稿，再在 `F8` 后由 `G3 / G4` 同步成当前单条稳定 mock demo + 边界说明版本。
 - 验证如何：逐项对照 `frontend/lib/demo-cases.ts`、`contracts/demo_payloads/*.json`、`overview/08_origin_problem_gap_and_demo_strategy.md`、`overview/07_quality-and-demo-baseline.md` 的现有边界口径；本轮未改主实现，也未新增运行命令验证。
-- 剩余问题：`F7` 独立 smoke checklist 仍未完成；若要扩展到随机开放输入演示，仍依赖 `Cluster-C / D` 继续补真实 URL / retrieval / timeline 能力。
+- 剩余问题：若要扩展到随机开放输入演示，仍依赖 `Cluster-D` 继续补 live retrieval 稳定性，并由 `Cluster-C` 继续收口模式漂移。
 交接建议：
-- 当前材料已经足够支撑一场 5 到 10 分钟的稳定演示，优先按 `DEMO_SCRIPT.md` 使用三条稳定 case。
-- 请 `Cluster-F` 优先补 `F7` 独立 smoke checklist，作为演示前最后一轮验收入口。
+- 当前材料已经足够支撑一场 5 到 10 分钟的稳定演示，优先按 `DEMO_SCRIPT.md` 使用 `expired-yogurt + provenance / fallback` 主线。
+- `Cluster-F` 的 smoke checklist 已可直接复用；后续重点转为把 `F8` 的正式结论同步进演示入口。
 - 如果需要演示非预设 case，请交由 `Cluster-C / D` 继续补核心能力，不建议由 `Cluster-G` 直接改主实现。
 
 ### G6 产出最终 README 收口版
@@ -185,11 +184,15 @@
 - 修改文件：`README.md`、`DEMO_SCRIPT.md`、`tasks/cluster-g-demo-ops.md`
 - 完成方式：重写顶层 README，把项目介绍、演示入口、运行方式、当前限制、推荐阅读路径与 demo / smoke 现状整合到一个第一次进仓库即可理解的入口文档中。
 - 验证如何：对照 `frontend/README.md`、`backend/README.md`、`overview/06_current_code_implementation.md`、`overview/07_quality-and-demo-baseline.md`、`overview/08_origin_problem_gap_and_demo_strategy.md` 的现有能力与边界描述，并确认仓库内尚无已完成的独立 `F7` smoke checklist 文档，因此 README 仅预留衔接位而未误链。
-- 剩余问题：`G2` replay 仍未落地，`F7` 仍待补齐，后续仍需由主控或 `Cluster-F` 在 README 中补正式清单链接。
+- 剩余问题：`G2` replay 仍未定稿，README 仍需继续跟随 `F8` 结论和 live 路径状态同步。
 交接建议：
 - 当前顶层 README 已经足够作为“第一次进仓库的人”和“面试演示者”的统一入口。
-- 待 `Cluster-F / F7` 交付后，应优先把正式 smoke checklist 链接补到 README 的“演示前检查清单状态”部分。
+- 继续把 `F8` 的正式验收结论同步到 README、运行说明和边界说明中。
 - 待 `G2` 明确 replay 方案后，再补 replay 使用说明；当前不要为了看起来完整而写伪说明。
+
+
+
+
 
 
 

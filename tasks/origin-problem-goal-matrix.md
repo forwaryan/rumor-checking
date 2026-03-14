@@ -1,27 +1,69 @@
 ﻿# Origin Problem Goal Matrix
 
-这份矩阵整理为“当前仍有决策价值的高层状态”，不再继续承载已经被代码推翻的旧阶段口径。
+这份表继续作为全局任务状态矩阵使用，后续应直接在本文件内维护最新状态。
 
-代码核验入口：
+核验优先级：
 
-- [../docs/status/current-verified-state.md](../docs/status/current-verified-state.md)
+1. 代码与测试。
+2. `tasks/cluster-*.md` 的完成记录。
+3. `overview/09`、`overview/10`、`README.md` 等入口说明。
 
-整理前的冲突版本已归档：
+若发现冲突，先在 `../docs/status/document-conflict-register.md` 登记，再直接更新本文件。
 
-- [../docs/archive/conflicts/tasks-origin-problem-goal-matrix.pre-verified-20260314.md](../docs/archive/conflicts/tasks-origin-problem-goal-matrix.pre-verified-20260314.md)
-
-## 当前高层矩阵
-
-| 主题 | 当前状态 | 代码或文档依据 | 说明 |
-| --- | --- | --- | --- |
-| `C10` URL 新闻输入 | 已完成第一阶段 | `backend/app/services/input_normalizer.py`、`backend/app/services/url_content_extractor.py`、`backend/tests/test_api.py` | 已支持公开 HTML 抽取和清晰 fallback。 |
-| `C11` reasoning-grounded analyze | 已完成第一阶段（基于代码推断） | `backend/app/services/analyze_pipeline.py`、`retrieval_service.py`、`verdict_engine.py`、`timeline_builder.py`、`report_builder.py` | retrieval 与 provenance 已接入主链，但 verdict/timeline 仍偏启发式。 |
-| `E9` provenance 展示 | 已完成当前主展示 | `frontend/components/status-banner.tsx`、`frontend/lib/report-utils.ts` | 页面已区分 live/mock/replay/demo/fallback。 |
-| `G2` replay 体系 | 进行中 | `backend/app/services/retrieval_cache.py`、`data/demos/README.md` | 当前有内部 cache-only 能力和文件草案，但没有公开 replay 接口。 |
-| `F8` 随机 case 最终验收 | 未完成 | `docs/status/current-verified-state.md` | 仍缺最终通过记录。 |
-| `G3 / G4` 文档最终收口 | 进行中 | `README.md`、`overview/`、`docs/README.md` | 当前已完成结构整理，最终口径仍要跟随验收记录。 |
-
-## 使用方式
-
-- 判断“当前代码已经做到哪里”时，先看这份矩阵和 `docs/status/current-verified-state.md`。
-- 需要具体执行分工时，再看 [README.md](README.md) 和各 `cluster-*.md`。
+| Cluster | 子任务 | 对应终目标 | 完成 | 当前进度 | 难度 | 主要缺口 |
+| --- | --- | --- | --- | --- | --- | --- |
+| A | A1 | 范围治理 | ✓ | 100% | 中 | 已冻结第一阶段范围与非目标 |
+| A | A2 | 工程边界 | ✓ | 100% | 中 | 已冻结目录结构与命名边界 |
+| A | A3 | 全局推进 |  | 进行中（约75%） | 中 | 仍需持续把 live retrieval、验收结论和文档口径回写到总表 |
+| A | A4 | 协议治理 |  | 进行中（约60%） | 中 | schema 变更流程仍缺最后制度化约束 |
+| A | A5 | 冲突治理 |  | 进行中（约75%） | 中 | 仍需继续清理旧口径并保持原文件同步更新 |
+| A | A6 | 里程碑验收 |  | 进行中（约70%） | 中高 | 已有阶段性验收与 `F8` 正式记录，但真实 live 路径未通过 |
+| A | A7 | 最终冻结判断 |  | 未完成（0%） | 高 | 还未达到 go / no-go 冻结条件 |
+| B | B1 | 协议稳定 | ✓ | 100% | 低 | `Event` schema 已完成 |
+| B | B2 | 协议稳定 | ✓ | 100% | 低 | `TimelineNode` schema 已完成 |
+| B | B3 | 协议稳定 | ✓ | 100% | 低 | `ClaimResult` schema 已完成 |
+| B | B4 | 协议稳定 | ✓ | 100% | 中 | `Report` schema 已完成 |
+| B | B5 | 协议联调 | ✓ | 100% | 低 | mock payload 示例已完成 |
+| B | B6 | 协议可交接 |  | 进行中（约70%） | 中 | 部分字段边界仍需跟随最终口径继续收口 |
+| B | B7 | 协议变更控制 |  | 未完成（0%） | 中 | schema 变更流程还没制度化 |
+| C | C1 | 后端基础 | ✓ | 100% | 低 | FastAPI 骨架已完成 |
+| C | C2 | 后端基础 | ✓ | 100% | 低 | 统一配置与日志已完成 |
+| C | C3 | 可观测性 | ✓ | 100% | 低 | health 与统一错误响应已完成 |
+| C | C4 | 内容核查主链 | ✓ | 100% | 中 | 规则版 input normalizer 已完成 |
+| C | C5 | 内容核查主链 | ✓ | 100% | 中 | 规则版 claim extractor 已完成 |
+| C | C6 | 内容核查主链 | ✓ | 100% | 中 | 规则版 verdict engine 已完成 |
+| C | C7 | 输出主链 | ✓ | 100% | 中 | report builder 已完成 |
+| C | C8 | API 主接口 | ✓ | 100% | 中 | `/api/v1/analyze` 已完成 |
+| C | C9 | 真实理解增强 |  | 进行中（第一阶段完成，约75%） | 高 | Kimi 已接线，但在线帮助性、限流和超时问题仍需继续收口 |
+| C | C10 | URL 新闻输入 | ✓ | 100%（第一阶段） | 中高 | 公开 HTML 抽取与 fallback 已完成；公开 HTML 之外仍未扩展 |
+| C | C11 | 真正的 reasoning-grounded analyze |  | 进行中（第一阶段完成，约45%） | 很高 | provenance 与 retrieval 已接入主链，但启发式 verdict/timeline 与 live 稳定性仍未最终收口 |
+| D | D1 | 传播链内部对象 | ✓ | 100% | 中 | `SearchResult / RetrievalBundle` 已完成 |
+| D | D2 | 检索基础 | ✓ | 100% | 中 | mock retrieval 已完成 |
+| D | D3 | 传播链质量 | ✓ | 100% | 中高 | 去重归并已完成 |
+| D | D4 | 传播链还原 | ✓ | 100% | 中高 | timeline 候选识别已完成 |
+| D | D5 | 真实公开来源检索 | ✓ | 100%（最小可用版） | 高 | 已接 GDELT，但 live 路径稳定性与通过样本仍缺 |
+| D | D6 | 缓存 / replay 基础 | ✓ | 100%（最小可用版） | 高 | cache-only 能力已完成，但 replay 仍未形成公开接口 |
+| D | D7 | 真实时间线 | ✓ | 100%（最小可用版） | 高 | explainable timeline 已有，但仍是启发式而非语义重排 |
+| E | E1 | 产品壳 | ✓ | 100% | 低 | Next.js 工程骨架已完成 |
+| E | E2 | 前后端联调 | ✓ | 100% | 中 | 前端类型与 API client 已完成 |
+| E | E3 | 输入体验 | ✓ | 100% | 中 | 输入区与提交状态已完成 |
+| E | E4 | 结论展示 | ✓ | 100% | 中 | 事件概览与结论区已完成 |
+| E | E5 | 传播链展示 | ✓ | 100% | 中 | 时间线面板已完成 |
+| E | E6 | 内容核查展示 | ✓ | 100% | 中 | claim 表与证据列表已完成 |
+| E | E7 | 模式表达 | ✓ | 100% | 中 | 三档模式 UI 已完成 |
+| E | E8 | 边界展示 | ✓ | 100% | 中 | 空态、失败提示、fallback 文案已完成 |
+| E | E9 | provenance 可信展示 | ✓ | 100%（当前主展示） | 中高 | live/mock/replay/demo/fallback 已能区分，后续主要是随最终口径做文案同步 |
+| F | F1 | 测试基础 | ✓ | 100% | 低 | 最小测试集目录已接入 |
+| F | F2 | 输入回归 | ✓ | 100% | 中 | `input_cases.json` 已收口，6/6 通过 |
+| F | F3 | claim 分类回归 | ✓ | 100% | 中 | 独立 claim 分类回归已完成 |
+| F | F4 | verdict 回归 | ✓ | 100% | 中高 | `verdict_cases.json` 已收口，8/8 通过 |
+| F | F5 | retrieval / timeline 回归 | ✓ | 100% | 中高 | retrieval/timeline case 已完成 |
+| F | F6 | report mode 回归 | ✓ | 100% | 中 | `report_mode_cases.json` 已收口，4/4 通过 |
+| F | F7 | 演示 smoke checklist | ✓ | 100% | 中 | checklist 已完成 |
+| F | F8 | 随机 case 最终通过记录 | ✓ | 100%（记录已落库） | 高 | 正式记录已完成，但结论是当前真实 live 路径未通过最终验收 |
+| G | G1 | 演示稳定性 | ✓ | 100% | 低 | 稳定 demo case 已完成 |
+| G | G2 | replay 体系 |  | 进行中（约45%） | 中 | 目录与文件草案已落地，但最终字段、读取方式和公开接口仍未定稿 |
+| G | G3 | 运行说明 |  | 进行中（约75%） | 中 | 主体结构已在，需根据 `F8` 结论继续同步最终运行口径 |
+| G | G4 | 限制说明 |  | 进行中（约75%） | 中 | 需要把 live 路径未通过和 demo 边界同步到最终说明 |
+| G | G5 | 演示脚本 | ✓ | 100% | 中 | 演示顺序与口播要点已完成 |
+| G | G6 | 顶层 README 收口 | ✓ | 100%（当前入口版） | 中 | README 当前已更新，后续只需继续跟随验收结论同步 |

@@ -1,9 +1,10 @@
 ﻿> 先看 `../docs/status/current-verified-state.md`。如果 `overview/` 中任何文件与代码冲突，以这份已核验状态文档和对应实现为准；旧版本归档在 `../docs/archive/conflicts/`。
+
 # Overview
 
-本目录用于解释“这个仓库现在到底在做什么、处于什么阶段、各个文件夹为什么存在”。
+本目录用于解释“这个仓库现在到底在做什么、处于什么阶段、哪些口径已经冻结”。
 
-它不是新的需求分析，也不是新的规则集合，而是一个给人快速建立全局认知的“项目地图”。
+它不是新的需求分析，也不是新的规则集合，而是一个给人快速建立全局认知的项目地图。
 
 建议阅读顺序：
 
@@ -19,25 +20,21 @@
 10. `10_unfinished-task-priority-and-parallel-analysis.md`
 11. `11_runtime-and-env-outline.md`
 12. `12_limits-and-degradation-outline.md`
+13. `13_f8-random-acceptance.md`
 
 补充说明：
 
-- `overview/04_prompt_inventory.md` 侧重项目历史中实际出现过的 Prompt 轨迹与上下文脉络
-- 可复用的 Prompt 资产与规范化入口以 `requirements/guides/04_prompt_inventory.md` 为准
-- `overview/10_unfinished-task-priority-and-parallel-analysis.md` 侧重当前剩余任务的优先级、并行边界、波次划分，以及每个剩余任务可直接复制的执行 prompt
-- `overview/11_runtime-and-env-outline.md` 是 `G3` 第一阶段的运行说明与环境变量章节骨架，先固定目录和章节，不提前写死最终推荐路径
-- `overview/12_limits-and-degradation-outline.md` 是 `G4` 第一阶段的限制与降级边界骨架，后续按 `C10 / C11 / F8` 结果收口
+- `overview/04_prompt_inventory.md` 侧重项目历史中实际出现过的 Prompt 轨迹与上下文脉络。
+- 可复用的 Prompt 资产与规范化入口以 `requirements/guides/04_prompt_inventory.md` 为准。
+- `overview/10_unfinished-task-priority-and-parallel-analysis.md` 保留并行拆窗与历史执行背景，适合回看为什么当时要先做 `F8` 再做 `G3 / G4`；它不是当前对外交付口径的最终来源。
+- `overview/11_runtime-and-env-outline.md` 已按 `F8` 收口为当前运行路径与环境变量终稿，明确区分 `mock demo / live probe / replay / frontend fallback`。
+- `overview/12_limits-and-degradation-outline.md` 已按 `F8` 收口为当前限制与降级边界终稿，统一了 `live / mock / replay / fallback` 和 `complete / partial / safe_mode` 的讲法。
+- `overview/13_f8-random-acceptance.md` 是当前最终验收记录来源，README、Smoke 和运行说明都应以它为准。
 
 适合以下场景：
 
-- 刚进入仓库，想先建立整体理解
-- 需要向别人解释当前项目到底发展到了哪一步
-- 想知道某个文件夹为什么存在、应该去哪找某类信息
-- 想把 `overview/` 直接翻译成“当前 V1 到底怎么做、做到什么边界”
-- 想回看当前项目里到底用过哪些 Prompt、触发词和对话主题
-- 想快速理解当前已经落地的代码结构、测试基线和 demo 基线
-- 想快速决定下一波未完成任务应该如何拆窗口并行
-
-
-
-
+- 刚进入仓库，想先建立整体理解。
+- 需要向别人解释当前项目到底发展到了哪一步。
+- 想确认今天能交付哪些 live/mock/demo 路径，哪些仍只是降级或内部诊断。
+- 想理解为什么现在的 README、Smoke 和演示口播必须沿用同一套 `F8` 口径。
+- 想回看当前项目里到底用过哪些 Prompt、触发词和对话主题。
