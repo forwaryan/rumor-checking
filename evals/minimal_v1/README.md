@@ -44,6 +44,8 @@
   - 给 `retriever` / `timeline_builder` 使用
 - `report_mode_cases.json`
   - 给 `report_builder` 或页面模式切换使用
+- `provider_text_news_cases.json`
+  - 给 `C9` 的 Kimi provider 文本新闻小样本验收使用，重点看标题、摘要和 claim 帮助性是否优于 `ANALYSIS_PROVIDER=off`
 
 ## 3. 使用建议顺序
 
@@ -92,9 +94,11 @@
 - 本地单元测试
 - 开发早期回归测试
 - Prompt / schema 变更后快速复测
+- `C9` provider 调优后的文本新闻帮助性对照验收
 
 它不替代后续的：
 
 - 随机新闻 live case 评测
 - 公开 benchmark 评测
 - 最终人工答辩评分
+

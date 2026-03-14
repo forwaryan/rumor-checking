@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { ClaimTable } from "@/components/claim-table";
@@ -11,7 +11,14 @@ import { TimelinePanel } from "@/components/timeline-panel";
 import { analyzeReport, getHealth } from "@/lib/api-client";
 import { getLocalDemoCaseSummaries, getLocalDemoReport } from "@/lib/demo-cases";
 import { buildFallbackReport, getStatusFromMode, validateInput } from "@/lib/report-utils";
-import type { AnalyzeRequest, AnalysisStatus, DemoCaseSummary, InputType, Report } from "@/types/report";
+import type {
+  AnalyzeRequest,
+  AnalysisStatus,
+  DemoCaseSummary,
+  InputType,
+  Report,
+  ReportProvenanceState,
+} from "@/types/report";
 
 type BackendState = "checking" | "online" | "offline" | "degraded";
 
@@ -28,6 +35,7 @@ export function AnalyzePage() {
   const [selectedDemoId, setSelectedDemoId] = useState<string | null>(null);
   const [status, setStatus] = useState<AnalysisStatus>("idle");
   const [report, setReport] = useState<Report | null>(null);
+  const [reportProvenance, setReportProvenance] = useState<ReportProvenanceState | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [fallbackMessage, setFallbackMessage] = useState<string | null>(null);
   const [backendState, setBackendState] = useState<BackendState>("checking");
@@ -86,6 +94,10 @@ export function AnalyzePage() {
       const localReport = getLocalDemoReport(target.demoId);
       if (localReport) {
         setReport(localReport);
+        setReportProvenance({
+          sourceKind: "local_demo",
+          fallbackReason: "backend_offline",
+        });
         setStatus(getStatusFromMode(localReport.mode));
         setFallbackMessage("后端当前离线，页面已直接回退到本地 demo payload。需要真实联调时请先恢复后端服务。");
         return;
@@ -95,12 +107,17 @@ export function AnalyzePage() {
     try {
       const nextReport = await analyzeReport(target.request);
       setReport(nextReport);
+      setReportProvenance({ sourceKind: "backend_response" });
       setStatus(getStatusFromMode(nextReport.mode));
     } catch {
       if (target.demoId) {
         const localReport = getLocalDemoReport(target.demoId);
         if (localReport) {
           setReport(localReport);
+          setReportProvenance({
+            sourceKind: "local_demo",
+            fallbackReason: "analyze_failed",
+          });
           setStatus(getStatusFromMode(localReport.mode));
           setFallbackMessage(
             "真实 analyze 请求失败，页面已回退到同主题本地 demo payload，方便继续演示页面结构和三档模式。",
@@ -111,10 +128,12 @@ export function AnalyzePage() {
 
       const fallbackReport = buildFallbackReport(target.request.raw_input, target.request.input_type);
       setReport(fallbackReport);
+      setReportProvenance({
+        sourceKind: "frontend_safe_fallback",
+        fallbackReason: "analyze_failed",
+      });
       setStatus("safe_mode");
-      setFallbackMessage(
-        "真实接口当前不可用，页面已自动切换到安全模式回退结果，方便继续演示边界和空态。",
-      );
+      setFallbackMessage("真实接口当前不可用，页面已自动切换到安全模式回退结果，方便继续演示边界和空态。");
     }
   }
 
@@ -154,7 +173,7 @@ export function AnalyzePage() {
           <h1>单页 rumor-checking 工作台</h1>
           <p>
             当前示例输入已对齐后端真实 scenario。页面会优先走真实 <code>analyze</code> 链路，只有在后端离线或请求失败时，
-            才回退到同主题本地 payload。
+            才回退到同主题本地 payload；顶部状态区也会标明当前结果来自真实后端、demo payload 还是前端 safe fallback。
           </p>
         </div>
         <div className="hero__card">
@@ -189,6 +208,7 @@ export function AnalyzePage() {
       <StatusBanner
         status={status}
         report={report}
+        provenance={reportProvenance}
         errorMessage={errorMessage}
         fallbackMessage={fallbackMessage}
         onRetry={lastRequest ? () => void retryLastRequest() : null}

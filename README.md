@@ -11,16 +11,17 @@
 - 风险提示与证据列表
 
 当前最适合把它理解成：**一个已经能跑、能演示、能解释边界的 V1 工作台**。
-它还不是一个已经完成开放检索和真实传播链还原的通用新闻事实核查系统。
+它还不是一个已经完成真实 URL 抽取、reasoning-grounded analyze 和开放场景稳定验收的通用新闻事实核查系统。
 
 ## 当前能演示什么
 
-截至 2026-03-13，仓库里已经稳定可演示的能力有：
+截至 2026-03-14，仓库里已经稳定可演示的能力有：
 
 - 前端单页工作台，支持文本、URL、问题三种输入入口
 - `GET /api/v1/health` 和 `POST /api/v1/analyze` 真实联调
 - `complete_mode / partial_mode / safe_mode` 三档模式表达
 - 结构化结果展示：事件卡片、时间线、claim、证据、风险
+- 可选 `RETRIEVAL_PROVIDER=gdelt` 的公开来源检索、缓存和最小真实时间线
 - 三条稳定 demo case
 - 后端失败或离线时，demo case 可回退到本地 payload
 - 前后端共享 contract，以及最小测试基线
@@ -44,7 +45,17 @@
 
 1. 先看 [DEMO_SCRIPT.md](/home/forwaryan/mianshi/rumor-checking/DEMO_SCRIPT.md)，知道应该怎么讲。
 2. 再看 [frontend/README.md](/home/forwaryan/mianshi/rumor-checking/frontend/README.md) 和 [backend/README.md](/home/forwaryan/mianshi/rumor-checking/backend/README.md)，知道怎么跑。
-3. 最后看 [overview/08_origin_problem_gap_and_demo_strategy.md](/home/forwaryan/mianshi/rumor-checking/overview/08_origin_problem_gap_and_demo_strategy.md)，知道当前能力和原题之间还差什么。
+3. 最后看 [overview/09_stage-progress-and-task-audit.md](/home/forwaryan/mianshi/rumor-checking/overview/09_stage-progress-and-task-audit.md) 和 [overview/08_origin_problem_gap_and_demo_strategy.md](/home/forwaryan/mianshi/rumor-checking/overview/08_origin_problem_gap_and_demo_strategy.md)，知道当前能力和原题之间还差什么。
+
+## G2/G3/G4 第一阶段骨架入口
+
+下面这三份是本轮刚补上的“文档结构草案”，作用是先把后续收口位置固定下来：
+
+- replay 格式草案与目录落点：[data/demos/README.md](/home/forwaryan/mianshi/rumor-checking/data/demos/README.md)
+- 运行方式与环境变量章节骨架：[overview/11_runtime-and-env-outline.md](/home/forwaryan/mianshi/rumor-checking/overview/11_runtime-and-env-outline.md)
+- 限制与降级边界章节骨架：[overview/12_limits-and-degradation-outline.md](/home/forwaryan/mianshi/rumor-checking/overview/12_limits-and-degradation-outline.md)
+
+注意：这三份文档当前只冻结结构、目录和待补段落；涉及 URL 正文抽取、reasoning-grounded analyze、随机 case 验收的最终口径，仍要等 `C10 / C11 / F8` 后再定稿。
 
 ## 快速启动
 
@@ -67,7 +78,16 @@ KIMI_MODEL=moonshot-v1-8k
 PROVIDER_TIMEOUT_SECONDS=20
 ```
 
-注意：当前 provider 只负责“事件理解 + claim 抽取”增强，不负责真实检索、timeline 或 URL 正文抽取。
+如需启用公开来源检索，再补这些环境变量：
+
+```text
+RETRIEVAL_PROVIDER=gdelt
+RETRIEVAL_TIMEOUT_SECONDS=12
+RETRIEVAL_CACHE_ENABLED=true
+RETRIEVAL_FALLBACK_TO_MOCK=true
+```
+
+注意：当前 `ANALYSIS_PROVIDER=kimi` 只负责“事件理解 + claim 抽取”增强；真实检索由 `RETRIEVAL_PROVIDER=gdelt` 负责。URL 正文抽取仍未完成。
 
 ### 2. 启动前端
 
@@ -108,6 +128,7 @@ Frontend AnalyzePage
   -> POST /api/v1/analyze
   -> InputNormalizer
   -> ProviderEnricher（可选 Kimi）
+  -> RetrievalService（可选 GDELT + Cache + Mock Fallback）
   -> ClaimExtractor
   -> VerdictEngine
   -> TimelineBuilder
@@ -143,32 +164,42 @@ Frontend AnalyzePage
 当前还没有完成的关键能力包括：
 
 - `C10`：URL 正文抽取
-- `D5 ~ D7`：真实检索、去重归并、完整传播链还原
+- `C11`：把 analyze 主链从场景占位推进到更真实的 reasoning-grounded 流程
 - `F2 / F3 / F4 / F6`：按 eval 文件驱动的分层回归
-- `F7`：独立演示前 smoke checklist
+- `F8`：稳定 demo 与随机 case 的最终通过记录
+- `E9`：结果来源与 provenance 展示
 - `G2`：replay 数据格式与使用说明
 
 ## 演示前检查清单状态
 
-`F7` 的独立 smoke checklist 文档目前**还没有交付完成**。
-所以这个 README 先预留衔接位：
+`F7` 的独立 smoke checklist 文档已经交付：
 
-- 当前建议先用 [DEMO_SCRIPT.md](/home/forwaryan/mianshi/rumor-checking/DEMO_SCRIPT.md) 过演示顺序
-- 再分别按 [frontend/README.md](/home/forwaryan/mianshi/rumor-checking/frontend/README.md) 和 [backend/README.md](/home/forwaryan/mianshi/rumor-checking/backend/README.md) 确认运行状态
-- 后续 `Cluster-F / F7` 一旦产出独立 smoke checklist，应优先补链接到这里
+- [SMOKE_CHECKLIST.md](/home/forwaryan/mianshi/rumor-checking/SMOKE_CHECKLIST.md)
+
+当前建议的演示前顺序是：
+
+- 先按 [SMOKE_CHECKLIST.md](/home/forwaryan/mianshi/rumor-checking/SMOKE_CHECKLIST.md) 做环境、接口、页面和 fallback 检查
+- 再按 [DEMO_SCRIPT.md](/home/forwaryan/mianshi/rumor-checking/DEMO_SCRIPT.md) 过口播顺序
+- 如需确认后端状态，本轮已验证 `pytest backend/tests -q` 通过，结果为 `28 passed`
+
+仍待补齐的不是 checklist 文档本身，而是：
+
+- 带真实公网请求的 GDELT smoke 记录
+- `C10` URL 正文抽取路径的 smoke 记录
 
 ## 推荐阅读路径
 
 按“第一次进仓库的人”最省时间的顺序，建议这样读：
 
 1. [DEMO_SCRIPT.md](/home/forwaryan/mianshi/rumor-checking/DEMO_SCRIPT.md)
-2. [frontend/README.md](/home/forwaryan/mianshi/rumor-checking/frontend/README.md)
-3. [backend/README.md](/home/forwaryan/mianshi/rumor-checking/backend/README.md)
-4. [overview/08_origin_problem_gap_and_demo_strategy.md](/home/forwaryan/mianshi/rumor-checking/overview/08_origin_problem_gap_and_demo_strategy.md)
-5. [overview/07_quality-and-demo-baseline.md](/home/forwaryan/mianshi/rumor-checking/overview/07_quality-and-demo-baseline.md)
-6. [frontend/IMPLEMENTATION_SUMMARY.md](/home/forwaryan/mianshi/rumor-checking/frontend/IMPLEMENTATION_SUMMARY.md)
-7. [backend/docs/api-foundation-implementation-record.md](/home/forwaryan/mianshi/rumor-checking/backend/docs/api-foundation-implementation-record.md)
-8. [tasks/cluster-g-demo-ops.md](/home/forwaryan/mianshi/rumor-checking/tasks/cluster-g-demo-ops.md)
+2. [SMOKE_CHECKLIST.md](/home/forwaryan/mianshi/rumor-checking/SMOKE_CHECKLIST.md)
+3. [frontend/README.md](/home/forwaryan/mianshi/rumor-checking/frontend/README.md)
+4. [backend/README.md](/home/forwaryan/mianshi/rumor-checking/backend/README.md)
+5. [overview/09_stage-progress-and-task-audit.md](/home/forwaryan/mianshi/rumor-checking/overview/09_stage-progress-and-task-audit.md)
+6. [overview/08_origin_problem_gap_and_demo_strategy.md](/home/forwaryan/mianshi/rumor-checking/overview/08_origin_problem_gap_and_demo_strategy.md)
+7. [overview/07_quality-and-demo-baseline.md](/home/forwaryan/mianshi/rumor-checking/overview/07_quality-and-demo-baseline.md)
+8. [frontend/IMPLEMENTATION_SUMMARY.md](/home/forwaryan/mianshi/rumor-checking/frontend/IMPLEMENTATION_SUMMARY.md)
+9. [backend/docs/api-foundation-implementation-record.md](/home/forwaryan/mianshi/rumor-checking/backend/docs/api-foundation-implementation-record.md)
 
 ## 仓库目录怎么理解
 
@@ -183,3 +214,4 @@ Frontend AnalyzePage
 
 这个仓库现在已经足够支撑“有产品、有实现、有边界”的面试演示。
 最稳的交付方式不是把它包装成已经全部完成，而是把它清楚地说明为：**一个能跑、能演示、能交代边界的 rumor-checking V1。**
+

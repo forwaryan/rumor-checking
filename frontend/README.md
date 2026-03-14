@@ -13,8 +13,9 @@
 - 与当前后端对齐的 `analyze / health` API client
 - 三条与后端 scenario 对齐的稳定 demo 输入
 - 后端离线或请求失败时的本地 demo payload / safe fallback
+- 顶部状态区 provenance UI 壳，可区分真实后端响应、本地 demo payload、前端 safe fallback 和来源不明结果
 - 共享 contract schema 与 demo payload（位于 `contracts/`）
-- 基于 Vitest 的最小单元测试覆盖（`parseReport / validateInput / getStatusFromMode / collectEvidence`）
+- 基于 Vitest 的最小单元测试覆盖（`parseReport / validateInput / getStatusFromMode / collectEvidence / getReportProvenanceMeta`）
 
 ## 当前接口假设
 
@@ -27,6 +28,17 @@
 
 - 后端当前没有 `GET /api/v1/demo-cases` 和 `POST /api/v1/replay`。
 - 因此前端示例区的 demo 输入会优先走真实 `analyze`；只有后端离线或请求失败时，才回退到本地 payload。
+
+## 当前 provenance 展示策略
+
+第一阶段的 provenance UI 壳只依赖前端运行时已知状态，不依赖后端本轮新增 schema：
+
+- `真实后端响应`：本次 `POST /api/v1/analyze` 成功返回并完成前端解析。
+- `本地 demo payload`：demo 输入在后端离线或请求失败时，回退到仓库内稳定 payload。
+- `前端 safe fallback`：普通输入在接口失败时，由前端生成保守 `safe_mode` 报告壳。
+- `来源不明`：旧 payload、缺字段结果或没有显式来源状态的数据，一律按保守标签展示，不伪装成真实分析。
+
+这意味着当前页面已经能看见 provenance 位置和基本标签；等 `C11` 冻结后端 provenance 字段后，再进入第二阶段真实接线。
 
 ## 运行方式
 
@@ -91,7 +103,7 @@ npm run build
 
 ## 验证说明
 
-- `npm test` 已通过（2 个测试文件，6 个测试）
+- `npm test` 已通过（2 个测试文件，10 个测试）
 - `npm run typecheck` 已通过
 - `npm run build` 已通过
 - 当前项目存在 Windows Node 直接操作 `\\wsl.localhost\...` 路径的兼容性问题；如需稳定执行 `test / build`，优先在 WSL 内或 Windows 本机目录执行

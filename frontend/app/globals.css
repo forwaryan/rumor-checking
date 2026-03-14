@@ -334,6 +334,79 @@ a:hover {
   margin-bottom: 1rem;
 }
 
+.status-banner__content {
+  flex: 1;
+  min-width: 0;
+}
+
+.status-banner__provenance {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(24, 34, 44, 0.08);
+}
+
+.status-banner__provenance-heading {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.status-banner__provenance-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.status-banner__provenance-summary,
+.status-banner__provenance-note {
+  margin: 0;
+}
+
+.status-banner__provenance-note {
+  color: var(--ink);
+}
+
+.provenance-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  border: 1px solid rgba(24, 34, 44, 0.12);
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.provenance-pill--backend {
+  color: var(--green);
+  border-color: rgba(29, 106, 84, 0.24);
+  background: rgba(29, 106, 84, 0.09);
+}
+
+.provenance-pill--demo {
+  color: var(--blue);
+  border-color: rgba(40, 90, 138, 0.22);
+  background: rgba(40, 90, 138, 0.1);
+}
+
+.provenance-pill--fallback {
+  color: var(--gold);
+  border-color: rgba(182, 133, 45, 0.26);
+  background: rgba(182, 133, 45, 0.11);
+}
+
+.provenance-pill--unknown {
+  color: var(--danger);
+  border-color: rgba(163, 62, 46, 0.22);
+  background: rgba(163, 62, 46, 0.08);
+}
+
+.provenance-pill--subtle {
+  color: var(--muted);
+}
+
 .status-banner--submitting {
   border-color: rgba(40, 90, 138, 0.22);
 }

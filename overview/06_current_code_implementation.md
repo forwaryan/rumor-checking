@@ -13,21 +13,22 @@
 
 ## 2. 当前阶段判断
 
-当前项目已经从“方案冻结阶段”进入“最小闭环已成形”的阶段。
+当前项目已经从“方案冻结阶段”进入“最小闭环已成形 + 最小真实检索已接入”的阶段。
 
 当前已经成立的事实是：
 
 - 前端和后端已经通过真实 `POST /api/v1/analyze` 联通
 - `contracts/` 已经形成共享 schema 和稳定 demo payload
 - 后端已经有统一配置、日志、异常响应和分析流水线
+- 后端已经接入最小真实检索、缓存和真实 bundle 时间线
 - 前端已经有单页工作台、真实 analyze 优先、离线 fallback 和三档模式展示
 - 测试和 demo 已经有基础入口
 
 当前还没有成立的事实是：
 
 - URL 正文抽取已经完成
-- verdict / evidence / timeline 已经建立在真实检索上
-- replay 数据和演示脚本已经完整收口
+- analyze 主链已经完全摆脱 `scenario_library` / 模板 evidence 依赖
+- provenance 展示、replay 和最终验收记录已经完整收口
 
 ## 3. 当前真实技术栈
 
@@ -39,7 +40,8 @@
 | 后端服务层 | FastAPI | `backend/app/` | 暴露 health / analyze 接口 |
 | 后端模型层 | Pydantic v2 | `backend/app/models/schemas.py` | 内部模型与对外响应结构 |
 | 后端 provider 调用 | httpx | `backend/app/services/kimi_provider.py` | 调用 Kimi 兼容接口 |
-| 后端测试层 | pytest + FastAPI TestClient | `backend/tests/` | API、provider 回退、retrieval foundation 回归 |
+| 后端检索层 | `RetrievalService + GdeltNewsProvider + RetrievalCache` | `backend/app/services/retrieval_*.py` | 公开来源检索、缓存、回退与时间线输入 |
+| 后端测试层 | pytest + FastAPI TestClient | `backend/tests/` | API、provider 回退、retrieval 回归 |
 | 协议层 | JSON Schema Draft 2020-12 | `contracts/*.schema.json` | 共享字段基线 |
 | 评测/演示资产层 | 本地 JSON | `evals/minimal_v1/`、`contracts/demo_payloads/` | case 驱动测试与 demo 回退 |
 
@@ -56,7 +58,10 @@ flowchart LR
     PIPE --> N["InputNormalizer"]
     PIPE --> P["ProviderEnricher"]
     P --> K["KimiProvider"]
-    PIPE --> MR["MockRetriever"]
+    PIPE --> RS["RetrievalService"]
+    RS --> RP["GdeltNewsProvider"]
+    RS --> RC["RetrievalCache"]
+    RS --> MR["MockRetriever Fallback"]
     PIPE --> C["ClaimExtractor"]
     PIPE --> V["VerdictEngine"]
     PIPE --> T["TimelineBuilder"]
@@ -70,7 +75,7 @@ flowchart LR
 
 一句话概括当前主链路：
 
-> 前端优先走真实 analyze，后端先用规则链路保证可用，再在前半段接入 provider 增强；如果请求失败，前端再回退到本地 demo payload 或安全模式结果。
+> 前端优先走真实 analyze；后端在规则链路之上已经接入可选 Kimi 和可选 GDELT 检索/缓存，但 verdict 与 mode 仍带明显的保守启发式与 fallback 设计。
 
 ## 5. 当前模块边界
 
@@ -107,14 +112,20 @@ flowchart LR
   - provider 输出合并层
 - `services/kimi_provider.py`
   - Kimi 调用与 JSON 解析
+- `services/retrieval_service.py`
+  - 统一真实检索、缓存、mock fallback 和 `question_only` 查询改写
+- `services/retrieval_provider.py`
+  - GDELT 检索 provider 与来源等级推断
+- `services/retrieval_cache.py`
+  - `data/cache/retrieval/` 下的本地缓存读写
 - `services/mock_retriever.py`
-  - 读取 `evals/minimal_v1/retrieval_cases.json` 的 mock 检索层
+  - 读取 `evals/minimal_v1/retrieval_cases.json` 的 mock 检索层与真实检索失败时的 fallback
 - `services/claim_extractor.py`
   - 规则 claim 抽取与 provider claim 合并
 - `services/verdict_engine.py`
   - 规则 verdict 与 evidence 汇总
 - `services/timeline_builder.py`
-  - retrieval foundation + 场景模板时间线
+  - retrieval bundle + 场景模板时间线
 - `services/report_builder.py`
   - 组装最终 `Report`
 
@@ -162,22 +173,23 @@ flowchart LR
 
 接手时最容易误判的点有 4 个：
 
-1. 前端虽然走真实 `analyze`，但并不等于后端已经接入真实 evidence 检索。
-2. provider 已接入，但只覆盖“事件理解 + claim 抽取增强”的前半段。
-3. retrieval/timeline 已经有代码和测试基础，但还不是 `Cluster-D` 的最终形态。
-4. demo payload 已经稳定，但 replay 体系和演示脚本仍未完成。
+1. 前端虽然走真实 `analyze`，但请求失败时仍可能回退到 demo payload 或前端 safe fallback。
+2. 后端已经接入最小真实检索，但 verdict、mode 和风险提示仍不是“全链路互联网证据推理”。
+3. `question_only` 和公开来源检索已经能打通，但 URL 正文抽取仍未完成。
+4. demo payload、smoke checklist 和演示脚本已经有文档基础，但 replay 体系和 provenance 展示仍未收口。
 
 ## 7. 当前最值得先读的代码入口
 
 如果要在最短时间内理解整个项目，推荐按下面顺序读代码：
 
 1. `backend/app/services/analyze_pipeline.py`
-2. `backend/app/models/schemas.py`
-3. `frontend/components/analyze-page.tsx`
-4. `frontend/lib/api-client.ts`
-5. `contracts/report.schema.json`
-6. `backend/tests/test_api.py`
-7. `frontend/lib/demo-cases.ts`
+2. `backend/app/services/retrieval_service.py`
+3. `backend/app/models/schemas.py`
+4. `frontend/components/analyze-page.tsx`
+5. `frontend/lib/api-client.ts`
+6. `contracts/report.schema.json`
+7. `backend/tests/test_api.py`
+8. `backend/tests/test_retrieval.py`
 
 ## 8. 当前修改时的责任边界
 
@@ -196,4 +208,4 @@ flowchart LR
 
 当前项目的真实状态不是“只有计划”，也不是“所有能力都已经产品化”。
 
-它已经具备一个能跑通的共享协议、后端主链路、前端工作台、最小测试与稳定 demo 基线；后续工作应该在这个基线上继续补强，而不是再重新发明一套架构。
+它已经具备一个能跑通的共享协议、后端主链路、前端工作台、最小真实检索、基础测试与稳定 demo 基线；后续工作应该在这个基线上继续补强，而不是再重新发明一套架构。

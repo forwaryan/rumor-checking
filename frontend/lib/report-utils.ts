@@ -1,10 +1,13 @@
-import type {
+﻿import type {
   AnalysisStatus,
   ConfidenceValue,
   Evidence,
   InputType,
   OutputMode,
   Report,
+  ReportFallbackReason,
+  ReportProvenanceState,
+  ReportSourceKind,
   Verdict,
 } from "@/types/report";
 
@@ -40,6 +43,15 @@ const verdictTone: Record<Verdict, string> = {
   conflicting: "证据冲突",
 };
 
+export interface ReportProvenanceMeta {
+  sourceKind: ReportSourceKind;
+  sourceLabel: string;
+  summary: string;
+  caution?: string;
+  fallbackLabel?: string;
+  tone: "backend" | "demo" | "fallback" | "unknown";
+}
+
 export function getModeMeta(mode: OutputMode) {
   return modeCopy[mode];
 }
@@ -56,6 +68,73 @@ export function getStatusFromMode(mode: OutputMode): AnalysisStatus {
       return "partial";
     default:
       return "safe_mode";
+  }
+}
+
+function getFallbackLabel(reason?: ReportFallbackReason) {
+  switch (reason) {
+    case "backend_offline":
+      return "后端离线回退";
+    case "analyze_failed":
+      return "请求失败回退";
+    case "missing_provenance":
+      return "来源待确认";
+    default:
+      return undefined;
+  }
+}
+
+export function getReportProvenanceMeta(
+  report: Report | null,
+  provenance: ReportProvenanceState | null,
+): ReportProvenanceMeta | null {
+  if (!report) {
+    return null;
+  }
+
+  const modeMeta = getModeMeta(report.mode);
+  const safeProvenance =
+    provenance ??
+    ({
+      sourceKind: "unknown",
+      fallbackReason: "missing_provenance",
+    } satisfies ReportProvenanceState);
+
+  switch (safeProvenance.sourceKind) {
+    case "backend_response":
+      return {
+        sourceKind: safeProvenance.sourceKind,
+        sourceLabel: "真实后端响应",
+        summary: `当前页面以${modeMeta.label}展示本次后端 analyze 的直接返回，不是本地 demo 或前端安全回退。`,
+        tone: "backend",
+      };
+    case "local_demo":
+      return {
+        sourceKind: safeProvenance.sourceKind,
+        sourceLabel: "本地 demo payload",
+        summary: `当前页面仍以${modeMeta.label}展示仓库内 demo payload，用来稳定演示页面结构和边界。`,
+        caution: "这不是本次输入的实时分析结果，请不要把结论、时间线或 claim 当成真实推理输出。",
+        fallbackLabel: getFallbackLabel(safeProvenance.fallbackReason),
+        tone: "demo",
+      };
+    case "frontend_safe_fallback":
+      return {
+        sourceKind: safeProvenance.sourceKind,
+        sourceLabel: "前端 safe fallback",
+        summary: `当前页面只保留${modeMeta.label}的保守展示壳，用来提示边界和空态，不代表后端已产出可用 Report。`,
+        caution: "请不要把当前页面内容解释成真实分析；恢复接口后应重新提交输入。",
+        fallbackLabel: getFallbackLabel(safeProvenance.fallbackReason),
+        tone: "fallback",
+      };
+    default:
+      return {
+        sourceKind: safeProvenance.sourceKind,
+        sourceLabel: "来源不明",
+        summary: "当前页面拿到了可渲染数据，但缺少足够 provenance 标记，先按非真实分析结果理解。",
+        caution: "旧 payload 或字段不足的结果都会落到这个标签，避免误讲成真实 analyze 输出。",
+        fallbackLabel: getFallbackLabel(safeProvenance.fallbackReason),
+        tone: "unknown",
+      };
   }
 }
 

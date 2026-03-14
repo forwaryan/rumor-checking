@@ -17,9 +17,12 @@
 
 - `F1` 最小测试集目录接入已完成
 - API 层基础回归已经存在
-- retrieval / timeline foundation 已经有独立测试雏形
+- retrieval / timeline 已经覆盖 mock 与最小真实检索路径
 - 前端纯函数与 parser 已有最小单元测试
 - `G1` 三条稳定 demo case 已完成并被页面实际消费
+- `F7` 演示前 smoke checklist 已完成
+- `G5` 演示顺序与口播要点已完成
+- `G6` 顶层 README 收口版已完成
 
 按任务定义还没有真正收口的是：
 
@@ -27,22 +30,22 @@
 - `F3` `claim_classification_cases.json` 独立回归
 - `F4` `verdict_cases.json` 独立回归
 - `F6` `report_mode_cases.json` 独立回归
-- `F7` 演示前 smoke checklist
 - `F8` 随机 case 与最终通过记录
 - `G2` replay 数据格式
-- `G5` 演示脚本
-- `G6` 最终 README 收口
+- `G3` 运行方式与环境变量说明进一步收口
+- `G4` 已知限制与降级边界进一步统一
 
 ## 3. 当前用到的框架与资产
 
 | 方向 | 当前实现 | 代码落点 | 说明 |
 | --- | --- | --- | --- |
 | 后端接口回归 | `pytest + FastAPI TestClient` | `backend/tests/test_api.py` | 覆盖 health、analyze、错误响应、provider 回退 |
-| 后端 retrieval foundation 回归 | `pytest` | `backend/tests/test_retrieval.py` | 覆盖 mock retrieval 标准化、合并和时间线候选 |
+| 后端 retrieval / timeline 回归 | `pytest` | `backend/tests/test_retrieval.py` | 覆盖 mock retrieval、GDELT provider、缓存、失败回退、真实 bundle timeline |
 | 测试数据入口 | 本地 JSON fixture | `backend/tests/conftest.py`、`evals/minimal_v1/*.json` | 统一从根目录 eval 资产加载 |
 | 前端最小单元测试 | `Vitest` | `frontend/lib/__tests__/` | 保护 parser、输入校验、模式映射、证据聚合 |
 | 稳定 demo 注册 | 本地 TS registry | `frontend/lib/demo-cases.ts` | 把 demo 输入和 payload 绑定起来 |
 | 稳定 demo 数据 | 本地 JSON payload | `contracts/demo_payloads/*.json` | 提供 complete / partial / safe 三档回退结果 |
+| 演示前检查单 | Markdown checklist | `SMOKE_CHECKLIST.md` | 覆盖启动、接口、页面、fallback 和已知限制确认 |
 
 ## 4. 当前测试结构
 
@@ -72,7 +75,7 @@
 
 ## 4.3 `test_retrieval.py` 当前保护什么
 
-`backend/tests/test_retrieval.py` 说明 retrieval 部分虽然任务状态还没全改完，但代码层已经有基础回归。
+`backend/tests/test_retrieval.py` 已经不是单纯的 retrieval foundation 验证，而是当前后端“最小真实检索 + 缓存 + timeline”能力的核心保护层。
 
 当前它保护的点包括：
 
@@ -81,8 +84,13 @@
 - merged result 的元数据不会丢
 - `TimelineBuilder` 能基于 retrieval candidates 生成 timeline
 - `origin` 和 `turn / clarification` 候选可以按样例校验
+- `GdeltNewsProvider` 的配置、超时参数和字段映射不会漂移
+- `RetrievalCache` 支持 round-trip、cache-only miss 和 bypass
+- provider 失败时能安全回退到 mock
+- `question_only` 输入能走真实检索 bundle
+- 真实 bundle 也能产出 `origin / amplification / turn / clarification`
 
-这部分非常重要，因为它说明 `Cluster-D` 虽然没收口，但不是从零开始。
+这部分非常重要，因为它说明 `Cluster-D` 已经从 mock foundation 走到了最小真实检索阶段。
 
 ## 4.4 前端最小测试当前保护什么
 
@@ -128,15 +136,25 @@
 - 有后端时用于联调
 - 无后端时用于稳定演示
 
+## 5.3 当前已交付的演示文档
+
+| 文档 | 当前作用 |
+| --- | --- |
+| [SMOKE_CHECKLIST.md](/home/forwaryan/mianshi/rumor-checking/SMOKE_CHECKLIST.md) | 演示前环境、接口、页面、fallback 检查单 |
+| [DEMO_SCRIPT.md](/home/forwaryan/mianshi/rumor-checking/DEMO_SCRIPT.md) | 5 到 10 分钟演示顺序与口播要点 |
+| [README.md](/home/forwaryan/mianshi/rumor-checking/README.md) | 第一次进入仓库时的总入口 |
+
 ## 6. 测试与 Demo 的关系
 
 ```mermaid
 flowchart LR
     EVALS["evals/minimal_v1/*.json"] --> BT["backend/tests/*"]
     EVALS --> MR["backend/app/services/mock_retriever.py"]
+    EVALS --> RT["backend/tests/test_retrieval.py"]
     CONTRACTS["contracts/demo_payloads/*.json"] --> FD["frontend/lib/demo-cases.ts"]
     FD --> PAGE["frontend/components/analyze-page.tsx"]
     BT --> API["后端主链路稳定性"]
+    RT --> RET["真实检索 / 缓存 / timeline 保护"]
     PAGE --> DEMO["离线演示与请求失败回退"]
 ```
 
@@ -153,19 +171,18 @@ flowchart LR
 最缺的是：
 
 - 按 `input / claim / verdict / report_mode` 分层的全量 case 回归
-- 演示前 smoke checklist
 - 最终通过记录
 - replay 数据格式
-- 口播脚本和交付文档
+- provenance 和边界口径的进一步统一
 
 ## 8. 后续建议
 
 建议按下面顺序继续推进：
 
 1. 先把 `F2 / F3 / F4 / F6` 补成真正按 eval 文件驱动的独立回归。
-2. 再把 `F7` 演示前 smoke checklist 固定下来。
-3. 基于当前三条稳定 demo，补 `G5` 演示顺序与口播要点。
-4. 最后再做 `G6` 最终 README 收口。
+2. 再补 `F8` 的稳定 demo / 随机 case 最终通过记录。
+3. 继续收口 `G2 / G3 / G4`，把 replay、运行说明和边界表达补全。
+4. 等 `C10 / C11 / E9` 有进展后，再补一轮演示前真实 smoke 记录。
 
 ## 9. 一句话结论
 

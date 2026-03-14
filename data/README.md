@@ -24,8 +24,12 @@
 - `demos/`
   - 稳定 demo case、replay 输入和演示辅助数据
 
+当前 `demos/` 的第一阶段文档骨架见 [data/demos/README.md](/home/forwaryan/mianshi/rumor-checking/data/demos/README.md)。
+其中已经先固定 `data/demos/replays/` 作为 replay 文件落点；最终字段和读取方式仍待 `C10 / C11 / F8` 收口。
+
 ## 并行协作约束
 
 - 原始评测设计与说明继续放在根目录 `evals/` 与 `requirements/guides/`
 - 运行时缓存只放这里，不散落到前后端实现目录
+
 

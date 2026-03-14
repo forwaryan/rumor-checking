@@ -1,0 +1,153 @@
+﻿[
+  {
+    "case_id": "KP01",
+    "input_type": "text_news",
+    "focus_tags": ["titlebait", "official_response"],
+    "raw_input": "【热搜截图】网传滨海地铁明天全线停运？运营公司深夜回应：仅3号线夜间检修，其他线路正常运营。",
+    "expected": {
+      "provider_should_help": ["title", "summary", "claims"],
+      "title_should_avoid": ["热搜截图", "待核实事件"],
+      "title_should_contain": ["滨海地铁"],
+      "summary_should_include": ["运营公司", "3号线", "正常运营"],
+      "claims_min": 2,
+      "claims_should_include": ["全线停运", "夜间检修"]
+    }
+  },
+  {
+    "case_id": "KP02",
+    "input_type": "text_news",
+    "focus_tags": ["rumor_question", "health_scare"],
+    "raw_input": "多段聊天记录疯传：安州育才中学食堂多名学生食物中毒是真的吗？校方称两名学生肠胃不适已就医，疾控已采样，未收到重症报告。",
+    "expected": {
+      "provider_should_help": ["summary", "claims"],
+      "summary_should_include": ["校方", "疾控", "未收到重症报告"],
+      "claims_min": 2,
+      "claims_should_include": ["食物中毒", "已采样"]
+    }
+  },
+  {
+    "case_id": "KP03",
+    "input_type": "text_news",
+    "focus_tags": ["mixed_truth", "official_clarification"],
+    "raw_input": "网传清河水库决堤致上万人转移。清河市应急管理局通报：上游例行泄洪属实，水库未决堤，网传‘上万人转移’为不实信息。",
+    "expected": {
+      "provider_should_help": ["title", "summary", "claims"],
+      "title_should_contain": ["清河水库", "应急管理局"],
+      "summary_should_include": ["例行泄洪", "未决堤", "不实信息"],
+      "claims_min": 3,
+      "claims_should_include": ["例行泄洪", "未决堤", "上万人转移"]
+    }
+  },
+  {
+    "case_id": "KP04",
+    "input_type": "text_news",
+    "focus_tags": ["layoff_rumor", "mixed_truth"],
+    "raw_input": "社交平台流传截图称星桥科技本周裁员50%。公司回应：确有组织调整，但未启动大规模裁员。",
+    "expected": {
+      "provider_should_help": ["summary", "claims"],
+      "summary_should_include": ["组织调整", "未启动大规模裁员"],
+      "claims_min": 2,
+      "claims_should_include": ["裁员50%", "组织调整"]
+    }
+  },
+  {
+    "case_id": "KP05",
+    "input_type": "text_news",
+    "focus_tags": ["service_disruption", "official_response"],
+    "raw_input": "短视频称临江市人民医院急诊停摆。院方通报：机房短时故障已恢复，急诊未停止接诊。",
+    "expected": {
+      "provider_should_help": ["title", "summary", "claims"],
+      "title_should_contain": ["临江市人民医院"],
+      "summary_should_include": ["机房短时故障", "急诊未停止接诊"],
+      "claims_min": 2,
+      "claims_should_include": ["急诊停摆", "未停止接诊"]
+    }
+  },
+  {
+    "case_id": "KP06",
+    "input_type": "text_news",
+    "focus_tags": ["question_headline", "education"],
+    "raw_input": "【是真的吗】海城一中下周起全面停课整顿？教育局回应：因施工仅两栋教学楼临时调课，不涉及全校停课。",
+    "expected": {
+      "provider_should_help": ["title", "summary", "claims"],
+      "title_should_avoid": ["是真的吗", "待核实事件"],
+      "summary_should_include": ["教育局", "两栋教学楼", "不涉及全校停课"],
+      "claims_min": 2,
+      "claims_should_include": ["全面停课", "临时调课"]
+    }
+  },
+  {
+    "case_id": "KP07",
+    "input_type": "text_news",
+    "focus_tags": ["disaster_rumor", "mixed_truth"],
+    "raw_input": "台风过后网传北湾大桥坍塌致多人失联。交通部门称桥梁未坍塌，封闭检查属实，失联说法暂无依据。",
+    "expected": {
+      "provider_should_help": ["summary", "claims"],
+      "summary_should_include": ["未坍塌", "封闭检查", "暂无依据"],
+      "claims_min": 3,
+      "claims_should_include": ["桥梁坍塌", "封闭检查", "多人失联"]
+    }
+  },
+  {
+    "case_id": "KP08",
+    "input_type": "text_news",
+    "focus_tags": ["old_video", "police_clarification"],
+    "raw_input": "旧视频再次传播，称云河商场顾客抢购致踩踏。警方提醒该视频拍摄于2024年外地商场，与云河商场无关。",
+    "expected": {
+      "provider_should_help": ["title", "summary", "claims"],
+      "title_should_contain": ["云河商场", "警方"],
+      "summary_should_include": ["2024年", "外地商场", "无关"],
+      "claims_min": 2,
+      "claims_should_include": ["顾客抢购致踩踏", "与云河商场无关"]
+    }
+  },
+  {
+    "case_id": "KP09",
+    "input_type": "text_news",
+    "focus_tags": ["product_recall", "headline_exaggeration"],
+    "raw_input": "自媒体标题称‘鹿鸣酸奶全国下架’。品牌方表示仅华东两批次产品召回，其他地区正常销售。",
+    "expected": {
+      "provider_should_help": ["summary", "claims"],
+      "summary_should_include": ["两批次产品召回", "其他地区正常销售"],
+      "claims_min": 2,
+      "claims_should_include": ["全国下架", "两批次产品召回"]
+    }
+  },
+  {
+    "case_id": "KP10",
+    "input_type": "text_news",
+    "focus_tags": ["death_rumor", "family_response"],
+    "raw_input": "多个账号发文称知名主播安夏因脑出血去世。家属回应其仍在重症监护，相关死亡消息不实。",
+    "expected": {
+      "provider_should_help": ["title", "summary", "claims"],
+      "title_should_contain": ["安夏", "家属回应"],
+      "summary_should_include": ["重症监护", "死亡消息不实"],
+      "claims_min": 2,
+      "claims_should_include": ["因脑出血去世", "仍在重症监护"]
+    }
+  },
+  {
+    "case_id": "KP11",
+    "input_type": "text_news",
+    "focus_tags": ["policy_rumor", "government_response"],
+    "raw_input": "群聊截图称宁州本周末全市停工。住建局回应：仅个别工地因空气质量预警临时停工，不涉及全市范围。",
+    "expected": {
+      "provider_should_help": ["summary", "claims"],
+      "summary_should_include": ["住建局", "个别工地", "不涉及全市范围"],
+      "claims_min": 2,
+      "claims_should_include": ["全市停工", "临时停工"]
+    }
+  },
+  {
+    "case_id": "KP12",
+    "input_type": "text_news",
+    "focus_tags": ["mixed_truth", "investigation_in_progress"],
+    "raw_input": "餐饮博主爆料南川夜市多人食物中毒。市场监管部门称已接到3例不适报告，正在溯源，尚无证据显示整条夜市停业。",
+    "expected": {
+      "provider_should_help": ["summary", "claims"],
+      "summary_should_include": ["3例不适报告", "正在溯源", "尚无证据"],
+      "claims_min": 3,
+      "claims_should_include": ["多人食物中毒", "3例不适报告", "整条夜市停业"]
+    }
+  }
+]

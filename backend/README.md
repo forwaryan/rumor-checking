@@ -12,7 +12,7 @@
 
 - `C1` 到 `C8` 已完成并稳定可测
 - `C9` 已进入第一阶段：Kimi provider 配置、调用封装、事件/claim enrichment、安全回退与测试已完成
-- `C10` 尚未开始，URL 正文抽取仍未接入
+- `C10` 已完成：公开 HTML 页面 URL 正文抽取、结构化字段回填与清晰 fallback 已接入
 
 ## 快速框架图
 
@@ -21,6 +21,7 @@ flowchart LR
     Client["Frontend / Test"] --> API["FastAPI /api/v1"]
     API --> Pipeline["AnalyzePipeline"]
     Pipeline --> Normalizer["InputNormalizer"]
+    Normalizer --> UrlExtractor["UrlContentExtractor"]
     Pipeline --> Enricher["ProviderEnricher"]
     Enricher --> Kimi["KimiProvider"]
     Pipeline --> Verdict["VerdictEngine"]
@@ -30,6 +31,7 @@ flowchart LR
 ```
 
 更完整的架构图、时序图、provider 回退流程图、请求/响应样例和演进路线图见 [backend/docs/api-foundation-implementation-record.md](/home/forwaryan/mianshi/rumor-checking/backend/docs/api-foundation-implementation-record.md)。
+真实检索链路的专项解释，包括架构图、时序图、缓存流程图、模块表、方法与可行性分析，见 [backend/docs/real-retrieval-pipeline.md](/home/forwaryan/mianshi/rumor-checking/backend/docs/real-retrieval-pipeline.md)。
 
 ## Provider 开关
 
@@ -43,6 +45,13 @@ flowchart LR
 
 当前 provider 只负责“事件理解 + claim 抽取”增强，不负责 verdict、timeline、URL 抽取或检索。
 如果 provider 未配置、超时、返回非法 JSON，后端会自动退回既有规则链路，不中断 `analyze` 请求。
+
+## URL 输入能力边界
+
+- 当前 URL 输入已接入公开 HTML 页面正文抽取，优先从 `<title>`、meta、JSON-LD、`<article>/<main>` 中提取标题、摘要、来源、发布时间和正文片段。
+- 抽取成功时，这些字段会进入 `event.title / summary / source_name / published_at`；抽取失败时会按 `partial / empty / timeout / error / unsupported` 返回明确提示，并继续输出保守结果。
+- 当前不支持登录页、强反爬页面、需要浏览器渲染的动态页、PDF/图片正文，也不会做任何绕过站点限制的抓取。
+
 ## 真实检索开关
 
 当前检索支持三种模式：
@@ -122,6 +131,19 @@ curl -X POST http://127.0.0.1:8000/api/v1/analyze \
 
 如果 `ANALYSIS_PROVIDER=kimi` 且 `KIMI_API_KEY` 有效，后端会尝试调用 Kimi 做事件理解与 claim 抽取；如果 provider 失败，接口仍会返回规则链路结果。
 
+也可以直接发送 URL 输入验证 `C10` 路径：
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/analyze \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "https://news.example.com/article",
+    "input_type": "url"
+  }'
+```
+
+如果该 URL 是可直接抓取的公开 HTML 页面，返回结果里的 `event.title / summary / source_name / published_at` 会优先使用抽取字段；如果页面不可抽取，接口仍会返回保守模式和明确的 fallback 提示。
+
 ## 如何判断当前是否真的走了 Kimi
 
 当前最实用的判断方式是：
@@ -132,6 +154,32 @@ curl -X POST http://127.0.0.1:8000/api/v1/analyze \
 
 注意：当前 provider 还没有完成“线上真实 key 小样本验收”和“prompt/输出质量调优”，所以“能调用”不等于“质量已收口”。
 
+## C9 文本样本验收
+
+本轮新增了可复用的小样本验收集：
+
+- `evals/minimal_v1/provider_text_news_cases.json`
+  - `12` 条 `text_news` 样例，覆盖标题党、传闻问句、真假混杂、旧视频翻炒、政策误读、辟谣跟进等常见输入。
+- `backend/tests/test_kimi_provider_quality.py`
+  - 覆盖 provider 结构化输出清洗、enrichment 合并、以及 `ANALYSIS_PROVIDER=off` 与 provider 打开时的帮助性对照。
+
+推荐验证命令：
+
+```bash
+pytest backend/tests/test_kimi_provider.py backend/tests/test_kimi_provider_quality.py backend/tests/test_api.py -q
+```
+
+当前这组验收证明的是：
+
+- provider 输出在 schema 不漂移的前提下，能更稳定地补标题、摘要和多条 claims
+- `ANALYSIS_PROVIDER=off` 的基线路径仍然可测，provider 失败回退没有被破坏
+- 至少有一条文本新闻样例能稳定显示“provider 打开后比 off 更有帮助”的可见差异
+
+当前这组验收不证明：
+
+- URL 正文抽取已经可用：这仍属于 `C10`
+- 下游 verdict / timeline 已经完全 grounded：这仍属于 `C11`
+- 随机 live 新闻已经通过最终验收：这仍属于 `F8`
 ## 目录边界
 
 - `app/api/`
@@ -157,7 +205,10 @@ curl -X POST http://127.0.0.1:8000/api/v1/analyze \
 ## 当前已知边界
 
 - 已支持 `RETRIEVAL_PROVIDER=gdelt` 的公开来源检索、缓存与 `question_only` 取证；但 verdict 和 timeline 仍是基于检索结果的规则/启发式判断，不是完整 RAG / agent 搜证系统
-- URL 输入仍未接入正文抽取，`C10` 尚未开始
+- URL 输入已支持公开 HTML 抽取，但仍不处理登录页、强反爬、浏览器渲染页面与 PDF/图片正文
 - `demo-cases / replay` 后端接口仍未实现，但当前前端已不依赖这两个接口
 - 共享协议仍以 `contracts/` 为准，后续 schema 冻结变更仍需同步更新后端与前端
 - 测试数据仍优先读取根目录 `evals/minimal_v1/`
+
+
+

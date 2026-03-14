@@ -290,3 +290,78 @@
 - **📦 产出与落点 (Artifacts)**: `backend/app/core/config.py`、`backend/.env.example`、`backend/app/services/retrieval_provider.py`、`backend/app/services/retrieval_service.py`、`backend/tests/test_retrieval.py`、`tasks/cluster-d-retrieval-lab.md`、`data/README.md`、`backend/README.md`、`prompt-history.md`
 - **➡️ 交接建议 (Next Handoff)**: 下一步应交给 `Cluster-F / F7` 做真实联网 smoke，再由 `Cluster-G` 把这条随机新闻取证链路写进演示脚本和 README 收口。
 - **⭐ 效果评估**: 已完成 D5 / D6 / D7 的最小可用版本；`pytest backend/tests -q` 通过，`26 passed`。
+
+---
+
+### 📅 2026-03-14 17:05
+> **🧵 线程标识**: `T-impl-retrieval-real`
+> **🏷️ 窗口职责**: `Cluster-D / Retrieval Docs`
+> **🔗 上下文来源**: `backend/README.md`、`backend/docs/`、`backend/app/services/retrieval_provider.py`、`backend/app/services/retrieval_service.py`、`backend/app/services/retrieval_cache.py`、`backend/app/services/retrieval_models.py`、`backend/app/services/timeline_builder.py`、`prompt-history.md`
+> **💡 原始指令摘要**: 用户以 `[log]` 方式要求为 `real retrieval pipeline` 补一份真正解释“真实逻辑、架构、可行性、方法”的文档，要求图+表格+文字，图文并茂。
+
+- **🎯 本线程目标 (Context & Goal)**: 把 D5 ~ D7 这部分代码从“有实现”提升到“有可交接、可评审、可复盘的专项文档”，让后续读者不需要只靠源码反推设计。
+- **🧩 已知约束 (Known Context)**: 文档必须明确区分“已实现的真实检索闭环”与“尚未实现的 agent/RAG 能力”，不能夸大当前系统能力；同时需要兼顾结构图、流程图、模块表和方法分析。
+- **⚙️ AI 采用的策略 (AI Approach)**: 新增专项文档，把 provider、query rewrite、cache、bundle、timeline、verdict 的关系拆成架构图、时序图、缓存流程图和多张表；再把这份文档挂到 `backend/README.md` 入口，供后续交接与演示使用。
+- **📦 产出与落点 (Artifacts)**: `backend/docs/real-retrieval-pipeline.md`、`backend/README.md`、`prompt-history.md`
+- **➡️ 交接建议 (Next Handoff)**: 下一步应交给 `Cluster-F / F7` 基于这份文档做真实联网 smoke，再由 `Cluster-G` 把其中的开放式新闻链路摘要进演示脚本。
+- **⭐ 效果评估**: 已补齐 real retrieval pipeline 的专项解释文档，覆盖图、表、文字三层说明。
+
+---
+
+### 📅 2026-03-14 16:42
+> **🧵 线程标识**: `T-main`
+> **🏷️ 窗口职责**: 主控 / 文档审计
+> **🔗 上下文来源**: `README.md`、`overview/06_current_code_implementation.md`、`overview/07_quality-and-demo-baseline.md`、`overview/09_stage-progress-and-task-audit.md`、`tasks/README.md`、`tasks/completed-subtask-doc-index.md`、`tasks/cluster-d-retrieval-lab.md`、`tasks/cluster-f-quality-gate.md`、`tasks/cluster-g-demo-ops.md`、`backend/README.md`、`data/README.md`、`backend/app/services/retrieval_service.py`、`backend/app/services/retrieval_provider.py`、`backend/tests/test_retrieval.py`
+> **💡 原始指令摘要**: 用户要求再次统计“哪些代码改动未写入文档、哪些已完成任务未同步到文档、当前正在做的任务有哪些”，并要求把这些问题直接更新到对应目录或 Markdown 文档中，而且要采用图、表格和文字并行的说明方式。
+
+- **🎯 本线程目标 (Context & Goal)**: 对当前仓库做一轮“代码现状 vs 文档口径 vs 任务状态”的审计，并把旧口径统一回写到主文档、任务索引和完成项导航中。
+- **🧩 已知约束 (Known Context)**: 工作区中已经存在 `Cluster-D`、`backend/README.md`、`data/README.md` 等较新的 retrieval 文档，但顶层 README、overview 和任务索引仍残留“D5-D7 未完成”“F7 未交付”的旧口径；用户要求不只给聊天总结，还要把结果沉淀到仓库文档里。
+- **⚙️ AI 采用的策略 (AI Approach)**: 先交叉读取代码、任务文档和总览文档，确认哪些变动已经在子文档里记录但没有上浮到入口层；再用当前测试结果验证状态；最后统一更新 `README.md`、`overview/06`、`overview/07`、`overview/09`、`tasks/README.md` 和 `tasks/completed-subtask-doc-index.md`，把图、表格和文字一起收口。
+- **📦 产出与落点 (Artifacts)**: `README.md`、`overview/06_current_code_implementation.md`、`overview/07_quality-and-demo-baseline.md`、`overview/09_stage-progress-and-task-audit.md`、`tasks/README.md`、`tasks/completed-subtask-doc-index.md`、`prompt-history.md`
+- **➡️ 交接建议 (Next Handoff)**: 下一波应优先推进 `C10`、`C11`、`F2/F3/F4/F6/F8` 和 `E9`；`Cluster-D` 当前更适合作为真实 smoke 与质量精修支撑，而不是继续被描述成“尚未开始”的缺口。
+- **⭐ 效果评估**: [待填写]
+
+---
+
+### 📅 2026-03-14 17:25
+> **🧵 线程标识**: `T-impl-retrieval-real`
+> **🏷️ 窗口职责**: `Origin Goal Audit`
+> **🔗 上下文来源**: `rules/origin_problem_statement.md`、`tasks/README.md`、`tasks/cluster-a-control-tower.md`、`tasks/cluster-b-contract-forge.md`、`tasks/cluster-c-api-foundation.md`、`tasks/cluster-d-retrieval-lab.md`、`tasks/cluster-e-experience-shell.md`、`tasks/cluster-f-quality-gate.md`、`tasks/cluster-g-demo-ops.md`、`backend/docs/real-retrieval-pipeline.md`
+> **💡 原始指令摘要**: 用户以 `[log]` 方式要求判断当前系统是否已经具备“随机给一条新闻就去较真”的能力，并结合 task 子任务分析仍缺什么；同时要求在 `tasks/` 下新增一份只存大表格的进度矩阵文档，服务最终目标 `rules/origin_problem_statement.md`。
+
+- **🎯 本线程目标 (Context & Goal)**: 用 `origin_problem_statement` 作为最终验收目标，给出当前能力级别的真实判断，并补一份覆盖所有 cluster 子任务的完成度矩阵，方便后续对照推进。
+- **🧩 已知约束 (Known Context)**: 当前系统已经具备最小真实检索链路，但 analyze 主链仍未完全 reasoning-grounded；任务文件中的个别状态与实际代码存在轻微时滞，需要在分析中明确区分“已有代码能力”和“任务正式闭环”。
+- **⚙️ AI 采用的策略 (AI Approach)**: 先回读 `origin_problem_statement` 和各 cluster 子任务状态，再把能力差距归因到 `C11 / F8 / E9 / C9 / C10` 等关键缺口；同时新增一份只存大表格的任务矩阵文档，标记完成、进度和难度。
+- **📦 产出与落点 (Artifacts)**: `tasks/origin-problem-goal-matrix.md`、`prompt-history.md`
+- **➡️ 交接建议 (Next Handoff)**: 下一步最应推进的是 `C11`、`F8`、`E9`，其次是 `C9 / C10 / F2 / F3 / F4 / F6`；只有这几类补齐，系统才更接近题目要求的“传播链还原 + 内容核查”双目标。
+- **⭐ 效果评估**: 已形成任务总矩阵，并明确当前系统对随机新闻只具备“可尝试较真、但未达到稳定交付”的能力判断。
+
+---
+
+### 📅 2026-03-14 17:15
+> **🧵 线程标识**: `T-main`
+> **🏷️ 窗口职责**: 主控 / 未完成任务分析
+> **🔗 上下文来源**: `tasks/cluster-c-api-foundation.md`、`tasks/cluster-e-experience-shell.md`、`tasks/cluster-f-quality-gate.md`、`tasks/cluster-g-demo-ops.md`、`overview/09_stage-progress-and-task-audit.md`、`backend/README.md`、`backend/tests/test_retrieval.py`
+> **💡 原始指令摘要**: 用户要求继续分析未完成任务，重点回答三件事：哪些任务对“随机新闻较真”最关键；哪些任务适合并行且不容易改到同一文件；哪些任务会调用真实 Kimi API，以及这条 Kimi 路线当前还差多少步、如何并行拆分。
+
+- **🎯 本线程目标 (Context & Goal)**: 把剩余任务从“未完成列表”进一步整理成“能力关键度 + 并行安全边界 + Kimi 依赖路径”三维分析，作为下一波并行执行的分工依据。
+- **🧩 已知约束 (Known Context)**: `D5-D7` 已经完成最小真实检索和缓存，不再是当前未完成阻塞项；当前真正影响“随机新闻较真”的缺口集中在 `C9` 剩余质量调优、`C10`、`C11`、`F8`，同时 `E9` 与 `G2-G4` 更多是表达和交付层收口。
+- **⚙️ AI 采用的策略 (AI Approach)**: 先从任务文件里提炼所有进行中/未完成项，再按“功能必需性、文件冲突风险、是否直接/间接依赖真实 Kimi API”三条线重排；最后新增一份 overview 文档，用图、表格和文字一起说明推荐的并行波次和 Kimi 路线。
+- **📦 产出与落点 (Artifacts)**: `overview/10_unfinished-task-priority-and-parallel-analysis.md`、`overview/README.md`、`prompt-history.md`
+- **➡️ 交接建议 (Next Handoff)**: 下一波最适合直接开 3 到 5 个窗口：`C9` 剩余质量调优、`C10`、`F2/F3/F4/F6`、`E9` UI 壳、`G2/G3/G4` 结构草案；`C11` 建议先做设计盘点，再在 `C10` 接口稳定后进入代码阶段。
+- **⭐ 效果评估**: [待填写]
+
+---
+
+### 📅 2026-03-14 17:27
+> **🧵 线程标识**: `T-main`
+> **🏷️ 窗口职责**: 主控 / 波次 Prompt 收口
+> **🔗 上下文来源**: `overview/10_unfinished-task-priority-and-parallel-analysis.md`、`tasks/current-wave-window-prompts.md`、`tasks/cluster-c-api-foundation.md`、`tasks/cluster-e-experience-shell.md`、`tasks/cluster-f-quality-gate.md`、`tasks/cluster-g-demo-ops.md`
+> **💡 原始指令摘要**: 用户指出 `overview/10_unfinished-task-priority-and-parallel-analysis.md` 里虽然有第一波、第二波、第三波并行建议，但还缺少每个窗口开始正式执行时可直接复制的 prompt，要求把这些 prompt 补进同一份文档，方便后续按文档分发窗口并执行。
+
+- **🎯 本线程目标 (Context & Goal)**: 把“波次建议”升级成“可直接发给窗口的执行手册”，让用户无需再从别处拼 prompt。
+- **🧩 已知约束 (Known Context)**: 仓库里已有历史的 `tasks/current-wave-window-prompts.md`，但它只覆盖上一波 `C10 / D5-D7 / F7 / G5-G6`，已经不能直接指导当前未完成任务的新波次执行。
+- **⚙️ AI 采用的策略 (AI Approach)**: 复用既有 prompt 资产的结构，把 `overview/10` 继续扩成“一份文档同时包含优先级、并行边界、Kimi 路线和每个波次窗口 prompt”的执行手册；每个 prompt 都写清线程名、必读文件、边界、至少要完成的事情和验收标准。
+- **📦 产出与落点 (Artifacts)**: `overview/10_unfinished-task-priority-and-parallel-analysis.md`、`prompt-history.md`
+- **➡️ 交接建议 (Next Handoff)**: 之后如果要真正开工，直接从 `overview/10` 复制对应波次/窗口的 prompt 即可；不需要再额外生成一次分发文档，除非波次本身再次变化。
+- **⭐ 效果评估**: [待填写]

@@ -1,187 +1,122 @@
 ﻿# 09 Stage Progress And Task Audit
 
-更新时间：2026-03-14 00:12（Asia/Shanghai）
+更新时间：2026-03-14 16:42（Asia/Shanghai）
 
 ## 一句话结论
 
-当前项目已经完成“前后端最小闭环 + mock retrieval/timeline + 基础测试”的阶段，但还不能被定义为“真实 reasoning / 真实检索 / 真实 URL / 真实回归闭环”版本。现在最大的风险不是不能演示，而是 demo、缓存、样例 JSON 和 fallback 太容易被误读成真实分析能力。
+当前项目已经从“前后端最小闭环 + mock retrieval/timeline”推进到“最小真实检索 + 本地缓存 + smoke 文档已交付”的阶段，但还没有进入“真实 URL 抽取 + reasoning-grounded analyze + 分层回归冻结”的状态。
 
-## 阶段状态图
-
-```mermaid
-pie title Cluster 子任务总体状态（A-G）
-    "已完成" : 30
-    "进行中" : 11
-    "未完成" : 14
-```
-
-## 当前瓶颈路径图
+## 审计总图
 
 ```mermaid
 flowchart LR
-    A["当前可运行系统"] --> B["C10 URL 正文抽取"]
-    A --> C["C11 真实 reasoning 主链"]
-    A --> D["D5-D7 真实检索 缓存 时间线"]
-    B --> E["F2 F3 F4 F6 F7 回归与 smoke"]
-    C --> E
-    D --> E
-    E --> F["E9 provenance 展示"]
-    F --> G["G2-G6 replay README demo 收口"]
+    A["代码已前进"] --> B["文档口径滞后"]
+    B --> C["README / overview 仍写 D5-D7 未完成"]
+    B --> D["任务索引仍写 F7 未交付"]
+    B --> E["完成项索引未收录 G5/G6"]
+    A --> F["当前真实能力"]
+    F --> F1["GDELT 检索"]
+    F --> F2["Retrieval Cache"]
+    F --> F3["question_only 查询改写"]
+    F --> F4["Smoke Checklist 文档"]
+    F --> F5["13 retrieval tests + 28 backend tests"]
+    C --> G["本轮同步回写"]
+    D --> G
+    E --> G
 ```
 
-## 阶段判断
+## 1. 哪些代码变动此前没有被主文档写清楚
+
+| 代码变动 | 代码落点 | 当前真实状态 | 之前缺在哪里 | 本轮更新落点 |
+| --- | --- | --- | --- | --- |
+| 检索主链已经从直接 `MockRetriever` 扩成 `RetrievalService -> GdeltNewsProvider / RetrievalCache / Mock fallback` | `backend/app/services/retrieval_service.py`、`backend/app/services/retrieval_provider.py` | 已支持 `RETRIEVAL_PROVIDER=gdelt`、缓存命中、失败回退、空结果回退 | 顶层 README、`overview/06_current_code_implementation.md` 仍主要按 mock retrieval 描述 | `README.md`、`overview/06_current_code_implementation.md` |
+| `question_only` 输入已支持查询改写后再走真实检索 | `backend/app/services/retrieval_service.py` | 真实问题输入可走“问题改写 -> 检索 -> 去重 -> timeline” | 总览文档只写了 provider enrichment，没有把问题改写后的检索路径写出来 | `README.md`、`overview/06_current_code_implementation.md` |
+| 检索缓存已经支持 `retrieval_cache_only`、`allow_stale_retrieval_cache`、`skip_retrieval_cache/skip_cache` 这些 request-level 控制开关 | `backend/app/services/retrieval_service.py`、`backend/app/services/retrieval_cache.py` | 已支持 cache-only、stale、bypass 和旧别名兼容 | 主文档只写了部分开关，没有把兼容别名和使用边界讲清 | `overview/06_current_code_implementation.md`、`overview/07_quality-and-demo-baseline.md` |
+| retrieval 测试已经不只是 mock foundation，还覆盖了 GDELT 参数对齐、缓存 round-trip、provider 失败回退、cache-only miss、skip-cache alias、真实 bundle timeline 选择 | `backend/tests/test_retrieval.py` | `pytest backend/tests/test_retrieval.py -q` 当前 `13 passed` | 测试基线文档仍按“mock retrieval 基础回归”表述 | `overview/07_quality-and-demo-baseline.md` |
+| 演示 smoke 文档已经独立交付 | `SMOKE_CHECKLIST.md` | 文档已可直接执行，且后端测试本轮已复跑通过 | README、overview、完成索引仍写“F7 未完成” | `README.md`、`overview/07_quality-and-demo-baseline.md`、`tasks/completed-subtask-doc-index.md` |
+
+说明：
+
+- 这里的“未写清楚”不是说完全没有任何记录，而是“代码已经成立，但总览层/入口层文档仍沿用旧口径”。
+- `backend/README.md`、`data/README.md`、`tasks/cluster-d-retrieval-lab.md` 这三份文档已经较完整地记录了 D5-D7，本轮主要补的是顶层入口和导航层。
+
+## 2. 哪些已完成任务此前没有同步到总览文档
+
+| 已完成任务 | 任务文件中的真实状态 | 此前未同步的文档 | 本轮处理 |
+| --- | --- | --- | --- |
+| `D5` 真实公开来源检索 provider | `tasks/cluster-d-retrieval-lab.md` 已完成 | `README.md`、`overview/06`、`overview/09`、`tasks/README.md`、完成索引 | 已更新 |
+| `D6` 本地缓存与 replay 预留入口 | `tasks/cluster-d-retrieval-lab.md` 已完成 | `overview/06`、`overview/07`、完成索引 | 已更新 |
+| `D7` 真实时间线构建最小版 | `tasks/cluster-d-retrieval-lab.md` 已完成 | `README.md`、`overview/06`、`overview/09`、完成索引 | 已更新 |
+| `F7` 演示前 smoke checklist | `tasks/cluster-f-quality-gate.md` 已完成 | `README.md`、`overview/07`、`overview/09`、完成索引 | 已更新 |
+| `G5` 演示顺序与口播要点 | `tasks/cluster-g-demo-ops.md` 已完成 | `overview/07`、`overview/09`、完成索引 | 已更新 |
+| `G6` 顶层 README 收口版 | `tasks/cluster-g-demo-ops.md` 已完成 | `overview/07`、`overview/09`、完成索引 | 已更新 |
+
+## 3. 目前正在做的任务有哪些
+
+### 3.1 正在进行中
+
+| Cluster | 子任务 | 状态 | 当前含义 |
+| --- | --- | --- | --- |
+| A | `A3` | 进行中 | 维护总表、优先级和窗口分工 |
+| A | `A4` | 进行中 | 审核共享 schema 变更 |
+| A | `A5` | 进行中 | 处理跨线程冲突与优先级调整 |
+| A | `A6` | 进行中 | 里程碑集成验收 |
+| B | `B6` | 进行中 | 给核心字段补边界说明 |
+| C | `C9` | 进行中（第一阶段已完成） | Kimi 已能真实联调，但仍缺质量调优和更稳定的小样本验收 |
+| F | `F2` | 进行中 | `input_cases.json` 全量回归 |
+| F | `F4` | 进行中 | `verdict_cases.json` 独立回归 |
+| F | `F6` | 进行中 | `report_mode_cases.json` 独立回归 |
+| G | `G3` | 进行中 | 运行方式与环境变量说明继续收口 |
+| G | `G4` | 进行中 | 已知限制与降级边界继续统一 |
+
+### 3.2 当前最值得立刻推进的未完成任务
+
+| 优先级 | 子任务 | 为什么现在优先 |
+| --- | --- | --- |
+| 1 | `C10` URL 正文抽取 | 这是 URL 输入从“界面支持”变成“真实可用”的首个阻塞点 |
+| 2 | `C11` reasoning-grounded analyze 主链 | 当前最核心的能力缺口仍是 verdict/evidence/timeline 没完全摆脱场景占位 |
+| 3 | `F2/F3/F4/F6/F8` | 需要把“能跑”收成“可按 eval 文件验收” |
+| 4 | `E9` provenance 展示 | 不补来源标签，评审容易把 demo payload / fallback 误判成真实分析 |
+| 5 | `G2/G3/G4` | replay、运行说明和边界说明还要进一步收口 |
+
+## 4. 当前阶段判断
 
 | 维度 | 当前结论 | 说明 |
 | --- | --- | --- |
-| 前端页面壳 | 已完成 | 页面可运行，三档模式、输入区、时间线、claim、evidence 都已接通 |
-| 后端主接口 | 已完成 | `POST /api/v1/analyze` 已可返回统一 `Report` |
-| 真实 provider | 部分完成 | `C9` 第一阶段完成，但还缺真实在线联调与质量调优 |
-| mock retrieval / timeline | 已完成 | `D1-D4` 已形成标准化、去重、时间线闭环 |
-| 真实 retrieval / timeline | 未完成 | `D5-D7` 仍未开始 |
-| URL 正文抽取 | 未完成 | `C10` 仍未开始 |
-| 真实 reasoning 主链 | 未完成 | 后端仍存在 `scenario_library` / 模板 evidence 依赖，已单独拆为 `C11` |
-| provenance 表达 | 未完成 | 前端尚不能清楚区分真实结果、demo payload、fallback，已单独拆为 `E9` |
-| case 回归与 smoke | 部分完成 | `F5` 已完成，但 `F2/F3/F4/F6/F7/F8` 仍未闭环 |
-| demo 收口 | 部分完成 | `G1` 已完成，但 `G2-G6` 仍需等待真实链路稳定 |
+| 前端页面壳 | 已完成 | 三档模式、事件卡片、时间线、claim、evidence 都已可用 |
+| 后端主接口 | 已完成 | `POST /api/v1/analyze` 可稳定返回 `Report` |
+| Kimi provider | 部分完成 | 真实在线调用已打通，但还缺质量调优与验收样本沉淀 |
+| mock retrieval / timeline | 已完成 | `D1-D4` 已稳定 |
+| 真实 retrieval / timeline | 已完成（最小可用版） | `D5-D7` 已落地 GDELT、缓存、真实 bundle timeline |
+| URL 正文抽取 | 未完成 | `C10` 仍是核心缺口 |
+| reasoning-grounded analyze | 未完成 | `C11` 仍需削弱 `scenario_library` 与模板 evidence 依赖 |
+| provenance 表达 | 未完成 | `E9` 尚未把真实结果、demo payload、fallback 清楚分层 |
+| case 回归与 smoke | 部分完成 | `F7` 已交付，`F2/F3/F4/F6/F8` 仍未收口 |
+| demo 收口 | 部分完成 | `G5/G6` 已完成，`G2/G3/G4` 仍在推进 |
 
-## 当前系统为什么还不能算“真实分析”
+## 5. 本轮回写了哪些主文档
 
-### 前端侧问题
+| 文档 | 回写内容 |
+| --- | --- |
+| [README.md](/home/forwaryan/mianshi/rumor-checking/README.md) | 修正真实检索、已完成 smoke checklist、当前未完成项 |
+| [overview/06_current_code_implementation.md](/home/forwaryan/mianshi/rumor-checking/overview/06_current_code_implementation.md) | 更新当前主链路图和后端模块边界 |
+| [overview/07_quality-and-demo-baseline.md](/home/forwaryan/mianshi/rumor-checking/overview/07_quality-and-demo-baseline.md) | 更新测试覆盖、smoke、demo 收口状态 |
+| [overview/09_stage-progress-and-task-audit.md](/home/forwaryan/mianshi/rumor-checking/overview/09_stage-progress-and-task-audit.md) | 重新生成当前审计结论 |
+| [tasks/README.md](/home/forwaryan/mianshi/rumor-checking/tasks/README.md) | 更新当前最高优先级和 D/F/G 口径 |
+| [tasks/completed-subtask-doc-index.md](/home/forwaryan/mianshi/rumor-checking/tasks/completed-subtask-doc-index.md) | 补齐 D5-D7、F7、G5/G6 的完成导航 |
 
-- [analyze-page.tsx](/home/forwaryan/mianshi/rumor-checking/frontend/components/analyze-page.tsx) 会优先请求真实 `POST /api/v1/analyze`，但请求失败时仍可能落到本地 demo payload 或前端 fallback 生成的 `Report`。
-- [demo-cases.ts](/home/forwaryan/mianshi/rumor-checking/frontend/lib/demo-cases.ts) 和 [report-utils.ts](/home/forwaryan/mianshi/rumor-checking/frontend/lib/report-utils.ts) 让页面在离线或失败状态下仍可渲染完整结果，这对演示很有用，但如果没有 provenance 显示，就会模糊真实能力边界。
+## 6. 本轮验证
 
-### 后端侧问题
+| 验证项 | 结果 |
+| --- | --- |
+| `pytest backend/tests/test_retrieval.py -q` | `13 passed` |
+| `pytest backend/tests/test_api.py -q` | `15 passed` |
+| `pytest backend/tests -q` | `28 passed` |
 
-- [api-foundation-implementation-record.md](/home/forwaryan/mianshi/rumor-checking/backend/docs/api-foundation-implementation-record.md) 已经明确：输入理解虽然开始接真实 provider，但 verdict、evidence、timeline 仍有明显规则化和场景化依赖。
-- `AnalyzePipeline -> VerdictEngine -> TimelineBuilder` 虽然已经能稳定吐出 `Report`，但它还没有完全摆脱 `scenario_library`、模板 evidence、mock timeline 的支撑。
-- `Cluster-D` 这一轮完成的是 mock 检索闭环，不是真实公开来源检索闭环，所以“会生成时间线”不等于“已经在网上找证据并还原传播链”。
+## 7. 当前结论
 
-## 本轮对 task 体系的分析与修改
+当前最准确的表达已经不是“真实检索还没做”，而是：
 
-本轮实际修改了以下任务文件与记录文件：
-
-- [tasks/README.md](/home/forwaryan/mianshi/rumor-checking/tasks/README.md)
-  - 修复文件截断问题。
-  - 新增“当前最高优先级”段，明确 `C10/C11 -> D5-D7 -> F2/F3/F4/F6/F7 -> E9 -> G2-G6` 的推进顺序。
-- [cluster-a-control-tower.md](/home/forwaryan/mianshi/rumor-checking/tasks/cluster-a-control-tower.md)
-  - 确认 `A1` 为已完成。
-  - 更新当前总控判断，从“补文档”切换为“区分真实能力与 demo/fallback”。
-  - 修复 `A7` 冻结判断段的损坏内容。
-- [cluster-c-api-foundation.md](/home/forwaryan/mianshi/rumor-checking/tasks/cluster-c-api-foundation.md)
-  - 把默认聚焦从 `C9/C10` 调整为 `C10/C11`。
-  - 明确 `C10` 是 URL 真实可用的第一阻塞点。
-  - 新增 `C11`，专门跟踪“从 scenario 占位推进到真实 reasoning-grounded analyze 主链”。
-- [cluster-e-experience-shell.md](/home/forwaryan/mianshi/rumor-checking/tasks/cluster-e-experience-shell.md)
-  - 保持 `E1-E8` 已完成。
-  - 新增 `E9`，专门处理 provenance 展示，避免用户把 demo payload / fallback 误判成真实分析。
-- [cluster-f-quality-gate.md](/home/forwaryan/mianshi/rumor-checking/tasks/cluster-f-quality-gate.md)
-  - 把 `F5` 回写为已完成。
-  - 更新当前测试结论，强调 retrieval/timeline 回归已到位，但整体验收仍未闭环。
-- [prompt-history.md](/home/forwaryan/mianshi/rumor-checking/prompt-history.md)
-  - 追加本轮 `[log]` 记录，沉淀任务审计和优先级判断。
-
-## 各 task 当前仍未完成的子任务清单
-
-### Cluster-A / Control Tower
-
-- `A3` 进行中：维护任务总表与推进顺序
-- `A4` 进行中：审核共享 schema 变更
-- `A5` 进行中：处理跨线程冲突与优先级调整
-- `A6` 进行中：做里程碑集成验收
-- `A7` 未完成：执行最终冻结判断
-
-### Cluster-B / Contract Forge
-
-- `B6` 进行中：写字段说明与边界注释
-- `B7` 未完成：约束 schema 变更流程
-
-### Cluster-C / API Foundation
-
-- `C9` 进行中：接入真实 Kimi provider（仍缺真实在线联调和质量调优）
-- `C10` 未完成：实现 URL 抽取与 fallback
-- `C11` 未完成：把 analyze 主链从 scenario 占位推进到真实 reasoning-grounded 流程
-
-### Cluster-D / Retrieval Lab
-
-- `D5` 未完成：接真实公开来源检索 provider
-- `D6` 未完成：接本地缓存与 replay 支持
-- `D7` 未完成：强化真实时间线构建
-
-### Cluster-E / Experience Shell
-
-- `E9` 未完成：明确结果来源与运行模式 provenance
-
-### Cluster-F / Quality Gate
-
-- `F2` 进行中：输入标准化 case 回归
-- `F3` 未完成：claim 分类 case 回归
-- `F4` 进行中：verdict case 回归
-- `F6` 进行中：report mode case 回归
-- `F7` 未完成：建立演示前 smoke checklist
-- `F8` 未完成：跑随机 case 与稳定 demo case
-
-### Cluster-G / Demo Ops
-
-- `G2` 未完成：设计 replay 数据格式
-- `G3` 进行中：写运行方式与环境变量说明
-- `G4` 进行中：写已知限制与降级边界
-- `G5` 未完成：写演示顺序与口播要点
-- `G6` 未完成：产出最终 README 收口版
-
-## 当前最该优先拆细的子任务
-
-### 重点一：后端真实 reasoning 主链
-
-对应任务：`C10`、`C11`
-
-建议拆法：
-
-1. 先把 URL 正文抽取跑通，至少能拿到标题、正文、来源域名和抽取失败原因。
-2. 盘点 analyze 主链中所有仍依赖 `scenario_library`、模板 evidence、mock timeline 的分支。
-3. 明确真实路径和 fallback 路径的分叉条件，不让 `partial/safe` 伪装成完整分析。
-4. 给 `Report` 增加稳定 provenance 字段，供前端和测试消费。
-5. 用真实输入 + 无证据输入补回归，避免“空证据强判”。
-
-### 重点二：真实检索、缓存、时间线
-
-对应任务：`D5`、`D6`、`D7`
-
-建议拆法：
-
-1. 新增真实检索 provider 抽象，与 mock provider 保持统一 `SearchResult` 输出。
-2. 以 `provider + normalized_query + version/date` 设计缓存 key。
-3. 缓存 provider 原始响应和标准化响应，支持 replay。
-4. 用真实结果跑去重、归并、时间线节点选择，保证 `origin/turn/clarification` 仍可解释。
-5. 和 `Cluster-F` 一起补真实检索路径回归。
-
-### 重点三：前端 provenance
-
-对应任务：`E9`
-
-建议拆法：
-
-1. 在结果顶部显示当前来源类型。
-2. 把“真实后端返回 / 后端 mock-replay / 前端 demo payload / 前端 fallback”四类结果明确区分。
-3. 对缺 provenance 的旧 payload 做保守显示。
-4. 为来源标签补测试和说明文案。
-
-## 并行推进建议
-
-| 并行窗口 | 现在该做什么 | 为什么现在就该启动 |
-| --- | --- | --- |
-| Cluster-C | `C10 + C11` | 这是“不是只会渲染 Report，而是真的会分析”的核心分水岭 |
-| Cluster-D | `D5 + D6 + D7` | 真实传播链和时间线仍是当前最大功能空洞 |
-| Cluster-F | `F2 + F3 + F4 + F6 + F7` | 不需要等实现全部完成，应该边实现边锁验收线 |
-| Cluster-E | `E9` | provenance 不补，演示和评审都会误判当前能力 |
-| Cluster-G | 暂缓主攻，仅维护文档 | 真实路径未稳定前，过早做 replay/口播收益很低 |
-
-## 阶段性结论
-
-当前项目最准确的描述是：
-
-- 已经具备“可运行、可演示、可继续并行开发”的 V1 骨架。
-- 尚未具备“真实 reasoning、真实公开检索、真实 URL 抽取、真实回归闭环”的 V1 冻结质量。
-- 接下来最重要的不是再扩页面，而是把后端真实能力和 provenance 边界补齐。
-
-只要 `C10/C11`、`D5-D7`、`E9`、`F7` 这四组任务打通，项目就会从“像一个系统”明显跨到“是一个系统”。
+- 真实检索、缓存和最小真实时间线已经接入。
+- 但 URL 正文抽取、reasoning-grounded analyze、来源 provenance 和分层回归还没有收口。
+- 下一波最该优先打的是 `C10 + C11 + F2/F3/F4/F6/F8 + E9`，而不是重新回头解释 `D5-D7` 是否存在。

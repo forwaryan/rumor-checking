@@ -1,9 +1,11 @@
-﻿import { getModeMeta } from "@/lib/report-utils";
-import type { AnalysisStatus, Report } from "@/types/report";
+﻿import { ModePill } from "@/components/mode-pill";
+import { getModeMeta, getReportProvenanceMeta } from "@/lib/report-utils";
+import type { AnalysisStatus, Report, ReportProvenanceState } from "@/types/report";
 
 interface StatusBannerProps {
   status: AnalysisStatus;
   report: Report | null;
+  provenance: ReportProvenanceState | null;
   errorMessage: string | null;
   fallbackMessage: string | null;
   onRetry: (() => void) | null;
@@ -37,15 +39,36 @@ function getStatusCopy(status: AnalysisStatus, report: Report | null) {
   }
 }
 
-export function StatusBanner({ status, report, errorMessage, fallbackMessage, onRetry }: StatusBannerProps) {
+export function StatusBanner({ status, report, provenance, errorMessage, fallbackMessage, onRetry }: StatusBannerProps) {
   const copy = getStatusCopy(status, report);
+  const provenanceMeta = getReportProvenanceMeta(report, provenance);
 
   return (
     <section className={`status-banner status-banner--${status}`}>
-      <div>
+      <div className="status-banner__content">
         <p className="eyebrow">Status Banner</p>
         <h3>{copy.title}</h3>
         <p>{copy.body}</p>
+        {report && provenanceMeta ? (
+          <div className="status-banner__provenance">
+            <div className="status-banner__provenance-heading">
+              <p className="eyebrow">Result Provenance</p>
+              <div className="status-banner__provenance-badges">
+                <span className={`provenance-pill provenance-pill--${provenanceMeta.tone}`}>
+                  {provenanceMeta.sourceLabel}
+                </span>
+                <ModePill mode={report.mode} />
+                {provenanceMeta.fallbackLabel ? (
+                  <span className="provenance-pill provenance-pill--subtle">{provenanceMeta.fallbackLabel}</span>
+                ) : null}
+              </div>
+            </div>
+            <p className="status-banner__provenance-summary">{provenanceMeta.summary}</p>
+            {provenanceMeta.caution ? (
+              <p className="status-banner__provenance-note">{provenanceMeta.caution}</p>
+            ) : null}
+          </div>
+        ) : null}
         {fallbackMessage ? <p className="status-banner__hint">{fallbackMessage}</p> : null}
         {errorMessage ? <p className="status-banner__error">{errorMessage}</p> : null}
       </div>

@@ -27,15 +27,15 @@
 当前如果目标是尽快把 V1 推到“可执行、可联调、不是只靠 demo / JSON 回放”的状态，建议优先级如下：
 
 1. `Cluster-C / API Foundation`
-   - 重点不是再补文案，而是完成 `C10` 与新增的 `C11`，把 URL 正文抽取和真实 reasoning-grounded analyze 主链补起来。
-2. `Cluster-D / Retrieval Lab`
-   - 当前 mock retrieval / timeline 已闭环，但 `D5 ~ D7` 仍未完成；这是把系统从“样例回放”推进到“真实检索与时间线”的关键。
-3. `Cluster-F / Quality Gate`
-   - `F5` 已完成，下一步应继续补 `F2 / F3 / F4 / F6 / F7`，把真实链路、回退链路和演示 smoke 分开验收。
-4. `Cluster-E / Experience Shell`
-   - 页面壳已完成，但应新增“结果来源 / 运行模式 / fallback provenance”表达，避免把 demo payload 渲染误判成真实分析。
-5. `Cluster-G / Demo Ops`
-   - 只有在上面几项基本收口后，再做 replay / README / 口播收口，收益最高。
+   - 重点仍是 `C10` 与 `C11`，把 URL 正文抽取和 reasoning-grounded analyze 主链补起来。
+2. `Cluster-F / Quality Gate`
+   - 当前 `F7` 已完成，下一步应集中补 `F2 / F3 / F4 / F6 / F8`，把“有测试”推进到“可按 eval 资产验收”。
+3. `Cluster-E / Experience Shell`
+   - 页面壳已完成，但 `E9` 还需要把真实 analyze、demo payload、fallback provenance 讲清楚。
+4. `Cluster-G / Demo Ops`
+   - `G5 / G6` 已完成，下一步是 `G2 / G3 / G4`，把 replay、运行方式和边界说明继续收口。
+5. `Cluster-D / Retrieval Lab`
+   - `D5 ~ D7` 已完成最小可用版；当前更适合做真实 smoke 支撑和后续质量精修，而不是继续作为首要阻塞项。
 
 ## 窗口分配建议
 
@@ -139,7 +139,7 @@
 
 负责什么：
 
-- 负责 demo case、replay、README、演示口径
+- 负责 demo case、回放能力、README、演示口径
 - 负责把“能跑”变成“能演示”
 
 建议谁拿：

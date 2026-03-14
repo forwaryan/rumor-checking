@@ -10,6 +10,15 @@ export type AnalysisStatus =
   | "safe_mode"
   | "error";
 
+export type ReportSourceKind = "backend_response" | "local_demo" | "frontend_safe_fallback" | "unknown";
+
+export type ReportFallbackReason = "backend_offline" | "analyze_failed" | "missing_provenance";
+
+export interface ReportProvenanceState {
+  sourceKind: ReportSourceKind;
+  fallbackReason?: ReportFallbackReason;
+}
+
 export type TimelineNodeType =
   | "origin"
   | "amplification"

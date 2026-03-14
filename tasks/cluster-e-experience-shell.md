@@ -124,7 +124,7 @@
 实现备注：当前 demo 离线回退、接口失败安全回退和边界说明都已经接通。
 
 ### E9 明确结果来源与运行模式 provenance
-状态：未完成
+状态：未完成（第一阶段 UI 壳已完成，待 `C11` 冻结 provenance 字段后做第二阶段真实接线）
 目标：让用户能明确区分真实 analyze 结果、mock retrieval / replay、前端 demo payload 和 safe fallback，避免把任何缓存或样例渲染误判成真实推理。
 产出：结果来源标识与 provenance 展示。
 前置依赖：E7、E8，并需与 `Cluster-C`、`Cluster-D` 对齐 provenance 输入。
@@ -133,4 +133,28 @@
 - 区分“后端真实返回”“后端 mock / replay 返回”“前端本地 demo payload”“前端安全回退生成报告”四类来源。
 - 对来源不明或字段不足的旧 payload 做保守展示，不伪装成真实分析。
 - 补充前端测试与 README/说明，确保演示时口径一致。
+本轮执行任务：
+- 先基于当前前端已知状态、demo 入口和请求失败路径，搭好 provenance UI 壳与保守标签逻辑。
+- 本轮只区分“真实后端响应”“本地 demo payload”“前端 safe fallback”“来源不明需保守展示”四类前端可识别状态，不等待 `C11` 冻结最终 provenance 字段。
+- 同步补最小测试与前端说明，确保上线 UI 壳时不会把旧 payload 或字段不足结果误讲成真实分析。
+执行步骤：
+- 在 `frontend/components/analyze-page.tsx` 梳理真实 analyze、demo 回退和 safe fallback 的现有分叉，并把来源状态显式传给顶部状态区。
+- 在 `frontend/components/status-banner.tsx` 增加 provenance 展示壳，展示来源类型、fallback 状态和保守说明。
+- 在 `frontend/types/` 与前端工具函数中补最小 provenance 类型和兼容逻辑，确保旧 payload 或缺字段结果默认走保守标签。
+- 补 provenance 相关最小单测与 `frontend/README.md` 说明文案，明确第一阶段只做 UI 壳，不依赖后端本轮改 schema。
 实现备注：当前页面壳已经可运行，但同一套 UI 会渲染真实报告、本地 demo payload 和前端 fallback 结果；在没有 provenance 显示前，用户很容易误判系统已经完成真实推理。
+本轮完成记录：
+- `frontend/components/analyze-page.tsx`：新增前端来源状态编排，在真实 analyze 成功、本地 demo 回退、前端 safe fallback 三条路径上显式写入 provenance。
+- `frontend/components/status-banner.tsx`、`frontend/app/globals.css`：在顶部状态区新增 provenance 展示壳，展示来源标签、模式 pill、fallback 状态和保守说明。
+- `frontend/types/report.ts`、`frontend/lib/report-utils.ts`：新增前端 provenance state 类型和保守映射逻辑；缺来源信息的数据默认落到“来源不明”。
+- `frontend/lib/__tests__/report-utils.test.ts`、`frontend/README.md`：补 provenance 单测和第一阶段说明文案，保证演示口径不把 demo 或 fallback 误讲成真实分析。
+验证：
+- `node .\node_modules\vitest\vitest.mjs run`（在 Windows 本地临时镜像目录运行）通过，2 个测试文件、10 个测试全部通过。
+- `node .\node_modules\typescript\bin\tsc --noEmit`（在 Windows 本地临时镜像目录运行）通过。
+- `node .\node_modules\next\dist\bin\next build`（在 Windows 本地临时镜像目录运行）通过。
+剩余问题：
+- 仍未接后端最终 provenance 字段，因此“后端 mock / replay 返回”暂无独立标签，当前缺字段结果统一保守落到“来源不明”。
+- 等 `Cluster-C / C11` 冻结 provenance 字段后，需要进入 E9 第二阶段，把真实后端 source kind / fallback reason 接到前端类型与 UI。
+交接建议：
+- `Cluster-C`：冻结 `Report` provenance 字段，并说明 mock / replay 与 fallback 的区分边界。
+- `Cluster-F`：后续随机 case / 演示验收时，确认页面标签与真实运行路径一致，不把 demo payload 或 safe fallback 讲成真实分析。
