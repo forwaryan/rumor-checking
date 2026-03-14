@@ -1,4 +1,4 @@
-# Backend
+﻿# Backend
 
 本目录承载 rumor-checking 的后端主链路。当前已经提供：
 
@@ -43,6 +43,33 @@ flowchart LR
 
 当前 provider 只负责“事件理解 + claim 抽取”增强，不负责 verdict、timeline、URL 抽取或检索。
 如果 provider 未配置、超时、返回非法 JSON，后端会自动退回既有规则链路，不中断 `analyze` 请求。
+## 真实检索开关
+
+当前检索支持三种模式：
+
+- `RETRIEVAL_PROVIDER=mock`：只走本地 mock retrieval，适合稳定回归
+- `RETRIEVAL_PROVIDER=gdelt`：走公开 GDELT provider，失败时可回退到 mock
+- `RETRIEVAL_PROVIDER=off`：关闭检索，只保留保守链路
+
+相关环境变量：
+
+- `RETRIEVAL_TIMEOUT_SECONDS`，默认 `12`
+- `RETRIEVAL_GDELT_BASE_URL`，默认 `https://api.gdeltproject.org/api/v2/doc/doc`
+- `RETRIEVAL_MAX_RESULTS`，默认 `8`
+- `RETRIEVAL_CACHE_ENABLED`，默认 `true`
+- `RETRIEVAL_CACHE_TTL_SECONDS`，默认 `43200`
+- `RETRIEVAL_CACHE_ALLOW_STALE_ON_ERROR`，默认 `true`
+- `RETRIEVAL_FALLBACK_TO_MOCK`，默认 `true`
+- `RETRIEVAL_CACHE_DIR`，默认 `data/cache/retrieval`
+
+当 `RETRIEVAL_PROVIDER=gdelt` 时，`question_only` 输入会先做查询改写，再走“真实检索 -> 去重归并 -> evidence / timeline”主链路。
+内部还预留了三个 request-level 开关，供 replay 或 smoke 使用：
+
+- `request_context.bypass_retrieval_cache=true`
+- `request_context.retrieval_cache_only=true`
+- `request_context.allow_stale_retrieval_cache=true`
+
+注意：当前“真实检索”解决的是公开来源候选抓取，不是完整的 agent 上网调查；verdict 和 timeline 仍是基于已检索证据的规则/启发式判断。
 
 ## 如何提供你的 Kimi Key
 
@@ -129,7 +156,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/analyze \
 
 ## 当前已知边界
 
-- verdict、evidence 和 timeline 仍然是规则/场景库驱动，还没有接真实检索
+- 已支持 `RETRIEVAL_PROVIDER=gdelt` 的公开来源检索、缓存与 `question_only` 取证；但 verdict 和 timeline 仍是基于检索结果的规则/启发式判断，不是完整 RAG / agent 搜证系统
 - URL 输入仍未接入正文抽取，`C10` 尚未开始
 - `demo-cases / replay` 后端接口仍未实现，但当前前端已不依赖这两个接口
 - 共享协议仍以 `contracts/` 为准，后续 schema 冻结变更仍需同步更新后端与前端

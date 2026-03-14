@@ -1,4 +1,4 @@
-# Prompt History
+﻿# Prompt History
 
 ### 📅 2026-03-13 11:00
 > **💡 原始指令摘要**: 根据当前系统已有的原型文档，结合需求，整理它们的实现逻辑、实现思路和实现技术，并把总结文档放到 `requirements/` 目录下。
@@ -275,3 +275,18 @@
 - **📦 产出与落点 (Artifacts)**: `overview/09_stage-progress-and-task-audit.md`、`overview/README.md`、`prompt-history.md`
 - **➡️ 交接建议 (Next Handoff)**: 下一步建议直接以这份报告为主控材料分发给 `Cluster-C`、`Cluster-D`、`Cluster-F`、`Cluster-E` 四个窗口；执行顺序仍应保持 `C10/C11 -> D5-D7 -> F2/F3/F4/F6/F7 -> E9 -> G2-G6`。
 - **⭐ 效果评估**: [待填写]
+
+---
+
+### 📅 2026-03-14 16:20
+> **🧵 线程标识**: `T-impl-retrieval-real`
+> **🏷️ 窗口职责**: `Cluster-D / D5 ~ D7`
+> **🔗 上下文来源**: `tasks/cluster-d-retrieval-lab.md`、`tasks/current-wave-window-prompts.md`、`backend/app/services/retrieval_provider.py`、`backend/app/services/retrieval_service.py`、`backend/app/services/retrieval_cache.py`、`backend/app/services/timeline_builder.py`、`backend/tests/test_retrieval.py`、`backend/tests/test_api.py`、`data/README.md`、`backend/README.md`
+> **💡 原始指令摘要**: 用户要求继续推进“上网找证据再判断”的后端能力，确认这条线没有别的线程在做后，按 D5 ~ D7 把真实检索、缓存和时间线能力补成可交付状态。
+
+- **🎯 本线程目标 (Context & Goal)**: 让 `question_only` 和开放式新闻输入不再只能停在 mock / 空证据模式，而是具备“真实公开来源检索 + 本地缓存 + 可解释时间线”的最小可用链路。
+- **🧩 已知约束 (Known Context)**: 必须保留 analyze 主链路的 fallback；不重写前端、不重做主 API；当前环境不适合依赖需要复杂 key 的商业搜索接口。
+- **⚙️ AI 采用的策略 (AI Approach)**: 选用公开 GDELT provider 作为最小真实检索入口，复用现有 `SearchResult / RetrievalBundle` 结构，把真实 provider、cache、question-only 查询改写与 `TimelineBuilder` 串到 `AnalyzePipeline`；同时补齐配置名、缓存入口和回归测试。
+- **📦 产出与落点 (Artifacts)**: `backend/app/core/config.py`、`backend/.env.example`、`backend/app/services/retrieval_provider.py`、`backend/app/services/retrieval_service.py`、`backend/tests/test_retrieval.py`、`tasks/cluster-d-retrieval-lab.md`、`data/README.md`、`backend/README.md`、`prompt-history.md`
+- **➡️ 交接建议 (Next Handoff)**: 下一步应交给 `Cluster-F / F7` 做真实联网 smoke，再由 `Cluster-G` 把这条随机新闻取证链路写进演示脚本和 README 收口。
+- **⭐ 效果评估**: 已完成 D5 / D6 / D7 的最小可用版本；`pytest backend/tests -q` 通过，`26 passed`。

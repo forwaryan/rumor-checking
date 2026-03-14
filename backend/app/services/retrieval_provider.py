@@ -3,7 +3,7 @@
 import logging
 import re
 from datetime import datetime, timezone
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Protocol
 from urllib.parse import urlparse
 
 import httpx
@@ -28,6 +28,14 @@ TOP_TIER_DOMAINS = {
     "caixin.com",
 }
 PORTAL_MARKERS = ("news", "ifeng", "sohu", "163.com", "qq.com", "sina", "msn", "yicai")
+
+
+class RetrievalProvider(Protocol):
+    name: str
+    enabled: bool
+
+    def search(self, query_text: str) -> List[SearchResult]:
+        ...
 
 
 class GdeltNewsProvider:
@@ -100,7 +108,7 @@ class GdeltNewsProvider:
         if domain:
             return domain
         hostname = urlparse(url).netloc.lower()
-        return hostname or "????"
+        return hostname or "unknown-source"
 
     def _published_at(self, raw_value: Any) -> str:
         value = self._clean_text(raw_value)

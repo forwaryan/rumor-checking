@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import logging
 import re
@@ -12,51 +12,53 @@ from backend.app.services.mock_retriever import MockRetriever
 from backend.app.services.retrieval_cache import RetrievalCache
 from backend.app.services.retrieval_deduper import chronological_sort_key, merge_search_results
 from backend.app.services.retrieval_models import RetrievalBundle, SearchResult
-from backend.app.services.retrieval_provider import GdeltNewsProvider
+from backend.app.services.retrieval_provider import GdeltNewsProvider, RetrievalProvider
 
 logger = logging.getLogger(__name__)
 UTC = timezone.utc
 
 QUESTION_REWRITE_REPLACEMENTS = (
-    (r"[？?]", " "),
-    (r"^(请问|想问一下|想问|有人知道|网传|听说)", ""),
-    (r"(是真的吗|真的假的|属实吗|是真的吗啊)$", ""),
-    (r"是不是", ""),
-    (r"有没有", ""),
-    (r"最近", ""),
-    (r"有一个", ""),
-    (r"死掉了", "死亡"),
-    (r"死掉", "死亡"),
+    (r"[\uFF1F?]", " "),
+    (r"^(\u8bf7\u95ee|\u60f3\u95ee\u4e00\u4e0b|\u60f3\u95ee|\u6709\u4eba\u77e5\u9053|\u7f51\u4f20|\u542c\u8bf4)", ""),
+    (r"(\u662f\u771f\u7684\u5417|\u771f\u7684\u5047\u7684|\u5c5e\u5b9e\u5417|\u662f\u771f\u7684\u5417\u554a)$", ""),
+    (r"\u662f\u4e0d\u662f", ""),
+    (r"\u6709\u6ca1\u6709", ""),
+    (r"\u6700\u8fd1", ""),
+    (r"\u6709\u4e00\u4e2a", ""),
+    (r"\u6b7b\u6389\u4e86", "\u6b7b\u4ea1"),
+    (r"\u6b7b\u6389", "\u6b7b\u4ea1"),
 )
 QUESTION_STOPWORDS = {
-    "是不是",
-    "有没有",
-    "最近",
-    "消息",
-    "传闻",
-    "事件",
-    "新闻",
-    "事情",
-    "一个",
-    "有一个",
+    "\u662f\u4e0d\u662f",
+    "\u6709\u6ca1\u6709",
+    "\u6700\u8fd1",
+    "\u6d88\u606f",
+    "\u4f20\u95fb",
+    "\u4e8b\u4ef6",
+    "\u65b0\u95fb",
+    "\u4e8b\u60c5",
+    "\u4e00\u4e2a",
+    "\u6709\u4e00\u4e2a",
 }
-
 
 class RetrievalService:
     def __init__(
         self,
         settings: Optional[Settings] = None,
         mock_retriever: Optional[MockRetriever] = None,
-        provider: Optional[GdeltNewsProvider] = None,
+        provider: Optional[RetrievalProvider] = None,
         cache: Optional[RetrievalCache] = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.mock_retriever = mock_retriever or MockRetriever(settings=self.settings)
-        self.provider = provider or GdeltNewsProvider(settings=self.settings)
+        self.provider = provider or self._build_provider()
         self.cache = cache or RetrievalCache(
             cache_root=self.settings.retrieval_cache_dir,
             ttl_seconds=self.settings.retrieval_cache_ttl_seconds,
         )
+
+    def _build_provider(self) -> RetrievalProvider:
+        return GdeltNewsProvider(settings=self.settings)
 
     def retrieve_for_event(
         self,
@@ -66,7 +68,7 @@ class RetrievalService:
     ) -> RetrievalBundle:
         request_context = request_context or {}
         query = self._build_query(event, request_context=request_context)
-        bypass_cache = self._as_bool(request_context.get("bypass_retrieval_cache"))
+        bypass_cache = self._as_bool(request_context.get("bypass_retrieval_cache") or request_context.get("skip_retrieval_cache") or request_context.get("skip_cache"))
         cache_only = self._as_bool(request_context.get("retrieval_cache_only"))
         allow_stale_cache = self._as_bool(request_context.get("allow_stale_retrieval_cache"))
         cache_enabled = self.settings.retrieval_cache_enabled and not bypass_cache
@@ -112,7 +114,7 @@ class RetrievalService:
                 )
 
             if raw_results:
-                bundle = self._build_bundle(query, raw_results)
+                bundle = self._build_bundle(query, raw_results, cache_status="bypassed" if bypass_cache else "miss")
                 if cache_enabled:
                     self.cache.write(query_text=query, provider_name=self.provider.name, bundle=bundle)
                 return bundle
@@ -140,7 +142,7 @@ class RetrievalService:
             provider_requested=False,
         )
 
-    def _build_bundle(self, query: str, raw_results: list[SearchResult]) -> RetrievalBundle:
+    def _build_bundle(self, query: str, raw_results: list[SearchResult], *, cache_status: str) -> RetrievalBundle:
         retrieved_at = ensure_datetime_string(datetime.now(UTC).isoformat())
         runtime_results = [
             item.with_runtime_metadata(provider_name=self.provider.name, retrieved_at=retrieved_at)
@@ -157,7 +159,7 @@ class RetrievalService:
             canonical_results=tuple(sorted(canonical_results, key=chronological_sort_key)),
             provider_name=self.provider.name,
             cache_key=self.cache.build_cache_key(query_text=query, provider_name=self.provider.name),
-            cache_status="miss",
+            cache_status=cache_status,
             retrieved_at=retrieved_at,
         )
 
@@ -226,7 +228,7 @@ class RetrievalService:
 
         terms = []
         seen = set()
-        for term in re.findall(r"[A-Za-z0-9]{2,}|[一-鿿]{2,8}", query):
+        for term in re.findall(r"[A-Za-z0-9]{2,}|[\u4e00-\u9fff]{2,8}", query):
             cleaned = term.strip()
             if not cleaned or cleaned in QUESTION_STOPWORDS or cleaned in seen:
                 continue
@@ -235,7 +237,7 @@ class RetrievalService:
             if len(terms) >= 6:
                 break
 
-        return " ".join(terms) or raw_input.strip().rstrip("？?")
+        return " ".join(terms) or raw_input.strip().rstrip("\uFF1F?")
 
     def _as_bool(self, value: Any) -> bool:
         if isinstance(value, bool):
@@ -243,3 +245,5 @@ class RetrievalService:
         if isinstance(value, str):
             return value.strip().lower() in {"1", "true", "yes", "on"}
         return False
+
+

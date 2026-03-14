@@ -310,3 +310,110 @@ def test_question_only_pipeline_uses_real_retrieval_bundle(tmp_path: Path):
     assert report.sources
     assert report.timeline
     assert report.claim_results[0].verdict == "refuted"
+
+
+def test_retrieval_service_skip_cache_alias_bypasses_cached_bundle(tmp_path: Path):
+    event = _event_for_case("R01")
+    provider = FakeProvider(
+        results=[
+            _make_result(
+                result_id="real-1",
+                title="首轮实时检索结果",
+                snippet="第一轮返回的公开来源结果。",
+                published_at="2026-03-13T09:00:00+08:00",
+                url="https://example.com/live-1",
+            )
+        ]
+    )
+    service = RetrievalService(
+        settings=replace(get_settings(), retrieval_provider="gdelt"),
+        provider=provider,
+        cache=RetrievalCache(cache_root=tmp_path, ttl_seconds=3600),
+    )
+
+    first = service.retrieve_for_event(event)
+    provider._results = [
+        _make_result(
+            result_id="real-2",
+            title="跳过缓存后的新结果",
+            snippet="这是绕过缓存后拿到的新返回。",
+            published_at="2026-03-13T10:00:00+08:00",
+            url="https://example.com/live-2",
+        )
+    ]
+    bypassed = service.retrieve_for_event(event, request_context={"skip_retrieval_cache": True})
+    cached = service.retrieve_for_event(event)
+
+    assert first.canonical_results[0].result_id == "real-1"
+    assert bypassed.canonical_results[0].result_id == "real-2"
+    assert bypassed.cache_status == "bypassed"
+    assert cached.canonical_results[0].result_id == "real-1"
+    assert len(provider.calls) == 2
+
+
+def test_timeline_builder_selects_key_nodes_from_real_bundle():
+    event = NormalizedEvent(
+        summary="晨星生物 裁员40% 传闻",
+        keywords=["晨星生物", "裁员", "传闻"],
+        input_type="text_news",
+        raw_input="晨星生物 裁员40% 传闻",
+    )
+    results = (
+        _make_result(
+            result_id="real-rumor",
+            title="网传晨星生物将裁员40%",
+            snippet="自媒体爆料称多个部门将裁员40%。",
+            published_at="2026-03-05T08:00:00+08:00",
+            source_name="职场爆料",
+            source_tier="C",
+            url="https://example.com/rumor",
+        ),
+        _make_result(
+            result_id="real-amplify",
+            title="多家平台转发晨星生物裁员传闻",
+            snippet="传闻持续发酵，多个聚合页跟进转载。",
+            published_at="2026-03-05T12:00:00+08:00",
+            source_name="聚合快讯",
+            source_tier="B",
+            url="https://example.com/amplify",
+        ),
+        _make_result(
+            result_id="real-turn",
+            title="晨星生物回应裁员传闻：没有40%裁员计划",
+            snippet="公司回应称不存在所谓40%裁员安排。",
+            published_at="2026-03-06T09:00:00+08:00",
+            source_name="证券时报",
+            source_tier="A",
+            url="https://example.com/response",
+        ),
+        _make_result(
+            result_id="real-clarification",
+            title="晨星生物发布情况说明",
+            snippet="公司补充说明业务调整和人员安排，没有大规模裁员。",
+            published_at="2026-03-06T18:00:00+08:00",
+            source_name="晨星生物",
+            source_tier="S",
+            url="https://example.com/clarification",
+        ),
+    )
+    bundle = RetrievalBundle(
+        query="晨星生物 裁员40% 传闻",
+        matched_case_id="real_search",
+        mode_hint="partial",
+        raw_results=results,
+        canonical_results=results,
+        provider_name="gdelt",
+    )
+
+    timeline = TimelineBuilder().build(event, retrieval_bundle=bundle)
+    nodes = {item.node_type: item for item in timeline}
+
+    assert {"origin", "amplification", "turn", "clarification"}.issubset(nodes)
+    assert nodes["origin"].url == "https://example.com/rumor"
+    assert "起点" in nodes["origin"].why_selected or "最早" in nodes["origin"].why_selected
+    assert nodes["amplification"].url == "https://example.com/amplify"
+    assert "扩散" in nodes["amplification"].why_selected
+    assert nodes["turn"].url == "https://example.com/response"
+    assert "回应" in nodes["turn"].why_selected or "转折" in nodes["turn"].why_selected
+    assert nodes["clarification"].url == "https://example.com/clarification"
+    assert "说明" in nodes["clarification"].why_selected or "澄清" in nodes["clarification"].why_selected

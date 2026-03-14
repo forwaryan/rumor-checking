@@ -55,9 +55,9 @@ class TimelineBuilder:
         candidates: list[tuple[str, Optional[SearchResult]]] = [
             ("origin", origin),
             ("amplification", amplification),
-            ("peak", peak),
             ("turn", turn),
             ("clarification", clarification),
+            ("peak", peak),
         ]
 
         timeline_nodes: list[TimelineNode] = []
@@ -279,3 +279,4 @@ class TimelineBuilder:
 
     def _sort_key(self, result: SearchResult) -> tuple[str, int, str]:
         return (result.published_at, -result.tier_weight, result.result_id)
+
