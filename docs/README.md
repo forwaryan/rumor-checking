@@ -13,6 +13,8 @@
 
 ## 1. 演示与运行
 
+- [startup-and-test-runbook.md](startup-and-test-runbook.md)
+  - 本次实际启动前后端的完整流程、命令、日志和停止方式。
 - [../DEMO_SCRIPT.md](../DEMO_SCRIPT.md)
   - 演示顺序、讲法和不要过度宣称的点。
 - [../SMOKE_CHECKLIST.md](../SMOKE_CHECKLIST.md)
@@ -34,6 +36,8 @@
   - 当前阶段审计与真实状态。
 - [../overview/10_unfinished-task-priority-and-parallel-analysis.md](../overview/10_unfinished-task-priority-and-parallel-analysis.md)
   - 当前剩余任务优先级与并行建议。
+- [../overview/14_v1-capability-assessment-and-next-parallel-plan.md](../overview/14_v1-capability-assessment-and-next-parallel-plan.md)
+  - 当前 V1 已达到的效果、能否对任意新闻较真，以及下一轮并行波次建议。
 - [../backend/docs/api-foundation-implementation-record.md](../backend/docs/api-foundation-implementation-record.md)
   - 后端主链实现记录。
 - [../backend/docs/real-retrieval-pipeline.md](../backend/docs/real-retrieval-pipeline.md)

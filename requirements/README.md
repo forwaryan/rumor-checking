@@ -25,4 +25,3 @@
 - `guides/04_prompt_inventory.md`：Prompt 资产与复用规范的正式入口；项目历史轨迹参考 `overview/04_prompt_inventory.md`
 - `guides/05_validation_execution_checklist.md`：输入验证、检索验证、verdict 验证的执行清单、case 配置与通过标准
 - `guides/06_input_sample_bank_template.md`：20 条输入样本骨架，覆盖标准新闻 URL、抽取不稳定 URL 和文本输入
-

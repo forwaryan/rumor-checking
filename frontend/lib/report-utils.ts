@@ -338,6 +338,65 @@ export function buildFallbackReport(input: string, inputType: InputType): Report
       "当前结果不是后端真实分析输出，只是前端安全回退壳。",
       "时间线、claim 和证据都未完成真实检索，请避免把它当作结论页面。",
     ],
+    investigation: {
+      question: compact || "待核查问题",
+      reframed_question: preview || "待核查命题",
+      thinking_process: [
+        {
+          title: "先保留输入原貌",
+          detail: "当前是前端 fallback 结果，系统只能先把原始输入保留下来，避免伪造检索结论。",
+        },
+        {
+          title: "暂停事实锁定",
+          detail: "由于真实 analyze 没有成功返回，页面无法确认具体事件、人物或传播链。",
+        },
+        {
+          title: "输出边界而不是强判",
+          detail: "在后端和检索链路恢复前，页面只展示待核查路径和风险提示，不输出确定性结论。",
+        },
+      ],
+      possibilities: [
+        {
+          scenario: "输入值得继续核查，但当前没有稳定证据链",
+          likelihood: "medium",
+          summary: "需要后端恢复后重新发起 analyze，才能判断它究竟是事实、旧闻回流还是纯传闻。",
+        },
+        {
+          scenario: "也可能只是缺少关键锚点，暂时无法锁定具体事件",
+          likelihood: "low",
+          summary: "姓名、原帖链接、平台账号和精确时间点都会显著影响系统是否能对上真实事件。",
+        },
+      ],
+      final_conclusion: "当前不能给出真假结论，因为页面拿到的是前端 fallback，而不是真实核查结果。",
+    },
+    pipeline_trace: {
+      steps: [
+        {
+          stage_key: "input_received",
+          title: "接收输入",
+          status: "completed",
+          summary: "前端已记录当前输入，并准备调用 analyze 接口。",
+          details: [`原始输入：${preview || "无"}`, `输入类型：${inputType}`],
+        },
+        {
+          stage_key: "frontend_fallback",
+          title: "前端回退",
+          status: "warning",
+          summary: "真实 analyze 未成功返回，页面只能渲染前端 fallback 结果。",
+          details: [
+            "当前链路没有拿到后端真实中间步骤。",
+            "需要待接口恢复后重新提交，才能看到完整分析链路。",
+          ],
+        },
+        {
+          stage_key: "report_output",
+          title: "报告输出",
+          status: "warning",
+          summary: "页面当前展示的是安全模式回退结果，不代表真实核查已完成。",
+          details: ["mode：safe_mode", "source_type：frontend_fallback"],
+        },
+      ],
+    },
     sources: [],
   };
 }

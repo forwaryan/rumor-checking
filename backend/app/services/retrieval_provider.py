@@ -1,5 +1,6 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
+import json
 import logging
 import re
 from datetime import datetime, timezone
@@ -20,6 +21,13 @@ TOP_TIER_DOMAINS = {
     "xinhuanet.com",
     "people.com.cn",
     "cctv.com",
+    "gmw.cn",
+    "hongxingnews.com",
+    "chinanews.com.cn",
+    "cnr.cn",
+    "southcn.com",
+    "ctdsb.net",
+    "hangzhou.com.cn",
     "reuters.com",
     "apnews.com",
     "bbc.com",
@@ -28,6 +36,88 @@ TOP_TIER_DOMAINS = {
     "caixin.com",
 }
 PORTAL_MARKERS = ("news", "ifeng", "sohu", "163.com", "qq.com", "sina", "msn", "yicai")
+PLACEHOLDER_HOSTS = {"example.com", "example.org", "example.net", "localhost"}
+KIMI_WEB_SEARCH_TOOL = {"type": "builtin_function", "function": {"name": "$web_search"}}
+KIMI_WEB_SEARCH_SYSTEM_PROMPT = """
+You are the web retrieval stage for a rumor-checking backend.
+You must call $web_search before answering and then return one JSON object with this schema:
+{
+  "question": "string",
+  "verdict_hint": "string or null",
+  "results": [
+    {
+      "title": "string",
+      "url": "https://...",
+      "source_name": "string or null",
+      "published_at": "ISO-8601 / YYYY-MM-DD / null",
+      "snippet": "string or null"
+    }
+  ]
+}
+Rules:
+- You must call $web_search first. If you did not use web search, do not output example or placeholder JSON.
+- Keep only public webpages directly relevant to the user's claim. Prioritize official statements, hospital updates, police notices, major news outlets, and direct responses.
+- Every `url` must come from the current web search. Never invent links and never use example.com style placeholders.
+- If both rumor and rebuttal exist, include both, but place rebuttals or official responses first.
+- `verdict_hint` must be a single conservative sentence such as "available public sources currently lean false" or "public evidence is still insufficient".
+- Output JSON only. No Markdown.
+""".strip()
+
+
+def _clean_text(value: Any) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    compact = re.sub(r"\s+", " ", value).strip()
+    return compact or None
+
+
+def _source_name_from_url(url: str) -> str:
+    hostname = urlparse(url).netloc.lower()
+    return hostname or "unknown-source"
+
+
+def _published_at(raw_value: Any) -> str:
+    value = _clean_text(raw_value)
+    if not value:
+        return ensure_datetime_string(None)
+    if re.fullmatch(r"\d{8}T\d{6}Z", value):
+        parsed = datetime.strptime(value, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+        return parsed.isoformat()
+    return ensure_datetime_string(value)
+
+
+def _infer_source_tier(url: str, source_name: str) -> str:
+    host = (urlparse(url).netloc or source_name).lower()
+    if any(marker in host for marker in OFFICIAL_HOST_MARKERS):
+        return "S"
+    if any(host == domain or host.endswith(f".{domain}") for domain in TOP_TIER_DOMAINS):
+        return "A"
+    if any(marker in host for marker in PORTAL_MARKERS):
+        return "B"
+    return "C"
+
+
+def _extract_json_payload(content: str) -> Optional[dict[str, Any]]:
+    stripped = content.strip()
+    candidates = [stripped]
+
+    fenced_match = re.search(r"```(?:json)?\s*(\{.*\})\s*```", stripped, flags=re.DOTALL)
+    if fenced_match:
+        candidates.insert(0, fenced_match.group(1).strip())
+
+    brace_start = stripped.find("{")
+    brace_end = stripped.rfind("}")
+    if brace_start != -1 and brace_end != -1 and brace_end > brace_start:
+        candidates.append(stripped[brace_start : brace_end + 1])
+
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
 
 
 class RetrievalProvider(Protocol):
@@ -76,14 +166,14 @@ class GdeltNewsProvider:
             if not isinstance(article, dict):
                 continue
 
-            url = self._clean_text(article.get("url"))
-            title = self._clean_text(article.get("title"))
+            url = _clean_text(article.get("url"))
+            title = _clean_text(article.get("title"))
             if not url or not title:
                 continue
 
             source_name = self._source_name(article, url)
-            published_at = self._published_at(article.get("seendate") or article.get("date"))
-            snippet = self._clean_text(article.get("snippet")) or title
+            published_at = _published_at(article.get("seendate") or article.get("date"))
+            snippet = _clean_text(article.get("snippet")) or title
             results.append(
                 SearchResult(
                     case_id="real_search",
@@ -94,7 +184,7 @@ class GdeltNewsProvider:
                     source_name=source_name,
                     published_at=published_at,
                     snippet=snippet,
-                    source_tier=self._infer_source_tier(url, source_name),
+                    source_tier=_infer_source_tier(url, source_name),
                 )
             )
             if len(results) >= self.settings.retrieval_max_results:
@@ -104,33 +194,194 @@ class GdeltNewsProvider:
         return results
 
     def _source_name(self, article: dict[str, Any], url: str) -> str:
-        domain = self._clean_text(article.get("domain"))
+        domain = _clean_text(article.get("domain"))
         if domain:
             return domain
-        hostname = urlparse(url).netloc.lower()
-        return hostname or "unknown-source"
+        return _source_name_from_url(url)
 
-    def _published_at(self, raw_value: Any) -> str:
-        value = self._clean_text(raw_value)
-        if not value:
-            return ensure_datetime_string(None)
-        if re.fullmatch(r"\d{8}T\d{6}Z", value):
-            parsed = datetime.strptime(value, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
-            return parsed.isoformat()
-        return ensure_datetime_string(value)
 
-    def _infer_source_tier(self, url: str, source_name: str) -> str:
-        host = (urlparse(url).netloc or source_name).lower()
-        if any(marker in host for marker in OFFICIAL_HOST_MARKERS):
-            return "S"
-        if any(host == domain or host.endswith(f".{domain}") for domain in TOP_TIER_DOMAINS):
-            return "A"
-        if any(marker in host for marker in PORTAL_MARKERS):
-            return "B"
-        return "C"
+class KimiWebSearchProvider:
+    name = "kimi"
 
-    def _clean_text(self, value: Any) -> Optional[str]:
-        if not isinstance(value, str):
-            return None
-        compact = re.sub(r"\s+", " ", value).strip()
-        return compact or None
+    def __init__(self, settings: Optional[Settings] = None) -> None:
+        self.settings = settings or get_settings()
+
+    @property
+    def enabled(self) -> bool:
+        return self.settings.retrieval_provider == self.name and bool(self.settings.kimi_api_key)
+
+    def search(self, query_text: str) -> List[SearchResult]:
+        if not self.enabled:
+            return []
+
+        content = self._run_search_loop(query_text)
+        if not content:
+            return []
+        results = self._parse_results(query_text, content)
+        logger.info("kimi_web_search_results query=%s count=%s", query_text, len(results))
+        return results
+
+    def _run_search_loop(self, query_text: str) -> str:
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": KIMI_WEB_SEARCH_SYSTEM_PROMPT},
+            {"role": "user", "content": self._build_user_prompt(query_text)},
+        ]
+        tool_used = False
+
+        for _ in range(4):
+            message = self._request_completion(messages)
+            tool_calls = message.get("tool_calls")
+            if isinstance(tool_calls, list) and tool_calls:
+                tool_used = True
+                messages.append(self._assistant_history_message(message))
+                for tool_call in tool_calls:
+                    tool_name = self._tool_name(tool_call)
+                    tool_arguments = self._tool_arguments(tool_call)
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": str(tool_call.get("id") or ""),
+                            "name": tool_name,
+                            "content": json.dumps(tool_arguments, ensure_ascii=False),
+                        }
+                    )
+                continue
+
+            content = self._coerce_content(message.get("content"))
+            if not tool_used:
+                logger.warning("kimi_web_search_skipped_tool query=%s", query_text)
+                return ""
+            return content
+
+        raise RuntimeError("Kimi web search exceeded tool rounds")
+
+    def _request_completion(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
+        response = httpx.post(
+            f"{self.settings.kimi_base_url}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {self.settings.kimi_api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": self.settings.kimi_search_model,
+                "temperature": self._request_temperature(),
+                "response_format": {"type": "json_object"},
+                "messages": messages,
+                "tools": [KIMI_WEB_SEARCH_TOOL],
+                "max_tokens": 2048,
+            },
+            timeout=self.settings.retrieval_timeout_seconds,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        choice = payload.get("choices", [{}])[0]
+        message = choice.get("message")
+        if not isinstance(message, dict):
+            raise ValueError("Kimi web search returned an invalid message payload")
+        return message
+
+    def _request_temperature(self) -> float:
+        model = self.settings.kimi_search_model.strip().lower()
+        if model.startswith("kimi-k2.5"):
+            return 1.0
+        if model.startswith("kimi-k2-turbo-preview"):
+            return 0.6
+        return self.settings.kimi_temperature
+
+    def _build_user_prompt(self, query_text: str) -> str:
+        return (
+            "Search the web for the following rumor-checking question.\n"
+            "Prioritize official statements, hospital updates, police notices, major news outlets, direct responses, and debunks.\n"
+            "If the search finds both rumor and rebuttal, keep both, but list the rebuttal or official response first.\n"
+            "Question:\n"
+            f"{query_text.strip()}\n"
+        )
+
+    def _assistant_history_message(self, message: dict[str, Any]) -> dict[str, Any]:
+        history_message: dict[str, Any] = {
+            "role": "assistant",
+            "content": self._coerce_content(message.get("content")),
+        }
+        tool_calls = message.get("tool_calls")
+        if isinstance(tool_calls, list) and tool_calls:
+            history_message["tool_calls"] = tool_calls
+        return history_message
+
+    def _tool_name(self, tool_call: dict[str, Any]) -> str:
+        function = tool_call.get("function")
+        if not isinstance(function, dict):
+            return ""
+        return str(function.get("name") or "")
+
+    def _tool_arguments(self, tool_call: dict[str, Any]) -> dict[str, Any]:
+        function = tool_call.get("function")
+        if not isinstance(function, dict):
+            return {}
+        raw_arguments = function.get("arguments")
+        if not isinstance(raw_arguments, str) or not raw_arguments.strip():
+            return {}
+        try:
+            parsed = json.loads(raw_arguments)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    def _coerce_content(self, content: Any) -> str:
+        if isinstance(content, str):
+            return content.strip()
+        if isinstance(content, list):
+            parts: List[str] = []
+            for item in content:
+                if isinstance(item, dict):
+                    text = item.get("text")
+                    if isinstance(text, str) and text.strip():
+                        parts.append(text.strip())
+            return "\n".join(parts)
+        return ""
+
+    def _parse_results(self, query_text: str, content: str) -> List[SearchResult]:
+        payload = _extract_json_payload(content)
+        if payload is None:
+            return []
+
+        raw_results = payload.get("results")
+        if not isinstance(raw_results, list):
+            return []
+
+        results: List[SearchResult] = []
+        for index, item in enumerate(raw_results, start=1):
+            if not isinstance(item, dict):
+                continue
+
+            url = _clean_text(item.get("url"))
+            title = _clean_text(item.get("title"))
+            if not url or not title or self._looks_placeholder_url(url):
+                continue
+
+            source_name = _clean_text(item.get("source_name")) or _source_name_from_url(url)
+            snippet = _clean_text(item.get("snippet")) or title
+            results.append(
+                SearchResult(
+                    case_id="real_search",
+                    query=query_text,
+                    result_id=f"kimi-{index}",
+                    title=title,
+                    url=url,
+                    source_name=source_name,
+                    published_at=_published_at(item.get("published_at")),
+                    snippet=snippet,
+                    source_tier=_infer_source_tier(url, source_name),
+                )
+            )
+            if len(results) >= self.settings.retrieval_max_results:
+                break
+        return results
+
+    def _looks_placeholder_url(self, url: str) -> bool:
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"}:
+            return True
+        host = parsed.netloc.lower()
+        if not host:
+            return True
+        return any(host == placeholder or host.endswith(f".{placeholder}") for placeholder in PLACEHOLDER_HOSTS)

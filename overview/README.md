@@ -21,6 +21,7 @@
 11. `11_runtime-and-env-outline.md`
 12. `12_limits-and-degradation-outline.md`
 13. `13_f8-random-acceptance.md`
+14. `14_v1-capability-assessment-and-next-parallel-plan.md`
 
 补充说明：
 
@@ -30,6 +31,7 @@
 - `overview/11_runtime-and-env-outline.md` 已按 `F8` 收口为当前运行路径与环境变量终稿，明确区分 `mock demo / live probe / replay / frontend fallback`。
 - `overview/12_limits-and-degradation-outline.md` 已按 `F8` 收口为当前限制与降级边界终稿，统一了 `live / mock / replay / fallback` 和 `complete / partial / safe_mode` 的讲法。
 - `overview/13_f8-random-acceptance.md` 是当前最终验收记录来源，README、Smoke 和运行说明都应以它为准。
+- `overview/14_v1-capability-assessment-and-next-parallel-plan.md` 总结当前 V1 实际达到的效果、是否已经能“对任意新闻较真”，以及下一轮更合理的并行波次。
 
 适合以下场景：
 

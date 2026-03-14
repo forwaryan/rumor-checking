@@ -57,6 +57,138 @@
         "$ref": "./evidence.schema.json"
       },
       "default": []
+    },
+    "investigation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "question",
+        "reframed_question",
+        "thinking_process",
+        "possibilities",
+        "final_conclusion"
+      ],
+      "properties": {
+        "question": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reframed_question": {
+          "type": "string",
+          "minLength": 1
+        },
+        "thinking_process": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "title",
+              "detail"
+            ],
+            "properties": {
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "detail": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "possibilities": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "scenario",
+              "likelihood",
+              "summary"
+            ],
+            "properties": {
+              "scenario": {
+                "type": "string",
+                "minLength": 1
+              },
+              "likelihood": {
+                "type": "string",
+                "enum": [
+                  "high",
+                  "medium",
+                  "low"
+                ]
+              },
+              "summary": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "final_conclusion": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "pipeline_trace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "steps"
+      ],
+      "properties": {
+        "steps": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "stage_key",
+              "title",
+              "status",
+              "summary",
+              "details"
+            ],
+            "properties": {
+              "stage_key": {
+                "type": "string",
+                "minLength": 1
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "completed",
+                  "warning",
+                  "skipped",
+                  "error"
+                ]
+              },
+              "summary": {
+                "type": "string",
+                "minLength": 1
+              },
+              "details": {
+                "type": "array",
+                "default": [],
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

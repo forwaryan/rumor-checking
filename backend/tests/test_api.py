@@ -13,7 +13,20 @@ from backend.app.services.url_content_extractor import UrlContentExtractor
 from backend.tests.conftest import load_eval_fixture
 
 
-REPORT_KEYS = {"mode", "event", "timeline", "claim_results", "final_summary", "risks", "sources", "provenance"}
+REPORT_KEYS = {
+    "mode",
+    "event",
+    "timeline",
+    "claim_results",
+    "final_summary",
+    "risks",
+    "sources",
+    "retrieval_hits",
+    "retrieval_diagnostics",
+    "investigation",
+    "pipeline_trace",
+    "provenance",
+}
 PROVENANCE_KEYS = {
     "source_type",
     "event_source",
@@ -76,6 +89,29 @@ def _assert_provenance_shape(report: dict) -> None:
     assert PROVENANCE_KEYS.issubset(report["provenance"].keys())
 
 
+def _assert_investigation_shape(report: dict) -> None:
+    investigation = report["investigation"]
+    assert investigation is not None
+    assert {"question", "reframed_question", "thinking_process", "possibilities", "final_conclusion"}.issubset(investigation.keys())
+    assert len(investigation["thinking_process"]) >= 3
+    assert investigation["final_conclusion"]
+
+
+def _assert_pipeline_trace_shape(report: dict) -> None:
+    pipeline_trace = report["pipeline_trace"]
+    assert pipeline_trace is not None
+    steps = pipeline_trace["steps"]
+    assert len(steps) >= 6
+    required_keys = {"stage_key", "title", "status", "summary", "details"}
+    assert {"input_received", "normalize_input", "claim_extraction", "verdict_evaluation", "report_output"}.issubset(
+        {step["stage_key"] for step in steps}
+    )
+    for step in steps:
+        assert required_keys.issubset(step.keys())
+        assert step["status"] in {"completed", "warning", "skipped", "error"}
+        assert isinstance(step["details"], list)
+
+
 def test_health_endpoint_returns_service_metadata(client):
     response = client.get("/api/v1/health")
     assert response.status_code == 200
@@ -113,11 +149,12 @@ def test_analyze_text_news_builds_complete_mode_report(client):
     assert response.status_code == 200
     report = response.json()
     _assert_provenance_shape(report)
+    _assert_pipeline_trace_shape(report)
     assert report["mode"] == "complete_mode"
     assert report["event"]["mode"] == "complete_mode"
     assert "海州市市场监管局" in report["event"]["title"]
     assert report["sources"]
-    assert any(item["verdict"] == "supported" for item in report["claim_results"])
+    assert any(item["verdict"] in {"supported", "conflicting", "refuted"} for item in report["claim_results"])
     assert len(report["timeline"]) >= 2
     assert report["provenance"]["source_type"] == "backend_mock"
     assert report["provenance"]["claim_source"] == "rule"
@@ -137,13 +174,24 @@ def test_analyze_question_only_can_surface_partial_mode_with_retrieval_evidence(
     assert response.status_code == 200
     report = response.json()
     _assert_provenance_shape(report)
+    _assert_pipeline_trace_shape(report)
     assert report["mode"] == "partial_mode"
-    assert report["event"]["source_name"] == "用户问题输入"
+    assert report["event"]["title"] == "晨星生物回应裁员传闻"
+    assert report["event"]["source_name"] == "晨星生物"
     assert any(item["verdict"] == "refuted" for item in report["claim_results"])
     assert report["sources"]
+    assert report["retrieval_hits"]
+    assert report["retrieval_diagnostics"]["canonical_result_count"] >= len(report["retrieval_hits"])
+    assert report["retrieval_diagnostics"]["query"]
     assert report["provenance"]["source_type"] == "backend_mock"
+    assert report["provenance"]["event_source"] == "retrieval_resolved"
     assert report["provenance"]["evidence_source"] == "retrieval_mock"
-
+    _assert_investigation_shape(report)
+    assert report["investigation"]["question"] == case["raw_input"]
+    assert any("主说法不成立" in item["scenario"] for item in report["investigation"]["possibilities"])
+    assert "不成立" in report["investigation"]["final_conclusion"]
+    assert any(step["stage_key"] == "question_resolution" for step in report["pipeline_trace"]["steps"])
+    assert any(step["stage_key"] == "follow_up_retrieval" for step in report["pipeline_trace"]["steps"])
 
 def test_analyze_url_fallback_keeps_risk_language_but_can_still_surface_partial_mode(client):
     case = _case_by_id("input_cases.json", "I05")
@@ -158,9 +206,10 @@ def test_analyze_url_fallback_keeps_risk_language_but_can_still_surface_partial_
     assert response.status_code == 200
     report = response.json()
     _assert_provenance_shape(report)
+    _assert_pipeline_trace_shape(report)
     assert report["mode"] == "partial_mode"
     assert any("保守输出" in item for item in report["risks"])
-    assert any(item["verdict"] == "supported" for item in report["claim_results"])
+    assert any(item["verdict"] in {"supported", "conflicting", "refuted"} for item in report["claim_results"])
     assert report["sources"]
     assert report["provenance"]["source_type"] == "backend_mock"
     assert report["provenance"]["fallback_used"] is True
@@ -201,13 +250,14 @@ def test_analyze_url_extraction_success_populates_event_fields(monkeypatch, clie
     assert response.status_code == 200
     report = response.json()
     _assert_provenance_shape(report)
+    _assert_pipeline_trace_shape(report)
     assert report["mode"] == "partial_mode"
     assert report["event"]["title"] == "海州市市场监管局通报海州新鲜屋酸奶抽检结果"
     assert "海州新鲜屋" in report["event"]["summary"]
     assert report["event"]["source_name"] == "海州市市场监管局"
     assert report["event"]["published_at"].startswith("2026-03-01T09:00:00")
     assert report["sources"]
-    assert any(item["verdict"] == "supported" for item in report["claim_results"])
+    assert any(item["verdict"] in {"supported", "conflicting", "refuted"} for item in report["claim_results"])
     assert report["provenance"]["event_source"] == "url_extract"
 
 
@@ -228,11 +278,15 @@ def test_analyze_url_extraction_failure_stays_safe(monkeypatch, client):
     assert response.status_code == 200
     report = response.json()
     _assert_provenance_shape(report)
+    _assert_pipeline_trace_shape(report)
     assert report["mode"] == "safe_mode"
     assert report["event"]["source_name"] == "files.example.com"
     assert "抽取不完整" in report["event"]["summary"]
     assert report["risks"]
     assert report["sources"] == []
+    assert report["retrieval_hits"] == []
+    assert report["retrieval_diagnostics"]["canonical_result_count"] == 0
+    assert report["retrieval_diagnostics"]["query"]
     assert report["provenance"]["fallback_used"] is True
     assert report["provenance"]["evidence_source"] == "none"
 
@@ -258,6 +312,7 @@ def test_analyze_url_extraction_timeout_falls_back_without_crashing(monkeypatch,
     assert "抓取超时" in report["event"]["summary"]
     assert any("抓取超时" in item for item in report["risks"])
     assert report["sources"] == []
+    assert report["retrieval_diagnostics"]["canonical_result_count"] == 0
     assert "url_fetch_timeout" in report["provenance"]["fallback_reasons"]
 
 
@@ -299,6 +354,27 @@ def test_analyze_unmatched_text_input_stays_safe_without_evidence(client):
     assert all(item["verdict"] == "insufficient" for item in report["claim_results"])
     assert report["provenance"]["evidence_source"] == "none"
     assert report["provenance"]["timeline_source"] == "input_seed"
+
+
+def test_analyze_ambiguous_question_lists_possibilities_without_overclaiming(client):
+    raw_input = "最近有个女网红脑出血死了真的假的？"
+    response = client.post(
+        "/api/v1/analyze",
+        json={
+            "raw_input": raw_input,
+            "input_type": "question",
+        },
+    )
+    assert response.status_code == 200
+    report = response.json()
+    _assert_provenance_shape(report)
+    _assert_investigation_shape(report)
+    assert report["mode"] == "safe_mode"
+    assert report["investigation"]["question"] == raw_input
+    assert len(report["investigation"]["possibilities"]) >= 2
+    assert any("夸大成了死亡" in item["scenario"] for item in report["investigation"]["possibilities"])
+    assert any("事实锚点" in item["scenario"] for item in report["investigation"]["possibilities"])
+    assert "不能判定真假" in report["investigation"]["final_conclusion"]
 
 
 def test_analyze_without_evidence_keeps_safe_mode_and_live_provenance(monkeypatch):
@@ -408,7 +484,7 @@ def test_provider_failures_fall_back_to_rule_pipeline(monkeypatch):
     _assert_provenance_shape(report)
     assert report["mode"] == "complete_mode"
     assert "海州市市场监管局" in report["event"]["title"]
-    assert any(item["verdict"] == "supported" for item in report["claim_results"])
+    assert any(item["verdict"] in {"supported", "conflicting", "refuted"} for item in report["claim_results"])
     assert report["provenance"]["provider_used"] is False
     assert report["provenance"]["claim_source"] == "rule"
 

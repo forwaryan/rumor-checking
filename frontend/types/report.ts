@@ -10,7 +10,7 @@ export type AnalysisStatus =
   | "safe_mode"
   | "error";
 
-export type EventSourceType = "input_normalized" | "url_extract" | "provider_enriched";
+export type EventSourceType = "input_normalized" | "url_extract" | "provider_enriched" | "retrieval_resolved";
 
 export type ClaimSourceType = "rule" | "provider" | "provider_plus_rule";
 
@@ -29,6 +29,8 @@ export type ReportSourceKind = ReportSourceType | "unknown";
 
 export type ReportFallbackReason = "backend_offline" | "analyze_failed" | "missing_provenance";
 
+export type PipelineStepStatus = "completed" | "warning" | "skipped" | "error";
+
 export interface ReportProvenance {
   source_type: ReportSourceType;
   event_source: EventSourceType;
@@ -46,6 +48,16 @@ export interface ReportProvenanceState {
   sourceKind: ReportSourceKind;
   reportProvenance?: ReportProvenance | null;
   fallbackReason?: ReportFallbackReason;
+}
+
+export interface RetrievalDiagnostics {
+  query: string;
+  provider_name: string | null;
+  cache_status: string | null;
+  retrieved_at: string | null;
+  raw_result_count: number;
+  canonical_result_count: number;
+  failure_detail: string | null;
 }
 
 export type TimelineNodeType =
@@ -104,6 +116,37 @@ export interface ClaimResult {
   notes: string;
 }
 
+export interface InvestigationStep {
+  title: string;
+  detail: string;
+}
+
+export interface PossibilityItem {
+  scenario: string;
+  likelihood: ConfidenceLevel;
+  summary: string;
+}
+
+export interface Investigation {
+  question: string;
+  reframed_question: string;
+  thinking_process: InvestigationStep[];
+  possibilities: PossibilityItem[];
+  final_conclusion: string;
+}
+
+export interface PipelineTraceStep {
+  stage_key: string;
+  title: string;
+  status: PipelineStepStatus;
+  summary: string;
+  details: string[];
+}
+
+export interface PipelineTrace {
+  steps: PipelineTraceStep[];
+}
+
 export interface Report {
   mode: OutputMode;
   event: Event;
@@ -112,6 +155,10 @@ export interface Report {
   final_summary: string;
   risks: string[];
   sources: Evidence[];
+  retrieval_hits?: Evidence[];
+  retrieval_diagnostics?: RetrievalDiagnostics | null;
+  investigation?: Investigation | null;
+  pipeline_trace?: PipelineTrace | null;
   provenance?: ReportProvenance | null;
 }
 

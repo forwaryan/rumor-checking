@@ -35,13 +35,25 @@ CLAIM_NEGATION_MARKERS = (
     "无完整正文",
 )
 EVIDENCE_REFUTING_MARKERS = CLAIM_NEGATION_MARKERS + (
-    "仅",
-    "只有",
     "只暂停",
     "一条产线",
-    "部分",
     "正常运行",
     "其余产线正常",
+)
+WEAK_REFUTING_MARKERS = ("仅", "只有", "部分")
+WEAK_REFUTING_CONTEXT_MARKERS = (
+    "号线",
+    "线路",
+    "检修",
+    "停运",
+    "停课",
+    "暂停",
+    "产线",
+    "门店",
+    "班次",
+    "运行",
+    "营业",
+    "恢复",
 )
 SOURCE_GAP_CLAIM_MARKERS = (
     "缺少正式来源",
@@ -267,6 +279,9 @@ class VerdictEngine:
             ("有一个", ""),
             ("死掉了", "死亡"),
             ("死掉", "死亡"),
+            ("真的假的", ""),
+            ("真的还是假的", ""),
+            ("真假", ""),
             ("真的吗", ""),
             ("是否", ""),
             ("？", ""),
@@ -359,7 +374,11 @@ class VerdictEngine:
         return any(marker in text for marker in CLAIM_NEGATION_MARKERS)
 
     def _contains_evidence_refutation(self, text: str) -> bool:
-        return any(marker in text for marker in EVIDENCE_REFUTING_MARKERS)
+        if any(marker in text for marker in EVIDENCE_REFUTING_MARKERS):
+            return True
+        if any(marker in text for marker in WEAK_REFUTING_MARKERS):
+            return any(marker in text for marker in WEAK_REFUTING_CONTEXT_MARKERS)
+        return False
 
     def _is_source_gap_claim(self, text: str) -> bool:
         return any(marker in text for marker in SOURCE_GAP_CLAIM_MARKERS)

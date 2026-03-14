@@ -12,7 +12,7 @@ from backend.app.services.mock_retriever import MockRetriever
 from backend.app.services.retrieval_cache import RetrievalCache
 from backend.app.services.retrieval_deduper import chronological_sort_key, merge_search_results
 from backend.app.services.retrieval_models import RetrievalBundle, SearchResult
-from backend.app.services.retrieval_provider import GdeltNewsProvider, RetrievalProvider
+from backend.app.services.retrieval_provider import GdeltNewsProvider, KimiWebSearchProvider, RetrievalProvider
 
 logger = logging.getLogger(__name__)
 UTC = timezone.utc
@@ -27,6 +27,7 @@ QUESTION_REWRITE_REPLACEMENTS = (
     (r"\u6709\u4e00\u4e2a", ""),
     (r"\u6b7b\u6389\u4e86", "\u6b7b\u4ea1"),
     (r"\u6b7b\u6389", "\u6b7b\u4ea1"),
+    (r"\u6b7b\u4e86", "\u6b7b\u4ea1"),
 )
 QUESTION_STOPWORDS = {
     "\u662f\u4e0d\u662f",
@@ -40,6 +41,24 @@ QUESTION_STOPWORDS = {
     "\u4e00\u4e2a",
     "\u6709\u4e00\u4e2a",
 }
+QUESTION_KEY_PHRASES = (
+    "\u5973\u7f51\u7ea2",
+    "\u7537\u7f51\u7ea2",
+    "\u7f51\u7ea2",
+    "\u4e3b\u64ad",
+    "\u660e\u661f",
+    "\u6f14\u5458",
+    "\u8111\u51fa\u8840",
+    "\u8111\u6ea2\u8840",
+    "\u6b7b\u4ea1",
+    "\u53bb\u4e16",
+    "\u75c5\u5371",
+    "\u4f4f\u9662",
+    "\u62a2\u6551",
+    "\u8f9f\u8c23",
+    "\u901a\u62a5",
+    "\u88c1\u5458",
+)
 
 class RetrievalService:
     def __init__(
@@ -58,6 +77,8 @@ class RetrievalService:
         )
 
     def _build_provider(self) -> RetrievalProvider:
+        if self.settings.retrieval_provider == "kimi":
+            return KimiWebSearchProvider(settings=self.settings)
         return GdeltNewsProvider(settings=self.settings)
 
     def retrieve_for_event(
@@ -111,6 +132,7 @@ class RetrievalService:
                     query=query,
                     fallback_reason="real_retrieval_failed",
                     provider_requested=True,
+                    failure_detail=self._describe_exception(exc),
                 )
 
             if raw_results:
@@ -169,6 +191,8 @@ class RetrievalService:
             return forced_query.strip()
 
         if event.input_type == "question_only":
+            if self.provider.name == "kimi":
+                return event.raw_input.strip().rstrip("\uFF1F?")
             return self._rewrite_question_query(event.raw_input)
 
         ordered_parts: list[str] = []
@@ -189,6 +213,7 @@ class RetrievalService:
         query: str,
         fallback_reason: str,
         provider_requested: bool,
+        failure_detail: str | None = None,
     ) -> RetrievalBundle:
         if self.settings.retrieval_fallback_to_mock:
             fallback_bundle = self.mock_retriever.retrieve_for_event(event)
@@ -197,12 +222,14 @@ class RetrievalService:
                 fallback_used=provider_requested,
                 fallback_reason=fallback_reason,
                 retrieved_at=ensure_datetime_string(datetime.now(UTC).isoformat()),
+                failure_detail=failure_detail,
             )
         provider_name = self.provider.name if provider_requested else self.settings.retrieval_provider
         return self._empty_bundle(
             query or event.raw_input.strip(),
             provider_name=provider_name or "off",
             fallback_reason=fallback_reason,
+            failure_detail=failure_detail,
         )
 
     def _empty_bundle(
@@ -211,6 +238,7 @@ class RetrievalService:
         *,
         provider_name: str,
         fallback_reason: str | None = None,
+        failure_detail: str | None = None,
     ) -> RetrievalBundle:
         return RetrievalBundle(
             query=query,
@@ -219,6 +247,7 @@ class RetrievalService:
             cache_status="not_used",
             fallback_reason=fallback_reason,
             retrieved_at=ensure_datetime_string(datetime.now(UTC).isoformat()),
+            failure_detail=failure_detail,
         )
 
     def _rewrite_question_query(self, raw_input: str) -> str:
@@ -228,16 +257,46 @@ class RetrievalService:
 
         terms = []
         seen = set()
-        for term in re.findall(r"[A-Za-z0-9]{2,}|[\u4e00-\u9fff]{2,8}", query):
+
+        def push(term: str) -> None:
             cleaned = term.strip()
             if not cleaned or cleaned in QUESTION_STOPWORDS or cleaned in seen:
-                continue
+                return
             seen.add(cleaned)
             terms.append(cleaned)
-            if len(terms) >= 6:
+
+        for phrase in QUESTION_KEY_PHRASES:
+            if phrase in query:
+                push(phrase)
+
+        for term in re.findall(r"\d+(?:\.\d+)?%?|[A-Za-z0-9]{2,}", query):
+            push(term)
+
+        for chunk in re.findall(r"[\u4e00-\u9fff]{2,}", query):
+            if len(chunk) <= 4:
+                push(chunk)
+            else:
+                for window in (4, 3, 2):
+                    if len(chunk) < window:
+                        continue
+                    for index in range(0, len(chunk) - window + 1):
+                        push(chunk[index : index + window])
+                        if len(terms) >= 8:
+                            return " ".join(terms[:8])
+            if len(terms) >= 8:
                 break
 
-        return " ".join(terms) or raw_input.strip().rstrip("\uFF1F?")
+        return " ".join(terms[:8]) or raw_input.strip().rstrip("\uFF1F?")
+
+    def _describe_exception(self, exc: Exception) -> str:
+        response = getattr(exc, "response", None)
+        if response is not None:
+            status_code = getattr(response, "status_code", None)
+            reason_phrase = getattr(response, "reason_phrase", None) or ""
+            if status_code is not None:
+                detail = f"HTTP {status_code} {reason_phrase}".strip()
+                return detail
+        return exc.__class__.__name__
 
     def _as_bool(self, value: Any) -> bool:
         if isinstance(value, bool):

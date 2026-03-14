@@ -79,6 +79,7 @@ class Settings:
     kimi_api_key: str | None
     kimi_base_url: str
     kimi_model: str
+    kimi_search_model: str
     kimi_temperature: float
     provider_timeout_seconds: float
     retrieval_provider: str
@@ -117,6 +118,7 @@ def get_settings() -> Settings:
         kimi_api_key=os.getenv("KIMI_API_KEY"),
         kimi_base_url=os.getenv("KIMI_BASE_URL", "https://api.moonshot.cn/v1").rstrip("/"),
         kimi_model=os.getenv("KIMI_MODEL", "moonshot-v1-8k").strip(),
+        kimi_search_model=os.getenv("KIMI_SEARCH_MODEL", os.getenv("KIMI_MODEL", "kimi-k2-turbo-preview")).strip(),
         kimi_temperature=_as_float(os.getenv("KIMI_TEMPERATURE"), 0.1),
         provider_timeout_seconds=_as_float(os.getenv("PROVIDER_TIMEOUT_SECONDS"), 20.0),
         retrieval_provider=os.getenv("RETRIEVAL_PROVIDER", "mock").strip().lower(),

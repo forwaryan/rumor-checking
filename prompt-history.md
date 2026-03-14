@@ -410,3 +410,62 @@
 - **📦 产出与落点 (Artifacts)**: `docs/status/document-conflict-register.md`、`docs/README.md`、`docs/status/current-verified-state.md`、`overview/08_stage-progress-and-task-audit.md` 相关修正、`overview/09_stage-progress-and-task-audit.md`、`overview/10_unfinished-task-priority-and-parallel-analysis.md`、`tasks/README.md`、`tasks/origin-problem-goal-matrix.md`、若干 cluster task 状态修正、`prompt-history.md`
 - **➡️ 交接建议 (Next Handoff)**: 建议后续所有文档冲突都继续走“登记问题表 -> 直接更新原文件”的路径；下一步应优先由 `Cluster-D` 与 `Cluster-C` 处理 live retrieval 稳定性和模式漂移，再由 `Cluster-G` 做最终口径同步。
 - **⭐ 效果评估**: [待填写]
+
+### 📅 2026-03-14 22:27
+> **🧵 线程标识**: `T-main`
+> **🏷️ 窗口职责**: 主控 / V1 效果判断与剩余任务并行规划
+> **🔗 上下文来源**: `overview/03_v1_zero_key_blueprint.md`、`tasks/origin-problem-goal-matrix.md`、`overview/09_stage-progress-and-task-audit.md`、`overview/10_unfinished-task-priority-and-parallel-analysis.md`、`overview/13_f8-random-acceptance.md`、`docs/status/current-verified-state.md`
+> **💡 原始指令摘要**: 用户以 `[log]` 方式要求基于 V1 最小目标和总任务表，判断当前系统到底能达到什么效果、能否对任意新闻较真，并给出一套图文并茂的剩余任务并行方案，让相互隔离的任务可以按波次同时启动。
+
+- **🎯 本线程目标 (Context & Goal)**: 把“当前代码和文档到底已经做到哪里”与“离题目最终目标还差什么”一次讲清，并把剩余未完成任务重新组织成后续并行执行手册。
+- **🧩 已知约束 (Known Context)**: V1 最小目标是“输入单条新闻文本或 URL，生成事件概览、关键来源时间线、3 到 5 条 claim 核查结果，并在证据不足时安全降级”；当前 `F8` 已落正式验收记录，但真实 live retrieval 路径仍未通过最终验收，默认环境仍主要是 mock/demo 路径。
+- **⚙️ AI 采用的策略 (AI Approach)**: 先交叉读取 V1 蓝图、总任务矩阵、阶段审计、未完成任务分析和 `F8` 验收记录，确认哪些能力已经满足 V1 最小目标、哪些只是在 mock/demo 路径成立；再按文件边界和依赖关系重排剩余任务，设计新的并行波次。
+- **📦 产出与落点 (Artifacts)**: 本次对话中的效果分析、是否能“对任意新闻较真”的判断、并行波次图；`prompt-history.md`
+- **➡️ 交接建议 (Next Handoff)**: 下一波应优先并行启动 `Cluster-D` 的 live retrieval 稳定性、`Cluster-C` 的模式漂移与 provider 质量收口、`Cluster-A` 的总控冻结与状态回写；待这三类结果稳定后，再开 `F8` 复验、`G2` replay 定稿和最终 go/no-go 冻结。
+- **⭐ 效果评估**: [待填写]
+
+---
+
+### 📅 2026-03-14 22:42
+> **🧵 线程标识**: `T-main`
+> **🏷️ 窗口职责**: 主控 / 总表规则收口
+> **🔗 上下文来源**: `requirements/README.md`、`requirements/guides/`、`tasks/origin-problem-goal-matrix.md`、`tasks/cluster-a-control-tower.md`、`tasks/cluster-c-api-foundation.md`、`tasks/cluster-e-experience-shell.md`、`tasks/cluster-f-quality-gate.md`、`tasks/cluster-g-demo-ops.md`
+> **💡 原始指令摘要**: 用户以 `[log]` 方式要求在 `requirements/guides` 下新增一条规则，明确实时总表里如果一个 task 依赖多个子 task，必须列出所有子 task 及其进度，并将该规则直接落到任务总览表中。
+
+- **🎯 本线程目标 (Context & Goal)**: 把“任务总览表如何持续记录复杂 task 的真实进度”制度化，避免总表只剩一句模糊状态而看不出依赖项到底完成到哪里。
+- **🧩 已知约束 (Known Context)**: 用户要求这条规则直接写进 `requirements/guides`，并且不要另开旁路状态文件；真正的联动记录应放回 `tasks/origin-problem-goal-matrix.md` 本身维护。
+- **⚙️ AI 采用的策略 (AI Approach)**: 先新增一份 guide，定义主 task 依赖多个 task id 时的强制展开规则、推荐表头和同步更新要求；再在任务总览表中新增“多子 task 联动记录表”，把当前关键复杂任务的依赖项与子进度显式写出来。
+- **📦 产出与落点 (Artifacts)**: `requirements/guides/07_task_overview_subtask_progress_rules.md`、`requirements/README.md`、`tasks/origin-problem-goal-matrix.md`、`prompt-history.md`
+- **➡️ 交接建议 (Next Handoff)**: 后续凡是继续维护总表的窗口，都应先看 `07_task_overview_subtask_progress_rules.md`；如果某个主 task 的依赖子任务发生变化，要在更新主矩阵时同步更新联动表。
+- **⭐ 效果评估**: [待填写]
+
+
+### 📅 2026-03-14 22:56
+> **🧵 线程标识**: `T-runtime-debug`
+> **🏷️ 窗口职责**: 运行期问题定位 / 问题输入保守收口分析
+> **🔗 上下文来源**: `frontend/components/analyze-page.tsx`、`frontend/lib/api-client.ts`、`frontend/start-local-windows.ps1`、`backend/app/services/retrieval_service.py`、`backend/app/services/kimi_provider.py`、`backend/app/services/report_builder.py`、`backend/.env`、运行中前后端实例日志
+> **💡 原始指令摘要**: 用户指出“最近有个女网红脑出血死了真的假的？”在当前项目里被展示成 `safe_mode + unknown`，要求解释为什么没有上网查询或调用 Kimi web search 来判断真伪。
+
+- **🎯 本线程目标 (Context & Goal)**: 解释这条输入为什么会落到 `safe_mode`，并区分是前端来源标签问题、后端版本过旧问题，还是当前 retrieval/provider 配置本身没有走到真实联网路径。
+- **🧩 已知约束 (Known Context)**: 当前前端已修复“后端离线”假象，但运行中的旧后端实例可能仍返回缺 provenance 的老格式结果；项目当前并没有把 Kimi 当作带 web-search 工具的 agent 来使用，真实检索仍由 retrieval provider 决定。
+- **⚙️ AI 采用的策略 (AI Approach)**: 先直接对当前运行中的后端复现用户问题，再读取前后端相关代码与日志；随后重启后端到当前代码版本，再次复现以区分“旧实例问题”和“当前主链能力边界”；最后结合 `.env` 与日志解释 provider/retrieval 为什么没有命中真实联网路径。
+- **📦 产出与落点 (Artifacts)**: 本次对话中的问题根因解释、当前运行状态修正；`frontend/start-local-windows.ps1`、`docs/startup-and-test-runbook.md`、`prompt-history.md`
+- **➡️ 交接建议 (Next Handoff)**: 若要让这类问题更接近“上网较真”，下一步应同时处理三件事：`1)` 保证运行实例使用当前代码并稳定返回 provenance；`2)` 把 `RETRIEVAL_PROVIDER` 从 `mock` 切到真实 provider 并复验；`3)` 继续收口 `KimiProvider` 的超时问题，否则 question-only 输入仍会回退到规则链路。
+- **⭐ 效果评估**: 当前已确认：`unknown` 是旧后端实例导致的来源标签问题；重启到当前代码后，这条输入返回 `backend_mock + evidence_source=none + provider_used=false`。本次请求日志显示 `kimi_provider_failed input_type=question_only error_type=ReadTimeout`，且当前 `backend/.env` 未设置 `RETRIEVAL_PROVIDER=gdelt`，因此系统没有走真实联网检索，而是停在 mock/保守路径。
+
+---
+
+## 2026-03-14 23:15 [log]
+- 用户要求：基于第一次结果，从泛化问题“最近有个女网红脑出血死了真的假的？”中选出最可能指代的对象，再进行第二次提问。
+- 选择的最可能候选：辽宁 27 岁女主播“糖糖”于 2025-08-12 突发脑溢血去世。该候选来自第一次公开检索里与“最近 / 女网红 / 脑出血 / 去世”最贴近且可落到具体人名与日期的一条。
+- 第二次提问方式：改为“具体人名 + 地点 + 日期 + 事件”的核查式问题，调用当前环境配置的 Kimi API。
+- 第二次提问结果：Kimi 返回了三点式回答，但其内部将当前年份错误地当成 2024 年，从而把 2025-08-12 判为“尚未到来”。
+- 当前结论：第二次提问证明“从泛化传闻切到具体候选对象”是必要的，但本次 Kimi 返回包含明显的日期判断错误，不能直接当最终事实；应以公开媒体检索结果为主，将“辽宁 27 岁女主播糖糖”视为当前最可能指代对象，并继续要求权威来源或更多锚点证据。
+
+
+## 2026-03-14 23:36 [log]
+- ?????????????????? question_only ??????????????????????????????????????
+- ??????? `backend/app/services/question_resolver.py`?? `AnalyzePipeline` ?? question_only ?????? flow????? retrieval ????????????????????????????????? follow-up prompt??????? retrieval / ?? provider enrich / verdict / timeline?
+- ?????`EventSourceType` ?? `retrieval_resolved`????? backend schema?frontend type ? api-client ??????
+- ??????????? retrieval ???????????S/A?????question resolver ??????????????????/???????? unresolved??????????????
+- ?????`pytest backend/tests -q` ???????? `38 passed`?`npm --prefix frontend run typecheck` ???

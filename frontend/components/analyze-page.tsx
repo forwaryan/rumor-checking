@@ -5,6 +5,8 @@ import { ClaimTable } from "@/components/claim-table";
 import { EvidenceList } from "@/components/evidence-list";
 import { EventCard } from "@/components/event-card";
 import { InputPanel } from "@/components/input-panel";
+import { InvestigationPanel } from "@/components/investigation-panel";
+import { ProcessTracePanel } from "@/components/process-trace-panel";
 import { RiskPanel } from "@/components/risk-panel";
 import { StatusBanner } from "@/components/status-banner";
 import { TimelinePanel } from "@/components/timeline-panel";
@@ -226,12 +228,21 @@ export function AnalyzePage() {
         onRetry={lastRequest ? () => void retryLastRequest() : null}
       />
 
-      <section className="dashboard-grid">
-        <EventCard report={report} />
-        <RiskPanel report={report} />
-        <TimelinePanel report={report} />
-        <ClaimTable report={report} />
-        <EvidenceList report={report} />
+      <section className="workspace-shell">
+        <div className="workspace-main">
+          <section className="dashboard-grid">
+            <EventCard report={report} />
+            <RiskPanel report={report} />
+            <InvestigationPanel report={report} />
+            <TimelinePanel report={report} />
+            <ClaimTable report={report} />
+            <EvidenceList report={report} />
+          </section>
+        </div>
+
+        <aside className="trace-rail">
+          <ProcessTracePanel report={report} request={lastRequest?.request ?? null} status={status} />
+        </aside>
       </section>
     </main>
   );

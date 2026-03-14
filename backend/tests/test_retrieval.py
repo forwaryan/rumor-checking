@@ -11,7 +11,7 @@ from backend.app.services.analyze_pipeline import AnalyzePipeline
 from backend.app.services.mock_retriever import MockRetriever
 from backend.app.services.retrieval_cache import RetrievalCache
 from backend.app.services.retrieval_models import RetrievalBundle, SearchResult
-from backend.app.services.retrieval_provider import GdeltNewsProvider
+from backend.app.services.retrieval_provider import GdeltNewsProvider, KimiWebSearchProvider
 from backend.app.services.retrieval_service import RetrievalService
 from backend.app.services.timeline_builder import TimelineBuilder
 from backend.tests.conftest import load_eval_fixture
@@ -186,6 +186,114 @@ def test_gdelt_provider_search_uses_aligned_config(monkeypatch):
     assert captured["timeout"] == 7.5
 
 
+def test_kimi_web_search_provider_runs_tool_loop_and_parses_results(monkeypatch):
+    calls = []
+
+    class _FakeResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    responses = iter(
+        [
+            _FakeResponse(
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "role": "assistant",
+                                "content": "",
+                                "tool_calls": [
+                                    {
+                                        "id": "tool-1",
+                                        "type": "builtin_function",
+                                        "function": {
+                                            "name": "$web_search",
+                                            "arguments": '{"search_result":{"search_id":"abc123"},"usage":{"total_tokens":7123}}',
+                                        },
+                                    }
+                                ],
+                            }
+                        }
+                    ]
+                }
+            ),
+            _FakeResponse(
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "role": "assistant",
+                                "content": """
+                                {
+                                  "question": "最近有个女网红脑出血死了真的假的？",
+                                  "verdict_hint": "现有公开来源更倾向于不实。",
+                                  "results": [
+                                    {
+                                      "title": "医院回应网传女网红脑出血去世：仍在救治",
+                                      "url": "https://news.cn/health/20260313/a1.htm",
+                                      "source_name": "news.cn",
+                                      "published_at": "2026-03-13",
+                                      "snippet": "医院表示当事人仍在救治，网传去世消息不实。"
+                                    },
+                                    {
+                                      "title": "警方辟谣女网红因脑出血死亡传闻",
+                                      "url": "https://www.gov.cn/xinwen/2026-03/13/content_1.htm",
+                                      "source_name": "gov.cn",
+                                      "published_at": "2026-03-13T11:00:00+08:00",
+                                      "snippet": "警方称相关死亡传闻系谣言，请勿继续传播。"
+                                    },
+                                    {
+                                      "title": "示例占位链接，不应进入结果",
+                                      "url": "https://example.com/fake",
+                                      "source_name": "example.com",
+                                      "published_at": null,
+                                      "snippet": "placeholder"
+                                    }
+                                  ]
+                                }
+                                """,
+                            }
+                        }
+                    ]
+                }
+            ),
+        ]
+    )
+
+    def fake_post(url, headers, json, timeout):
+        calls.append({"url": url, "json": json, "timeout": timeout})
+        return next(responses)
+
+    monkeypatch.setattr("backend.app.services.retrieval_provider.httpx.post", fake_post)
+    provider = KimiWebSearchProvider(
+        settings=replace(
+            get_settings(),
+            retrieval_provider="kimi",
+            kimi_api_key="test-kimi-key",
+            kimi_search_model="kimi-k2-turbo-preview",
+            retrieval_max_results=5,
+        )
+    )
+
+    results = provider.search("最近有个女网红脑出血死了真的假的？")
+
+    assert len(calls) == 2
+    assert calls[0]["json"]["tools"] == [{"type": "builtin_function", "function": {"name": "$web_search"}}]
+    second_messages = calls[1]["json"]["messages"]
+    assert any(item.get("role") == "tool" and item.get("tool_call_id") == "tool-1" for item in second_messages)
+    assert len(results) == 2
+    assert results[0].title == "医院回应网传女网红脑出血去世：仍在救治"
+    assert results[0].source_tier == "A"
+    assert results[1].source_tier == "S"
+    assert all("example.com" not in item.url for item in results)
+
+
 def test_retrieval_cache_round_trip(tmp_path: Path):
     cache = RetrievalCache(cache_root=tmp_path, ttl_seconds=3600)
     bundle = RetrievalBundle(
@@ -305,16 +413,128 @@ def test_question_only_pipeline_uses_real_retrieval_bundle(tmp_path: Path):
         )
     )
 
-    assert provider.calls
+    assert len(provider.calls) == 2
+    assert provider.calls[1] != provider.calls[0]
+    assert "gov.cn" in provider.calls[1]
     assert report.mode == "partial_mode"
     assert report.sources
     assert report.timeline
     assert report.claim_results[0].verdict == "refuted"
     assert report.provenance.source_type == "backend_live"
+    assert report.provenance.event_source == "retrieval_resolved"
     assert report.provenance.evidence_source == "retrieval_live"
     assert report.provenance.timeline_source == "retrieval"
     assert report.provenance.fallback_used is False
 
+
+def test_kimi_question_retrieval_keeps_raw_rumor_phrasing(tmp_path: Path):
+    class KimiLikeProvider(FakeProvider):
+        name = "kimi"
+
+    provider = KimiLikeProvider(
+        results=[
+            _make_result(
+                result_id="real-1",
+                title="医院回应网传女网红脑出血去世：仍在救治",
+                snippet="医院表示当事人仍在救治，网传去世消息不实。",
+                published_at="2026-03-13T09:00:00+08:00",
+                source_name="news.cn",
+                source_tier="A",
+                url="https://news.cn/health/20260313/a1.htm",
+            ),
+            _make_result(
+                result_id="real-2",
+                title="警方辟谣女网红因脑出血死亡传闻",
+                snippet="警方称相关死亡传闻系谣言，请勿继续传播。",
+                published_at="2026-03-13T11:00:00+08:00",
+                source_name="gov.cn",
+                source_tier="S",
+                url="https://www.gov.cn/xinwen/2026-03/13/content_1.htm",
+            ),
+        ]
+    )
+    pipeline = AnalyzePipeline()
+    pipeline.provider_enricher.enrich = lambda event: (event, None)
+    pipeline.retriever = RetrievalService(
+        settings=replace(get_settings(), retrieval_provider="kimi"),
+        provider=provider,
+        cache=RetrievalCache(cache_root=tmp_path, ttl_seconds=3600),
+    )
+
+    report = pipeline.analyze(
+        AnalyzeRequest(
+            raw_input="最近有个女网红脑出血死了真的假的？",
+            input_type="question",
+        )
+    )
+
+    assert provider.calls[0] == "最近有个女网红脑出血死了真的假的"
+    assert len(provider.calls) == 2
+    assert report.mode == "partial_mode"
+    assert report.event.title in {
+        "医院回应网传女网红脑出血去世：仍在救治",
+        "警方辟谣女网红因脑出血死亡传闻",
+    }
+    assert report.sources
+    assert report.provenance.evidence_source == "retrieval_live"
+    assert report.provenance.retrieval_provider == "kimi"
+
+def test_safe_mode_keeps_raw_retrieval_hits_visible(tmp_path: Path):
+    provider = FakeProvider(
+        results=[
+            _make_result(
+                result_id="real-1",
+                title="unrelated entertainment roundup",
+                snippet="a general entertainment digest without a matching subject",
+                published_at="2026-03-13T09:00:00+08:00",
+                source_name="portal.example.com",
+                source_tier="B",
+                url="https://example.com/raw-hit-1",
+            ),
+            _make_result(
+                result_id="real-2",
+                title="regional blog discusses another creator rumor",
+                snippet="mentions a creator rumor but does not confirm the same person or event",
+                published_at="2026-03-13T10:00:00+08:00",
+                source_name="blog.example.com",
+                source_tier="C",
+                url="https://example.com/raw-hit-2",
+            ),
+            _make_result(
+                result_id="real-3",
+                title="official hospital bulletin about another patient",
+                snippet="mentions a hospital bulletin but not the same influencer or case",
+                published_at="2026-03-13T11:00:00+08:00",
+                source_name="hospital.example.com",
+                source_tier="A",
+                url="https://example.com/raw-hit-3",
+            ),
+        ]
+    )
+    pipeline = AnalyzePipeline()
+    pipeline.provider_enricher.enrich = lambda event: (event, None)
+    pipeline.retriever = RetrievalService(
+        settings=replace(get_settings(), retrieval_provider="gdelt", retrieval_fallback_to_mock=False),
+        provider=provider,
+        cache=RetrievalCache(cache_root=tmp_path, ttl_seconds=3600),
+    )
+
+    report = pipeline.analyze(
+        AnalyzeRequest(
+            raw_input="did a female influencer die from cerebral hemorrhage",
+            input_type="question",
+        )
+    )
+
+    assert report.mode == "safe_mode"
+    assert report.retrieval_hits
+    assert report.retrieval_diagnostics is not None
+    assert report.retrieval_diagnostics.query
+    assert "female influencer" in report.retrieval_diagnostics.query
+    assert report.retrieval_diagnostics.canonical_result_count == 3
+    assert report.retrieval_hits[0].url == "https://example.com/raw-hit-3"
+    assert report.retrieval_hits[1].url == "https://example.com/raw-hit-2"
+    assert report.retrieval_hits[2].url == "https://example.com/raw-hit-1"
 
 def test_pipeline_marks_mock_provenance_when_real_retrieval_falls_back_to_mock(tmp_path: Path):
     pipeline = AnalyzePipeline()
@@ -359,9 +579,9 @@ def test_pipeline_without_evidence_stays_safe_and_exposes_none_provenance(tmp_pa
     assert report.sources == []
     assert all(item.verdict == "insufficient" for item in report.claim_results if item.claim_type == "fact")
     assert report.provenance.source_type == "backend_live"
+    assert report.provenance.event_source == "input_normalized"
     assert report.provenance.evidence_source == "none"
     assert report.provenance.timeline_source == "input_seed"
-
 
 def test_retrieval_service_skip_cache_alias_bypasses_cached_bundle(tmp_path: Path):
     event = _event_for_case("R01")
@@ -468,3 +688,47 @@ def test_timeline_builder_selects_key_nodes_from_real_bundle():
     assert "回应" in nodes["turn"].why_selected or "转折" in nodes["turn"].why_selected
     assert nodes["clarification"].url == "https://example.com/clarification"
     assert "说明" in nodes["clarification"].why_selected or "澄清" in nodes["clarification"].why_selected
+
+
+def test_question_only_resolution_stays_unresolved_without_high_trust_results():
+    event = NormalizedEvent(
+        summary="generic rumor claim",
+        keywords=[],
+        input_type="question_only",
+        raw_input="is there a vague viral rumor",
+    )
+    bundle = RetrievalBundle(
+        query="generic rumor",
+        canonical_results=(
+            _make_result(
+                result_id="low-1",
+                title="forum users discuss another topic",
+                snippet="no clear entity matches the question",
+                published_at="2026-03-13T09:00:00+08:00",
+                source_tier="C",
+            ),
+            _make_result(
+                result_id="low-2",
+                title="aggregator repost without details",
+                snippet="still no stable source or named subject",
+                published_at="2026-03-13T10:00:00+08:00",
+                source_tier="B",
+            ),
+        ),
+    )
+
+    resolution = AnalyzePipeline().question_resolver.resolve(event=event, retrieval_bundle=bundle)
+
+    assert resolution.selected_result is None
+    assert resolution.follow_up_query is None
+    assert resolution.event.summary == event.summary
+
+
+def test_question_query_rewrite_preserves_core_rumor_terms():
+    service = RetrievalService()
+    query = service._rewrite_question_query("最近有个女网红脑出血死了真的假的？")
+
+    assert "女网红" in query
+    assert "脑出血" in query
+    assert "死亡" in query
+

@@ -4,7 +4,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Optional, Tuple
 
-from backend.app.models.schemas import EvidenceItem, SourceTier
+from backend.app.models.schemas import EvidenceItem, RetrievalDiagnostics, SourceTier
 
 TIER_WEIGHTS = {"S": 4, "A": 3, "B": 2, "C": 1}
 
@@ -140,6 +140,7 @@ class RetrievalBundle:
     fallback_used: bool = False
     fallback_reason: Optional[str] = None
     retrieved_at: Optional[str] = None
+    failure_detail: Optional[str] = None
 
     @property
     def related_result_count(self) -> int:
@@ -168,6 +169,7 @@ class RetrievalBundle:
         fallback_used: Optional[bool] = None,
         fallback_reason: Optional[str] = None,
         retrieved_at: Optional[str] = None,
+        failure_detail: Optional[str] = None,
     ) -> "RetrievalBundle":
         return replace(
             self,
@@ -177,6 +179,7 @@ class RetrievalBundle:
             fallback_used=self.fallback_used if fallback_used is None else fallback_used,
             fallback_reason=fallback_reason or self.fallback_reason,
             retrieved_at=retrieved_at or self.retrieved_at,
+            failure_detail=failure_detail or self.failure_detail,
         )
 
     def to_evidence_items(self, limit: int = 4) -> list[EvidenceItem]:
@@ -189,6 +192,28 @@ class RetrievalBundle:
             reason = self._build_relevance_reason(result)
             evidence.append(result.to_evidence(relevance_reason=reason))
         return evidence
+
+    def to_retrieval_hit_items(self, limit: int = 8) -> list[EvidenceItem]:
+        hits: list[EvidenceItem] = []
+        ordered_results = sorted(
+            self.canonical_results,
+            key=lambda item: (item.published_at, item.tier_weight, item.result_id),
+            reverse=True,
+        )
+        for result in ordered_results[:limit]:
+            hits.append(result.to_evidence(relevance_reason=self._build_hit_reason(result)))
+        return hits
+
+    def to_diagnostics(self) -> RetrievalDiagnostics:
+        return RetrievalDiagnostics(
+            query=self.query,
+            provider_name=self.provider_name or None,
+            cache_status=self.cache_status or None,
+            retrieved_at=self.retrieved_at,
+            raw_result_count=len(self.raw_results),
+            canonical_result_count=len(self.canonical_results),
+            failure_detail=self.failure_detail,
+        )
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -205,6 +230,7 @@ class RetrievalBundle:
             "fallback_used": self.fallback_used,
             "fallback_reason": self.fallback_reason,
             "retrieved_at": self.retrieved_at,
+            "failure_detail": self.failure_detail,
         }
 
     @classmethod
@@ -223,16 +249,26 @@ class RetrievalBundle:
             fallback_used=bool(payload.get("fallback_used", False)),
             fallback_reason=payload.get("fallback_reason") if isinstance(payload.get("fallback_reason"), str) else None,
             retrieved_at=payload.get("retrieved_at") if isinstance(payload.get("retrieved_at"), str) else None,
+            failure_detail=payload.get("failure_detail") if isinstance(payload.get("failure_detail"), str) else None,
         )
 
     def _build_relevance_reason(self, result: SearchResult) -> str:
         text = f"{result.title} {result.snippet}"
-        if any(token in text for token in ("回应", "否认", "辟谣", "澄清", "致歉", "说明", "更新", "通报")):
-            reason = "该结果补充了后续回应、澄清或纠偏节点。"
+        if any(token in text for token in ("\u8f9f\u8c23", "\u4e0d\u5b9e", "\u5426\u8ba4", "\u901a\u62a5", "\u56de\u5e94", "\u7cfb\u8c23\u8a00", "\u4ecd\u5728\u6551\u6cbb", "\u8bf7\u52ff\u4f20\u64ad")):
+            reason = "\u8be5\u7ed3\u679c\u5305\u542b\u56de\u5e94\u3001\u8f9f\u8c23\u6216\u5b98\u65b9\u901a\u62a5\u4fe1\u606f\u3002"
         elif result.is_high_trust:
-            reason = "高可信来源，直接支撑核心事实。"
+            reason = "\u9ad8\u53ef\u4fe1\u6765\u6e90\u76f4\u63a5\u63d0\u53ca\u4e86\u5f53\u524d\u4e8b\u4ef6\u3002"
         else:
-            reason = "该结果用于补充传播链中的扩散节点。"
+            reason = "\u8be5\u7ed3\u679c\u4e0e\u5f53\u524d\u95ee\u9898\u76f8\u5173\uff0c\u4f46\u4ecd\u9700\u7ee7\u7eed\u6838\u5bf9\u3002"
         if result.merged_result_ids:
-            reason += f" 已归并 {len(result.merged_result_ids)} 条转载或近重复结果。"
+            reason += f" \u5df2\u5408\u5e76 {len(result.merged_result_ids)} \u6761\u91cd\u590d\u7ed3\u679c\u3002"
+        return reason
+
+    def _build_hit_reason(self, result: SearchResult) -> str:
+        if result.is_high_trust:
+            reason = "\u539f\u59cb\u68c0\u7d22\u547d\u4e2d\uff0c\u6765\u81ea\u9ad8\u53ef\u4fe1\u6765\u6e90\uff0c\u53ef\u7ee7\u7eed\u4eba\u5de5\u590d\u6838\u3002"
+        else:
+            reason = "\u539f\u59cb\u68c0\u7d22\u547d\u4e2d\uff0c\u4e0e\u95ee\u9898\u5b58\u5728\u4e00\u5b9a\u76f8\u5173\u6027\uff0c\u4f46\u9700\u7ee7\u7eed\u6838\u5bf9\u6765\u6e90\u3002"
+        if result.merged_result_ids:
+            reason += f" \u5df2\u5408\u5e76 {len(result.merged_result_ids)} \u6761\u91cd\u590d\u7ed3\u679c\u3002"
         return reason

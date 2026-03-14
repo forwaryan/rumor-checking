@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from pathlib import Path
@@ -17,13 +17,22 @@ def load_eval_fixture(filename: str):
     return json.loads((EVALS_ROOT / filename).read_text(encoding="utf-8-sig"))
 
 
-@pytest.fixture()
-def client(monkeypatch) -> TestClient:
+@pytest.fixture(autouse=True)
+def stable_test_env(monkeypatch):
     monkeypatch.setenv("ANALYSIS_PROVIDER", "off")
     monkeypatch.setenv("KIMI_API_KEY", "")
+    monkeypatch.setenv("RETRIEVAL_PROVIDER", "mock")
+    monkeypatch.setenv("RETRIEVAL_FALLBACK_TO_MOCK", "true")
+    monkeypatch.setenv("RETRIEVAL_CACHE_ENABLED", "true")
+    monkeypatch.setenv("RETRIEVAL_CACHE_ALLOW_STALE_ON_ERROR", "true")
     get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+@pytest.fixture()
+def client() -> TestClient:
     app = create_app()
     with TestClient(app, raise_server_exceptions=False) as test_client:
         yield test_client
     get_settings.cache_clear()
-

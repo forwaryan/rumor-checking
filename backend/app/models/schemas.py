@@ -11,10 +11,11 @@ VerdictType = Literal["supported", "refuted", "insufficient", "conflicting"]
 ReportMode = Literal["complete_mode", "partial_mode", "safe_mode"]
 ConfidenceLevel = Literal["high", "medium", "low"]
 ConfidenceValue = Union[ConfidenceLevel, float]
+PipelineStepStatus = Literal["completed", "warning", "skipped", "error"]
 SourceTier = Literal["S", "A", "B", "C"]
 TimelineNodeType = Literal["origin", "amplification", "peak", "turn", "clarification"]
 UrlFetchStatus = Literal["ok", "partial", "empty", "timeout", "error", "unsupported"]
-EventSourceType = Literal["input_normalized", "url_extract", "provider_enriched"]
+EventSourceType = Literal["input_normalized", "url_extract", "provider_enriched", "retrieval_resolved"]
 ClaimSourceType = Literal["rule", "provider", "provider_plus_rule"]
 EvidenceSourceType = Literal["retrieval_live", "retrieval_mock", "request_mock", "none"]
 TimelineSourceType = Literal["retrieval", "input_seed", "none"]
@@ -125,6 +126,47 @@ class ReportProvenance(BaseModel):
     fallback_reasons: List[str] = Field(default_factory=list)
 
 
+class RetrievalDiagnostics(BaseModel):
+    query: str = ""
+    provider_name: Optional[str] = None
+    cache_status: Optional[str] = None
+    retrieved_at: Optional[str] = None
+    raw_result_count: int = 0
+    canonical_result_count: int = 0
+    failure_detail: Optional[str] = None
+
+
+class InvestigationStep(BaseModel):
+    title: str
+    detail: str
+
+
+class PossibilityItem(BaseModel):
+    scenario: str
+    likelihood: ConfidenceLevel
+    summary: str
+
+
+class Investigation(BaseModel):
+    question: str
+    reframed_question: str
+    thinking_process: List[InvestigationStep] = Field(default_factory=list)
+    possibilities: List[PossibilityItem] = Field(default_factory=list)
+    final_conclusion: str
+
+
+class PipelineTraceStep(BaseModel):
+    stage_key: str
+    title: str
+    status: PipelineStepStatus = "completed"
+    summary: str
+    details: List[str] = Field(default_factory=list)
+
+
+class PipelineTrace(BaseModel):
+    steps: List[PipelineTraceStep] = Field(default_factory=list)
+
+
 class Report(BaseModel):
     mode: ReportMode
     event: Event
@@ -133,6 +175,10 @@ class Report(BaseModel):
     final_summary: str
     risks: List[str] = Field(default_factory=list)
     sources: List[EvidenceItem] = Field(default_factory=list)
+    retrieval_hits: List[EvidenceItem] = Field(default_factory=list)
+    retrieval_diagnostics: Optional[RetrievalDiagnostics] = None
+    investigation: Optional[Investigation] = None
+    pipeline_trace: Optional[PipelineTrace] = None
     provenance: ReportProvenance
 
 

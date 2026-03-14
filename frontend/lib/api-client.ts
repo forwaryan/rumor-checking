@@ -8,9 +8,13 @@ import type {
   Event,
   EventSourceType,
   HealthResponse,
+  Investigation,
   OutputMode,
+  PipelineTrace,
+  PipelineStepStatus,
   Report,
   ReportProvenance,
+  RetrievalDiagnostics,
   ReportSourceType,
   TimelineNode,
   TimelineSourceType,
@@ -25,10 +29,11 @@ const reportSourceTypes = [
   "demo_payload",
   "frontend_fallback",
 ] as const satisfies readonly ReportSourceType[];
-const eventSourceTypes = ["input_normalized", "url_extract", "provider_enriched"] as const satisfies readonly EventSourceType[];
+const eventSourceTypes = ["input_normalized", "url_extract", "provider_enriched", "retrieval_resolved"] as const satisfies readonly EventSourceType[];
 const claimSourceTypes = ["rule", "provider", "provider_plus_rule"] as const satisfies readonly ClaimSourceType[];
 const evidenceSourceTypes = ["retrieval_live", "retrieval_mock", "request_mock", "none"] as const satisfies readonly EvidenceSourceType[];
 const timelineSourceTypes = ["retrieval", "input_seed", "none"] as const satisfies readonly TimelineSourceType[];
+const pipelineStepStatuses = ["completed", "warning", "skipped", "error"] as const satisfies readonly PipelineStepStatus[];
 
 function getApiBase() {
   const configuredBase = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
@@ -199,9 +204,81 @@ function parseReportProvenance(value: unknown): ReportProvenance | null {
   };
 }
 
+function parseRetrievalDiagnostics(value: unknown): RetrievalDiagnostics | null {
+  if (!isObject(value)) {
+    return null;
+  }
+
+  return {
+    query: ensureString(value.query),
+    provider_name: ensureOptionalString(value.provider_name),
+    cache_status: ensureOptionalString(value.cache_status),
+    retrieved_at: ensureOptionalString(value.retrieved_at),
+    raw_result_count: typeof value.raw_result_count === "number" ? value.raw_result_count : 0,
+    canonical_result_count: typeof value.canonical_result_count === "number" ? value.canonical_result_count : 0,
+    failure_detail: ensureOptionalString(value.failure_detail),
+  };
+}
+
+function parseInvestigation(value: unknown): Investigation | null {
+  if (!isObject(value)) {
+    return null;
+  }
+
+  const thinkingProcess = Array.isArray(value.thinking_process)
+    ? value.thinking_process
+        .filter(isObject)
+        .map((item) => ({
+          title: ensureString(item.title, "核查步骤"),
+          detail: ensureString(item.detail, "暂无步骤详情"),
+        }))
+    : [];
+
+  const possibilities = Array.isArray(value.possibilities)
+    ? value.possibilities
+        .filter(isObject)
+        .map((item) => {
+          const likelihood: "high" | "medium" | "low" =
+            item.likelihood === "high" || item.likelihood === "medium" || item.likelihood === "low"
+              ? item.likelihood
+              : "low";
+
+          return {
+            scenario: ensureString(item.scenario, "待核查可能性"),
+            likelihood,
+            summary: ensureString(item.summary, "暂无可能性说明"),
+          };
+        })
+    : [];
+
+  return {
+    question: ensureString(value.question, "待核查问题"),
+    reframed_question: ensureString(value.reframed_question, "待核查命题"),
+    thinking_process: thinkingProcess,
+    possibilities,
+    final_conclusion: ensureString(value.final_conclusion, "暂无最终结论"),
+  };
+}
+
+function parsePipelineTrace(value: unknown): PipelineTrace | null {
+  if (!isObject(value) || !Array.isArray(value.steps)) {
+    return null;
+  }
+
+  return {
+    steps: value.steps.filter(isObject).map((item) => ({
+      stage_key: ensureString(item.stage_key, "unknown_stage"),
+      title: ensureString(item.title, "链路步骤"),
+      status: ensureLiteral(item.status, pipelineStepStatuses) ?? "warning",
+      summary: ensureString(item.summary, "当前步骤没有返回摘要。"),
+      details: ensureStringArray(item.details),
+    })),
+  };
+}
+
 export function parseReport(value: unknown): Report {
   if (!isObject(value)) {
-    throw new ApiClientError("后端返回了无法解析的 Report。");
+    throw new ApiClientError("\u65e0\u6cd5\u89e3\u6790\u540e\u7aef\u8fd4\u56de\u7684 Report\u3002");
   }
 
   const mode = ensureMode(value.mode);
@@ -211,9 +288,13 @@ export function parseReport(value: unknown): Report {
     event: parseEvent(value.event, mode),
     timeline: parseTimeline(value.timeline),
     claim_results: parseClaimResults(value.claim_results),
-    final_summary: ensureString(value.final_summary, "暂无综合结论。"),
+    final_summary: ensureString(value.final_summary, "\u7f3a\u5c11\u6700\u7ec8\u603b\u7ed3\u5b57\u6bb5"),
     risks: ensureStringArray(value.risks),
     sources: parseEvidence(value.sources),
+    retrieval_hits: parseEvidence(value.retrieval_hits),
+    retrieval_diagnostics: parseRetrievalDiagnostics(value.retrieval_diagnostics),
+    investigation: parseInvestigation(value.investigation),
+    pipeline_trace: parsePipelineTrace(value.pipeline_trace),
     provenance: parseReportProvenance(value.provenance),
   };
 }

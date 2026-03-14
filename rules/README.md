@@ -10,3 +10,4 @@
 - `evidence_and_verdict_rules.md`：证据字段、来源分级、verdict 标签与强约束规则
 - `propagation_chain_rules.md`：传播链节点定义、去重归并与可承诺边界规则
 - `failure_handling_rules.md`：输入失败、检索失败、超长文本、证据冲突等异常处理规则
+- `task_overview_progress_rules.md`：任务总览表维护规则；按规则名唤醒后，主 task 依赖多个子 task 时必须展开依赖项与各自进度
