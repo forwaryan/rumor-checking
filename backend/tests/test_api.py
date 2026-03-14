@@ -9,6 +9,7 @@ from backend.app.core.config import get_settings
 from backend.app.main import create_app
 from backend.app.models.schemas import ClaimItem, ProviderAnalysis, ProviderEventDraft
 from backend.app.services.kimi_provider import KimiProvider
+from backend.app.services.url_content_extractor import UrlContentExtractor
 from backend.tests.conftest import load_eval_fixture
 
 
@@ -31,6 +32,15 @@ def _provider_enabled_client(monkeypatch):
             yield test_client
     finally:
         get_settings.cache_clear()
+
+
+def _html_response(url: str, html: str, *, content_type: str = "text/html; charset=utf-8") -> httpx.Response:
+    return httpx.Response(
+        200,
+        request=httpx.Request("GET", url),
+        headers={"content-type": content_type},
+        text=html,
+    )
 
 
 def test_health_endpoint_returns_service_metadata(client):
@@ -78,7 +88,7 @@ def test_analyze_text_news_builds_complete_mode_report(client):
     assert len(report["timeline"]) >= 2
 
 
-def test_analyze_question_only_stays_in_safe_mode(client):
+def test_analyze_question_only_can_surface_partial_mode_with_retrieval_evidence(client):
     case = _case_by_id("input_cases.json", "I03")
     response = client.post(
         "/api/v1/analyze",
@@ -89,12 +99,13 @@ def test_analyze_question_only_stays_in_safe_mode(client):
     )
     assert response.status_code == 200
     report = response.json()
-    assert report["mode"] == "safe_mode"
+    assert report["mode"] == "partial_mode"
     assert report["event"]["source_name"] == "用户问题输入"
-    assert all(item["verdict"] == "insufficient" for item in report["claim_results"])
+    assert any(item["verdict"] == "refuted" for item in report["claim_results"])
+    assert report["sources"]
 
 
-def test_analyze_url_fallback_keeps_report_conservative(client):
+def test_analyze_url_fallback_keeps_risk_language_but_can_still_surface_partial_mode(client):
     case = _case_by_id("input_cases.json", "I05")
     response = client.post(
         "/api/v1/analyze",
@@ -106,9 +117,118 @@ def test_analyze_url_fallback_keeps_report_conservative(client):
     )
     assert response.status_code == 200
     report = response.json()
-    assert report["mode"] == "safe_mode"
+    assert report["mode"] == "partial_mode"
     assert any("保守输出" in item for item in report["risks"])
+    assert any(item["verdict"] == "supported" for item in report["claim_results"])
+    assert report["sources"]
+
+
+def test_analyze_url_extraction_success_populates_event_fields(monkeypatch, client):
+    html = """
+    <html>
+      <head>
+        <title>海州市市场监管局通报海州新鲜屋酸奶抽检结果</title>
+        <meta property="og:site_name" content="海州市市场监管局" />
+        <meta property="article:published_time" content="2026-03-01T09:00:00+08:00" />
+        <meta name="description" content="海州市市场监管局通报称，海州新鲜屋部分酸奶批次超过保质期。" />
+      </head>
+      <body>
+        <article>
+          <p>2026年3月1日，海州市市场监管局发布通报称，在例行抽检中发现海州新鲜屋连锁门店有2批次酸奶超过保质期，涉事门店已停业整改。</p>
+          <p>目前未发现大规模食物中毒病例。</p>
+        </article>
+      </body>
+    </html>
+    """
+
+    def fake_fetch(self, url: str) -> httpx.Response:
+        return _html_response(url, html)
+
+    monkeypatch.setattr(UrlContentExtractor, "_fetch", fake_fetch)
+
+    response = client.post(
+        "/api/v1/analyze",
+        json={
+            "raw_input": "https://news.example.com/articles/acid-milk",
+            "input_type": "url",
+        },
+    )
+
+    assert response.status_code == 200
+    report = response.json()
+    assert report["mode"] == "partial_mode"
+    assert report["event"]["title"] == "海州市市场监管局通报海州新鲜屋酸奶抽检结果"
+    assert "海州新鲜屋" in report["event"]["summary"]
+    assert report["event"]["source_name"] == "海州市市场监管局"
+    assert report["event"]["published_at"].startswith("2026-03-01T09:00:00")
+    assert report["sources"]
+    assert any(item["verdict"] == "supported" for item in report["claim_results"])
+
+
+def test_analyze_url_extraction_failure_stays_safe(monkeypatch, client):
+    def fake_fetch(self, url: str) -> httpx.Response:
+        return _html_response(url, "<html><head><title>下载文件</title></head><body></body></html>", content_type="application/pdf")
+
+    monkeypatch.setattr(UrlContentExtractor, "_fetch", fake_fetch)
+
+    response = client.post(
+        "/api/v1/analyze",
+        json={
+            "raw_input": "https://files.example.com/report.pdf",
+            "input_type": "url",
+        },
+    )
+
+    assert response.status_code == 200
+    report = response.json()
+    assert report["mode"] == "safe_mode"
+    assert report["event"]["source_name"] == "files.example.com"
+    assert "抽取不完整" in report["event"]["summary"]
+    assert report["risks"]
     assert report["sources"] == []
+
+
+def test_analyze_url_extraction_timeout_falls_back_without_crashing(monkeypatch, client):
+    def fake_fetch(self, url: str) -> httpx.Response:
+        raise httpx.ReadTimeout("timed out", request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(UrlContentExtractor, "_fetch", fake_fetch)
+
+    response = client.post(
+        "/api/v1/analyze",
+        json={
+            "raw_input": "https://news.example.com/slow-page",
+            "input_type": "url",
+        },
+    )
+
+    assert response.status_code == 200
+    report = response.json()
+    assert report["mode"] == "safe_mode"
+    assert "抓取超时" in report["event"]["summary"]
+    assert any("抓取超时" in item for item in report["risks"])
+    assert report["sources"] == []
+
+
+def test_text_input_does_not_trigger_url_extractor(monkeypatch, client):
+    def fail_extract(self, url: str):
+        raise AssertionError("text input should not trigger URL extraction")
+
+    monkeypatch.setattr(UrlContentExtractor, "extract", fail_extract)
+    case = _case_by_id("input_cases.json", "I01")
+
+    response = client.post(
+        "/api/v1/analyze",
+        json={
+            "raw_input": case["raw_input"],
+            "input_type": case["input_type"],
+        },
+    )
+
+    assert response.status_code == 200
+    report = response.json()
+    assert report["mode"] == "complete_mode"
+    assert "海州市市场监管局" in report["event"]["title"]
 
 
 def test_analyze_partial_mode_exposes_conflicting_claims(client):
@@ -216,3 +336,7 @@ def test_internal_errors_use_unified_error_shape(client):
     body = response.json()
     assert body["error"]["code"] == "internal_server_error"
     assert body["error"]["details"]["error_type"] == "RuntimeError"
+
+
+
+

@@ -1,10 +1,13 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
+import re
 from typing import List, Tuple
 
 from backend.app.models.schemas import AnalyzeRequest, ClaimItem, ClaimResult, EvidenceItem, NormalizedEvent
 from backend.app.services.retrieval_models import RetrievalBundle
 from backend.app.services.scenario_library import ScenarioTemplate, match_scenario
+
+NEGATION_MARKERS = ("辟谣", "不实", "否认", "系谣言", "假消息", "并未", "未去世", "仍在救治", "谣言")
 
 
 class VerdictEngine:
@@ -80,12 +83,12 @@ class VerdictEngine:
     ) -> Tuple[List[EvidenceItem], str]:
         if request.mock_evidence:
             return list(request.mock_evidence), "B"
+        if retrieval_bundle and retrieval_bundle.canonical_results:
+            return retrieval_bundle.to_evidence_items(), retrieval_bundle.evidence_grade
         if event.input_type == "question_only":
             return [], "D"
         if event.fallback_used and event.input_type in {"url_news", "url_unknown"}:
             return [], "D"
-        if retrieval_bundle and retrieval_bundle.canonical_results:
-            return retrieval_bundle.to_evidence_items(), retrieval_bundle.evidence_grade
         return list(scenario.evidence), scenario.default_evidence_grade
 
     def _non_decidable_note(self, claim_type: str) -> str:
@@ -137,4 +140,82 @@ class VerdictEngine:
                 return "conflicting", "medium", "媒体称停产整顿，但公司回应仅暂停一条产线。", evidence_pool[1:3]
             return "insufficient", "low", "现有证据尚不足以覆盖更多细节。", evidence_pool[:1]
 
-        return "insufficient", "low", "当前规则库尚未覆盖该具体事件。", evidence_pool[:1]
+        return self._evaluate_generic_claim(claim_text, evidence_pool)
+
+    def _evaluate_generic_claim(
+        self,
+        claim_text: str,
+        evidence_pool: List[EvidenceItem],
+    ) -> Tuple[str, str, str, List[EvidenceItem]]:
+        claim_terms = self._extract_terms(self._normalize_claim(claim_text))
+        if not claim_terms:
+            return "insufficient", "low", "当前 claim 过于模糊，无法与公开来源稳定对齐。", evidence_pool[:1]
+
+        supporting: List[EvidenceItem] = []
+        refuting: List[EvidenceItem] = []
+        for item in evidence_pool:
+            haystack = self._normalize_claim(f"{item.title} {item.snippet} {item.relevance_reason}")
+            overlap = [term for term in claim_terms if term in haystack]
+            if len(overlap) < 2 and not (len(claim_terms) == 1 and overlap):
+                continue
+            if any(marker in haystack for marker in NEGATION_MARKERS):
+                refuting.append(item)
+            else:
+                supporting.append(item)
+
+        if supporting and refuting:
+            return "conflicting", "medium", "公开来源中同时出现了支持和否定线索，当前应保持冲突态。", (refuting + supporting)[:2]
+        if refuting:
+            confidence = "high" if any(item.source_tier in {"S", "A"} for item in refuting) else "medium"
+            return "refuted", confidence, "检索到与该说法高度相关的辟谣或否认来源，当前更倾向于判定为不成立。", refuting[:2]
+        if supporting:
+            high_trust_hits = sum(1 for item in supporting if item.source_tier in {"S", "A"})
+            confidence = "high" if high_trust_hits >= 2 else "medium" if high_trust_hits >= 1 else "low"
+            return "supported", confidence, "检索到与该说法高度相关的公开来源，当前更倾向于判定为成立。", supporting[:2]
+        return "insufficient", "low", "检索结果与该说法的语义重合仍不足，先保持保守。", evidence_pool[:1]
+
+    def _normalize_claim(self, text: str) -> str:
+        normalized = text.strip().lower()
+        replacements = (
+            ("是不是", ""),
+            ("有没有", ""),
+            ("最近", ""),
+            ("有一个", ""),
+            ("死掉了", "死亡"),
+            ("死掉", "死亡"),
+            ("？", ""),
+            ("?", ""),
+            ("。", ""),
+        )
+        for old, new in replacements:
+            normalized = normalized.replace(old, new)
+        return normalized
+
+    def _extract_terms(self, text: str) -> List[str]:
+        ordered: List[str] = []
+        seen = set()
+
+        def push(term: str) -> None:
+            if len(ordered) >= 24:
+                return
+            if term and term not in seen:
+                seen.add(term)
+                ordered.append(term)
+
+        for term in re.findall(r"[a-z0-9]{2,}", text):
+            push(term)
+
+        for chunk in re.findall(r"[\u4e00-\u9fff]{2,}", text):
+            if len(chunk) <= 4:
+                push(chunk)
+                continue
+            for window in (4, 3, 2):
+                if len(chunk) < window:
+                    continue
+                for index in range(0, len(chunk) - window + 1):
+                    push(chunk[index : index + window])
+                    if len(ordered) >= 24:
+                        return ordered
+
+        return ordered
+

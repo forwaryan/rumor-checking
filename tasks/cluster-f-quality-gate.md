@@ -102,7 +102,7 @@
 实现备注：当前通过 API 测试已覆盖几个代表性模式 case，但仍缺独立的 `report_mode_cases.json` 驱动回归。
 
 ### F7 建立演示前 smoke checklist
-状态：未完成
+状态：已完成
 目标：定义一套演示前必须检查的接口、页面、demo case 和 fallback 检查单。
 产出：smoke checklist。
 前置依赖：mock 闭环打通。
@@ -117,8 +117,27 @@
 3. 设计仓库内显眼且可交付的 checklist 文档落点，按顺序组织环境、后端、前端、demo、fallback、限制确认。
 4. 视需要补最小命令或脚本入口，确保非开发者能按文档启动、检查和失败处理。
 5. 回写 F7 完成记录、验证结论、残余风险及后续交接窗口。
-实现备注：当前还没有独立 smoke checklist 文档，这是演示前最大的测试侧缺口。
-
+本轮完成记录：
+- 新增根目录 `SMOKE_CHECKLIST.md`，按主控 / 演示者执行顺序整理环境、后端、前端、三条 demo、fallback 和已知限制确认。
+- 复核 `overview/08_origin_problem_gap_and_demo_strategy.md`、`overview/07_quality-and-demo-baseline.md`、`backend/README.md`、`frontend/README.md`、`frontend/IMPLEMENTATION_SUMMARY.md`、`backend/tests/test_api.py`、`backend/tests/test_retrieval.py`、`frontend/lib/demo-cases.ts`、`rules/origin_problem_statement.md`，把三档模式、输入样例、页面提示和失败处理口径收进 checklist。
+- 采用仓库现有 `frontend/start-local-windows.ps1` 作为 Windows / `\\wsl.localhost` 环境下的推荐前端启动入口，没有新增业务脚本。
+- 为验证 checklist 尝试执行 `pytest backend/tests/test_api.py -q` 与 `pytest backend/tests/test_retrieval.py -q`；两项都在应用导入阶段失败，暴露出 retrieval 侧实现版本漂移，本轮未继续扩改该链路，避免越界进入主实现窗口。
+验证情况：
+- checklist 文档：已产出，可直接交给非开发者照着执行。
+- 三条 demo 与 fallback 预期：已依据前端代码、demo payload 和测试样例逐项对齐。
+- 后端自动 smoke：未通过，当前被 retrieval 侧导入错误阻断。
+通过/失败结论：
+- `F7` 交付物通过，smoke checklist 已形成。
+- 当前仓库“真实后端 smoke 可通过”结论未通过，仍需依赖 `Cluster-D / D5 ~ D7` 收口后复跑。
+残余风险：
+- `C10` 未完成，URL 输入仍是保守 fallback，不能把 URL 正文抽取讲成已完成能力。
+- `D5 ~ D7` 相关 retrieval 文件当前存在接口版本漂移，已直接阻断后端导入与自动化 smoke。
+- `G5 / G6` 尚未最终收口，因此 checklist 还没有同步并入最终口播脚本和 README。
+建议交接窗口：
+- `Cluster-D`：先统一 retrieval 相关实现与测试接口，恢复后端可启动和回归可跑。
+- `Cluster-C`：在 retrieval 修复后复跑 `health / analyze` 主链路，确认三档模式没被回归破坏。
+- `Cluster-G`：把 `SMOKE_CHECKLIST.md` 纳入最终 demo 口播脚本与 README。
+实现备注：此前缺少独立 smoke checklist 文档；本轮已补齐文档，但真实后端 smoke 仍受 retrieval 侧未收口影响。
 ### F8 跑随机 case 与稳定 demo case
 状态：未完成
 目标：做最终随机 case 和预设 demo case 的通过记录。
@@ -129,5 +148,6 @@
 - 跑随机输入样例并记录模式分布。
 - 汇总演示前残余风险。
 实现备注：当前还没有形成最终通过记录。
+
 
 

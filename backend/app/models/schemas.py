@@ -13,15 +13,20 @@ ConfidenceLevel = Literal["high", "medium", "low"]
 ConfidenceValue = Union[ConfidenceLevel, float]
 SourceTier = Literal["S", "A", "B", "C"]
 TimelineNodeType = Literal["origin", "amplification", "peak", "turn", "clarification"]
+UrlFetchStatus = Literal["ok", "partial", "empty", "timeout", "error", "unsupported"]
 
 
 class MockFetchResult(BaseModel):
-    status: str = "ok"
+    status: UrlFetchStatus = "ok"
     title: Optional[str] = None
     body: Optional[str] = None
     snippet: Optional[str] = None
     source_name: Optional[str] = None
     published_at: Optional[str] = None
+    final_url: Optional[str] = None
+    content_type: Optional[str] = None
+    fallback_reason: Optional[str] = None
+    error_message: Optional[str] = None
 
 
 class EvidenceItem(BaseModel):

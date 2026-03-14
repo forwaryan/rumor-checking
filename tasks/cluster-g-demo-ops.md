@@ -80,7 +80,7 @@
 实现备注：前端实现总结和后端 README 已覆盖大部分边界说明，但顶层交付口径仍未统一。
 
 ### G5 写演示顺序与口播要点
-状态：未完成
+状态：已完成
 目标：整理“先输入什么、再看哪里、怎么解释 partial/safe_mode”的演示脚本。
 产出：演示操作顺序和口播提纲。
 前置依赖：页面与 demo case 可用。
@@ -88,7 +88,7 @@
 - 设计演示输入顺序和每一步看点。
 - 设计 complete、partial、safe 三类口播解释。
 - 形成 5 到 10 分钟可复用的演示流程。
-实现备注：当前还没有专门的演示脚本文档。
+实现备注：已新增根目录 `DEMO_SCRIPT.md`，覆盖 5 到 10 分钟演示顺序、三条 demo case 的输入/亮点/推荐讲法，以及不要说过头的边界提醒。
 本轮执行任务：
 - 基于现有三条稳定 demo case，整理一份 5 到 10 分钟可复用的演示顺序与口播提纲。
 - 在演示文档中写清每个 case 的输入、亮点、推荐讲法，以及不要说过头的边界提醒。
@@ -98,9 +98,18 @@
 2. 设计适合面试场景的演示顺序，明确每一段先看哪里、讲什么、控制在多久。
 3. 形成可直接给演示者使用的口播提纲，并补充“亮点 / 边界 / 不要过度宣称”的提醒。
 4. 回写 G5 状态、完成记录和交接建议，说明当前演示材料是否还依赖 smoke checklist 或核心能力补强。
+本轮完成记录：
+- 修改文件：`DEMO_SCRIPT.md`、`README.md`、`tasks/cluster-g-demo-ops.md`
+- 完成方式：基于现有三条稳定 demo case、前后端 README、实现总结、demo strategy 与三份 demo payload，整理出一份可直接复用的 5 到 10 分钟演示顺序与口播稿。
+- 验证如何：逐项对照 `frontend/lib/demo-cases.ts`、`contracts/demo_payloads/*.json`、`overview/08_origin_problem_gap_and_demo_strategy.md`、`overview/07_quality-and-demo-baseline.md` 的现有边界口径；本轮未改主实现，也未新增运行命令验证。
+- 剩余问题：`F7` 独立 smoke checklist 仍未完成；若要扩展到随机开放输入演示，仍依赖 `Cluster-C / D` 继续补真实 URL / retrieval / timeline 能力。
+交接建议：
+- 当前材料已经足够支撑一场 5 到 10 分钟的稳定演示，优先按 `DEMO_SCRIPT.md` 使用三条稳定 case。
+- 请 `Cluster-F` 优先补 `F7` 独立 smoke checklist，作为演示前最后一轮验收入口。
+- 如果需要演示非预设 case，请交由 `Cluster-C / D` 继续补核心能力，不建议由 `Cluster-G` 直接改主实现。
 
 ### G6 产出最终 README 收口版
-状态：未完成
+状态：已完成
 目标：把运行说明、demo case、限制、架构概览整合成最终 README。
 产出：可供别人直接使用的 README。
 前置依赖：G1 ~ G5 基本完成。
@@ -108,7 +117,7 @@
 - 汇总运行说明、demo 说明和限制说明。
 - 补充架构概览与项目入口链接。
 - 输出一版面向评审和协作者都能读懂的 README。
-实现备注：这是当前文档收口层的主要缺口之一。
+实现备注：顶层 `README.md` 已完成收口，现已同时覆盖项目介绍、演示入口、快速启动、当前限制、文档导航，以及 `F7` smoke checklist 的预留衔接位。
 本轮执行任务：
 - 重写顶层 `README.md`，让第一次进入仓库的人先理解“项目是什么、能演示什么、怎么跑、当前限制是什么”。
 - 把三条 demo case 和演示入口放到 README 主路径，而不是只做工程目录索引。
@@ -118,3 +127,13 @@
 2. 以“项目介绍 + 演示入口 + 快速启动 + 当前限制 + 深入文档”重组顶层 README。
 3. 在 README 中加入 demo case 说明、演示文档入口，以及 smoke checklist 的链接或预留位。
 4. 回写 G6 状态、完成记录和交接建议，说明 README 是否已经达到演示交付所需的清晰度。
+本轮完成记录：
+- 修改文件：`README.md`、`DEMO_SCRIPT.md`、`tasks/cluster-g-demo-ops.md`
+- 完成方式：重写顶层 README，把项目介绍、演示入口、运行方式、当前限制、推荐阅读路径与 demo / smoke 现状整合到一个第一次进仓库即可理解的入口文档中。
+- 验证如何：对照 `frontend/README.md`、`backend/README.md`、`overview/06_current_code_implementation.md`、`overview/07_quality-and-demo-baseline.md`、`overview/08_origin_problem_gap_and_demo_strategy.md` 的现有能力与边界描述，并确认仓库内尚无已完成的独立 `F7` smoke checklist 文档，因此 README 仅预留衔接位而未误链。
+- 剩余问题：`G2` replay 仍未落地，`F7` 仍待补齐，后续仍需由主控或 `Cluster-F` 在 README 中补正式清单链接。
+交接建议：
+- 当前顶层 README 已经足够作为“第一次进仓库的人”和“面试演示者”的统一入口。
+- 待 `Cluster-F / F7` 交付后，应优先把正式 smoke checklist 链接补到 README 的“演示前检查清单状态”部分。
+- 待 `G2` 明确 replay 方案后，再补 replay 使用说明；当前不要为了看起来完整而写伪说明。
+

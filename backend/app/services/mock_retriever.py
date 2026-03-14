@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -9,7 +10,7 @@ from typing import Optional
 from backend.app.core.config import Settings, get_settings
 from backend.app.models.schemas import NormalizedEvent
 from backend.app.services.contract_utils import ensure_datetime_string
-from backend.app.services.result_merger import SearchResultMerger
+from backend.app.services.retrieval_deduper import chronological_sort_key, compact_text, merge_search_results
 from backend.app.services.retrieval_models import RetrievalBundle, SearchResult
 
 
@@ -27,9 +28,8 @@ class RetrievalCase:
 
 
 class MockRetriever:
-    def __init__(self, settings: Optional[Settings] = None, merger: Optional[SearchResultMerger] = None) -> None:
+    def __init__(self, settings: Optional[Settings] = None) -> None:
         self.settings = settings or get_settings()
-        self.merger = merger or SearchResultMerger()
 
     def retrieve_for_event(self, event: NormalizedEvent) -> RetrievalBundle:
         query_text = " ".join(
@@ -47,21 +47,22 @@ class MockRetriever:
     def retrieve(self, query_text: str) -> RetrievalBundle:
         case = self._match_case(query_text)
         if case is None:
-            return RetrievalBundle(query=query_text)
+            return RetrievalBundle(query=query_text, provider_name="mock")
 
-        canonical_results = self.merger.merge(case.results)
+        canonical_results = merge_search_results(case.results)
         return RetrievalBundle(
             query=case.query,
             matched_case_id=case.case_id,
             mode_hint=case.expected_mode_hint,
-            raw_results=tuple(sorted(case.results, key=self.merger.chronological_sort_key)),
-            canonical_results=tuple(sorted(canonical_results, key=self.merger.chronological_sort_key)),
+            raw_results=tuple(sorted(case.results, key=chronological_sort_key)),
+            canonical_results=tuple(sorted(canonical_results, key=chronological_sort_key)),
             expected_origin_result_id=case.expected_origin_result_id,
             expected_turning_point_result_id=case.expected_turning_point_result_id,
+            provider_name="mock",
         )
 
     def _match_case(self, query_text: str) -> Optional[RetrievalCase]:
-        compact_query = self._compact(query_text)
+        compact_query = compact_text(query_text)
         best_case: Optional[RetrievalCase] = None
         best_score = 0
         for case in _load_cases(self.settings.evals_root):
@@ -75,12 +76,9 @@ class MockRetriever:
         return best_case
 
     def _score_case_match(self, compact_query: str, case: RetrievalCase) -> int:
-        if self._compact(case.query) in compact_query:
+        if compact_text(case.query) in compact_query:
             return 100
         return sum(1 for term in case.query_terms if term in compact_query)
-
-    def _compact(self, text: str) -> str:
-        return "".join(text.split()).lower()
 
 
 @lru_cache()
@@ -101,6 +99,7 @@ def _load_cases(evals_root: Path) -> tuple[RetrievalCase, ...]:
                 snippet=item["snippet"],
                 source_tier=item["source_tier"],
                 duplicate_of=item.get("is_duplicate_of"),
+                provider_name="mock",
             )
             for item in raw_case["mock_search_results"]
         )
@@ -109,7 +108,7 @@ def _load_cases(evals_root: Path) -> tuple[RetrievalCase, ...]:
             RetrievalCase(
                 case_id=raw_case["case_id"],
                 query=query,
-                query_terms=tuple(term for term in query.split() if len(term) >= 2),
+                query_terms=tuple(term for term in re.split(r"\s+", query) if len(term) >= 2),
                 results=results,
                 min_related_results=expected["min_related_results"],
                 min_high_trust_results=expected["min_high_trust_results"],

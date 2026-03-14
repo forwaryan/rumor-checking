@@ -5,6 +5,15 @@ from typing import List, Tuple
 from backend.app.models.schemas import ClaimResult, Event, EvidenceItem, NormalizedEvent, Report, TimelineNode
 from backend.app.services.contract_utils import default_source_name, default_source_url, ensure_datetime_string
 
+URL_FALLBACK_RISK_MAP = {
+    "url_content_incomplete": "链接页面只抽取到部分标题或摘要，当前结果仍按保守输出处理，建议补充正文原文。",
+    "url_content_missing": "链接页面未抽取到可用正文，当前只能基于有限页面信息做保守输出，建议补充正文原文。",
+    "url_fetch_timeout": "链接页面抓取超时，当前未获得正文，只能先保守输出；可稍后重试或直接粘贴正文。",
+    "url_fetch_failed": "链接页面抓取失败，当前未获得可核查正文，只能先保守输出，建议稍后重试或直接粘贴正文。",
+    "url_content_unsupported": "该链接不是可直接抽取的 HTML 页面，当前只能保守输出，建议提供可打开的正文页或直接粘贴正文。",
+    "url_invalid": "当前链接格式不可直接抽取，系统只能先保守输出，建议检查 URL 或直接粘贴正文。",
+}
+
 
 class ReportBuilder:
     def build(
@@ -93,7 +102,7 @@ class ReportBuilder:
         if conflicting_claims:
             risks.append("存在相互冲突的证据，不能把单一版本当成最终事实。")
         if event.fallback_used:
-            risks.append("当前结果基于链接片段或用户输入做保守输出，正文抽取与检索链路仍未完成。")
+            risks.append(self._fallback_risk_message(event))
         if not evidence:
             risks.append("尚未形成稳定证据链。")
         if mode == "safe_mode":
@@ -102,3 +111,11 @@ class ReportBuilder:
             risks.append("时间线未建立成功，当前结果不代表完整传播链。")
 
         return summary, risks
+
+    def _fallback_risk_message(self, event: NormalizedEvent) -> str:
+        if event.input_type in {"url_news", "url_unknown"}:
+            return URL_FALLBACK_RISK_MAP.get(
+                event.fallback_reason or "",
+                "当前结果基于链接片段或用户输入做保守输出，正文抽取与检索链路仍未完成。",
+            )
+        return "当前结果基于用户输入做保守输出，证据链仍待补齐。"

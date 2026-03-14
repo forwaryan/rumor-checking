@@ -6,8 +6,14 @@ from typing import Optional, Sequence
 
 from backend.app.services.retrieval_models import SearchResult
 
-REPOST_PREFIXES = ("??", "??", "???", "??", "??")
-REPOST_SOURCE_MARKERS = ("??", "??", "??")
+REPOST_PREFIXES = (
+    "\u8f6c\u8f7d",
+    "\u8f6c\u53d1",
+    "\u805a\u5408\u9875",
+    "\u805a\u5408",
+    "\u642c\u8fd0",
+)
+REPOST_SOURCE_MARKERS = ("\u805a\u5408", "\u5feb\u8baf", "\u8f6c\u53d1")
 REPOST_LABEL = "repost"
 DUPLICATE_LABEL = "duplicate"
 NEAR_DUPLICATE_LABEL = "near_duplicate"
@@ -111,7 +117,11 @@ class SearchResultMerger:
 
     def _normalize_title(self, title: str) -> str:
         compact = title.strip().lower()
-        compact = re.sub(r"^(??|??|???|??|??|??)[:?\s-]*", "", compact)
+        compact = re.sub(
+            r"^(\u8f6c\u8f7d|\u8f6c\u53d1|\u805a\u5408\u9875|\u805a\u5408|\u7f51\u4f20|\u7206\u6599)[:?\s-]*",
+            "",
+            compact,
+        )
         return re.sub(r"[\W_]+", "", compact)
 
     def _extract_terms(self, text: str) -> list[str]:

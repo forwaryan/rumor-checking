@@ -53,7 +53,7 @@ class GdeltNewsProvider:
                 "maxrecords": str(self.settings.retrieval_max_results),
                 "sort": "DateDesc",
             },
-            timeout=self.settings.retrieval_provider_timeout_seconds,
+            timeout=self.settings.retrieval_timeout_seconds,
         )
         response.raise_for_status()
         return self._parse_articles(query_text, response.json())

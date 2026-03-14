@@ -42,3 +42,4 @@ class AnalyzePipeline:
             evidence=evidence,
             evidence_grade=evidence_grade,
         )
+

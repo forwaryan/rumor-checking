@@ -3,6 +3,7 @@
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from urllib.parse import urlparse
 
 from backend.app.models.schemas import InternalInputType
 
@@ -30,6 +31,14 @@ def ensure_datetime_string(value: Optional[str]) -> str:
             pass
 
     return datetime.now(SHANGHAI_TZ).isoformat()
+
+
+def source_name_from_url(url: str) -> Optional[str]:
+    parsed = urlparse(url.strip())
+    host = parsed.netloc.lower().strip()
+    if not host:
+        return None
+    return host[4:] if host.startswith("www.") else host
 
 
 def default_source_name(input_type: InternalInputType) -> str:

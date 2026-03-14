@@ -81,31 +81,28 @@ class Settings:
     kimi_model: str
     provider_timeout_seconds: float
     retrieval_provider: str
-    retrieval_provider_timeout_seconds: float
-    retrieval_gdelt_base_url: str
+    retrieval_timeout_seconds: float
     retrieval_max_results: int
     retrieval_cache_enabled: bool
     retrieval_cache_dir: Path
-    retrieval_cache_ttl_hours: int
+    retrieval_cache_ttl_seconds: float
+    retrieval_cache_allow_stale_on_error: bool
+    retrieval_fallback_to_mock: bool
+    retrieval_gdelt_base_url: str
+    retrieval_google_news_endpoint: str
+    url_fetch_timeout_seconds: float
+    url_fetch_max_chars: int
     cors_allow_origin_regex: str
 
     @property
     def kimi_enabled(self) -> bool:
         return self.analysis_provider == "kimi" and bool(self.kimi_api_key)
 
-    @property
-    def real_retrieval_enabled(self) -> bool:
-        return self.retrieval_provider in {"gdelt"}
-
 
 @lru_cache()
 def get_settings() -> Settings:
     project_root = Path(__file__).resolve().parents[3]
     _load_env_defaults(project_root)
-
-    retrieval_cache_dir = os.getenv("RETRIEVAL_CACHE_DIR")
-    default_cache_dir = project_root / "data" / "cache" / "retrieval"
-
     return Settings(
         app_name=os.getenv("APP_NAME", "rumor-checking-backend"),
         environment=os.getenv("APP_ENV", "development"),
@@ -120,18 +117,27 @@ def get_settings() -> Settings:
         kimi_base_url=os.getenv("KIMI_BASE_URL", "https://api.moonshot.cn/v1").rstrip("/"),
         kimi_model=os.getenv("KIMI_MODEL", "moonshot-v1-8k"),
         provider_timeout_seconds=_as_float(os.getenv("PROVIDER_TIMEOUT_SECONDS"), 20.0),
-        retrieval_provider=os.getenv("RETRIEVAL_PROVIDER", "off").strip().lower(),
-        retrieval_provider_timeout_seconds=_as_float(os.getenv("RETRIEVAL_PROVIDER_TIMEOUT_SECONDS"), 12.0),
+        retrieval_provider=os.getenv("RETRIEVAL_PROVIDER", "mock").strip().lower(),
+        retrieval_timeout_seconds=_as_float(os.getenv("RETRIEVAL_TIMEOUT_SECONDS"), 12.0),
+        retrieval_max_results=max(_as_int(os.getenv("RETRIEVAL_MAX_RESULTS"), 8), 1),
+        retrieval_cache_enabled=_as_bool(os.getenv("RETRIEVAL_CACHE_ENABLED"), default=True),
+        retrieval_cache_dir=Path(os.getenv("RETRIEVAL_CACHE_DIR", str(project_root / "data" / "cache" / "retrieval"))),
+        retrieval_cache_ttl_seconds=_as_float(os.getenv("RETRIEVAL_CACHE_TTL_SECONDS"), 43200.0),
+        retrieval_cache_allow_stale_on_error=_as_bool(os.getenv("RETRIEVAL_CACHE_ALLOW_STALE_ON_ERROR"), default=True),
+        retrieval_fallback_to_mock=_as_bool(os.getenv("RETRIEVAL_FALLBACK_TO_MOCK"), default=True),
         retrieval_gdelt_base_url=os.getenv(
             "RETRIEVAL_GDELT_BASE_URL",
             "https://api.gdeltproject.org/api/v2/doc/doc",
-        ).rstrip("/"),
-        retrieval_max_results=max(1, _as_int(os.getenv("RETRIEVAL_MAX_RESULTS"), 8)),
-        retrieval_cache_enabled=_as_bool(os.getenv("RETRIEVAL_CACHE_ENABLED"), default=True),
-        retrieval_cache_dir=Path(retrieval_cache_dir) if retrieval_cache_dir else default_cache_dir,
-        retrieval_cache_ttl_hours=max(1, _as_int(os.getenv("RETRIEVAL_CACHE_TTL_HOURS"), 24)),
+        ),
+        retrieval_google_news_endpoint=os.getenv(
+            "RETRIEVAL_GOOGLE_NEWS_ENDPOINT",
+            "https://news.google.com/rss/search?q={query}&hl=zh-CN&gl=CN&ceid=CN:zh-Hans",
+        ),
+        url_fetch_timeout_seconds=_as_float(os.getenv("URL_FETCH_TIMEOUT_SECONDS"), 8.0),
+        url_fetch_max_chars=max(_as_int(os.getenv("URL_FETCH_MAX_CHARS"), 12000), 1000),
         cors_allow_origin_regex=os.getenv(
             "CORS_ALLOW_ORIGIN_REGEX",
             r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
         ),
     )
+
