@@ -365,3 +365,33 @@
 - **📦 产出与落点 (Artifacts)**: `overview/10_unfinished-task-priority-and-parallel-analysis.md`、`prompt-history.md`
 - **➡️ 交接建议 (Next Handoff)**: 之后如果要真正开工，直接从 `overview/10` 复制对应波次/窗口的 prompt 即可；不需要再额外生成一次分发文档，除非波次本身再次变化。
 - **⭐ 效果评估**: [待填写]
+
+---
+
+### 📅 2026-03-14 20:01
+> **🧵 线程标识**: `T-main`
+> **🏷️ 窗口职责**: 主控 / 第二波复查与进度收口
+> **🔗 上下文来源**: `tasks/cluster-c-api-foundation.md`、`tasks/cluster-f-quality-gate.md`、`tasks/README.md`、`tasks/completed-subtask-doc-index.md`、`overview/09_stage-progress-and-task-audit.md`、`overview/10_unfinished-task-priority-and-parallel-analysis.md`、`backend/tests/test_api.py`、`backend/tests/test_retrieval.py`、`backend/tests/test_kimi_provider_quality.py`、`backend/eval_regression_tests/`
+> **💡 原始指令摘要**: 用户说明第二波 `C11` 已经执行完成，要求重新检查当前真实状态，并把第一波/第二波的完成情况、剩余任务、后续并行窗口与对应文档一起收口，让当前进度和后续工作方式清晰可执行。
+
+- **🎯 本线程目标 (Context & Goal)**: 以“第二波已完成”为新基线，重新核对代码、任务文件和测试结果，判断哪些能力已经真正落地、哪些任务还没收口，并把入口层文档改成当前事实口径。
+- **🧩 已知约束 (Known Context)**: `C10` 与 `C11` 的 task 文件已经回写为完成，但 `tasks/README.md`、`overview/09_stage-progress-and-task-audit.md`、`overview/10_unfinished-task-priority-and-parallel-analysis.md`、完成索引和部分 `Cluster-F` 状态仍停留在旧波次口径；同时需要避免把主链“已能跑”夸大成“任意新闻已稳定较真”。
+- **⚙️ AI 采用的策略 (AI Approach)**: 先复跑 API、retrieval、Kimi provider 质量和 eval regression；再确认第二波实际落下来的 provenance / source 化主链；最后同步重写 `tasks/README.md`、`tasks/completed-subtask-doc-index.md`、`overview/09_stage-progress-and-task-audit.md`、`overview/10_unfinished-task-priority-and-parallel-analysis.md`，并修正 `Cluster-C / Cluster-F` 的顶层状态与测试尾项。
+- **📦 产出与落点 (Artifacts)**: `tasks/README.md`、`tasks/completed-subtask-doc-index.md`、`overview/09_stage-progress-and-task-audit.md`、`overview/10_unfinished-task-priority-and-parallel-analysis.md`、`tasks/cluster-c-api-foundation.md`、`tasks/cluster-f-quality-gate.md`、`backend/tests/conftest.py`、`backend/tests/test_kimi_provider_quality.py`、`prompt-history.md`
+- **➡️ 交接建议 (Next Handoff)**: 下一波不应再围绕 `C10 / C11` 本体展开，而应并行推进 `F2 / F4 / F6 / F8`、`E9` 第二阶段和 `G3 / G4` 最终文档收口；其中 `F8` 之后再冻结最终 README / 边界口径最稳。
+- **⭐ 效果评估**: 当前复查结果为：`pytest backend/tests/test_api.py -q` 通过 `16 passed`，`pytest backend/tests/test_retrieval.py -q` 通过 `15 passed`，`pytest backend/tests/test_kimi_provider.py backend/tests/test_kimi_provider_quality.py -q` 通过 `6 passed`；`pytest backend/eval_regression_tests -q` 仍有 `3 failed, 1 passed`，主剩余缺口集中在 `F2 / F4 / F6`。
+
+---
+
+### 📅 2026-03-14 20:10
+> **🧵 线程标识**: `T-main`
+> **🏷️ 窗口职责**: 主控 / 剩余任务波次执行手册
+> **🔗 上下文来源**: `overview/10_unfinished-task-priority-and-parallel-analysis.md`、`overview/README.md`、`tasks/cluster-f-quality-gate.md`、`tasks/cluster-e-experience-shell.md`、`tasks/cluster-g-demo-ops.md`、`tasks/cluster-c-api-foundation.md`
+> **💡 原始指令摘要**: 用户以 `[log]` 方式要求针对当前仍需执行的任务，给出详细执行 prompt，并明确画出并行波次、每个波次执行哪些任务、每个任务对应的 prompt 是什么。
+
+- **🎯 本线程目标 (Context & Goal)**: 把“剩余任务”从简单列表升级成真正可执行的分发手册，让后续窗口能按波次直接开工，而不需要再次手工整理 prompt。
+- **🧩 已知约束 (Known Context)**: `C10` 与 `C11` 第一阶段已经完成，因此新的波次不应再围绕主链打通本体，而应围绕 `F2 / F4 / F6 / F8`、`E9` 第二阶段与 `G3 / G4` 最终收口展开；同时文档需要把波次图、任务表和详细 prompt 放在同一份文档中。
+- **⚙️ AI 采用的策略 (AI Approach)**: 重写 `overview/10` 的后半部分，新增“第三波 / 第四波 / 第五波”的并行波次总图、每波任务表，以及每个窗口的详细 prompt；再同步更新 `overview/README.md` 的索引描述，确保从 overview 入口就能看出这份文档已经变成剩余任务的执行手册。
+- **📦 产出与落点 (Artifacts)**: `overview/10_unfinished-task-priority-and-parallel-analysis.md`、`overview/README.md`、`prompt-history.md`
+- **➡️ 交接建议 (Next Handoff)**: 接下来直接按 `overview/10_unfinished-task-priority-and-parallel-analysis.md` 第 `7`、`8` 节分发剩余窗口即可；建议执行顺序为第三波 `F2 / F4 / F6 / E9`，第四波 `F8`，第五波 `G3 / G4`。
+- **⭐ 效果评估**: 剩余任务现在已经按“波次图 + 任务表 + 详细 prompt”三层结构写成可执行手册，不需要再额外生成一份并行 prompt 文档。

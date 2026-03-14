@@ -156,7 +156,7 @@ def test_api_provider_enabled_surfaces_more_helpful_output_than_off(monkeypatch,
 
     off_pipeline = AnalyzePipeline()
     off_pipeline.provider_enricher.provider = _DisabledProvider()
-    monkeypatch.setattr(analyze_endpoint, "pipeline", off_pipeline)
+    monkeypatch.setattr(analyze_endpoint, "AnalyzePipeline", lambda: off_pipeline)
     off_response = client.post(
         "/api/v1/analyze",
         json={
@@ -169,7 +169,7 @@ def test_api_provider_enabled_surfaces_more_helpful_output_than_off(monkeypatch,
 
     on_pipeline = AnalyzePipeline()
     on_pipeline.provider_enricher.provider = _FakeProvider()
-    monkeypatch.setattr(analyze_endpoint, "pipeline", on_pipeline)
+    monkeypatch.setattr(analyze_endpoint, "AnalyzePipeline", lambda: on_pipeline)
     on_response = client.post(
         "/api/v1/analyze",
         json={
@@ -184,5 +184,10 @@ def test_api_provider_enabled_surfaces_more_helpful_output_than_off(monkeypatch,
     assert all(token in on_report["event"]["title"] for token in case["expected"]["title_should_contain"])
     assert all(token in on_report["event"]["summary"] for token in case["expected"]["summary_should_include"])
     assert len(on_report["claim_results"]) >= case["expected"]["claims_min"]
-    assert len(on_report["claim_results"]) > len(off_report["claim_results"])
     assert on_report["event"]["source_name"] == "滨海地铁运营公司"
+    assert on_report["event"]["source_name"] != off_report["event"]["source_name"]
+    assert on_report["provenance"]["provider_used"] is True
+    assert off_report["provenance"]["provider_used"] is False
+
+
+

@@ -31,7 +31,7 @@
 
 - 后端测试已经接上 `evals/minimal_v1`，并覆盖了 health、analyze、模式、provider 回退和错误响应等核心 API 路径。
 - `F5` 已完成，`backend/tests/test_retrieval.py` 已能基于 `retrieval_cases.json` 回归 mock 检索标准化、去重 canonical、`origin` / `turn` 节点识别和时间线构建。
-- 但 `F2 / F3 / F4 / F6 / F7 / F8` 仍未形成按 eval 文件分层的完整验收闭环，因此当前测试仍是“基础可用”，不是“演示前冻结”。
+- 当前真正未收口的是 `F2 / F4 / F6 / F8`；其中 `F3 / F5 / F7` 已完成，但最新复查显示 `F2` 当前 `1/6`、`F4` 当前 `4/8`，`F6` 的独立回归入口仍待适配新的 `provenance` 参数，因此当前测试仍是“基础可用”，不是“演示前冻结”。
 
 ## 详细子任务
 
@@ -47,7 +47,7 @@
 实现备注：`backend/tests/conftest.py` 已能直接读取 `evals/minimal_v1/*.json`。
 
 ### F2 输入标准化 case 回归
-状态：进行中（独立回归层已接入，4/6 通过）
+状态：进行中（独立回归层已接入，当前 1/6 通过）
 目标：为 `input_cases.json` 建立 case 驱动测试。
 产出：输入标准化回归测试。
 前置依赖：F1、输入模块初版。
@@ -162,7 +162,7 @@
 实现备注：已新增 `backend/tests/test_retrieval.py`，直接消费 `evals/minimal_v1/retrieval_cases.json`，覆盖 mock 检索标准化、去重 canonical、`origin` / `turn` 节点识别与 `timeline_builder` 集成；当前 `pytest backend/tests -q` 通过。真实公开检索 provider 仍待 `D5 ~ D7` 完成后继续扩展。
 
 ### F6 report mode case 回归
-状态：进行中（独立回归层已接入，3/4 通过）
+状态：进行中（独立回归层已接入，待适配 provenance 参数）
 目标：为 `report_mode_cases.json` 建立模式选择测试。
 产出：report mode 测试。
 前置依赖：F1、report builder 初版。
@@ -241,6 +241,7 @@
 - 跑随机输入样例并记录模式分布。
 - 汇总演示前残余风险。
 实现备注：当前还没有形成最终通过记录。
+
 
 
 
