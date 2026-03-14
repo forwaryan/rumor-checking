@@ -2,12 +2,12 @@
 
 import re
 from collections import Counter
+from dataclasses import dataclass
 from typing import List, Optional, Sequence
 
-from backend.app.models.schemas import NormalizedEvent, TimelineNode
+from backend.app.models.schemas import NormalizedEvent, TimelineNode, TimelineSourceType
 from backend.app.services.contract_utils import ensure_datetime_string
 from backend.app.services.retrieval_models import RetrievalBundle, SearchResult
-from backend.app.services.scenario_library import match_scenario
 
 TURN_KEYWORDS = ("回应", "否认", "辟谣", "澄清", "调查", "核查", "纠正", "致歉", "responds", "denies")
 CLARIFICATION_KEYWORDS = ("说明", "更新", "通报", "公告", "答复", "恢复", "补充", "statement", "update", "clarifies")
@@ -17,29 +17,39 @@ RUMOR_KEYWORDS = ("传闻", "爆料", "网传", "截图", "谣言", "疯传", "r
 OFFICIAL_SOURCE_MARKERS = ("政府", "监管局", "教育局", "交通局", "公安", "法院", "学校", "医院", "委员会", "市场监管", "官方", "company", "official")
 
 
+@dataclass(frozen=True)
+class TimelineBuild:
+    nodes: List[TimelineNode]
+    source: TimelineSourceType
+
+
 class TimelineBuilder:
     def build(self, event: NormalizedEvent, retrieval_bundle: RetrievalBundle | None = None) -> List[TimelineNode]:
+        return self.build_with_source(event, retrieval_bundle=retrieval_bundle).nodes
+
+    def build_with_source(self, event: NormalizedEvent, retrieval_bundle: RetrievalBundle | None = None) -> TimelineBuild:
         if retrieval_bundle and retrieval_bundle.canonical_results:
             retrieval_timeline = self._build_from_retrieval(retrieval_bundle)
             if retrieval_timeline:
-                return retrieval_timeline
+                return TimelineBuild(nodes=retrieval_timeline, source="retrieval")
 
-        scenario = match_scenario(" ".join(filter(None, [event.raw_input, event.title, event.summary])))
-        if event.input_type == "question_only" and scenario.scenario_id != "beichuan_school":
-            return []
-        if scenario.timeline:
-            return list(scenario.timeline)
-        return [
-            TimelineNode(
-                node_type="origin",
-                title="输入内容进入分析队列",
-                url=event.source_url or "https://example.org/input/manual-input",
-                source_name=event.source_name or "用户提供输入",
-                published_at=ensure_datetime_string(event.published_at),
-                summary="系统已接收输入，但尚未补齐稳定传播链。",
-                why_selected="当前只有输入本身，没有足够外部节点可构成时间线。",
-            )
-        ]
+        if event.input_type == "question_only" or event.fallback_used:
+            return TimelineBuild(nodes=[], source="none")
+
+        return TimelineBuild(
+            nodes=[
+                TimelineNode(
+                    node_type="origin",
+                    title=event.title or "输入内容进入分析队列",
+                    url=event.source_url or "https://example.org/input/manual-input",
+                    source_name=event.source_name or "用户提供输入",
+                    published_at=ensure_datetime_string(event.published_at),
+                    summary=event.summary,
+                    why_selected="这是当前唯一稳定的输入锚点，尚未扩展到外部检索节点。",
+                )
+            ],
+            source="input_seed",
+        )
 
     def _build_from_retrieval(self, retrieval_bundle: RetrievalBundle) -> List[TimelineNode]:
         results = list(sorted(retrieval_bundle.canonical_results, key=self._sort_key))
@@ -279,4 +289,3 @@ class TimelineBuilder:
 
     def _sort_key(self, result: SearchResult) -> tuple[str, int, str]:
         return (result.published_at, -result.tier_weight, result.result_id)
-

@@ -13,7 +13,19 @@ from backend.app.services.url_content_extractor import UrlContentExtractor
 from backend.tests.conftest import load_eval_fixture
 
 
-REPORT_KEYS = {"mode", "event", "timeline", "claim_results", "final_summary", "risks", "sources"}
+REPORT_KEYS = {"mode", "event", "timeline", "claim_results", "final_summary", "risks", "sources", "provenance"}
+PROVENANCE_KEYS = {
+    "source_type",
+    "event_source",
+    "claim_source",
+    "evidence_source",
+    "timeline_source",
+    "retrieval_provider",
+    "retrieval_cache_status",
+    "provider_used",
+    "fallback_used",
+    "fallback_reasons",
+}
 
 
 def _case_by_id(filename: str, case_id: str):
@@ -34,6 +46,22 @@ def _provider_enabled_client(monkeypatch):
         get_settings.cache_clear()
 
 
+@contextmanager
+def _configured_client(monkeypatch, **env_overrides):
+    for key, value in env_overrides.items():
+        if value is None:
+            monkeypatch.delenv(key, raising=False)
+        else:
+            monkeypatch.setenv(key, value)
+    get_settings.cache_clear()
+    try:
+        app = create_app()
+        with TestClient(app, raise_server_exceptions=False) as test_client:
+            yield test_client
+    finally:
+        get_settings.cache_clear()
+
+
 def _html_response(url: str, html: str, *, content_type: str = "text/html; charset=utf-8") -> httpx.Response:
     return httpx.Response(
         200,
@@ -41,6 +69,11 @@ def _html_response(url: str, html: str, *, content_type: str = "text/html; chars
         headers={"content-type": content_type},
         text=html,
     )
+
+
+def _assert_provenance_shape(report: dict) -> None:
+    assert REPORT_KEYS.issubset(report.keys())
+    assert PROVENANCE_KEYS.issubset(report["provenance"].keys())
 
 
 def test_health_endpoint_returns_service_metadata(client):
@@ -79,13 +112,17 @@ def test_analyze_text_news_builds_complete_mode_report(client):
     )
     assert response.status_code == 200
     report = response.json()
-    assert REPORT_KEYS.issubset(report.keys())
+    _assert_provenance_shape(report)
     assert report["mode"] == "complete_mode"
     assert report["event"]["mode"] == "complete_mode"
     assert "海州市市场监管局" in report["event"]["title"]
     assert report["sources"]
     assert any(item["verdict"] == "supported" for item in report["claim_results"])
     assert len(report["timeline"]) >= 2
+    assert report["provenance"]["source_type"] == "backend_mock"
+    assert report["provenance"]["claim_source"] == "rule"
+    assert report["provenance"]["evidence_source"] == "retrieval_mock"
+    assert report["provenance"]["timeline_source"] == "retrieval"
 
 
 def test_analyze_question_only_can_surface_partial_mode_with_retrieval_evidence(client):
@@ -99,10 +136,13 @@ def test_analyze_question_only_can_surface_partial_mode_with_retrieval_evidence(
     )
     assert response.status_code == 200
     report = response.json()
+    _assert_provenance_shape(report)
     assert report["mode"] == "partial_mode"
     assert report["event"]["source_name"] == "用户问题输入"
     assert any(item["verdict"] == "refuted" for item in report["claim_results"])
     assert report["sources"]
+    assert report["provenance"]["source_type"] == "backend_mock"
+    assert report["provenance"]["evidence_source"] == "retrieval_mock"
 
 
 def test_analyze_url_fallback_keeps_risk_language_but_can_still_surface_partial_mode(client):
@@ -117,10 +157,14 @@ def test_analyze_url_fallback_keeps_risk_language_but_can_still_surface_partial_
     )
     assert response.status_code == 200
     report = response.json()
+    _assert_provenance_shape(report)
     assert report["mode"] == "partial_mode"
     assert any("保守输出" in item for item in report["risks"])
     assert any(item["verdict"] == "supported" for item in report["claim_results"])
     assert report["sources"]
+    assert report["provenance"]["source_type"] == "backend_mock"
+    assert report["provenance"]["fallback_used"] is True
+    assert "url_content_incomplete" in report["provenance"]["fallback_reasons"]
 
 
 def test_analyze_url_extraction_success_populates_event_fields(monkeypatch, client):
@@ -156,6 +200,7 @@ def test_analyze_url_extraction_success_populates_event_fields(monkeypatch, clie
 
     assert response.status_code == 200
     report = response.json()
+    _assert_provenance_shape(report)
     assert report["mode"] == "partial_mode"
     assert report["event"]["title"] == "海州市市场监管局通报海州新鲜屋酸奶抽检结果"
     assert "海州新鲜屋" in report["event"]["summary"]
@@ -163,6 +208,7 @@ def test_analyze_url_extraction_success_populates_event_fields(monkeypatch, clie
     assert report["event"]["published_at"].startswith("2026-03-01T09:00:00")
     assert report["sources"]
     assert any(item["verdict"] == "supported" for item in report["claim_results"])
+    assert report["provenance"]["event_source"] == "url_extract"
 
 
 def test_analyze_url_extraction_failure_stays_safe(monkeypatch, client):
@@ -181,11 +227,14 @@ def test_analyze_url_extraction_failure_stays_safe(monkeypatch, client):
 
     assert response.status_code == 200
     report = response.json()
+    _assert_provenance_shape(report)
     assert report["mode"] == "safe_mode"
     assert report["event"]["source_name"] == "files.example.com"
     assert "抽取不完整" in report["event"]["summary"]
     assert report["risks"]
     assert report["sources"] == []
+    assert report["provenance"]["fallback_used"] is True
+    assert report["provenance"]["evidence_source"] == "none"
 
 
 def test_analyze_url_extraction_timeout_falls_back_without_crashing(monkeypatch, client):
@@ -204,10 +253,12 @@ def test_analyze_url_extraction_timeout_falls_back_without_crashing(monkeypatch,
 
     assert response.status_code == 200
     report = response.json()
+    _assert_provenance_shape(report)
     assert report["mode"] == "safe_mode"
     assert "抓取超时" in report["event"]["summary"]
     assert any("抓取超时" in item for item in report["risks"])
     assert report["sources"] == []
+    assert "url_fetch_timeout" in report["provenance"]["fallback_reasons"]
 
 
 def test_text_input_does_not_trigger_url_extractor(monkeypatch, client):
@@ -231,7 +282,7 @@ def test_text_input_does_not_trigger_url_extractor(monkeypatch, client):
     assert "海州市市场监管局" in report["event"]["title"]
 
 
-def test_analyze_partial_mode_exposes_conflicting_claims(client):
+def test_analyze_unmatched_text_input_stays_safe_without_evidence(client):
     case = _case_by_id("input_cases.json", "I06")
     response = client.post(
         "/api/v1/analyze",
@@ -242,8 +293,39 @@ def test_analyze_partial_mode_exposes_conflicting_claims(client):
     )
     assert response.status_code == 200
     report = response.json()
-    assert report["mode"] == "partial_mode"
-    assert any(item["verdict"] == "conflicting" for item in report["claim_results"])
+    _assert_provenance_shape(report)
+    assert report["mode"] == "safe_mode"
+    assert report["sources"] == []
+    assert all(item["verdict"] == "insufficient" for item in report["claim_results"])
+    assert report["provenance"]["evidence_source"] == "none"
+    assert report["provenance"]["timeline_source"] == "input_seed"
+
+
+def test_analyze_without_evidence_keeps_safe_mode_and_live_provenance(monkeypatch):
+    with _configured_client(
+        monkeypatch,
+        ANALYSIS_PROVIDER="off",
+        KIMI_API_KEY=None,
+        RETRIEVAL_PROVIDER="off",
+        RETRIEVAL_FALLBACK_TO_MOCK="false",
+    ) as test_client:
+        response = test_client.post(
+            "/api/v1/analyze",
+            json={
+                "raw_input": "网传某地今晚会出现不明爆炸，但没有给出地点和来源。",
+                "input_type": "text",
+            },
+        )
+
+    assert response.status_code == 200
+    report = response.json()
+    _assert_provenance_shape(report)
+    assert report["mode"] == "safe_mode"
+    assert report["sources"] == []
+    assert report["provenance"]["source_type"] == "backend_live"
+    assert report["provenance"]["evidence_source"] == "none"
+    assert report["provenance"]["fallback_used"] is False
+    assert all(item["verdict"] == "insufficient" for item in report["claim_results"] if item["claim_type"] == "fact")
 
 
 def test_analyze_accepts_frontend_payload_shape(client):
@@ -259,7 +341,7 @@ def test_analyze_accepts_frontend_payload_shape(client):
     assert response.status_code == 200
     report = response.json()
     assert "report" not in report
-    assert REPORT_KEYS.issubset(report.keys())
+    _assert_provenance_shape(report)
     assert report["mode"] == "complete_mode"
 
 
@@ -293,12 +375,16 @@ def test_provider_enrichment_updates_event_and_claims(monkeypatch):
 
     assert response.status_code == 200
     report = response.json()
+    _assert_provenance_shape(report)
     assert report["event"]["title"] == "省市场监管局核查品牌奶制品抽检情况"
     assert report["event"]["summary"] == "省市场监管局已介入核查，企业回应称正在整改。"
     assert report["event"]["source_name"] == "省市场监管局"
     assert report["event"]["published_at"].startswith("2026-03-08T00:00:00")
     assert report["claim_results"][0]["claim"] == "省市场监管局已经介入核查。"
     assert report["claim_results"][1]["claim_type"] == "opinion"
+    assert report["provenance"]["provider_used"] is True
+    assert report["provenance"]["event_source"] == "provider_enriched"
+    assert report["provenance"]["claim_source"] == "provider"
 
 
 def test_provider_failures_fall_back_to_rule_pipeline(monkeypatch):
@@ -319,9 +405,12 @@ def test_provider_failures_fall_back_to_rule_pipeline(monkeypatch):
 
     assert response.status_code == 200
     report = response.json()
+    _assert_provenance_shape(report)
     assert report["mode"] == "complete_mode"
     assert "海州市市场监管局" in report["event"]["title"]
     assert any(item["verdict"] == "supported" for item in report["claim_results"])
+    assert report["provenance"]["provider_used"] is False
+    assert report["provenance"]["claim_source"] == "rule"
 
 
 def test_internal_errors_use_unified_error_shape(client):
@@ -336,7 +425,4 @@ def test_internal_errors_use_unified_error_shape(client):
     body = response.json()
     assert body["error"]["code"] == "internal_server_error"
     assert body["error"]["details"]["error_type"] == "RuntimeError"
-
-
-
 

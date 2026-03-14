@@ -14,7 +14,6 @@ from backend.app.services.contract_utils import (
     looks_like_url,
     source_name_from_url,
 )
-from backend.app.services.scenario_library import match_scenario
 from backend.app.services.url_content_extractor import UrlContentExtractor
 
 
@@ -38,6 +37,20 @@ URL_FALLBACK_NOTICE_MAP = {
     "url_content_unsupported": "该链接不是可直接抽取的 HTML 页面，当前只能保守提示，建议提供可打开的正文页或直接粘贴正文。",
     "url_invalid": "当前输入不是可直接抓取的链接，建议检查 URL 是否完整，或直接粘贴正文原文。",
 }
+OFFICIAL_SOURCE_HINTS = (
+    "监管局",
+    "交通局",
+    "教育局",
+    "生态环境局",
+    "政府",
+    "警方",
+    "法院",
+    "医院",
+    "委员会",
+    "市场监管",
+    "日报",
+    "中学",
+)
 
 
 def _collapse_whitespace(text: str) -> str:
@@ -69,13 +82,18 @@ def _normalize_requested_input_type(raw_input: str, requested: Optional[str]) ->
 
 
 def _extract_keywords(text: str) -> List[str]:
-    candidates = []
+    candidates: list[str] = []
     patterns = [
-        r"[一-龥]{2,12}(?:监管局|交通局|教育局|生态环境局|日报|中学|化工厂|生物)",
-        r"[一-龥]{2,12}(?:酸奶|渡轮|停课|裁员40%|异味|整改|传闻)",
+        r"[一-龥]{2,20}(?:监管局|交通局|教育局|生态环境局|日报|中学|化工厂|生物)",
+        r"[一-龥]{2,20}(?:酸奶|渡轮|停课|裁员40%|异味|整改|传闻)",
+        r"裁员\d+%",
     ]
     for pattern in patterns:
         candidates.extend(re.findall(pattern, text))
+
+    for token in ("海州新鲜屋", "渡轮停航", "晨星生物", "夜间异味", "停课", "整改", "裁员40%", "传闻", "辟谣", "核查"):
+        if token in text:
+            candidates.append(token)
 
     seen = set()
     ordered = []
@@ -97,6 +115,24 @@ def _extract_date(text: str) -> Optional[str]:
     return None
 
 
+def _infer_mode_hint(
+    *,
+    input_type: InternalInputType,
+    summary: str,
+    source_name: Optional[str],
+    published_at: Optional[str],
+    keywords: List[str],
+    fallback_used: bool,
+) -> str:
+    if input_type == "question_only" or fallback_used:
+        return "safe"
+    official_signal = bool(source_name and any(marker in source_name for marker in OFFICIAL_SOURCE_HINTS))
+    detail_signal = bool(published_at) or len(summary) >= 40 or len(keywords) >= 2
+    if official_signal and detail_signal:
+        return "complete_or_partial"
+    return "partial"
+
+
 class InputNormalizer:
     def __init__(self, url_content_extractor: Optional[UrlContentExtractor] = None) -> None:
         self.url_content_extractor = url_content_extractor or UrlContentExtractor()
@@ -104,17 +140,6 @@ class InputNormalizer:
     def normalize(self, payload: AnalyzeRequest) -> NormalizedEvent:
         input_type = _normalize_requested_input_type(payload.raw_input, payload.input_type)
         fetch = self._resolve_fetch_result(payload, input_type)
-        composite_text = " ".join(
-            part
-            for part in [
-                payload.raw_input,
-                getattr(fetch, "title", None),
-                getattr(fetch, "body", None),
-                getattr(fetch, "snippet", None),
-            ]
-            if part
-        )
-        scenario = match_scenario(composite_text)
 
         fallback_used = False
         fallback_reason = None
@@ -122,9 +147,10 @@ class InputNormalizer:
         source_name: Optional[str] = None
         source_url: Optional[str] = None
         published_at: Optional[str] = None
+        event_source = "input_normalized"
 
         if input_type in {"url_news", "url_unknown"}:
-            title, summary, source_name, source_url, published_at, input_type, fallback_used, fallback_reason = self._normalize_url_input(
+            title, summary, source_name, source_url, published_at, input_type, fallback_used, fallback_reason, event_source = self._normalize_url_input(
                 payload=payload,
                 input_type=input_type,
                 fetch=fetch,
@@ -134,22 +160,23 @@ class InputNormalizer:
             source_name = default_source_name(input_type)
             source_url = default_source_url(input_type, payload.raw_input)
         else:
-            title = scenario.title if scenario.scenario_id != "generic" else self._derive_title(payload.raw_input)
+            title = self._derive_title(payload.raw_input)
             summary = self._derive_summary(payload.raw_input)
             source_name = self._extract_source_name(payload.raw_input) or default_source_name(input_type)
             source_url = default_source_url(input_type, payload.raw_input)
             published_at = _extract_date(payload.raw_input)
 
-        keywords = self._merge_keywords(
-            scenario.keywords,
-            _extract_keywords(" ".join(filter(None, [title, summary, payload.raw_input]))),
+        keywords = self._dedupe_keywords(
+            _extract_keywords(" ".join(filter(None, [title, summary, source_name, payload.raw_input])))
         )
-
-        mode_hint = scenario.default_mode_hint
-        if input_type == "question_only":
-            mode_hint = "safe"
-        elif fallback_used and input_type in {"url_news", "url_unknown"}:
-            mode_hint = "safe"
+        mode_hint = _infer_mode_hint(
+            input_type=input_type,
+            summary=summary,
+            source_name=source_name,
+            published_at=published_at,
+            keywords=keywords,
+            fallback_used=fallback_used,
+        )
 
         return NormalizedEvent(
             title=title,
@@ -162,6 +189,7 @@ class InputNormalizer:
             mode_hint=mode_hint,
             fallback_used=fallback_used,
             fallback_reason=fallback_reason,
+            event_source=event_source,
             raw_input=payload.raw_input,
         )
 
@@ -180,7 +208,7 @@ class InputNormalizer:
         payload: AnalyzeRequest,
         input_type: InternalInputType,
         fetch: Optional[MockFetchResult],
-    ) -> tuple[Optional[str], str, str, str, Optional[str], InternalInputType, bool, Optional[str]]:
+    ) -> tuple[Optional[str], str, str, str, Optional[str], InternalInputType, bool, Optional[str], str]:
         source_url = payload.raw_input.strip() if looks_like_url(payload.raw_input) else default_source_url(input_type, payload.raw_input)
         if fetch and fetch.final_url:
             source_url = fetch.final_url
@@ -202,11 +230,13 @@ class InputNormalizer:
                 "url_unknown",
                 True,
                 "url_content_missing",
+                "input_normalized",
             )
 
         extracted_text = _collapse_whitespace(fetch.body or fetch.snippet or "")
         title = fetch.title or self._derive_url_title(extracted_text)
         summary = self._derive_summary(extracted_text) if extracted_text else ""
+        event_source = "url_extract" if any([fetch.title, fetch.body, fetch.snippet]) else "input_normalized"
 
         if fetch.status == "ok" and extracted_text:
             return (
@@ -218,6 +248,7 @@ class InputNormalizer:
                 "url_news",
                 False,
                 None,
+                event_source,
             )
 
         fallback_reason = fetch.fallback_reason or URL_FALLBACK_REASON_MAP.get(fetch.status, "url_fetch_failed")
@@ -237,6 +268,7 @@ class InputNormalizer:
             "url_unknown",
             True,
             fallback_reason,
+            event_source,
         )
 
     def _derive_summary(self, raw_input: str) -> str:
@@ -270,13 +302,13 @@ class InputNormalizer:
         return "链接页面抽取失败，当前只能先给出保守提示"
 
     def _extract_source_name(self, raw_input: str) -> Optional[str]:
-        match = re.search(r"([一-龥]{2,20}(?:监管局|交通局|教育局|生态环境局|日报|中学|化工厂))", raw_input)
+        match = re.search(r"([一-龥]{2,20}(?:监管局|交通局|教育局|生态环境局|日报|中学|化工厂|公司|医院|政府|警方))", raw_input)
         return match.group(1) if match else None
 
-    def _merge_keywords(self, scenario_keywords: List[str], extracted_keywords: List[str]) -> List[str]:
+    def _dedupe_keywords(self, extracted_keywords: List[str]) -> List[str]:
         seen = set()
         ordered: List[str] = []
-        for item in scenario_keywords + extracted_keywords:
+        for item in extracted_keywords:
             if item and item not in seen:
                 seen.add(item)
                 ordered.append(item)

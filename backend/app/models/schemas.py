@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional, Union
 
@@ -14,6 +14,11 @@ ConfidenceValue = Union[ConfidenceLevel, float]
 SourceTier = Literal["S", "A", "B", "C"]
 TimelineNodeType = Literal["origin", "amplification", "peak", "turn", "clarification"]
 UrlFetchStatus = Literal["ok", "partial", "empty", "timeout", "error", "unsupported"]
+EventSourceType = Literal["input_normalized", "url_extract", "provider_enriched"]
+ClaimSourceType = Literal["rule", "provider", "provider_plus_rule"]
+EvidenceSourceType = Literal["retrieval_live", "retrieval_mock", "request_mock", "none"]
+TimelineSourceType = Literal["retrieval", "input_seed", "none"]
+ReportSourceType = Literal["backend_live", "backend_mock", "backend_replay", "demo_payload", "frontend_fallback"]
 
 
 class MockFetchResult(BaseModel):
@@ -60,6 +65,7 @@ class NormalizedEvent(BaseModel):
     mode_hint: str = "partial"
     fallback_used: bool = False
     fallback_reason: Optional[str] = None
+    event_source: EventSourceType = "input_normalized"
     raw_input: str
 
 
@@ -100,6 +106,25 @@ class ClaimResult(BaseModel):
     notes: str
 
 
+class ReportProvenance(BaseModel):
+    source_type: ReportSourceType = Field(
+        ...,
+        description=(
+            "Backend currently emits backend_live/backend_mock/backend_replay. "
+            "Frontend may additionally use demo_payload/frontend_fallback for local-only states."
+        ),
+    )
+    event_source: EventSourceType
+    claim_source: ClaimSourceType
+    evidence_source: EvidenceSourceType
+    timeline_source: TimelineSourceType
+    retrieval_provider: Optional[str] = None
+    retrieval_cache_status: Optional[str] = None
+    provider_used: bool = False
+    fallback_used: bool = False
+    fallback_reasons: List[str] = Field(default_factory=list)
+
+
 class Report(BaseModel):
     mode: ReportMode
     event: Event
@@ -108,6 +133,7 @@ class Report(BaseModel):
     final_summary: str
     risks: List[str] = Field(default_factory=list)
     sources: List[EvidenceItem] = Field(default_factory=list)
+    provenance: ReportProvenance
 
 
 class AnalyzeRequest(BaseModel):

@@ -20,9 +20,10 @@ def load_eval_fixture(filename: str):
 @pytest.fixture()
 def client(monkeypatch) -> TestClient:
     monkeypatch.setenv("ANALYSIS_PROVIDER", "off")
-    monkeypatch.delenv("KIMI_API_KEY", raising=False)
+    monkeypatch.setenv("KIMI_API_KEY", "")
     get_settings.cache_clear()
     app = create_app()
     with TestClient(app, raise_server_exceptions=False) as test_client:
         yield test_client
     get_settings.cache_clear()
+

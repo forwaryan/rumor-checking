@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
@@ -300,7 +300,7 @@ def test_question_only_pipeline_uses_real_retrieval_bundle(tmp_path: Path):
 
     report = pipeline.analyze(
         AnalyzeRequest(
-            raw_input="最近是不是有一个女网红因为熬夜脑出血死掉了？",
+            raw_input="最近是不是有一个女网红因为熬夜脑出血去世了？",
             input_type="question",
         )
     )
@@ -310,6 +310,57 @@ def test_question_only_pipeline_uses_real_retrieval_bundle(tmp_path: Path):
     assert report.sources
     assert report.timeline
     assert report.claim_results[0].verdict == "refuted"
+    assert report.provenance.source_type == "backend_live"
+    assert report.provenance.evidence_source == "retrieval_live"
+    assert report.provenance.timeline_source == "retrieval"
+    assert report.provenance.fallback_used is False
+
+
+def test_pipeline_marks_mock_provenance_when_real_retrieval_falls_back_to_mock(tmp_path: Path):
+    pipeline = AnalyzePipeline()
+    pipeline.provider_enricher.enrich = lambda event: (event, None)
+    pipeline.retriever = RetrievalService(
+        settings=replace(get_settings(), retrieval_provider="gdelt", retrieval_fallback_to_mock=True),
+        provider=FakeProvider(error=RuntimeError("network down")),
+        cache=RetrievalCache(cache_root=tmp_path, ttl_seconds=3600),
+    )
+
+    report = pipeline.analyze(
+        AnalyzeRequest(
+            raw_input="【海州市市场监管局通报】2026年3月1日，海州市市场监管局发布通报称，在例行抽检中发现海州新鲜屋连锁门店有2批次酸奶超过保质期，涉事门店已停业整改。",
+            input_type="text",
+        )
+    )
+
+    assert report.sources
+    assert report.provenance.source_type == "backend_mock"
+    assert report.provenance.evidence_source == "retrieval_mock"
+    assert report.provenance.fallback_used is True
+    assert "real_retrieval_failed" in report.provenance.fallback_reasons
+
+
+def test_pipeline_without_evidence_stays_safe_and_exposes_none_provenance(tmp_path: Path):
+    pipeline = AnalyzePipeline()
+    pipeline.provider_enricher.enrich = lambda event: (event, None)
+    pipeline.retriever = RetrievalService(
+        settings=replace(get_settings(), retrieval_provider="gdelt", retrieval_fallback_to_mock=False),
+        provider=FakeProvider(results=[]),
+        cache=RetrievalCache(cache_root=tmp_path, ttl_seconds=3600),
+    )
+
+    report = pipeline.analyze(
+        AnalyzeRequest(
+            raw_input="网传某地今晚会出现不明爆炸，但没有给出地点和来源。",
+            input_type="text",
+        )
+    )
+
+    assert report.mode == "safe_mode"
+    assert report.sources == []
+    assert all(item.verdict == "insufficient" for item in report.claim_results if item.claim_type == "fact")
+    assert report.provenance.source_type == "backend_live"
+    assert report.provenance.evidence_source == "none"
+    assert report.provenance.timeline_source == "input_seed"
 
 
 def test_retrieval_service_skip_cache_alias_bypasses_cached_bundle(tmp_path: Path):
@@ -318,8 +369,8 @@ def test_retrieval_service_skip_cache_alias_bypasses_cached_bundle(tmp_path: Pat
         results=[
             _make_result(
                 result_id="real-1",
-                title="首轮实时检索结果",
-                snippet="第一轮返回的公开来源结果。",
+                title="棣栬疆瀹炴椂妫€绱㈢粨鏋?",
+                snippet="绗竴杞繑鍥炵殑鍏紑鏉ユ簮缁撴灉銆?",
                 published_at="2026-03-13T09:00:00+08:00",
                 url="https://example.com/live-1",
             )
@@ -335,8 +386,8 @@ def test_retrieval_service_skip_cache_alias_bypasses_cached_bundle(tmp_path: Pat
     provider._results = [
         _make_result(
             result_id="real-2",
-            title="跳过缓存后的新结果",
-            snippet="这是绕过缓存后拿到的新返回。",
+            title="璺宠繃缂撳瓨鍚庣殑鏂扮粨鏋?",
+            snippet="杩欐槸缁曡繃缂撳瓨鍚庢嬁鍒扮殑鏂拌繑鍥炪€?",
             published_at="2026-03-13T10:00:00+08:00",
             url="https://example.com/live-2",
         )

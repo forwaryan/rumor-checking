@@ -2,7 +2,7 @@
 
 from typing import List, Tuple
 
-from backend.app.models.schemas import ClaimResult, Event, EvidenceItem, NormalizedEvent, Report, TimelineNode
+from backend.app.models.schemas import ClaimResult, Event, EvidenceItem, NormalizedEvent, Report, ReportProvenance, TimelineNode
 from backend.app.services.contract_utils import default_source_name, default_source_url, ensure_datetime_string
 
 URL_FALLBACK_RISK_MAP = {
@@ -12,6 +12,12 @@ URL_FALLBACK_RISK_MAP = {
     "url_fetch_failed": "链接页面抓取失败，当前未获得可核查正文，只能先保守输出，建议稍后重试或直接粘贴正文。",
     "url_content_unsupported": "该链接不是可直接抽取的 HTML 页面，当前只能保守输出，建议提供可打开的正文页或直接粘贴正文。",
     "url_invalid": "当前链接格式不可直接抽取，系统只能先保守输出，建议检查 URL 或直接粘贴正文。",
+}
+RETRIEVAL_FALLBACK_REASONS = {
+    "real_retrieval_failed",
+    "real_retrieval_empty",
+    "retrieval_provider_unavailable",
+    "retrieval_cache_only_miss",
 }
 
 
@@ -24,12 +30,14 @@ class ReportBuilder:
         timeline: List[TimelineNode],
         evidence: List[EvidenceItem],
         evidence_grade: str,
+        provenance: ReportProvenance,
     ) -> Report:
         mode = self._select_mode(
             event=event,
             claim_results=claim_results,
             timeline=timeline,
             evidence_grade=evidence_grade,
+            provenance=provenance,
         )
         final_summary, risks = self._compose_sections(
             mode=mode,
@@ -37,6 +45,7 @@ class ReportBuilder:
             claim_results=claim_results,
             timeline=timeline,
             evidence=evidence,
+            provenance=provenance,
         )
 
         public_event = Event(
@@ -57,6 +66,7 @@ class ReportBuilder:
             sources=evidence,
             final_summary=final_summary,
             risks=risks,
+            provenance=provenance,
         )
 
     def _select_mode(
@@ -66,13 +76,20 @@ class ReportBuilder:
         claim_results: List[ClaimResult],
         timeline: List[TimelineNode],
         evidence_grade: str,
+        provenance: ReportProvenance,
     ) -> str:
         decisive_count = sum(1 for item in claim_results if item.verdict in {"supported", "refuted", "conflicting"})
         if event.input_type == "question_only" and decisive_count == 0:
             return "safe_mode"
-        if decisive_count == 0 and event.fallback_used:
+        if decisive_count == 0 and (event.fallback_used or provenance.evidence_source == "none"):
             return "safe_mode"
-        if evidence_grade in {"A", "S"} and decisive_count >= 2 and len(timeline) >= 2 and not event.fallback_used:
+        if (
+            evidence_grade in {"A", "S"}
+            and decisive_count >= 2
+            and len(timeline) >= 2
+            and provenance.timeline_source == "retrieval"
+            and not event.fallback_used
+        ):
             return "complete_mode"
         if decisive_count == 0:
             return "safe_mode"
@@ -86,6 +103,7 @@ class ReportBuilder:
         claim_results: List[ClaimResult],
         timeline: List[TimelineNode],
         evidence: List[EvidenceItem],
+        provenance: ReportProvenance,
     ) -> Tuple[str, List[str]]:
         strong_claims = [item for item in claim_results if item.verdict in {"supported", "refuted", "conflicting"}]
         conflicting_claims = [item for item in claim_results if item.verdict == "conflicting"]
@@ -101,8 +119,16 @@ class ReportBuilder:
         risks: List[str] = []
         if conflicting_claims:
             risks.append("存在相互冲突的证据，不能把单一版本当成最终事实。")
+        if provenance.source_type == "backend_mock":
+            risks.append("当前结果依赖 mock 检索、mock 抽取或请求注入数据，只适合作为联调/回归参考。")
+        if provenance.source_type == "backend_replay":
+            risks.append("当前结果来自 replay 数据回放，不能直接当作实时检索分析结论。")
         if event.fallback_used:
             risks.append(self._fallback_risk_message(event))
+        if any(reason in RETRIEVAL_FALLBACK_REASONS for reason in provenance.fallback_reasons):
+            risks.append("检索链路发生回退或未命中稳定结果，当前结论只能按保守口径理解。")
+        if provenance.timeline_source == "input_seed":
+            risks.append("时间线目前只从输入内容生成种子节点，尚未形成完整传播链。")
         if not evidence:
             risks.append("尚未形成稳定证据链。")
         if mode == "safe_mode":
@@ -110,7 +136,7 @@ class ReportBuilder:
         if not timeline:
             risks.append("时间线未建立成功，当前结果不代表完整传播链。")
 
-        return summary, risks
+        return summary, list(dict.fromkeys(risks))
 
     def _fallback_risk_message(self, event: NormalizedEvent) -> str:
         if event.input_type in {"url_news", "url_unknown"}:
