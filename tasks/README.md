@@ -1,4 +1,5 @@
-﻿# Tasks Index
+﻿> 本目录主要记录执行分工和回写状态，不是代码事实的唯一来源。若与代码实现冲突，先看 `../docs/status/current-verified-state.md`，旧稿见 `../docs/archive/conflicts/`。
+# Tasks Index
 
 本目录用于存放可独立并行推进的任务文件。
 
@@ -145,3 +146,4 @@ flowchart LR
 1. 先读 `tasks/cluster-c-api-foundation.md` 确认 `C10 / C11` 已完成到哪一层。
 2. 再读 `tasks/cluster-f-quality-gate.md` 看 `F2 / F4 / F6 / F8` 还差什么。
 3. 然后按 `overview/10_unfinished-task-priority-and-parallel-analysis.md` 的最新窗口 prompt 分发下一波。
+

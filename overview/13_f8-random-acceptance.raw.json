@@ -1,0 +1,715 @@
+{
+  "generated_at": "2026-03-14 21:42:16",
+  "current_env_snapshot": {
+    "analysis_provider": "kimi",
+    "kimi_enabled": true,
+    "retrieval_provider": "mock",
+    "retrieval_fallback_to_mock": true
+  },
+  "batches": [
+    {
+      "batch_name": "default_env_demo",
+      "env_overrides": {},
+      "summary": {
+        "sample_count": 3,
+        "mode_distribution": {
+          "complete_mode": 2,
+          "safe_mode": 1
+        },
+        "bucket_distribution": {
+          "mock_or_replay": 3
+        },
+        "source_type_distribution": {
+          "backend_mock": 3
+        },
+        "evidence_source_distribution": {
+          "retrieval_mock": 2,
+          "none": 1
+        },
+        "fallback_distribution": {
+          "no_fallback": 3
+        }
+      },
+      "results": [
+        {
+          "case_id": "DEMO01",
+          "label": "expired-yogurt",
+          "group": "stable_demo",
+          "input_type": "text",
+          "status_code": 200,
+          "mode": "complete_mode",
+          "event_title": "3月1日海州市市场监管局通报海州新鲜屋部分酸奶超过保质期",
+          "event_source_name": "日海州市市场监管局",
+          "source_count": 4,
+          "timeline_count": 3,
+          "claim_count": 2,
+          "verdict_counts": {
+            "refuted": 1,
+            "supported": 1
+          },
+          "provenance": {
+            "source_type": "backend_mock",
+            "event_source": "input_normalized",
+            "claim_source": "rule",
+            "evidence_source": "retrieval_mock",
+            "timeline_source": "retrieval",
+            "retrieval_provider": "mock",
+            "retrieval_cache_status": "not_used",
+            "provider_used": false,
+            "fallback_used": false,
+            "fallback_reasons": []
+          },
+          "fallback_reasons": [],
+          "acceptance_bucket": "mock_or_replay",
+          "final_summary": "当前高可信证据已支撑主链路，核心结论围绕“3月1日海州市市场监管局通报海州新鲜屋部分酸奶超过保质期，涉事门店已停业整改，目前未发现大规模食物中毒病例。”展开。",
+          "risks": [
+            "当前结果依赖 mock 检索、mock 抽取或请求注入数据，只适合作为联调/回归参考。"
+          ]
+        },
+        {
+          "case_id": "DEMO02",
+          "label": "chemical-odor",
+          "group": "stable_demo",
+          "input_type": "text",
+          "status_code": 200,
+          "mode": "safe_mode",
+          "event_title": "北城区化工厂夜间异味被居民连续投诉，区生态环境局已经进场",
+          "event_source_name": "北城区化工厂",
+          "source_count": 0,
+          "timeline_count": 1,
+          "claim_count": 2,
+          "verdict_counts": {
+            "insufficient": 2
+          },
+          "provenance": {
+            "source_type": "backend_mock",
+            "event_source": "input_normalized",
+            "claim_source": "rule",
+            "evidence_source": "none",
+            "timeline_source": "input_seed",
+            "retrieval_provider": "mock",
+            "retrieval_cache_status": "not_used",
+            "provider_used": false,
+            "fallback_used": false,
+            "fallback_reasons": []
+          },
+          "fallback_reasons": [],
+          "acceptance_bucket": "mock_or_replay",
+          "final_summary": "当前信息不足以给出确定性判断，系统保持 safe mode，并优先提示待补证据。",
+          "risks": [
+            "当前结果依赖 mock 检索、mock 抽取或请求注入数据，只适合作为联调/回归参考。",
+            "时间线目前只从输入内容生成种子节点，尚未形成完整传播链。",
+            "尚未形成稳定证据链。",
+            "当前页面只适合提示待核查点，不应被当作定性结论。",
+            "建议补充可核查原文、权威来源或稍后重试，再决定是否下结论。"
+          ]
+        },
+        {
+          "case_id": "DEMO03",
+          "label": "morningstar-layoff",
+          "group": "stable_demo",
+          "input_type": "question",
+          "status_code": 200,
+          "mode": "complete_mode",
+          "event_title": "晨星生物宣布裁员40%",
+          "event_source_name": "用户问题输入",
+          "source_count": 3,
+          "timeline_count": 2,
+          "claim_count": 2,
+          "verdict_counts": {
+            "refuted": 2
+          },
+          "provenance": {
+            "source_type": "backend_mock",
+            "event_source": "provider_enriched",
+            "claim_source": "provider_plus_rule",
+            "evidence_source": "retrieval_mock",
+            "timeline_source": "retrieval",
+            "retrieval_provider": "mock",
+            "retrieval_cache_status": "not_used",
+            "provider_used": true,
+            "fallback_used": false,
+            "fallback_reasons": []
+          },
+          "fallback_reasons": [],
+          "acceptance_bucket": "mock_or_replay",
+          "final_summary": "当前高可信证据已支撑主链路，核心结论围绕“晨星生物已宣布裁员40%。”展开。",
+          "risks": [
+            "当前结果依赖 mock 检索、mock 抽取或请求注入数据，只适合作为联调/回归参考。"
+          ]
+        }
+      ]
+    },
+    {
+      "batch_name": "default_env_random",
+      "env_overrides": {},
+      "summary": {
+        "sample_count": 9,
+        "mode_distribution": {
+          "safe_mode": 8,
+          "partial_mode": 1
+        },
+        "bucket_distribution": {
+          "mock_or_replay": 9
+        },
+        "source_type_distribution": {
+          "backend_mock": 9
+        },
+        "evidence_source_distribution": {
+          "none": 8,
+          "retrieval_mock": 1
+        },
+        "fallback_distribution": {
+          "no_fallback": 7,
+          "fallback": 2
+        }
+      },
+      "results": [
+        {
+          "case_id": "RAND01",
+          "label": "provider-fixture-kp01",
+          "group": "random_text",
+          "input_type": "text",
+          "status_code": 200,
+          "mode": "safe_mode",
+          "event_title": "热搜截图",
+          "event_source_name": "运营公司",
+          "source_count": 0,
+          "timeline_count": 1,
+          "claim_count": 2,
+          "verdict_counts": {
+            "insufficient": 2
+          },
+          "provenance": {
+            "source_type": "backend_mock",
+            "event_source": "input_normalized",
+            "claim_source": "rule",
+            "evidence_source": "none",
+            "timeline_source": "input_seed",
+            "retrieval_provider": "mock",
+            "retrieval_cache_status": "not_used",
+            "provider_used": false,
+            "fallback_used": false,
+            "fallback_reasons": []
+          },
+          "fallback_reasons": [],
+          "acceptance_bucket": "mock_or_replay",
+          "final_summary": "当前信息不足以给出确定性判断，系统保持 safe mode，并优先提示待补证据。",
+          "risks": [
+            "当前结果依赖 mock 检索、mock 抽取或请求注入数据，只适合作为联调/回归参考。",
+            "时间线目前只从输入内容生成种子节点，尚未形成完整传播链。",
+            "尚未形成稳定证据链。",
+            "当前页面只适合提示待核查点，不应被当作定性结论。",
+            "建议补充可核查原文、权威来源或稍后重试，再决定是否下结论。"
+          ]
+        },
+        {
+          "case_id": "RAND02",
+          "label": "provider-fixture-kp02",
+          "group": "random_text",
+          "input_type": "text",
+          "status_code": 200,
+          "mode": "safe_mode",
+          "event_title": "安州育才中学食堂多名学生食物中毒传闻及校方回应",
+          "event_source_name": "安州育才中学",
+          "source_count": 0,
+          "timeline_count": 1,
+          "claim_count": 4,
+          "verdict_counts": {
+            "insufficient": 4
+          },
+          "provenance": {
+            "source_type": "backend_mock",
+            "event_source": "provider_enriched",
+            "claim_source": "provider",
+            "evidence_source": "none",
+            "timeline_source": "input_seed",
+            "retrieval_provider": "mock",
+            "retrieval_cache_status": "not_used",
+            "provider_used": true,
+            "fallback_used": false,
+            "fallback_reasons": []
+          },
+          "fallback_reasons": [],
+          "acceptance_bucket": "mock_or_replay",
+          "final_summary": "当前信息不足以给出确定性判断，系统保持 safe mode，并优先提示待补证据。",
+          "risks": [
+            "当前结果依赖 mock 检索、mock 抽取或请求注入数据，只适合作为联调/回归参考。",
+            "时间线目前只从输入内容生成种子节点，尚未形成完整传播链。",
+            "尚未形成稳定证据链。",
+            "当前页面只适合提示待核查点，不应被当作定性结论。",
+            "建议补充可核查原文、权威来源或稍后重试，再决定是否下结论。"
+          ]
+        },
+        {
+          "case_id": "RAND03",
+          "label": "provider-fixture-kp03",
+          "group": "random_text",
+          "input_type": "text",
+          "status_code": 200,
+          "mode": "partial_mode",
+          "event_title": "网传清河水库决堤致上万人转移",
+          "event_source_name": "用户提供文本",
+          "source_count": 3,
+          "timeline_count": 2,
+          "claim_count": 2,
+          "verdict_counts": {
+            "insufficient": 1,
+            "refuted": 1
+          },
+          "provenance": {
+            "source_type": "backend_mock",
+            "event_source": "input_normalized",
+            "claim_source": "rule",
+            "evidence_source": "retrieval_mock",
+            "timeline_source": "retrieval",
+            "retrieval_provider": "mock",
+            "retrieval_cache_status": "not_used",
+            "provider_used": false,
+            "fallback_used": false,
+            "fallback_reasons": []
+          },
+          "fallback_reasons": [],
+          "acceptance_bucket": "mock_or_replay",
+          "final_summary": "当前已有部分可核验结论，但证据链或时间线仍不完整，需要保留边界。",
+          "risks": [
+            "当前结果依赖 mock 检索、mock 抽取或请求注入数据，只适合作为联调/回归参考。"
+          ]
+        },
+        {
+          "case_id": "RAND04",
+          "label": "provider-fixture-kp04",
+          "group": "random_text",
+          "input_type": "text",
+          "status_code": 200,
+          "mode": "safe_mode",
+          "event_title": "社交平台流传截图称星桥科技本周裁员50%",
+          "event_source_name": "用户提供文本",
+          "source_count": 0,
+          "timeline_count": 1,
+          "claim_count": 2,
+          "verdict_counts": {
+            "insufficient": 2
+          },
+          "provenance": {
+            "source_type": "backend_mock",
+            "event_source": "input_normalized",
+            "claim_source": "rule",
+            "evidence_source": "none",
+            "timeline_source": "input_seed",
+            "retrieval_provider": "mock",
+            "retrieval_cache_status": "not_used",
+            "provider_used": false,
+            "fallback_used": false,
+            "fallback_reasons": []
+          },
+          "fallback_reasons": [],
+          "acceptance_bucket": "mock_or_replay",
+          "final_summary": "当前信息不足以给出确定性判断，系统保持 safe mode，并优先提示待补证据。",
+          "risks": [
+            "当前结果依赖 mock 检索、mock 抽取或请求注入数据，只适合作为联调/回归参考。",
+            "时间线目前只从输入内容生成种子节点，尚未形成完整传播链。",
+            "尚未形成稳定证据链。",
+            "当前页面只适合提示待核查点，不应被当作定性结论。",
+            "建议补充可核查原文、权威来源或稍后重试，再决定是否下结论。"
+          ]
+        },
+        {
+          "case_id": "RAND05",
+          "label": "viral-death-question",
+          "group": "random_question",
+          "input_type": "question",
+          "status_code": 200,
+          "mode": "safe_mode",
+          "event_title": "网传女网红因熬夜脑出血去世",
+          "event_source_name": "用户问题输入",
+          "source_count": 0,
+          "timeline_count": 0,
+          "claim_count": 2,
+          "verdict_counts": {
+            "insufficient": 2
+          },
+          "provenance": {
+            "source_type": "backend_mock",
+            "event_source": "provider_enriched",
+            "claim_source": "provider_plus_rule",
+            "evidence_source": "none",
+            "timeline_source": "none",
+            "retrieval_provider": "mock",
+            "retrieval_cache_status": "not_used",
+            "provider_used": true,
+            "fallback_used": false,
+            "fallback_reasons": []
+          },
+          "fallback_reasons": [],
+          "acceptance_bucket": "mock_or_replay",
+          "final_summary": "当前信息不足以给出确定性判断，系统保持 safe mode，并优先提示待补证据。",
+          "risks": [
+            "当前结果依赖 mock 检索、mock 抽取或请求注入数据，只适合作为联调/回归参考。",
+            "尚未形成稳定证据链。",
+            "当前页面只适合提示待核查点，不应被当作定性结论。",
+            "建议补充可核查原文、权威来源或稍后重试，再决定是否下结论。",
+            "时间线未建立成功，当前结果不代表完整传播链。"
+          ]
+        },
+        {
+          "case_id": "RAND06",
+          "label": "subway-question",
+          "group": "random_question",
+          "input_type": "question",
+          "status_code": 200,
+          "mode": "safe_mode",
+          "event_title": "待核实事件",
+          "event_source_name": "用户问题输入",
+          "source_count": 0,
+          "timeline_count": 0,
+          "claim_count": 1,
+          "verdict_counts": {
+            "insufficient": 1
+          },
+          "provenance": {
+            "source_type": "backend_mock",
+            "event_source": "input_normalized",
+            "claim_source": "rule",
+            "evidence_source": "none",
+            "timeline_source": "none",
+            "retrieval_provider": "mock",
+            "retrieval_cache_status": "not_used",
+            "provider_used": false,
+            "fallback_used": false,
+            "fallback_reasons": []
+          },
+          "fallback_reasons": [],
+          "acceptance_bucket": "mock_or_replay",
+          "final_summary": "当前信息不足以给出确定性判断，系统保持 safe mode，并优先提示待补证据。",
+          "risks": [
+            "当前结果依赖 mock 检索、mock 抽取或请求注入数据，只适合作为联调/回归参考。",
+            "尚未形成稳定证据链。",
+            "当前页面只适合提示待核查点，不应被当作定性结论。",
+            "建议补充可核查原文、权威来源或稍后重试，再决定是否下结论。",
+            "时间线未建立成功，当前结果不代表完整传播链。"
+          ]
+        },
+        {
+          "case_id": "RAND07",
+          "label": "example-url",
+          "group": "random_url",
+          "input_type": "url",
+          "status_code": 200,
+          "mode": "safe_mode",
+          "event_title": "Example Domain",
+          "event_source_name": "example.com",
+          "source_count": 0,
+          "timeline_count": 0,
+          "claim_count": 2,
+          "verdict_counts": {
+            "insufficient": 2
+          },
+          "provenance": {
+            "source_type": "backend_mock",
+            "event_source": "url_extract",
+            "claim_source": "rule",
+            "evidence_source": "none",
+            "timeline_source": "none",
+            "retrieval_provider": "mock",
+            "retrieval_cache_status": "not_used",
+            "provider_used": false,
+            "fallback_used": true,
+            "fallback_reasons": [
+              "url_content_incomplete"
+            ]
+          },
+          "fallback_reasons": [
+            "url_content_incomplete"
+          ],
+          "acceptance_bucket": "mock_or_replay",
+          "final_summary": "当前信息不足以给出确定性判断，系统保持 safe mode，并优先提示待补证据。",
+          "risks": [
+            "当前结果依赖 mock 检索、mock 抽取或请求注入数据，只适合作为联调/回归参考。",
+            "链接页面只抽取到部分标题或摘要，当前结果仍按保守输出处理，建议补充正文原文。",
+            "尚未形成稳定证据链。",
+            "当前页面只适合提示待核查点，不应被当作定性结论。",
+            "建议补充可核查原文、权威来源或稍后重试，再决定是否下结论。",
+            "时间线未建立成功，当前结果不代表完整传播链。"
+          ]
+        },
+        {
+          "case_id": "RAND08",
+          "label": "gov-home-url",
+          "group": "random_url",
+          "input_type": "url",
+          "status_code": 200,
+          "mode": "safe_mode",
+          "event_title": "中国政府网_中央人民政府门户网站",
+          "event_source_name": "gov.cn",
+          "source_count": 0,
+          "timeline_count": 1,
+          "claim_count": 2,
+          "verdict_counts": {
+            "insufficient": 2
+          },
+          "provenance": {
+            "source_type": "backend_mock",
+            "event_source": "url_extract",
+            "claim_source": "rule",
+            "evidence_source": "none",
+            "timeline_source": "input_seed",
+            "retrieval_provider": "mock",
+            "retrieval_cache_status": "not_used",
+            "provider_used": false,
+            "fallback_used": false,
+            "fallback_reasons": []
+          },
+          "fallback_reasons": [],
+          "acceptance_bucket": "mock_or_replay",
+          "final_summary": "当前信息不足以给出确定性判断，系统保持 safe mode，并优先提示待补证据。",
+          "risks": [
+            "当前结果依赖 mock 检索、mock 抽取或请求注入数据，只适合作为联调/回归参考。",
+            "时间线目前只从输入内容生成种子节点，尚未形成完整传播链。",
+            "尚未形成稳定证据链。",
+            "当前页面只适合提示待核查点，不应被当作定性结论。",
+            "建议补充可核查原文、权威来源或稍后重试，再决定是否下结论。"
+          ]
+        },
+        {
+          "case_id": "RAND09",
+          "label": "broken-pdf-url",
+          "group": "random_url",
+          "input_type": "url",
+          "status_code": 200,
+          "mode": "safe_mode",
+          "event_title": "链接页面抽取失败，当前只能先给出保守提示",
+          "event_source_name": "files.example.com",
+          "source_count": 0,
+          "timeline_count": 0,
+          "claim_count": 1,
+          "verdict_counts": {
+            "insufficient": 1
+          },
+          "provenance": {
+            "source_type": "backend_mock",
+            "event_source": "input_normalized",
+            "claim_source": "rule",
+            "evidence_source": "none",
+            "timeline_source": "none",
+            "retrieval_provider": "mock",
+            "retrieval_cache_status": "not_used",
+            "provider_used": false,
+            "fallback_used": true,
+            "fallback_reasons": [
+              "url_fetch_failed"
+            ]
+          },
+          "fallback_reasons": [
+            "url_fetch_failed"
+          ],
+          "acceptance_bucket": "mock_or_replay",
+          "final_summary": "当前信息不足以给出确定性判断，系统保持 safe mode，并优先提示待补证据。",
+          "risks": [
+            "当前结果依赖 mock 检索、mock 抽取或请求注入数据，只适合作为联调/回归参考。",
+            "链接页面抓取失败，当前未获得可核查正文，只能先保守输出，建议稍后重试或直接粘贴正文。",
+            "尚未形成稳定证据链。",
+            "当前页面只适合提示待核查点，不应被当作定性结论。",
+            "建议补充可核查原文、权威来源或稍后重试，再决定是否下结论。",
+            "时间线未建立成功，当前结果不代表完整传播链。"
+          ]
+        }
+      ]
+    },
+    {
+      "batch_name": "gdelt_live_probe",
+      "env_overrides": {
+        "RETRIEVAL_PROVIDER": "gdelt",
+        "RETRIEVAL_FALLBACK_TO_MOCK": "false"
+      },
+      "summary": {
+        "sample_count": 4,
+        "mode_distribution": {
+          "safe_mode": 4
+        },
+        "bucket_distribution": {
+          "fallback_or_none": 4
+        },
+        "source_type_distribution": {
+          "backend_live": 4
+        },
+        "evidence_source_distribution": {
+          "none": 4
+        },
+        "fallback_distribution": {
+          "fallback": 4
+        }
+      },
+      "results": [
+        {
+          "case_id": "LIVE01",
+          "label": "kp03-live-probe",
+          "group": "live_probe_text",
+          "input_type": "text",
+          "status_code": 200,
+          "mode": "safe_mode",
+          "event_title": "网传清河水库决堤致上万人转移",
+          "event_source_name": "用户提供文本",
+          "source_count": 0,
+          "timeline_count": 1,
+          "claim_count": 2,
+          "verdict_counts": {
+            "insufficient": 2
+          },
+          "provenance": {
+            "source_type": "backend_live",
+            "event_source": "input_normalized",
+            "claim_source": "rule",
+            "evidence_source": "none",
+            "timeline_source": "input_seed",
+            "retrieval_provider": "gdelt",
+            "retrieval_cache_status": "not_used",
+            "provider_used": false,
+            "fallback_used": true,
+            "fallback_reasons": [
+              "real_retrieval_failed"
+            ]
+          },
+          "fallback_reasons": [
+            "real_retrieval_failed"
+          ],
+          "acceptance_bucket": "fallback_or_none",
+          "final_summary": "当前信息不足以给出确定性判断，系统保持 safe mode，并优先提示待补证据。",
+          "risks": [
+            "检索链路发生回退或未命中稳定结果，当前结论只能按保守口径理解。",
+            "时间线目前只从输入内容生成种子节点，尚未形成完整传播链。",
+            "尚未形成稳定证据链。",
+            "当前页面只适合提示待核查点，不应被当作定性结论。",
+            "建议补充可核查原文、权威来源或稍后重试，再决定是否下结论。"
+          ]
+        },
+        {
+          "case_id": "LIVE02",
+          "label": "kp01-live-probe",
+          "group": "live_probe_text",
+          "input_type": "text",
+          "status_code": 200,
+          "mode": "safe_mode",
+          "event_title": "热搜截图",
+          "event_source_name": "运营公司",
+          "source_count": 0,
+          "timeline_count": 1,
+          "claim_count": 2,
+          "verdict_counts": {
+            "insufficient": 2
+          },
+          "provenance": {
+            "source_type": "backend_live",
+            "event_source": "input_normalized",
+            "claim_source": "rule",
+            "evidence_source": "none",
+            "timeline_source": "input_seed",
+            "retrieval_provider": "gdelt",
+            "retrieval_cache_status": "not_used",
+            "provider_used": false,
+            "fallback_used": true,
+            "fallback_reasons": [
+              "real_retrieval_failed"
+            ]
+          },
+          "fallback_reasons": [
+            "real_retrieval_failed"
+          ],
+          "acceptance_bucket": "fallback_or_none",
+          "final_summary": "当前信息不足以给出确定性判断，系统保持 safe mode，并优先提示待补证据。",
+          "risks": [
+            "检索链路发生回退或未命中稳定结果，当前结论只能按保守口径理解。",
+            "时间线目前只从输入内容生成种子节点，尚未形成完整传播链。",
+            "尚未形成稳定证据链。",
+            "当前页面只适合提示待核查点，不应被当作定性结论。",
+            "建议补充可核查原文、权威来源或稍后重试，再决定是否下结论。"
+          ]
+        },
+        {
+          "case_id": "LIVE03",
+          "label": "viral-death-live-probe",
+          "group": "live_probe_question",
+          "input_type": "question",
+          "status_code": 200,
+          "mode": "safe_mode",
+          "event_title": "网传女网红因熬夜脑出血去世",
+          "event_source_name": "用户问题输入",
+          "source_count": 0,
+          "timeline_count": 0,
+          "claim_count": 2,
+          "verdict_counts": {
+            "insufficient": 2
+          },
+          "provenance": {
+            "source_type": "backend_live",
+            "event_source": "provider_enriched",
+            "claim_source": "provider_plus_rule",
+            "evidence_source": "none",
+            "timeline_source": "none",
+            "retrieval_provider": "gdelt",
+            "retrieval_cache_status": "not_used",
+            "provider_used": true,
+            "fallback_used": true,
+            "fallback_reasons": [
+              "real_retrieval_failed"
+            ]
+          },
+          "fallback_reasons": [
+            "real_retrieval_failed"
+          ],
+          "acceptance_bucket": "fallback_or_none",
+          "final_summary": "当前信息不足以给出确定性判断，系统保持 safe mode，并优先提示待补证据。",
+          "risks": [
+            "检索链路发生回退或未命中稳定结果，当前结论只能按保守口径理解。",
+            "尚未形成稳定证据链。",
+            "当前页面只适合提示待核查点，不应被当作定性结论。",
+            "建议补充可核查原文、权威来源或稍后重试，再决定是否下结论。",
+            "时间线未建立成功，当前结果不代表完整传播链。"
+          ]
+        },
+        {
+          "case_id": "LIVE04",
+          "label": "gov-home-live-probe",
+          "group": "live_probe_url",
+          "input_type": "url",
+          "status_code": 200,
+          "mode": "safe_mode",
+          "event_title": "中国政府网_中央人民政府门户网站",
+          "event_source_name": "gov.cn",
+          "source_count": 0,
+          "timeline_count": 1,
+          "claim_count": 2,
+          "verdict_counts": {
+            "insufficient": 2
+          },
+          "provenance": {
+            "source_type": "backend_live",
+            "event_source": "url_extract",
+            "claim_source": "rule",
+            "evidence_source": "none",
+            "timeline_source": "input_seed",
+            "retrieval_provider": "gdelt",
+            "retrieval_cache_status": "not_used",
+            "provider_used": false,
+            "fallback_used": true,
+            "fallback_reasons": [
+              "real_retrieval_failed"
+            ]
+          },
+          "fallback_reasons": [
+            "real_retrieval_failed"
+          ],
+          "acceptance_bucket": "fallback_or_none",
+          "final_summary": "当前信息不足以给出确定性判断，系统保持 safe mode，并优先提示待补证据。",
+          "risks": [
+            "检索链路发生回退或未命中稳定结果，当前结论只能按保守口径理解。",
+            "时间线目前只从输入内容生成种子节点，尚未形成完整传播链。",
+            "尚未形成稳定证据链。",
+            "当前页面只适合提示待核查点，不应被当作定性结论。",
+            "建议补充可核查原文、权威来源或稍后重试，再决定是否下结论。"
+          ]
+        }
+      ]
+    }
+  ]
+}

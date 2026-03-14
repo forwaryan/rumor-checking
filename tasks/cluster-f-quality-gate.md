@@ -254,7 +254,7 @@
 - `Cluster-G`：把 `SMOKE_CHECKLIST.md` 纳入最终 demo 口播脚本与 README。
 实现备注：此前缺少独立 smoke checklist 文档；本轮已补齐文档，但真实后端 smoke 仍受 retrieval 侧未收口影响。
 ### F8 跑随机 case 与稳定 demo case
-状态：未完成
+状态：已完成（验收记录已落库，真实路径未通过最终验收）
 目标：做最终随机 case 和预设 demo case 的通过记录。
 产出：演示前通过结论和风险清单。
 前置依赖：真实能力基本接通。
@@ -275,6 +275,34 @@
 - 依次跑三条稳定 demo 输入，记录 `mode`、`provenance.source_type`、`evidence_source`、`timeline_source`、`fallback_used` 与典型 claim / timeline 行为。
 - 补跑一批随机文本、URL、question 输入，按 live / mock / replay / fallback 归类结果，统计 `mode` 分布、provenance 分布与代表性失败样本。
 - 把本轮验收结果正式回写到 `F8`，输出通过 / 未通过结论、剩余风险、可复用结论与交接建议；发现问题先记录再回提，不直接重写主实现。
+
+完成记录：
+- 正式落库 `overview/13_f8-random-acceptance.md` 与 `overview/13_f8-random-acceptance.raw.json`，把本轮 demo / 随机样本 / live probe 的 provenance 分类、mode 分布、失败样本与 G3/G4 可复用口径集中记录下来。
+- 复跑当前基线测试：`pytest backend/tests/test_api.py -q`=`16 passed`，`pytest backend/tests/test_retrieval.py -q`=`15 passed`，`pytest backend/tests/test_kimi_provider.py backend/tests/test_kimi_provider_quality.py -q`=`6 passed`。
+- 验收样本共 `16` 条：当前默认环境下跑 `3` 条稳定 demo 与 `9` 条随机文本 / URL / question；另补 `4` 条 `gdelt` live probe，强制关闭 mock fallback，专门检查 `backend_live + retrieval_live` 是否出现。
+- 总体分布：`complete_mode 2 / partial_mode 1 / safe_mode 13`；`real_live 0 / mock_or_replay 12 / fallback_or_none 4`；`backend_mock 12 / backend_live 4`；`retrieval_mock 3 / none 13`。
+- 稳定 demo 实测：`expired-yogurt` 仍是 `complete_mode`，但 provenance 仅为 `backend_mock + retrieval_mock`；`chemical-odor` 从预期 `partial_mode` 漂移到 `safe_mode`；`morningstar-layoff` 从预期 `safe_mode` 漂移到 `complete_mode`，存在明显边界风险。
+- `gdelt` live probe 实测 `0/4` 命中 `backend_live + retrieval_live`，全部停在 `backend_live + evidence_source=none + fallback_used=true`，统一 `fallback_reason=real_retrieval_failed`。
+
+验证情况：
+- 当前 `.env` 快照：`analysis_provider=kimi`、`kimi_enabled=true`、`retrieval_provider=mock`、`retrieval_fallback_to_mock=true`。
+- 默认环境下的 demo 与随机样本全部不是实时检索通过样本；即使返回了结构化结果，也只能按 mock/demo 路径理解。
+- live probe 运行期观察到 `gdelt` 侧 `ConnectError`、`HTTP 429 Too Many Requests`、`JSONDecodeError`，以及 `kimi_provider` 多次 `ReadTimeout`，说明真实路径仍不稳定。
+
+通过/失败结论：
+- `F8` 作为“正式验收记录落库”任务已完成。
+- “当前主链真实路径已通过最终验收”结论未通过：本轮没有任何 `backend_live + retrieval_live` 样本。
+- 当前只能讲“mock/demo 路径已有正式验收记录且 provenance 边界清楚”，不能讲“随机新闻真实检索较真已经稳定通过”。
+
+残余风险：
+- 默认环境仍是 `retrieval_provider=mock`，若不显式说明，容易把 demo / 随机结果误讲成真实检索结论。
+- `chemical-odor` 与 `morningstar-layoff` 两条稳定 demo 已经模式漂移，口播与 smoke 文档如果不更新，会直接误导评审。
+- live retrieval 当前受 `gdelt` 可用性与限流影响，provider 在线批次也有超时，导致开放输入帮助性和真实路径命中率都不稳定。
+
+建议交接窗口：
+- `Cluster-G / G3 / G4`：直接复用 `overview/13_f8-random-acceptance.md` 里的“能讲什么 / 不能讲什么”和风险表，更新 README、口播与交付边界。
+- `Cluster-D`：优先收 live retrieval 的 `ConnectError / 429 / JSONDecodeError`，否则无法补齐 `backend_live + retrieval_live` 通过样本。
+- `Cluster-C`：优先复核 `chemical-odor` 与 `morningstar-layoff` 的模式漂移，防止 safe / partial / complete 边界继续失真。
 
 
 
