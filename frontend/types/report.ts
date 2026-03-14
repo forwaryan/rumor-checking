@@ -135,6 +135,28 @@ export interface Investigation {
   final_conclusion: string;
 }
 
+export interface ContentCheckItem {
+  claim: string;
+  claim_type: ClaimType;
+  verdict: Verdict;
+  confidence: ConfidenceValue;
+  reason: string;
+}
+
+export interface AnswerSuggestion {
+  angle: string;
+  answer: string;
+}
+
+export interface ContentCheck {
+  likely_true: ContentCheckItem[];
+  likely_false: ContentCheckItem[];
+  controversial: ContentCheckItem[];
+  opinions: ContentCheckItem[];
+  uncertain: ContentCheckItem[];
+  possible_answers: AnswerSuggestion[];
+}
+
 export interface PipelineTraceStep {
   stage_key: string;
   title: string;
@@ -158,6 +180,7 @@ export interface Report {
   retrieval_hits?: Evidence[];
   retrieval_diagnostics?: RetrievalDiagnostics | null;
   investigation?: Investigation | null;
+  content_check?: ContentCheck | null;
   pipeline_trace?: PipelineTrace | null;
   provenance?: ReportProvenance | null;
 }

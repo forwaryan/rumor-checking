@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from backend.app.core.config import get_settings
 from backend.app.main import create_app
-from backend.app.models.schemas import ClaimItem, ProviderAnalysis, ProviderEventDraft
+from backend.app.models.schemas import ClaimItem, EvidenceItem, ProviderAnalysis, ProviderEventDraft
 from backend.app.services.kimi_provider import KimiProvider
 from backend.app.services.url_content_extractor import UrlContentExtractor
 from backend.tests.conftest import load_eval_fixture
@@ -24,6 +24,7 @@ REPORT_KEYS = {
     "retrieval_hits",
     "retrieval_diagnostics",
     "investigation",
+    "content_check",
     "pipeline_trace",
     "provenance",
 }
@@ -112,6 +113,25 @@ def _assert_pipeline_trace_shape(report: dict) -> None:
         assert isinstance(step["details"], list)
 
 
+def _assert_content_check_shape(report: dict) -> None:
+    content_check = report["content_check"]
+    assert content_check is not None
+    assert {
+        "likely_true",
+        "likely_false",
+        "controversial",
+        "opinions",
+        "uncertain",
+        "possible_answers",
+    }.issubset(content_check.keys())
+    for key in ["likely_true", "likely_false", "controversial", "opinions", "uncertain"]:
+        assert isinstance(content_check[key], list)
+        for item in content_check[key]:
+            assert {"claim", "claim_type", "verdict", "confidence", "reason"}.issubset(item.keys())
+    for item in content_check["possible_answers"]:
+        assert {"angle", "answer"}.issubset(item.keys())
+
+
 def test_health_endpoint_returns_service_metadata(client):
     response = client.get("/api/v1/health")
     assert response.status_code == 200
@@ -149,6 +169,7 @@ def test_analyze_text_news_builds_complete_mode_report(client):
     assert response.status_code == 200
     report = response.json()
     _assert_provenance_shape(report)
+    _assert_content_check_shape(report)
     _assert_pipeline_trace_shape(report)
     assert report["mode"] == "complete_mode"
     assert report["event"]["mode"] == "complete_mode"
@@ -174,6 +195,7 @@ def test_analyze_question_only_can_surface_partial_mode_with_retrieval_evidence(
     assert response.status_code == 200
     report = response.json()
     _assert_provenance_shape(report)
+    _assert_content_check_shape(report)
     _assert_pipeline_trace_shape(report)
     assert report["mode"] == "partial_mode"
     assert report["event"]["title"] == "晨星生物回应裁员传闻"
@@ -206,6 +228,7 @@ def test_analyze_url_fallback_keeps_risk_language_but_can_still_surface_partial_
     assert response.status_code == 200
     report = response.json()
     _assert_provenance_shape(report)
+    _assert_content_check_shape(report)
     _assert_pipeline_trace_shape(report)
     assert report["mode"] == "partial_mode"
     assert any("保守输出" in item for item in report["risks"])
@@ -250,6 +273,7 @@ def test_analyze_url_extraction_success_populates_event_fields(monkeypatch, clie
     assert response.status_code == 200
     report = response.json()
     _assert_provenance_shape(report)
+    _assert_content_check_shape(report)
     _assert_pipeline_trace_shape(report)
     assert report["mode"] == "partial_mode"
     assert report["event"]["title"] == "海州市市场监管局通报海州新鲜屋酸奶抽检结果"
@@ -278,6 +302,7 @@ def test_analyze_url_extraction_failure_stays_safe(monkeypatch, client):
     assert response.status_code == 200
     report = response.json()
     _assert_provenance_shape(report)
+    _assert_content_check_shape(report)
     _assert_pipeline_trace_shape(report)
     assert report["mode"] == "safe_mode"
     assert report["event"]["source_name"] == "files.example.com"
@@ -461,6 +486,66 @@ def test_provider_enrichment_updates_event_and_claims(monkeypatch):
     assert report["provenance"]["provider_used"] is True
     assert report["provenance"]["event_source"] == "provider_enriched"
     assert report["provenance"]["claim_source"] == "provider"
+
+
+def test_provider_mixed_claims_surface_true_false_split_and_answer_suggestions(monkeypatch):
+    def fake_analyze(self, event):
+        return ProviderAnalysis(
+            event=ProviderEventDraft(
+                title="医院回应女主播病情传闻",
+                summary="医院确认当事人突发脑出血入院，家属辟谣去世和封锁消息说法。",
+                keywords=["女主播", "脑出血", "辟谣"],
+                source_name="市第一医院",
+                published_at="2026-03-12",
+            ),
+            claims=[
+                ClaimItem(claim="医院确认存在脑出血入院治疗情况。", claim_type="fact"),
+                ClaimItem(claim="当事人已经去世。", claim_type="fact"),
+                ClaimItem(claim="平台封锁了消息。", claim_type="fact"),
+            ],
+        )
+
+    monkeypatch.setattr(KimiProvider, "analyze", fake_analyze)
+
+    mock_evidence = [
+        EvidenceItem(
+            title="市第一医院通报女主播突发脑出血入院治疗",
+            url="https://hospital.example.com/notice-1",
+            source_name="市第一医院",
+            published_at="2026-03-12T09:00:00+08:00",
+            snippet="医院通报称，患者因突发脑出血入院治疗，目前生命体征平稳。",
+            relevance_reason="医院直接通报了入院救治情况。",
+            source_tier="S",
+        ),
+        EvidenceItem(
+            title="家属辟谣当事人去世和平台封锁消息说法",
+            url="https://news.example.com/family-response",
+            source_name="news.cn",
+            published_at="2026-03-12T12:00:00+08:00",
+            snippet="家属表示当事人去世消息不实，平台并未封锁消息，相关说法系误传。",
+            relevance_reason="家属直接回应了死亡和封锁消息两条传闻。",
+            source_tier="A",
+        ),
+    ]
+
+    with _provider_enabled_client(monkeypatch) as provider_client:
+        response = provider_client.post(
+            "/api/v1/analyze",
+            json={
+                "raw_input": "网传某女主播脑出血去世，平台还封锁消息。",
+                "input_type": "text",
+                "mock_evidence": [item.model_dump(mode="json") for item in mock_evidence],
+            },
+        )
+
+    assert response.status_code == 200
+    report = response.json()
+    _assert_provenance_shape(report)
+    _assert_content_check_shape(report)
+    assert any(item["claim"] == "医院确认存在脑出血入院治疗情况。" for item in report["content_check"]["likely_true"])
+    assert any(item["claim"] == "当事人已经去世。" for item in report["content_check"]["likely_false"])
+    assert any(item["claim"] == "平台封锁了消息。" for item in report["content_check"]["likely_false"])
+    assert any("半真半假" in item["answer"] or "更像真的部分" in item["answer"] for item in report["content_check"]["possible_answers"])
 
 
 def test_provider_failures_fall_back_to_rule_pipeline(monkeypatch):

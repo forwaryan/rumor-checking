@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from backend.app.models.schemas import AnalyzeRequest, Report, ReportProvenance, RetrievalDiagnostics
 from backend.app.services.claim_extractor import ClaimExtractor
+from backend.app.services.content_check_builder import ContentCheckBuilder
 from backend.app.services.input_normalizer import InputNormalizer
 from backend.app.services.pipeline_trace_builder import PipelineTraceBuilder
 from backend.app.services.provider_enricher import ProviderEnricher
@@ -22,6 +23,7 @@ class AnalyzePipeline:
         self.verdict_engine = VerdictEngine()
         self.timeline_builder = TimelineBuilder()
         self.report_builder = ReportBuilder()
+        self.content_check_builder = ContentCheckBuilder()
         self.pipeline_trace_builder = PipelineTraceBuilder()
 
     def analyze(self, request: AnalyzeRequest) -> Report:
@@ -73,6 +75,10 @@ class AnalyzePipeline:
             provenance=provenance,
             original_input=request.raw_input,
         )
+        content_check = self.content_check_builder.build(
+            report=report,
+            original_input=request.raw_input,
+        )
         pipeline_trace = self.pipeline_trace_builder.build(
             request=request,
             normalized_event=normalized_event,
@@ -88,7 +94,7 @@ class AnalyzePipeline:
             timeline=timeline,
             report=report,
         )
-        return report.model_copy(update={"pipeline_trace": pipeline_trace})
+        return report.model_copy(update={"content_check": content_check, "pipeline_trace": pipeline_trace})
 
     def _build_retrieval_diagnostics(self, retrieval_bundle) -> RetrievalDiagnostics | None:
         if retrieval_bundle is None:

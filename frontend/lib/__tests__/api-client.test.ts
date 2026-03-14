@@ -45,7 +45,7 @@ describe("parseReport", () => {
           notes: "环保部门材料直接支持该说法。",
         },
       ],
-      final_summary: "当前已有部分可核验结论，但证据链或时间线仍不完整，需要保留边界。",
+      final_summary: "当前已有部分可核验结论，但证据链和时间线仍不完整，需要保留边界。",
       risks: ["存在相互冲突的证据，不能把单一版本当成最终事实。"],
       sources: [],
       provenance: {
@@ -75,7 +75,7 @@ describe("parseReport", () => {
     const report = parseReport({ mode: "safe_mode" });
 
     expect(report.event.title).toBe("未命名事件");
-    expect(report.final_summary).toBe("暂无综合结论。");
+    expect(report.final_summary).toBe("缺少最终总结字段");
     expect(report.timeline).toEqual([]);
     expect(report.claim_results).toEqual([]);
     expect(report.sources).toEqual([]);
@@ -95,6 +95,6 @@ describe("parseReport", () => {
   });
 
   it("throws on non-object payloads", () => {
-    expect(() => parseReport(null)).toThrow("后端返回了无法解析的 Report。");
+    expect(() => parseReport(null)).toThrow("无法解析后端返回的 Report。");
   });
 });

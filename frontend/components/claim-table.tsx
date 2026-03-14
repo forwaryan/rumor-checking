@@ -1,4 +1,4 @@
-﻿import { formatConfidence, getVerdictLabel } from "@/lib/report-utils";
+import { formatConfidence, getClaimTypeLabel, getVerdictLabel } from "@/lib/report-utils";
 import type { Report } from "@/types/report";
 
 interface ClaimTableProps {
@@ -20,10 +20,10 @@ export function ClaimTable({ report }: ClaimTableProps) {
           <table>
             <thead>
               <tr>
-                <th>Claim</th>
+                <th>核查点</th>
                 <th>类型</th>
-                <th>Verdict</th>
-                <th>Confidence</th>
+                <th>判断</th>
+                <th>置信度</th>
                 <th>备注</th>
               </tr>
             </thead>
@@ -35,7 +35,9 @@ export function ClaimTable({ report }: ClaimTableProps) {
                     <span className="cell-subtle">证据 {claim.evidence.length} 条</span>
                   </td>
                   <td>
-                    <span className={`tag tag--soft tag--${claim.claim_type}`}>{claim.claim_type}</span>
+                    <span className={`tag tag--soft tag--${claim.claim_type}`}>
+                      {getClaimTypeLabel(claim.claim_type)}
+                    </span>
                   </td>
                   <td>
                     <span className={`tag tag--verdict tag--${claim.verdict}`}>
@@ -51,7 +53,7 @@ export function ClaimTable({ report }: ClaimTableProps) {
         </div>
       ) : (
         <p className="empty-state">
-          没有 claim 时，页面会保持空态提示；在 safe mode 下，也不会为了“看起来完整”强塞结论表。
+          没有 claim 时，页面会保持空态提示；在安全模式下，也不会为了“看起来完整”强塞结论表。
         </p>
       )}
     </section>

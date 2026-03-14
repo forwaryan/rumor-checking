@@ -18,6 +18,9 @@ SCAFFOLDING_MARKERS = (
 )
 QUESTION_TRAILING_MARKERS = ("是真的吗", "属实吗", "是真是假", "真还是假的")
 SPLIT_PATTERN = re.compile(r"[。！？?!；;]")
+CLAUSE_SPLIT_PATTERN = re.compile(r"[，,、]")
+CONNECTOR_SPLIT_PATTERN = re.compile(r"(并且|而且|还说|还称|还传|并称|又说|又称|但是|不过|同时)")
+LEADING_CONNECTORS = ("并且", "而且", "还说", "还称", "还传", "并称", "又说", "又称", "但是", "但", "不过", "同时")
 
 
 @dataclass(frozen=True)
@@ -77,15 +80,42 @@ class ClaimExtractor:
 
     def _candidate_fragments(self, event: NormalizedEvent) -> List[str]:
         fragments: List[str] = []
-        if event.input_type == "question_only":
-            fragments.append(event.summary)
-            return fragments
+        source_texts = [event.raw_input, event.summary]
+        if event.input_type != "question_only":
+            source_texts.append(event.title)
 
-        for text in [event.raw_input, event.summary, event.title]:
+        for text in source_texts:
             if not text:
                 continue
-            fragments.extend(part for part in SPLIT_PATTERN.split(text) if part.strip())
+            for sentence in SPLIT_PATTERN.split(text):
+                if not sentence.strip():
+                    continue
+                fragments.extend(self._split_compound_fragment(sentence))
         return fragments
+
+    def _split_compound_fragment(self, fragment: str) -> List[str]:
+        clauses: List[str] = []
+        comma_parts = [part.strip() for part in CLAUSE_SPLIT_PATTERN.split(fragment) if part.strip()]
+        if not comma_parts:
+            return []
+
+        for part in comma_parts:
+            pieces = CONNECTOR_SPLIT_PATTERN.split(part)
+            if len(pieces) == 1:
+                clauses.append(part)
+                continue
+
+            current = pieces[0].strip()
+            if current:
+                clauses.append(current)
+            for index in range(1, len(pieces), 2):
+                connector = pieces[index].strip()
+                tail = pieces[index + 1].strip() if index + 1 < len(pieces) else ""
+                merged = f"{connector}{tail}".strip()
+                if merged:
+                    clauses.append(merged)
+
+        return clauses or [fragment]
 
     def _push_claim(self, raw_text: str, claims: List[ClaimItem], seen: set[str]) -> None:
         normalized = re.sub(r"[。！？?!]+$", "", raw_text).strip()
@@ -98,6 +128,9 @@ class ClaimExtractor:
     def _clean_fragment(self, fragment: str) -> str:
         cleaned = re.sub(r"^【[^】]+】", "", fragment).strip(" ，,：:；;")
         cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        for marker in LEADING_CONNECTORS:
+            if cleaned.startswith(marker):
+                cleaned = cleaned[len(marker) :].strip()
         for marker in QUESTION_TRAILING_MARKERS:
             if cleaned.endswith(marker):
                 cleaned = cleaned[: -len(marker)].strip()

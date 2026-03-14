@@ -3,6 +3,7 @@ import type {
   ClaimResult,
   ClaimSourceType,
   ConfidenceValue,
+  ContentCheck,
   Evidence,
   EvidenceSourceType,
   Event,
@@ -260,6 +261,48 @@ function parseInvestigation(value: unknown): Investigation | null {
   };
 }
 
+function parseContentCheckItems(value: unknown): ContentCheck["likely_true"] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter(isObject).map((item) => ({
+    claim: ensureString(item.claim, "待核查 claim"),
+    claim_type:
+      item.claim_type === "fact" ||
+      item.claim_type === "opinion" ||
+      item.claim_type === "prediction" ||
+      item.claim_type === "unverifiable"
+        ? item.claim_type
+        : "unverifiable",
+    verdict: ensureVerdict(item.verdict),
+    confidence: ensureConfidence(item.confidence),
+    reason: ensureString(item.reason, "当前没有返回补充说明。"),
+  }));
+}
+
+function parseContentCheck(value: unknown): ContentCheck | null {
+  if (!isObject(value)) {
+    return null;
+  }
+
+  const possibleAnswers = Array.isArray(value.possible_answers)
+    ? value.possible_answers.filter(isObject).map((item) => ({
+        angle: ensureString(item.angle, "回答建议"),
+        answer: ensureString(item.answer, "当前没有返回建议话术。"),
+      }))
+    : [];
+
+  return {
+    likely_true: parseContentCheckItems(value.likely_true),
+    likely_false: parseContentCheckItems(value.likely_false),
+    controversial: parseContentCheckItems(value.controversial),
+    opinions: parseContentCheckItems(value.opinions),
+    uncertain: parseContentCheckItems(value.uncertain),
+    possible_answers: possibleAnswers,
+  };
+}
+
 function parsePipelineTrace(value: unknown): PipelineTrace | null {
   if (!isObject(value) || !Array.isArray(value.steps)) {
     return null;
@@ -294,6 +337,7 @@ export function parseReport(value: unknown): Report {
     retrieval_hits: parseEvidence(value.retrieval_hits),
     retrieval_diagnostics: parseRetrievalDiagnostics(value.retrieval_diagnostics),
     investigation: parseInvestigation(value.investigation),
+    content_check: parseContentCheck(value.content_check),
     pipeline_trace: parsePipelineTrace(value.pipeline_trace),
     provenance: parseReportProvenance(value.provenance),
   };

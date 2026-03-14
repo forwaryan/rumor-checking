@@ -12,8 +12,9 @@ const likelihoodLabel = {
 
 function buildFallbackInvestigation(report: Report): Investigation {
   const decisiveClaim = report.claim_results.find((item) => item.verdict !== "insufficient");
+  const decisiveCount = report.claim_results.filter((item) => item.verdict !== "insufficient").length;
   const verdictSummary = report.claim_results.length
-    ? `当前共拆出 ${report.claim_results.length} 条 claim，其中确定性判断 ${report.claim_results.filter((item) => item.verdict !== "insufficient").length} 条。`
+    ? `当前共拆出 ${report.claim_results.length} 条 claim，其中 ${decisiveCount} 条已经拿到非“证据不足”的判定。`
     : "当前还没有稳定的 claim 判断，只能先保留边界。";
 
   return {
@@ -21,23 +22,23 @@ function buildFallbackInvestigation(report: Report): Investigation {
     reframed_question: decisiveClaim?.claim ?? report.event.title,
     thinking_process: [
       {
-        title: "先看当前页面在核查什么",
-        detail: `当前事件锚点是“${report.event.title}”，页面把输入先收束到这个对象上继续分析。`,
+        title: "先看页面正在核查什么",
+        detail: `当前事件锚点是“${report.event.title}”，页面会先把输入收束到这个对象上继续分析。`,
       },
       {
-        title: "再看内容核查结果",
+        title: "再看可确认的核查结果",
         detail: verdictSummary,
       },
       {
         title: "最后看传播链还原程度",
         detail: report.timeline.length
           ? `当前已经还原出 ${report.timeline.length} 个时间线节点，可以继续沿传播链复核。`
-          : "当前还没有稳定时间线，所以这仍然不是完整传播链复盘。",
+          : "当前还没有稳定时间线，所以这仍然不是完整传播复盘。",
       },
     ],
     possibilities: [
       {
-        scenario: "当前 report 已经给出一版较真的边界化结果",
+        scenario: "当前 report 已经给出一版较稳的边界化结果",
         likelihood: report.mode === "complete_mode" ? "high" : report.mode === "partial_mode" ? "medium" : "low",
         summary: report.final_summary,
       },
@@ -58,11 +59,11 @@ export function InvestigationPanel({ report }: InvestigationPanelProps) {
         <div className="panel-heading">
           <div>
             <p className="eyebrow">Investigation</p>
-            <h2>较真拆解</h2>
+            <h2>核实拆解</h2>
           </div>
         </div>
         <p className="empty-state">
-          这里会把一句话先收束成可核查命题，再展示可见的核查步骤、可能情况和最后结论，避免用户自己从零拼接推理链。
+          这里会把一句话先收束成可核查命题，再展示核查要点、可能情况和最后结论，避免用户自己从零拼接推理链。
         </p>
       </section>
     );
@@ -75,7 +76,7 @@ export function InvestigationPanel({ report }: InvestigationPanelProps) {
       <div className="panel-heading">
         <div>
           <p className="eyebrow">Investigation</p>
-          <h2>较真拆解</h2>
+          <h2>核实拆解</h2>
         </div>
       </div>
 
@@ -92,15 +93,15 @@ export function InvestigationPanel({ report }: InvestigationPanelProps) {
 
       <div className="investigation-grid">
         <div className="investigation-block">
-          <h3>核查路径</h3>
-          <ol className="investigation-steps">
+          <h3>核查要点</h3>
+          <div className="investigation-step-grid">
             {investigation.thinking_process.map((step) => (
-              <li key={step.title} className="investigation-step">
+              <article key={step.title} className="investigation-step-card">
                 <strong>{step.title}</strong>
                 <p>{step.detail}</p>
-              </li>
+              </article>
             ))}
-          </ol>
+          </div>
         </div>
 
         <div className="investigation-block">

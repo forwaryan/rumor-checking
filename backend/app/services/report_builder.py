@@ -116,6 +116,8 @@ class ReportBuilder:
         if decisive_count == 0 and (event.fallback_used or provenance.evidence_source == "none"):
             return "safe_mode"
         if (
+            event.input_type != "question_only"
+            and
             evidence_grade in {"A", "S"}
             and decisive_count >= 2
             and len(timeline) >= 2
@@ -138,15 +140,24 @@ class ReportBuilder:
         provenance: ReportProvenance,
     ) -> Tuple[str, List[str]]:
         strong_claims = [item for item in claim_results if item.verdict in {"supported", "refuted", "conflicting"}]
+        supported_claims = [item for item in claim_results if item.verdict == "supported"]
+        refuted_claims = [item for item in claim_results if item.verdict == "refuted"]
+        insufficient_claims = [item for item in claim_results if item.verdict == "insufficient"]
         conflicting_claims = [item for item in claim_results if item.verdict == "conflicting"]
 
-        if mode == "complete_mode":
+        if supported_claims and refuted_claims:
+            summary = "这句话里同时有能被公开来源支持和被反驳的部分，当前更应按“真假混杂、部分被加料”来理解。"
+        elif supported_claims and insufficient_claims and mode != "complete_mode":
+            summary = "核心事件大体能对上，但句子里的部分追加细节仍缺公开证据，不能整句一起判真。"
+        elif refuted_claims and insufficient_claims and mode != "complete_mode":
+            summary = "主说法里有站不住的部分，但也可能混入了相近真实信息或二次加工细节，不能简单整句判假。"
+        elif mode == "complete_mode":
             headline = strong_claims[0].claim if strong_claims else event.summary
-            summary = f"\u5df2\u5f62\u6210\u76f8\u5bf9\u5b8c\u6574\u7684\u516c\u5f00\u8bc1\u636e\u94fe\uff0c\u5f53\u524d\u66f4\u503e\u5411\u4e8e\uff1a{headline}\u3002"
+            summary = "已形成相对完整的公开证据链，当前更倾向于：" + headline + "。"
         elif mode == "partial_mode":
-            summary = "\u5df2\u62ff\u5230\u90e8\u5206\u516c\u5f00\u8bc1\u636e\uff0c\u4f46\u94fe\u8def\u4ecd\u4e0d\u5b8c\u6574\uff1b\u5f53\u524d\u4e0d\u80fd\u7ed9\u51fa\u5b8c\u6574\u5b9a\u8bba\uff0c\u53ea\u7ed9\u51fa\u8fb9\u754c\u5316\u7ed3\u8bba\u3002"
+            summary = "已拿到部分公开证据，但链路仍不完整；当前不能给出完整定论，只给出边界化结论。"
         else:
-            summary = "\u5f53\u524d\u8bc1\u636e\u4ecd\u4e0d\u8db3\uff0c\u7cfb\u7edf\u4fdd\u6301 safe mode\uff0c\u53ea\u5c55\u793a\u6838\u67e5\u8fb9\u754c\u4e0e\u539f\u59cb\u68c0\u7d22\u547d\u4e2d\u3002"
+            summary = "当前证据仍不足，系统保持 safe mode，只展示核查边界与原始检索命中。"
 
         risks: List[str] = []
         if conflicting_claims:

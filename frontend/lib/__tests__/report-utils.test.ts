@@ -107,12 +107,12 @@ describe("report-utils", () => {
     expect(evidence[2]?.url).toBe("https://example.org/evidence/early");
   });
 
-  it("labels backend_live reports with their real provenance tag", () => {
+  it("labels backend_live reports with human-readable provenance", () => {
     const meta = getReportProvenanceMeta(sampleReport, null);
 
-    expect(meta?.sourceLabel).toBe("backend_live");
-    expect(meta?.detailBadges).toContain("evidence:retrieval_live");
-    expect(meta?.detailBadges).toContain("provider:serpapi");
+    expect(meta?.sourceLabel).toBe("实时联网结果");
+    expect(meta?.detailBadges).toContain("证据: 联网检索");
+    expect(meta?.detailBadges).toContain("检索: SERPAPI");
     expect(meta?.tone).toBe("live");
   });
 
@@ -131,8 +131,8 @@ describe("report-utils", () => {
       null,
     );
 
-    expect(meta?.sourceLabel).toBe("backend_mock");
-    expect(meta?.caution).toContain("mock 路径");
+    expect(meta?.sourceLabel).toBe("后端模拟结果");
+    expect(meta?.caution).toContain("mock 结果");
   });
 
   it("marks backend_replay results as replayed rather than current input analysis", () => {
@@ -148,8 +148,8 @@ describe("report-utils", () => {
       null,
     );
 
-    expect(meta?.sourceLabel).toBe("backend_replay");
-    expect(meta?.caution).toContain("analyze");
+    expect(meta?.sourceLabel).toBe("回放结果");
+    expect(meta?.caution).toContain("实时 analyze");
   });
 
   it("marks local demo payloads as demo data", () => {
@@ -158,32 +158,34 @@ describe("report-utils", () => {
       fallbackReason: "backend_offline",
     });
 
-    expect(meta?.sourceLabel).toBe("demo_payload");
+    expect(meta?.sourceLabel).toBe("本地演示数据");
     expect(meta?.fallbackLabel).toBe("后端离线回退");
     expect(meta?.caution).toContain("claim");
   });
 
   it("marks frontend fallback results as conservative shells", () => {
-    const fallbackReport = buildFallbackReport("晨星生物已经宣布裁员40%了吗？", "question");
+    const fallbackReport = buildFallbackReport("最近有个女网红脑出血死了真的假的？", "question");
     const meta = getReportProvenanceMeta(fallbackReport, {
       sourceKind: "frontend_fallback",
       fallbackReason: "analyze_failed",
     });
 
-    expect(meta?.sourceLabel).toBe("frontend_fallback");
+    expect(meta?.sourceLabel).toBe("前端保守回退");
     expect(meta?.fallbackLabel).toBe("请求失败回退");
-    expect(meta?.summary).toContain("Report");
+    expect(meta?.summary).toContain("前端保守回退壳");
   });
 
   it("defaults to an unknown provenance label when metadata is missing", () => {
-    const meta = getReportProvenanceMeta({
-      ...sampleReport,
-      provenance: null,
-    }, null);
+    const meta = getReportProvenanceMeta(
+      {
+        ...sampleReport,
+        provenance: null,
+      },
+      null,
+    );
 
-    expect(meta?.sourceLabel).toBe("unknown");
+    expect(meta?.sourceLabel).toBe("来源待确认");
     expect(meta?.fallbackLabel).toBe("来源待确认");
-    expect(meta?.caution).toContain("旧 payload 或字段不足");
+    expect(meta?.caution).toContain("缺字段");
   });
 });
-

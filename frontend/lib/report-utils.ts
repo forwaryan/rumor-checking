@@ -1,5 +1,6 @@
 import type {
   AnalysisStatus,
+  ClaimType,
   ConfidenceValue,
   Evidence,
   InputType,
@@ -22,27 +23,83 @@ const modeCopy: Record<
 > = {
   complete_mode: {
     label: "完整模式",
-    kicker: "主要链路已连通",
-    summary: "事件、时间线、claim 和证据均已返回，可进入完整阅读。",
+    kicker: "主要链路可用",
+    summary: "事件、时间线、claim 和证据都已落盘，适合完整展示。",
   },
   partial_mode: {
     label: "部分模式",
-    kicker: "局部结果可用",
-    summary: "页面只展示已验证部分，并显式标注缺口和后续待核查点。",
+    kicker: "已有局部结论",
+    summary: "页面只展示已核到的部分，并明确保留缺口与待补证点。",
   },
   safe_mode: {
     label: "安全模式",
     kicker: "关键证据不足",
-    summary: "系统保守收口，只展示边界化信息，不输出过度确定结论。",
+    summary: "系统按保守口径收束，只展示边界说明，不输出过度确定结论。",
   },
 };
 
 const verdictTone: Record<Verdict, string> = {
-  supported: "可信支持",
-  refuted: "明确反驳",
-  insufficient: "证据不足",
-  conflicting: "证据冲突",
+  supported: "更倾向属实",
+  refuted: "更倾向不实",
+  insufficient: "仍需补证",
+  conflicting: "存在冲突",
 };
+
+const claimTypeTone: Record<ClaimType, string> = {
+  fact: "事实",
+  opinion: "观点",
+  prediction: "预测",
+  unverifiable: "难直接核实",
+};
+
+const sourceTypeTone: Record<ReportSourceKind, string> = {
+  backend_live: "实时联网结果",
+  backend_mock: "后端模拟结果",
+  backend_replay: "回放结果",
+  demo_payload: "本地演示数据",
+  frontend_fallback: "前端保守回退",
+  unknown: "来源待确认",
+};
+
+const claimSourceTone = {
+  rule: "Claim: 规则抽取",
+  provider: "Claim: 模型抽取",
+  provider_plus_rule: "Claim: 模型 + 规则",
+} as const;
+
+const evidenceSourceTone = {
+  retrieval_live: "证据: 联网检索",
+  retrieval_mock: "证据: 模拟检索",
+  request_mock: "证据: 外部注入",
+  none: "证据: 暂未建立",
+} as const;
+
+const timelineSourceTone = {
+  retrieval: "时间线: 检索还原",
+  input_seed: "时间线: 输入推断",
+  none: "时间线: 暂未建立",
+} as const;
+
+const genericEventMarkers = ["待核", "网传", "某女网红", "某网红", "某主播", "用户提问", "真假", "待核事件"];
+const genericSummaryMarkers = ["用户提问", "网络流传", "当前输入", "待核查", "真假"];
+const genericSourceNames = new Set(["用户问题输入", "用户提供文本", "用户提供链接"]);
+
+const sourceTierWeight = {
+  S: 4,
+  A: 3,
+  B: 2,
+  C: 1,
+} as const;
+
+export interface TopLineAssessment {
+  title: string;
+  summary: string;
+  tone: Verdict | "neutral";
+  confidenceLabel: string;
+  decisiveClaim: string | null;
+  evidenceCount: number;
+  sourceCount: number;
+}
 
 export interface ReportProvenanceMeta {
   sourceKind: ReportSourceKind;
@@ -60,6 +117,10 @@ export function getModeMeta(mode: OutputMode) {
 
 export function getVerdictLabel(verdict: Verdict) {
   return verdictTone[verdict];
+}
+
+export function getClaimTypeLabel(claimType: ClaimType) {
+  return claimTypeTone[claimType];
 }
 
 export function getStatusFromMode(mode: OutputMode): AnalysisStatus {
@@ -91,7 +152,7 @@ function getBackendFallbackLabel(provenance: ReportProvenance | null | undefined
     return undefined;
   }
 
-  return provenance.fallback_reasons.length > 0 ? "后端保守降级" : "后端回退中";
+  return provenance.fallback_reasons.length > 0 ? "后端保守降级" : "后端进入回退";
 }
 
 function formatFallbackReasons(reasons: string[]) {
@@ -99,22 +160,22 @@ function formatFallbackReasons(reasons: string[]) {
 }
 
 function getBackendDetailBadges(provenance: ReportProvenance) {
-  const badges = [
-    `claims:${provenance.claim_source}`,
-    `evidence:${provenance.evidence_source}`,
-    `timeline:${provenance.timeline_source}`,
+  const badges: string[] = [
+    claimSourceTone[provenance.claim_source],
+    evidenceSourceTone[provenance.evidence_source],
+    timelineSourceTone[provenance.timeline_source],
   ];
 
   if (provenance.provider_used) {
-    badges.push(`provider:${provenance.retrieval_provider ?? "on"}`);
+    badges.push(`检索: ${(provenance.retrieval_provider ?? "unknown").toUpperCase()}`);
   }
 
   if (provenance.retrieval_cache_status) {
-    badges.push(`cache:${provenance.retrieval_cache_status}`);
+    badges.push(`缓存: ${provenance.retrieval_cache_status}`);
   }
 
   if (provenance.fallback_used) {
-    badges.push("fallback:on");
+    badges.push("状态: 已降级");
   }
 
   return badges;
@@ -140,7 +201,7 @@ function getEffectiveProvenanceState(report: Report, provenance: ReportProvenanc
 
 function getBackendLiveCaution(provenance: ReportProvenance) {
   if (provenance.evidence_source !== "retrieval_live") {
-    return `当前虽然标记为 backend_live，但 evidence_source=${provenance.evidence_source}，还不能把它讲成真实检索已完整跑通。`;
+    return `当前虽然标记为实时联网，但证据来源仍是 ${provenance.evidence_source}，还不能把它讲成完整的真实检索链路。`;
   }
 
   if (provenance.fallback_used) {
@@ -166,9 +227,11 @@ export function getReportProvenanceMeta(
     case "backend_live":
       return {
         sourceKind: effectiveProvenance.sourceKind,
-        sourceLabel: "backend_live",
-        summary: `当前页面以${modeMeta.label}展示后端实时 analyze 返回，证据路径为 ${backendProvenance?.evidence_source ?? "unknown"}，时间线路径为 ${backendProvenance?.timeline_source ?? "unknown"}。`,
-        caution: backendProvenance ? getBackendLiveCaution(backendProvenance) : "缺少完整 provenance 细节，讲解时仍需按保守路径理解。",
+        sourceLabel: sourceTypeTone.backend_live,
+        summary: `这次结果来自后端实时分析。当前页面展示的是${modeMeta.label}，并且证据链已经接入真实检索。`,
+        caution: backendProvenance
+          ? getBackendLiveCaution(backendProvenance)
+          : "当前缺少完整 provenance 细节，讲解时仍应按保守口径理解。",
         fallbackLabel: getBackendFallbackLabel(backendProvenance),
         detailBadges: backendProvenance ? getBackendDetailBadges(backendProvenance) : [],
         tone: "live",
@@ -176,9 +239,9 @@ export function getReportProvenanceMeta(
     case "backend_mock":
       return {
         sourceKind: effectiveProvenance.sourceKind,
-        sourceLabel: "backend_mock",
-        summary: `当前页面以${modeMeta.label}展示后端 mock 联调结果，证据路径为 ${backendProvenance?.evidence_source ?? "unknown"}。`,
-        caution: "这是后端 mock 路径，只适合联调或演示，不应当作真实较真已经完成。",
+        sourceLabel: sourceTypeTone.backend_mock,
+        summary: "这次页面展示的是后端 mock 联调结果，适合走通页面和接口，不适合当作真实核查结论。",
+        caution: "当前是后端 mock 结果，只适合联调或演示，不应当作真实事件已经核实完成。",
         fallbackLabel: getBackendFallbackLabel(backendProvenance),
         detailBadges: backendProvenance ? getBackendDetailBadges(backendProvenance) : [],
         tone: "mock",
@@ -186,9 +249,9 @@ export function getReportProvenanceMeta(
     case "backend_replay":
       return {
         sourceKind: effectiveProvenance.sourceKind,
-        sourceLabel: "backend_replay",
-        summary: `当前页面以${modeMeta.label}展示后端 replay 回放结果，适合复现 UI、测试或联调口径。`,
-        caution: "这不是针对当前输入的实时 analyze，请不要把结论、时间线或 claim 讲成最新分析输出。",
+        sourceLabel: sourceTypeTone.backend_replay,
+        summary: "这次页面展示的是回放结果，适合复现 UI 和测试流程，不是针对当前输入的新分析。",
+        caution: "这不是当前输入的实时 analyze 结果，请不要把结论、时间线或 claim 讲成最新联网输出。",
         fallbackLabel: getBackendFallbackLabel(backendProvenance),
         detailBadges: backendProvenance ? getBackendDetailBadges(backendProvenance) : [],
         tone: "replay",
@@ -196,9 +259,9 @@ export function getReportProvenanceMeta(
     case "demo_payload":
       return {
         sourceKind: effectiveProvenance.sourceKind,
-        sourceLabel: "demo_payload",
-        summary: `当前页面仍以${modeMeta.label}展示仓库内 demo payload，用来稳定演示页面结构和边界。`,
-        caution: "这不是本次输入的实时分析结果，请不要把结论、时间线或 claim 当成真实推理输出。",
+        sourceLabel: sourceTypeTone.demo_payload,
+        summary: "这次页面展示的是仓库内置演示数据，用来稳定演示页面结构、模式切换和空态边界。",
+        caution: "这不是本次输入的实时分析结果，请不要把结论、时间线或 claim 当成真实联网推理输出。",
         fallbackLabel: getFallbackLabel(effectiveProvenance.fallbackReason),
         detailBadges: [],
         tone: "demo",
@@ -206,9 +269,9 @@ export function getReportProvenanceMeta(
     case "frontend_fallback":
       return {
         sourceKind: effectiveProvenance.sourceKind,
-        sourceLabel: "frontend_fallback",
-        summary: `当前页面只保留${modeMeta.label}的保守展示壳，用来提示边界和空态，不代表后端已产出可用 Report。`,
-        caution: "请不要把当前页面内容解释成真实分析；恢复接口后应重新提交输入。",
+        sourceLabel: sourceTypeTone.frontend_fallback,
+        summary: "这次页面只保留前端保守回退壳，用来提示边界与空态，不代表后端已给出可用结论。",
+        caution: "请不要把当前页面内容解释成真实分析；接口恢复后应重新提交输入。",
         fallbackLabel: getFallbackLabel(effectiveProvenance.fallbackReason),
         detailBadges: [],
         tone: "fallback",
@@ -216,9 +279,9 @@ export function getReportProvenanceMeta(
     default:
       return {
         sourceKind: effectiveProvenance.sourceKind,
-        sourceLabel: "unknown",
-        summary: "当前页面拿到了可渲染数据，但 report.provenance 缺失或不完整，先按非真实分析结果理解。",
-        caution: "旧 payload 或字段不足的结果都会落到这个标签，避免误讲成真实 analyze 输出。",
+        sourceLabel: sourceTypeTone.unknown,
+        summary: "当前页面拿到了可渲染数据，但 provenance 不完整，先按保守路径理解。",
+        caution: "缺字段、旧 payload 或不完整返回都会落到这个标签，避免误讲成真实 analyze 输出。",
         fallbackLabel: getFallbackLabel(effectiveProvenance.fallbackReason),
         detailBadges: [],
         tone: "unknown",
@@ -249,9 +312,24 @@ export function formatConfidence(value: ConfidenceValue) {
     case "high":
       return "高";
     case "medium":
-      return "中";
+      return "中等";
     default:
       return "低";
+  }
+}
+
+function getConfidenceScore(value: ConfidenceValue) {
+  if (typeof value === "number") {
+    return value;
+  }
+
+  switch (value) {
+    case "high":
+      return 0.95;
+    case "medium":
+      return 0.7;
+    default:
+      return 0.35;
   }
 }
 
@@ -281,6 +359,141 @@ export function collectEvidence(report: Report) {
   });
 }
 
+function isGenericText(text: string, markers: string[]) {
+  const compact = text.trim();
+  if (!compact) {
+    return true;
+  }
+
+  return markers.some((marker) => compact.includes(marker));
+}
+
+function getLeadEvidence(report: Report) {
+  return collectEvidence(report)
+    .slice()
+    .sort((left, right) => {
+      const tierDelta = sourceTierWeight[right.source_tier] - sourceTierWeight[left.source_tier];
+      if (tierDelta !== 0) {
+        return tierDelta;
+      }
+
+      return new Date(right.published_at).getTime() - new Date(left.published_at).getTime();
+    })[0];
+}
+
+export function getDisplayEventTitle(report: Report) {
+  if (!isGenericText(report.event.title, genericEventMarkers)) {
+    return report.event.title;
+  }
+
+  return getLeadEvidence(report)?.title ?? report.event.title;
+}
+
+export function getDisplayEventSummary(report: Report) {
+  if (!isGenericText(report.event.summary, genericSummaryMarkers)) {
+    return report.event.summary;
+  }
+
+  const leadEvidence = getLeadEvidence(report);
+  if (leadEvidence?.snippet) {
+    return leadEvidence.snippet;
+  }
+
+  return report.final_summary;
+}
+
+export function getDisplayEventSource(report: Report) {
+  const leadEvidence = getLeadEvidence(report);
+  const useLeadEvidence =
+    genericSourceNames.has(report.event.source_name) ||
+    report.event.source_url.includes("example.org/input/");
+
+  if (useLeadEvidence && leadEvidence) {
+    return {
+      sourceName: leadEvidence.source_name,
+      sourceUrl: leadEvidence.url,
+      publishedAt: leadEvidence.published_at,
+      isDerived: true,
+    };
+  }
+
+  return {
+    sourceName: report.event.source_name,
+    sourceUrl: report.event.source_url,
+    publishedAt: report.event.published_at,
+    isDerived: false,
+  };
+}
+
+export function getTopLineAssessment(report: Report): TopLineAssessment {
+  const decisiveClaims = report.claim_results.filter((item) => item.verdict !== "insufficient");
+  const supportedCount = decisiveClaims.filter((item) => item.verdict === "supported").length;
+  const refutedCount = decisiveClaims.filter((item) => item.verdict === "refuted").length;
+  const conflictingCount = decisiveClaims.filter((item) => item.verdict === "conflicting").length;
+  const sortedClaims = report.claim_results
+    .slice()
+    .sort((left, right) => {
+      const verdictRank = {
+        conflicting: 4,
+        refuted: 3,
+        supported: 2,
+        insufficient: 1,
+      } as const;
+
+      const verdictDelta = verdictRank[right.verdict] - verdictRank[left.verdict];
+      if (verdictDelta !== 0) {
+        return verdictDelta;
+      }
+
+      const confidenceDelta = getConfidenceScore(right.confidence) - getConfidenceScore(left.confidence);
+      if (confidenceDelta !== 0) {
+        return confidenceDelta;
+      }
+
+      return right.evidence.length - left.evidence.length;
+    });
+  const leadClaim = sortedClaims[0] ?? null;
+  const evidence = collectEvidence(report);
+
+  let title = "当前仍需补证";
+  let summary = "现有公开来源还不足以给出稳定结论，建议先看关键证据和时间线边界。";
+  let tone: TopLineAssessment["tone"] = "neutral";
+
+  if (conflictingCount > 0 || (supportedCount > 0 && refutedCount > 0)) {
+    title = "当前存在冲突信号";
+    summary = "公开来源里同时出现了支持和反向线索，暂时不能讲成单向确定结论。";
+    tone = "conflicting";
+  } else if (refutedCount > 0) {
+    title = "当前更倾向不实";
+    summary = "已有公开来源对这条说法形成反驳，现阶段更适合按“不实”理解。";
+    tone = "refuted";
+  } else if (supportedCount > 0) {
+    title = "当前更倾向属实";
+    summary = "已有公开来源支持这条说法，现阶段更适合按“属实”理解。";
+    tone = "supported";
+  } else if (report.mode === "partial_mode") {
+    title = "已拿到部分可用结论";
+    summary = "页面已经找到部分可核查证据，但仍有缺口，不应包装成完整复盘。";
+  } else if (report.mode === "complete_mode") {
+    title = "核心链路已跑通";
+    summary = "当前事件、claim 和证据都已建立，可以继续看细节和来源。";
+  }
+
+  if (leadClaim?.notes) {
+    summary = leadClaim.notes;
+  }
+
+  return {
+    title,
+    summary,
+    tone,
+    confidenceLabel: leadClaim ? formatConfidence(leadClaim.confidence) : "待补充",
+    decisiveClaim: leadClaim?.claim ?? null,
+    evidenceCount: leadClaim?.evidence.length ?? evidence.length,
+    sourceCount: evidence.length,
+  };
+}
+
 export function validateInput(input: string, inputType: InputType) {
   const trimmed = input.trim();
 
@@ -294,7 +507,7 @@ export function validateInput(input: string, inputType: InputType) {
       if (!/^https?:$/.test(parsed.protocol)) {
         return "URL 需要以 http:// 或 https:// 开头。";
       }
-    } catch (error) {
+    } catch {
       return "当前输入类型是 URL，请粘贴一个有效链接。";
     }
   }
@@ -314,7 +527,7 @@ export function buildFallbackReport(input: string, inputType: InputType): Report
     mode: "safe_mode",
     event: {
       title: "接口暂不可达，当前展示安全模式回退结果",
-      summary: preview || "系统尚未拿到足够上下文，无法进入标准核查流程。",
+      summary: preview || "系统还没有拿到足够上下文，暂时无法进入标准核查流程。",
       source_url: sourceUrl,
       source_name: sourceName,
       published_at: now,
@@ -329,45 +542,69 @@ export function buildFallbackReport(input: string, inputType: InputType): Report
         verdict: "insufficient",
         confidence: "low",
         evidence: [],
-        notes: "这是前端的保守回退结果，用来明确提示当前链路卡在后端或检索阶段。",
+        notes: "这是前端保守回退结果，只用来提示当前链路卡在后端或检索阶段。",
       },
     ],
-    final_summary:
-      "当前页面没有拿到真实 Report，因此只保留边界化提示。建议稍后重试，或先使用下方稳定 demo case 继续演示。",
+    final_summary: "当前页面没有拿到真实 Report，因此只保留边界说明。建议稍后重试，或先用稳定 demo case 继续演示。",
     risks: [
       "当前结果不是后端真实分析输出，只是前端安全回退壳。",
-      "时间线、claim 和证据都未完成真实检索，请避免把它当作结论页面。",
+      "时间线、claim 和证据都未完成真实检索，请避免把它当作核查结论。",
     ],
     investigation: {
       question: compact || "待核查问题",
       reframed_question: preview || "待核查命题",
       thinking_process: [
         {
-          title: "先保留输入原貌",
-          detail: "当前是前端 fallback 结果，系统只能先把原始输入保留下来，避免伪造检索结论。",
+          title: "先保留原始输入",
+          detail: "当前是前端 fallback 结果，系统只能先保留用户原始问法，避免伪造检索结论。",
         },
         {
-          title: "暂停事实锁定",
-          detail: "由于真实 analyze 没有成功返回，页面无法确认具体事件、人物或传播链。",
+          title: "暂不锁定具体事件",
+          detail: "因为真实 analyze 没有成功返回，页面无法确认具体人物、事件和传播链。",
         },
         {
-          title: "输出边界而不是强判",
-          detail: "在后端和检索链路恢复前，页面只展示待核查路径和风险提示，不输出确定性结论。",
+          title: "只输出边界，不强行下结论",
+          detail: "在后端与检索链路恢复前，页面只展示待核查路径和风险提示，不输出确定性判断。",
         },
       ],
       possibilities: [
         {
           scenario: "输入值得继续核查，但当前没有稳定证据链",
           likelihood: "medium",
-          summary: "需要后端恢复后重新发起 analyze，才能判断它究竟是事实、旧闻回流还是纯传闻。",
+          summary: "需要待后端恢复后重新发起 analyze，才能判断它究竟是事实、旧闻回流还是纯传闻。",
         },
         {
-          scenario: "也可能只是缺少关键锚点，暂时无法锁定具体事件",
+          scenario: "也可能只是关键锚点不足，暂时无法对上具体事件",
           likelihood: "low",
-          summary: "姓名、原帖链接、平台账号和精确时间点都会显著影响系统是否能对上真实事件。",
+          summary: "姓名、原帖链接、账号名和精确时间点都会显著影响系统能否对上真实事件。",
         },
       ],
       final_conclusion: "当前不能给出真假结论，因为页面拿到的是前端 fallback，而不是真实核查结果。",
+    },
+    content_check: {
+      likely_true: [],
+      likely_false: [],
+      controversial: [],
+      opinions: [],
+      uncertain: [
+        {
+          claim: preview || "当前输入仍待核查。",
+          claim_type: "unverifiable",
+          verdict: "insufficient",
+          confidence: "low",
+          reason: "当前页面展示的是前端 fallback，系统还没有拿到足够证据去区分哪部分为真、哪部分是加料。",
+        },
+      ],
+      possible_answers: [
+        {
+          angle: "直接回答",
+          answer: "目前还不能把这句话整体判真或判假，只能先当成待核查线索。",
+        },
+        {
+          angle: "继续较真",
+          answer: "要继续往下核查，最好补姓名、原帖链接、截图原文或明确时间点。",
+        },
+      ],
     },
     pipeline_trace: {
       steps: [
@@ -375,18 +612,15 @@ export function buildFallbackReport(input: string, inputType: InputType): Report
           stage_key: "input_received",
           title: "接收输入",
           status: "completed",
-          summary: "前端已记录当前输入，并准备调用 analyze 接口。",
+          summary: "前端已记录本次输入，并准备调用 analyze 接口。",
           details: [`原始输入：${preview || "无"}`, `输入类型：${inputType}`],
         },
         {
           stage_key: "frontend_fallback",
           title: "前端回退",
           status: "warning",
-          summary: "真实 analyze 未成功返回，页面只能渲染前端 fallback 结果。",
-          details: [
-            "当前链路没有拿到后端真实中间步骤。",
-            "需要待接口恢复后重新提交，才能看到完整分析链路。",
-          ],
+          summary: "真实 analyze 没有成功返回，页面只能渲染前端 fallback 结果。",
+          details: ["当前链路没有拿到后端中间步骤。", "接口恢复后重新提交，才能看到完整分析链路。"],
         },
         {
           stage_key: "report_output",

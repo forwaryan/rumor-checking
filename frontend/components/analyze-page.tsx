@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ClaimTable } from "@/components/claim-table";
+import { ContentCheckPanel } from "@/components/content-check-panel";
 import { EvidenceList } from "@/components/evidence-list";
 import { EventCard } from "@/components/event-card";
 import { InputPanel } from "@/components/input-panel";
@@ -102,7 +103,7 @@ export function AnalyzePage() {
           fallbackReason: "backend_offline",
         });
         setStatus(getStatusFromMode(localReport.mode));
-        setFallbackMessage("后端当前离线，页面已直接回退到本地 demo payload。需要真实联调时请先恢复后端服务。");
+        setFallbackMessage("后端当前离线，页面已直接回退到本地 demo payload。需要真实联调时，请先恢复后端服务。");
         return;
       }
     }
@@ -132,9 +133,7 @@ export function AnalyzePage() {
             fallbackReason: "analyze_failed",
           });
           setStatus(getStatusFromMode(localReport.mode));
-          setFallbackMessage(
-            "真实 analyze 请求失败，页面已回退到同主题本地 demo payload，方便继续演示页面结构和三档模式。",
-          );
+          setFallbackMessage("真实 analyze 请求失败，页面已回退到同主题本地 demo payload，方便继续演示页面结构和三档模式。");
           return;
         }
       }
@@ -146,7 +145,7 @@ export function AnalyzePage() {
         fallbackReason: "analyze_failed",
       });
       setStatus("safe_mode");
-      setFallbackMessage("真实接口当前不可用，页面已自动切换到安全模式回退结果，方便继续演示边界和空态。");
+      setFallbackMessage("真实接口当前不可用，页面已自动切换到安全模式回退结果，用于继续展示边界与空态。");
     }
   }
 
@@ -185,17 +184,25 @@ export function AnalyzePage() {
           <p className="eyebrow">Cluster-E / Experience Shell</p>
           <h1>单页 rumor-checking 工作台</h1>
           <p>
-            页面会优先走真实 <code>analyze</code> 链路，并直接消费后端冻结的 <code>report.provenance</code>。
-            顶部状态区会明确区分 <code>backend_live</code>、<code>backend_mock</code>、<code>backend_replay</code>、
-            <code>demo_payload</code> 和 <code>frontend_fallback</code>，避免把 demo、回放或保守回退误讲成真实分析。
+            页面优先走真实 <code>analyze</code> 链路，并直接消费后端返回的 <code>report.provenance</code>。首屏会先给出一句话结论，
+            再把来源、证据和调试链路分层展开，避免把 demo、回放或保守回退误讲成真实联网分析。
           </p>
         </div>
         <div className="hero__card">
           <span>结果来源</span>
           <strong>live / mock / replay / demo / fallback</strong>
-          <p>后端缺字段或旧 payload 仍会落到保守标签，不会伪装成真实较真路径。</p>
+          <p>后端缺字段或旧 payload 仍会落到保守标签，不会被包装成真实核查链路。</p>
         </div>
       </header>
+
+      <StatusBanner
+        status={status}
+        report={report}
+        provenance={reportProvenance}
+        errorMessage={errorMessage}
+        fallbackMessage={fallbackMessage}
+        onRetry={lastRequest ? () => void retryLastRequest() : null}
+      />
 
       <InputPanel
         value={inputValue}
@@ -219,20 +226,12 @@ export function AnalyzePage() {
         onReset={resetDraft}
       />
 
-      <StatusBanner
-        status={status}
-        report={report}
-        provenance={reportProvenance}
-        errorMessage={errorMessage}
-        fallbackMessage={fallbackMessage}
-        onRetry={lastRequest ? () => void retryLastRequest() : null}
-      />
-
       <section className="workspace-shell">
         <div className="workspace-main">
           <section className="dashboard-grid">
             <EventCard report={report} />
             <RiskPanel report={report} />
+            <ContentCheckPanel report={report} />
             <InvestigationPanel report={report} />
             <TimelinePanel report={report} />
             <ClaimTable report={report} />

@@ -155,6 +155,28 @@ class Investigation(BaseModel):
     final_conclusion: str
 
 
+class ContentCheckItem(BaseModel):
+    claim: str
+    claim_type: ClaimType
+    verdict: VerdictType
+    confidence: ConfidenceValue
+    reason: str
+
+
+class AnswerSuggestion(BaseModel):
+    angle: str
+    answer: str
+
+
+class ContentCheck(BaseModel):
+    likely_true: List[ContentCheckItem] = Field(default_factory=list)
+    likely_false: List[ContentCheckItem] = Field(default_factory=list)
+    controversial: List[ContentCheckItem] = Field(default_factory=list)
+    opinions: List[ContentCheckItem] = Field(default_factory=list)
+    uncertain: List[ContentCheckItem] = Field(default_factory=list)
+    possible_answers: List[AnswerSuggestion] = Field(default_factory=list)
+
+
 class PipelineTraceStep(BaseModel):
     stage_key: str
     title: str
@@ -178,6 +200,7 @@ class Report(BaseModel):
     retrieval_hits: List[EvidenceItem] = Field(default_factory=list)
     retrieval_diagnostics: Optional[RetrievalDiagnostics] = None
     investigation: Optional[Investigation] = None
+    content_check: Optional[ContentCheck] = None
     pipeline_trace: Optional[PipelineTrace] = None
     provenance: ReportProvenance
 

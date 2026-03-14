@@ -328,7 +328,7 @@ a:hover {
 
 .status-banner {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 1.5rem;
   margin-bottom: 1rem;
@@ -337,6 +337,44 @@ a:hover {
 .status-banner__content {
   flex: 1;
   min-width: 0;
+}
+
+.status-banner__headline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.status-banner__headline h3 {
+  font-size: clamp(1.6rem, 2vw, 2.2rem);
+}
+
+.status-banner__headline p {
+  margin: 0.55rem 0 0;
+  max-width: 72ch;
+}
+
+.status-banner__fact-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 1rem;
+}
+
+.status-banner__claim-focus {
+  margin-top: 0.95rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid rgba(24, 34, 44, 0.08);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.status-banner__claim-focus strong {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 1.02rem;
+  line-height: 1.55;
 }
 
 .status-banner__provenance {
@@ -464,7 +502,8 @@ a:hover {
 .panel--timeline,
 .panel--claims,
 .panel--evidence,
-.panel--investigation {
+.panel--investigation,
+.panel--content-check {
   grid-column: 1 / -1;
 }
 
@@ -476,6 +515,12 @@ a:hover {
   background: rgba(255, 255, 255, 0.58);
   font-size: 1.06rem;
   line-height: 1.6;
+}
+
+.event-card__note {
+  margin: 0.85rem 0 0;
+  color: var(--accent-deep);
+  font-size: 0.94rem;
 }
 
 .tag-row {
@@ -697,15 +742,27 @@ a:hover {
   font-size: 1.1rem;
 }
 
-.investigation-steps {
-  margin: 0;
-  padding-left: 1.2rem;
+.investigation-step-grid {
   display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.85rem;
 }
 
-.investigation-step strong {
+.investigation-step-card {
+  padding: 0.95rem;
+  border: 1px solid rgba(24, 34, 44, 0.08);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.investigation-step-card strong {
   display: block;
+}
+
+.investigation-step-card p {
+  margin: 0.45rem 0 0;
+  color: var(--muted);
+  line-height: 1.65;
 }
 
 .possibility-grid {
@@ -749,6 +806,75 @@ a:hover {
   margin-top: 0.95rem;
 }
 
+.content-check-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+  margin-top: 1rem;
+}
+
+.content-check__block,
+.content-check__answer-card,
+.content-check__item {
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.content-check__block {
+  padding: 1rem;
+}
+
+.content-check__block h3,
+.content-check__answers h3 {
+  margin: 0 0 0.85rem;
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+}
+
+.content-check__list,
+.content-check__answer-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.content-check__item {
+  padding: 0.9rem;
+}
+
+.content-check__item p,
+.content-check__answer-card p,
+.content-check__empty {
+  margin: 0.45rem 0 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.content-check__item--true {
+  border-color: rgba(29, 106, 84, 0.18);
+}
+
+.content-check__item--false {
+  border-color: rgba(163, 62, 46, 0.18);
+}
+
+.content-check__item--controversial {
+  border-color: rgba(182, 133, 45, 0.22);
+}
+
+.content-check__item--opinion,
+.content-check__item--uncertain {
+  border-color: rgba(24, 34, 44, 0.1);
+}
+
+.content-check__answers {
+  margin-top: 1rem;
+}
+
+.content-check__answer-card {
+  padding: 1rem;
+}
+
 .empty-state {
   padding: 1rem 0 0;
 }
@@ -757,6 +883,36 @@ a:hover {
   display: grid;
   gap: 0.9rem;
   margin-top: 1rem;
+}
+
+.trace-disclosure {
+  margin-top: 1rem;
+}
+
+.trace-disclosure[open] {
+  padding-bottom: 0.2rem;
+}
+
+.trace-disclosure__summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.95rem 1rem;
+  border: 1px solid rgba(24, 34, 44, 0.1);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.56);
+  cursor: pointer;
+  list-style: none;
+}
+
+.trace-disclosure__summary::-webkit-details-marker {
+  display: none;
+}
+
+.trace-disclosure__hint {
+  color: var(--muted);
+  font-size: 0.88rem;
 }
 
 .trace-step {
@@ -875,7 +1031,12 @@ a:hover {
 
   .investigation-overview,
   .investigation-grid,
-  .evidence-grid {
+  .evidence-grid,
+  .content-check-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .investigation-step-grid {
     grid-template-columns: 1fr;
   }
 
@@ -908,8 +1069,13 @@ a:hover {
 
   .stats-grid,
   .evidence-grid,
-  .possibility-grid {
+  .possibility-grid,
+  .status-banner__headline {
     grid-template-columns: 1fr;
+  }
+
+  .status-banner__headline {
+    display: grid;
   }
 
   .button {

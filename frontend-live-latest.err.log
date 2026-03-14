@@ -1,5 +1,4 @@
-'\\wsl.localhost\Ubuntu-20.04\home\forwaryan\mianshi\rumor-checking'
-ÓÃ×÷Îªµ±Ç°Ä¿Â¼µÄÒÔÉÏÂ·¾¶Æô¶¯ÁË CMD.EXE¡£
-UNC Â·¾¶²»ÊÜÖ§³Ö¡£Ä¬ÈÏÖµÉèÎª Windows Ä¿Â¼¡£
- âš  Cross origin request detected from 127.0.0.1 to /_next/* resource. In a future major version of Next.js, you will need to explicitly configure "allowedDevOrigins" in next.config to allow this.
-Read more: https://nextjs.org/docs/app/api-reference/config/next-config-js/allowedDevOrigins
+ âš  Attempted to load /home/forwaryan/mianshi/rumor-checking/frontend/node_modules/next/next-swc-fallback/@next/swc-linux-x64-gnu/next-swc.linux-x64-gnu.node, but it was not installed
+ âš  Attempted to load /home/forwaryan/mianshi/rumor-checking/frontend/node_modules/next/next-swc-fallback/@next/swc-linux-x64-musl/next-swc.linux-x64-musl.node, but it was not installed
+ âš  Attempted to load @next/swc-linux-x64-gnu, but it was not installed
+ âš  Attempted to load @next/swc-linux-x64-musl, but it was not installed

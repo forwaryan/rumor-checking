@@ -1,5 +1,10 @@
-﻿import { formatDisplayTime } from "@/lib/report-utils";
 import { ModePill } from "@/components/mode-pill";
+import {
+  formatDisplayTime,
+  getDisplayEventSource,
+  getDisplayEventSummary,
+  getDisplayEventTitle,
+} from "@/lib/report-utils";
 import type { Report } from "@/types/report";
 
 interface EventCardProps {
@@ -23,24 +28,31 @@ export function EventCard({ report }: EventCardProps) {
     );
   }
 
+  const displayTitle = getDisplayEventTitle(report);
+  const displaySummary = getDisplayEventSummary(report);
+  const displaySource = getDisplayEventSource(report);
+
   return (
     <section className="panel panel--feature">
       <div className="panel-heading">
         <div>
           <p className="eyebrow">Event Card</p>
-          <h2>{report.event.title}</h2>
+          <h2>{displayTitle}</h2>
         </div>
         <ModePill mode={report.mode} />
       </div>
 
       <p className="lede">{report.final_summary}</p>
-      <p className="panel-copy">{report.event.summary}</p>
+      <p className="panel-copy">{displaySummary}</p>
+      {displaySource.isDerived ? (
+        <p className="event-card__note">页面已把泛化问法收束到更具体的公开事件对象。</p>
+      ) : null}
 
       <div className="meta-row">
-        <a href={report.event.source_url} target="_blank" rel="noreferrer">
-          {report.event.source_name}
+        <a href={displaySource.sourceUrl} target="_blank" rel="noreferrer">
+          {displaySource.sourceName}
         </a>
-        <span>{formatDisplayTime(report.event.published_at)}</span>
+        <span>{formatDisplayTime(displaySource.publishedAt)}</span>
       </div>
 
       <div className="tag-row">

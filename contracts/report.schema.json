@@ -58,6 +58,57 @@
       },
       "default": []
     },
+    "content_check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "likely_true",
+        "likely_false",
+        "controversial",
+        "opinions",
+        "uncertain",
+        "possible_answers"
+      ],
+      "properties": {
+        "likely_true": {
+          "$ref": "#/$defs/contentCheckItems"
+        },
+        "likely_false": {
+          "$ref": "#/$defs/contentCheckItems"
+        },
+        "controversial": {
+          "$ref": "#/$defs/contentCheckItems"
+        },
+        "opinions": {
+          "$ref": "#/$defs/contentCheckItems"
+        },
+        "uncertain": {
+          "$ref": "#/$defs/contentCheckItems"
+        },
+        "possible_answers": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "angle",
+              "answer"
+            ],
+            "properties": {
+              "angle": {
+                "type": "string",
+                "minLength": 1
+              },
+              "answer": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
     "investigation": {
       "type": "object",
       "additionalProperties": false,
@@ -186,6 +237,66 @@
                 }
               }
             }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "contentCheckItems": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "claim",
+          "claim_type",
+          "verdict",
+          "confidence",
+          "reason"
+        ],
+        "properties": {
+          "claim": {
+            "type": "string",
+            "minLength": 1
+          },
+          "claim_type": {
+            "type": "string",
+            "enum": [
+              "fact",
+              "opinion",
+              "prediction",
+              "unverifiable"
+            ]
+          },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "supported",
+              "refuted",
+              "insufficient",
+              "conflicting"
+            ]
+          },
+          "confidence": {
+            "oneOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "high",
+                  "medium",
+                  "low"
+                ]
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
           }
         }
       }
