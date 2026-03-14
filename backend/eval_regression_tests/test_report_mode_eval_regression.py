@@ -7,38 +7,17 @@ from backend.app.services.report_builder import ReportBuilder
 from backend.eval_regression_tests.conftest import CaseEvaluation, load_eval_fixture, summarize_results
 
 
-def _u(value: str) -> str:
-    return value.encode("ascii").decode("unicode_escape")
-
-
 REPORT_MODE_CASES = load_eval_fixture("report_mode_cases.json")
 DECISIVE_VERDICTS = {"supported", "refuted", "conflicting"}
-BOUNDARY_MARKERS = tuple(
-    _u(item)
-    for item in (
-        r"\u4fdd\u5b88",
-        r"\u4e0d\u8db3",
-        r"\u4e0d\u5b8c\u6574",
-        r"\u4e0d\u80fd",
-        r"\u5f85\u6838",
-        r"\u51b2\u7a81",
-        "safe mode",
-    )
-)
-UNKNOWN_MARKERS = tuple(
-    _u(item)
-    for item in (r"\u4e0d\u8db3", r"\u5f85\u6838", r"\u5c1a\u672a", r"\u672a\u77e5")
-)
-NEXT_STEP_MARKERS = tuple(
-    _u(item)
-    for item in (r"\u5efa\u8bae", r"\u8865\u5145", r"\u91cd\u8bd5", r"\u7a0d\u540e")
-)
-CONFLICT_MARKER = _u(r"\u51b2\u7a81")
-TIMELINE_MARKER = _u(r"\u65f6\u95f4\u7ebf")
-FALLBACK_MARKER = _u(r"\u4fdd\u5b88")
-CONFLICT_NOTE = _u(r"\u5b58\u5728\u51b2\u7a81\u7248\u672c\uff0c\u9700\u8981\u4fdd\u7559\u8fb9\u754c\u3002")
-DECISIVE_NOTE = _u(r"\u5df2\u6709\u53ef\u6838\u9a8c\u7ed3\u8bba\u3002")
-PENDING_NOTE = _u(r"\u5f53\u524d\u8bc1\u636e\u4e0d\u8db3\u3002")
+BOUNDARY_MARKERS = ("保守", "不足", "不完整", "不能", "待核", "冲突", "safe mode")
+UNKNOWN_MARKERS = ("不足", "待核", "尚未", "未知")
+NEXT_STEP_MARKERS = ("建议", "补充", "重试", "稍后")
+CONFLICT_MARKER = "冲突"
+TIMELINE_MARKER = "时间线"
+FALLBACK_MARKER = "保守"
+CONFLICT_NOTE = "存在冲突版本，需要保留边界。"
+DECISIVE_NOTE = "已有可核验结论。"
+PENDING_NOTE = "当前证据不足。"
 
 
 def _build_evidence(case_id: str, context: dict) -> list[EvidenceItem]:
@@ -157,18 +136,24 @@ def _section_present(section: str, report) -> bool:
     return False
 
 
-def _evaluate_case(case: dict) -> CaseEvaluation:
+def _evaluate_case(case: dict, report_provenance_factory) -> CaseEvaluation:
     context = case["context"]
     expected = case["expected"]
     evidence = _build_evidence(case["case_id"], context)
     claim_results = _build_claim_results(case["case_id"], context, expected, evidence)
     timeline = _build_timeline(case["case_id"], context["timeline_node_count"])
+    provenance = report_provenance_factory(
+        context=context,
+        evidence_count=len(evidence),
+        timeline_count=len(timeline),
+    )
     report = ReportBuilder().build(
         event=_build_event(case["case_id"], context),
         claim_results=claim_results,
         timeline=timeline,
         evidence=evidence,
         evidence_grade=context["evidence_grade"],
+        provenance=provenance,
     )
 
     mismatches: list[str] = []
@@ -207,8 +192,8 @@ def _evaluate_case(case: dict) -> CaseEvaluation:
     )
 
 
-def test_report_mode_eval_regression():
-    evaluations = [_evaluate_case(case) for case in REPORT_MODE_CASES]
+def test_report_mode_eval_regression(report_provenance_factory):
+    evaluations = [_evaluate_case(case, report_provenance_factory) for case in REPORT_MODE_CASES]
     summary = summarize_results("report_mode_cases.json", evaluations)
     print(summary)
     if any(not item.passed for item in evaluations):

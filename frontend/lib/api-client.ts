@@ -1,17 +1,34 @@
-﻿import type {
+import type {
   AnalyzeRequest,
   ClaimResult,
+  ClaimSourceType,
   ConfidenceValue,
   Evidence,
+  EvidenceSourceType,
   Event,
+  EventSourceType,
   HealthResponse,
   OutputMode,
   Report,
+  ReportProvenance,
+  ReportSourceType,
   TimelineNode,
+  TimelineSourceType,
   Verdict,
 } from "@/types/report";
 
 const DEFAULT_API_BASE = "";
+const reportSourceTypes = [
+  "backend_live",
+  "backend_mock",
+  "backend_replay",
+  "demo_payload",
+  "frontend_fallback",
+] as const satisfies readonly ReportSourceType[];
+const eventSourceTypes = ["input_normalized", "url_extract", "provider_enriched"] as const satisfies readonly EventSourceType[];
+const claimSourceTypes = ["rule", "provider", "provider_plus_rule"] as const satisfies readonly ClaimSourceType[];
+const evidenceSourceTypes = ["retrieval_live", "retrieval_mock", "request_mock", "none"] as const satisfies readonly EvidenceSourceType[];
+const timelineSourceTypes = ["retrieval", "input_seed", "none"] as const satisfies readonly TimelineSourceType[];
 
 function getApiBase() {
   const configuredBase = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
@@ -40,6 +57,10 @@ function ensureStringArray(value: unknown) {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
+function ensureOptionalString(value: unknown) {
+  return typeof value === "string" ? value : null;
+}
+
 function ensureMode(value: unknown, fallback: OutputMode = "safe_mode"): OutputMode {
   return value === "complete_mode" || value === "partial_mode" || value === "safe_mode"
     ? value
@@ -61,6 +82,10 @@ function ensureConfidence(value: unknown): ConfidenceValue {
   }
 
   return value === "high" || value === "medium" || value === "low" ? value : "low";
+}
+
+function ensureLiteral<T extends string>(value: unknown, allowed: readonly T[]): T | null {
+  return typeof value === "string" && allowed.includes(value as T) ? (value as T) : null;
 }
 
 function parseEvidence(value: unknown): Evidence[] {
@@ -145,6 +170,35 @@ function parseClaimResults(value: unknown): ClaimResult[] {
   }));
 }
 
+function parseReportProvenance(value: unknown): ReportProvenance | null {
+  if (!isObject(value)) {
+    return null;
+  }
+
+  const sourceType = ensureLiteral(value.source_type, reportSourceTypes);
+  const eventSource = ensureLiteral(value.event_source, eventSourceTypes);
+  const claimSource = ensureLiteral(value.claim_source, claimSourceTypes);
+  const evidenceSource = ensureLiteral(value.evidence_source, evidenceSourceTypes);
+  const timelineSource = ensureLiteral(value.timeline_source, timelineSourceTypes);
+
+  if (!sourceType || !eventSource || !claimSource || !evidenceSource || !timelineSource) {
+    return null;
+  }
+
+  return {
+    source_type: sourceType,
+    event_source: eventSource,
+    claim_source: claimSource,
+    evidence_source: evidenceSource,
+    timeline_source: timelineSource,
+    retrieval_provider: ensureOptionalString(value.retrieval_provider),
+    retrieval_cache_status: ensureOptionalString(value.retrieval_cache_status),
+    provider_used: value.provider_used === true,
+    fallback_used: value.fallback_used === true,
+    fallback_reasons: ensureStringArray(value.fallback_reasons),
+  };
+}
+
 export function parseReport(value: unknown): Report {
   if (!isObject(value)) {
     throw new ApiClientError("后端返回了无法解析的 Report。");
@@ -160,6 +214,7 @@ export function parseReport(value: unknown): Report {
     final_summary: ensureString(value.final_summary, "暂无综合结论。"),
     risks: ensureStringArray(value.risks),
     sources: parseEvidence(value.sources),
+    provenance: parseReportProvenance(value.provenance),
   };
 }
 

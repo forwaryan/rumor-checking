@@ -1,8 +1,8 @@
-﻿import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { parseReport } from "@/lib/api-client";
 
 describe("parseReport", () => {
-  it("parses a full backend report payload", () => {
+  it("parses a full backend report payload with provenance", () => {
     const report = parseReport({
       mode: "partial_mode",
       event: {
@@ -48,12 +48,27 @@ describe("parseReport", () => {
       final_summary: "当前已有部分可核验结论，但证据链或时间线仍不完整，需要保留边界。",
       risks: ["存在相互冲突的证据，不能把单一版本当成最终事实。"],
       sources: [],
+      provenance: {
+        source_type: "backend_live",
+        event_source: "provider_enriched",
+        claim_source: "provider_plus_rule",
+        evidence_source: "retrieval_live",
+        timeline_source: "retrieval",
+        retrieval_provider: "serpapi",
+        retrieval_cache_status: "miss",
+        provider_used: true,
+        fallback_used: false,
+        fallback_reasons: [],
+      },
     });
 
     expect(report.mode).toBe("partial_mode");
     expect(report.event.title).toContain("北城区化工厂");
     expect(report.timeline[0]?.node_type).toBe("turn");
     expect(report.claim_results[0]?.evidence[0]?.source_tier).toBe("S");
+    expect(report.provenance?.source_type).toBe("backend_live");
+    expect(report.provenance?.evidence_source).toBe("retrieval_live");
+    expect(report.provenance?.provider_used).toBe(true);
   });
 
   it("fills conservative defaults for sparse payloads", () => {
@@ -64,6 +79,19 @@ describe("parseReport", () => {
     expect(report.timeline).toEqual([]);
     expect(report.claim_results).toEqual([]);
     expect(report.sources).toEqual([]);
+    expect(report.provenance).toBeNull();
+  });
+
+  it("drops incomplete provenance payloads onto the conservative path", () => {
+    const report = parseReport({
+      mode: "partial_mode",
+      provenance: {
+        source_type: "backend_mock",
+        evidence_source: "retrieval_mock",
+      },
+    });
+
+    expect(report.provenance).toBeNull();
   });
 
   it("throws on non-object payloads", () => {

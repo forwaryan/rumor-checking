@@ -1,4 +1,4 @@
-﻿# Cluster-E / Experience Shell
+# Cluster-E / Experience Shell
 
 ## 这个子 task 是干什么的
 
@@ -124,7 +124,7 @@
 实现备注：当前 demo 离线回退、接口失败安全回退和边界说明都已经接通。
 
 ### E9 明确结果来源与运行模式 provenance
-状态：未完成（第一阶段 UI 壳已完成，待 `C11` 冻结 provenance 字段后做第二阶段真实接线）
+状态：已完成（第一阶段 UI 壳 + 第二阶段真实接线）
 目标：让用户能明确区分真实 analyze 结果、mock retrieval / replay、前端 demo payload 和 safe fallback，避免把任何缓存或样例渲染误判成真实推理。
 产出：结果来源标识与 provenance 展示。
 前置依赖：E7、E8，并需与 `Cluster-C`、`Cluster-D` 对齐 provenance 输入。
@@ -158,3 +158,31 @@
 交接建议：
 - `Cluster-C`：冻结 `Report` provenance 字段，并说明 mock / replay 与 fallback 的区分边界。
 - `Cluster-F`：后续随机 case / 演示验收时，确认页面标签与真实运行路径一致，不把 demo payload 或 safe fallback 讲成真实分析。
+
+本轮执行任务：
+- 把后端已冻结的 `report.provenance` 接到前端类型、解析层和页面状态区，正式消费 `backend_live / backend_mock / backend_replay`。
+- 继续保留前端本地 `demo_payload / frontend_fallback` 两类本地来源，并把它们和后端三类来源统一成五类展示口径。
+- 对旧 payload、缺 `provenance` 字段或字段不完整的结果维持保守路径，避免把任何可渲染数据误标成真实分析。
+- 补最小前端测试与 `frontend/README.md` 第二阶段说明，并在本任务下回写完成记录或剩余问题。
+
+执行步骤：
+- 扩展 `frontend/types/report.ts` 的 `Report` 与 provenance 相关类型，对齐 `C11` 冻结字段，同时保留前端本地 fallback reason。
+- 调整 `frontend/lib/api-client.ts` 与 `frontend/lib/report-utils.ts`，解析后端 provenance 并集中产出五类来源的 UI 元数据；字段不足时回退到保守标签。
+- 修改 `frontend/components/analyze-page.tsx` 和 `frontend/components/status-banner.tsx`，让真实 analyze 成功时直接展示后端 provenance，本地 demo 与前端 fallback 继续走显式本地标签。
+- 补 `frontend/lib/__tests__/api-client.test.ts`、`frontend/lib/__tests__/report-utils.test.ts` 的最小回归测试，并同步更新 `frontend/README.md` 和本任务记录。
+实现备注（第二阶段）：前端已正式消费后端 `report.provenance`。真实 analyze 成功时会直接展示 `backend_live / backend_mock / backend_replay`，本地 demo 与前端安全回退分别固定为 `demo_payload / frontend_fallback`；旧 payload 或缺字段结果仍会保守落到 `unknown`，不会伪装成真实分析。
+本轮完成记录（第二阶段）：
+- `frontend/types/report.ts`、`frontend/lib/api-client.ts`：补齐 `report.provenance` 类型与解析逻辑，对齐 `C11` 冻结字段；字段缺失或不完整时不抛异常，直接保守落到 `provenance=null`。
+- `frontend/lib/report-utils.ts`、`frontend/components/status-banner.tsx`、`frontend/app/globals.css`：把 provenance 展示从“四类前端状态”升级成“五类真实来源 + unknown 保守兜底”，并新增 `claims:* / evidence:* / timeline:* / provider:* / cache:*` 等 provenance 细节 badge。
+- `frontend/components/analyze-page.tsx`：真实 analyze 成功时直接消费后端 `source_type`；demo 离线/失败回退固定标记为 `demo_payload`，普通输入失败回退固定标记为 `frontend_fallback`。
+- `frontend/lib/__tests__/api-client.test.ts`、`frontend/lib/__tests__/report-utils.test.ts`、`frontend/README.md`：补解析/展示回归测试与第二阶段说明文档，明确页面如何区分 live/mock/replay/demo/fallback，以及旧 payload 的保守路径。
+验证（第二阶段）：
+- `cmd /c "pushd \\wsl.localhost\Ubuntu-20.04\home\forwaryan\mianshi\rumor-checking\frontend && npm run typecheck"` 通过。
+- `cmd /c "pushd \\wsl.localhost\Ubuntu-20.04\home\forwaryan\mianshi\rumor-checking\frontend && npm test"` 通过，`2` 个测试文件、`13` 个测试全部通过。
+- 基于 Windows 本地镜像目录的 `next build` 通过，可完成生产构建验证。
+剩余问题（第二阶段）：
+- 直接在 `\\wsl.localhost\...` 路径下运行 `next build` 仍会遇到 Windows `UNC/readlink` 兼容问题；需要稳定构建时，继续使用 `frontend/start-local-windows.ps1` 或本地镜像目录。
+- 仓库内稳定 demo payload 目前仍是旧样例 JSON，本轮由前端本地来源状态显式标记为 `demo_payload`；如果后续希望在静态样例里也看到完整 provenance 字段，可再单独补合同步，但当前上线不依赖它。
+交接建议（第二阶段）：
+- `Cluster-F / F8`：最终验收时按页面标签和 `evidence_source` 一起归类；只有 `backend_live + retrieval_live` 才应算真实路径通过样本。
+- `Cluster-C`：当前 schema 已足够前端上线，不需要再改字段；只有当 provenance 枚举或细节字段继续扩张时，才需要新一轮前端对齐。

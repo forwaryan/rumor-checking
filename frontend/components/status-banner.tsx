@@ -1,4 +1,4 @@
-﻿import { ModePill } from "@/components/mode-pill";
+import { ModePill } from "@/components/mode-pill";
 import { getModeMeta, getReportProvenanceMeta } from "@/lib/report-utils";
 import type { AnalysisStatus, Report, ReportProvenanceState } from "@/types/report";
 
@@ -41,7 +41,7 @@ function getStatusCopy(status: AnalysisStatus, report: Report | null) {
 
 export function StatusBanner({ status, report, provenance, errorMessage, fallbackMessage, onRetry }: StatusBannerProps) {
   const copy = getStatusCopy(status, report);
-  const provenanceMeta = getReportProvenanceMeta(report, provenance);
+  const provenanceMeta = status === "submitting" ? null : getReportProvenanceMeta(report, provenance);
 
   return (
     <section className={`status-banner status-banner--${status}`}>
@@ -61,6 +61,11 @@ export function StatusBanner({ status, report, provenance, errorMessage, fallbac
                 {provenanceMeta.fallbackLabel ? (
                   <span className="provenance-pill provenance-pill--subtle">{provenanceMeta.fallbackLabel}</span>
                 ) : null}
+                {provenanceMeta.detailBadges.map((badge) => (
+                  <span key={badge} className="provenance-pill provenance-pill--subtle">
+                    {badge}
+                  </span>
+                ))}
               </div>
             </div>
             <p className="status-banner__provenance-summary">{provenanceMeta.summary}</p>

@@ -133,6 +133,7 @@ class ReportBuilder:
             risks.append("尚未形成稳定证据链。")
         if mode == "safe_mode":
             risks.append("当前页面只适合提示待核查点，不应被当作定性结论。")
+            risks.append("建议补充可核查原文、权威来源或稍后重试，再决定是否下结论。")
         if not timeline:
             risks.append("时间线未建立成功，当前结果不代表完整传播链。")
 

@@ -1,8 +1,8 @@
-﻿# Frontend
+# Frontend
 
 详细实现总结见：`frontend/IMPLEMENTATION_SUMMARY.md`
 
-本目录提供 `Cluster-E / Experience Shell` 的 Next.js 单页前端壳，当前已经从“纯 mock 页面”推进到“优先走真实 `POST /api/v1/analyze`，失败时回退本地 demo payload”的状态。
+本目录提供 `Cluster-E / Experience Shell` 的 Next.js 单页前端壳。当前已经进入 `E9` 第二阶段：前端会优先走真实 `POST /api/v1/analyze`，并正式消费后端冻结的 `report.provenance`；只有在后端离线、请求失败或本地演示时，才回退到 `demo_payload / frontend_fallback` 等本地来源。
 
 ## 已完成内容
 
@@ -12,8 +12,9 @@
 - `complete_mode / partial_mode / safe_mode` 三档页面表达
 - 与当前后端对齐的 `analyze / health` API client
 - 三条与后端 scenario 对齐的稳定 demo 输入
-- 后端离线或请求失败时的本地 demo payload / safe fallback
-- 顶部状态区 provenance UI 壳，可区分真实后端响应、本地 demo payload、前端 safe fallback 和来源不明结果
+- 后端离线或请求失败时的本地 `demo_payload / frontend_fallback`
+- 顶部状态区真实 provenance 展示，可区分 `backend_live / backend_mock / backend_replay / demo_payload / frontend_fallback`
+- 对旧 payload、缺 `provenance` 字段或字段不完整结果的保守展示路径
 - 共享 contract schema 与 demo payload（位于 `contracts/`）
 - 基于 Vitest 的最小单元测试覆盖（`parseReport / validateInput / getStatusFromMode / collectEvidence / getReportProvenanceMeta`）
 
@@ -27,18 +28,21 @@
 说明：
 
 - 后端当前没有 `GET /api/v1/demo-cases` 和 `POST /api/v1/replay`。
-- 因此前端示例区的 demo 输入会优先走真实 `analyze`；只有后端离线或请求失败时，才回退到本地 payload。
+- 前端示例区的 demo 输入仍会优先走真实 `analyze`；只有后端离线或请求失败时，才回退到仓库内稳定 payload。
+- `backend_replay` 是否出现由后端 `report.provenance.source_type` 决定；前端只消费这个标签，不额外发 replay 请求。
 
 ## 当前 provenance 展示策略
 
-第一阶段的 provenance UI 壳只依赖前端运行时已知状态，不依赖后端本轮新增 schema：
+前端现已直接消费 `report.provenance`，展示口径如下：
 
-- `真实后端响应`：本次 `POST /api/v1/analyze` 成功返回并完成前端解析。
-- `本地 demo payload`：demo 输入在后端离线或请求失败时，回退到仓库内稳定 payload。
-- `前端 safe fallback`：普通输入在接口失败时，由前端生成保守 `safe_mode` 报告壳。
-- `来源不明`：旧 payload、缺字段结果或没有显式来源状态的数据，一律按保守标签展示，不伪装成真实分析。
+- `backend_live`：后端实时 analyze 返回。页面会额外展示 `claims:* / evidence:* / timeline:* / provider:* / cache:*` 等 provenance 细节；若 `evidence_source != retrieval_live` 或 `fallback_used=true`，仍会给出保守提示。
+- `backend_mock`：后端 mock 联调结果。页面明确提示这不是 live 检索路径。
+- `backend_replay`：后端 replay 回放结果。页面明确提示这不是针对当前输入的实时分析。
+- `demo_payload`：前端本地稳定 demo payload，仅用于演示页面结构和三档模式。
+- `frontend_fallback`：前端在请求失败时生成的保守 `safe_mode` 报告壳。
+- `unknown`：旧 payload、缺 `provenance` 字段或字段不完整的结果，一律按保守标签展示，不伪装成真实分析。
 
-这意味着当前页面已经能看见 provenance 位置和基本标签；等 `C11` 冻结后端 provenance 字段后，再进入第二阶段真实接线。
+这意味着页面现在已经能看见真实 provenance 标签；即使后端返回旧 payload 或缺字段结果，也不会被前端误标成 live 分析。
 
 ## 运行方式
 
@@ -83,6 +87,7 @@ npm test
 npm run typecheck
 npm run build
 ```
+
 ## 目录说明
 
 - `app/`
@@ -90,9 +95,9 @@ npm run build
 - `components/`
   - 页面各个可复用展示模块
 - `lib/`
-  - API client、demo 注册、模式和 fallback 辅助逻辑、单元测试
+  - API client、demo 注册、模式与 provenance/fallback 辅助逻辑、单元测试
 - `types/`
-  - 前端消费的 Report 类型
+  - 前端消费的 Report 与 provenance 类型
 
 ## 协作约束
 
@@ -100,10 +105,11 @@ npm run build
 - 稳定 demo payload 放在 `contracts/demo_payloads/`
 - 当前前端通过 `next.config.ts` 允许读取仓库根目录下的 contract JSON
 - 如需继续联调，优先对齐 `backend/app/models/schemas.py` 与 `frontend/types/report.ts`
+- 本轮不改后端 schema；若 `report.provenance` 缺失或字段不足，前端必须走保守标签
 
 ## 验证说明
 
-- `npm test` 已通过（2 个测试文件，10 个测试）
-- `npm run typecheck` 已通过
-- `npm run build` 已通过
-- 当前项目存在 Windows Node 直接操作 `\\wsl.localhost\...` 路径的兼容性问题；如需稳定执行 `test / build`，优先在 WSL 内或 Windows 本机目录执行
+- `npm test` 通过：`2` 个测试文件，`13` 个测试全部通过
+- `npm run typecheck` 通过
+- `npm run build` 已在 Windows 本地镜像目录通过
+- 直接在 `\\wsl.localhost\...` 路径下运行 `next build` 仍可能触发 Windows `UNC/readlink` 兼容问题；需要稳定构建时优先使用本地镜像目录

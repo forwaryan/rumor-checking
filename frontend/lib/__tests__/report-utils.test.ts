@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   buildFallbackReport,
   collectEvidence,
@@ -71,6 +71,18 @@ const sampleReport: Report = {
       source_tier: "A",
     },
   ],
+  provenance: {
+    source_type: "backend_live",
+    event_source: "provider_enriched",
+    claim_source: "provider_plus_rule",
+    evidence_source: "retrieval_live",
+    timeline_source: "retrieval",
+    retrieval_provider: "serpapi",
+    retrieval_cache_status: "miss",
+    provider_used: true,
+    fallback_used: false,
+    fallback_reasons: [],
+  },
 };
 
 describe("report-utils", () => {
@@ -95,42 +107,83 @@ describe("report-utils", () => {
     expect(evidence[2]?.url).toBe("https://example.org/evidence/early");
   });
 
-  it("labels real backend reports as live responses", () => {
-    const meta = getReportProvenanceMeta(sampleReport, { sourceKind: "backend_response" });
+  it("labels backend_live reports with their real provenance tag", () => {
+    const meta = getReportProvenanceMeta(sampleReport, null);
 
-    expect(meta?.sourceLabel).toBe("真实后端响应");
-    expect(meta?.fallbackLabel).toBeUndefined();
-    expect(meta?.summary).toContain("后端 analyze 的直接返回");
+    expect(meta?.sourceLabel).toBe("backend_live");
+    expect(meta?.detailBadges).toContain("evidence:retrieval_live");
+    expect(meta?.detailBadges).toContain("provider:serpapi");
+    expect(meta?.tone).toBe("live");
   });
 
-  it("marks local demo payloads as fallback demo data", () => {
+  it("marks backend_mock results as mock instead of real live analysis", () => {
+    const meta = getReportProvenanceMeta(
+      {
+        ...sampleReport,
+        provenance: {
+          ...sampleReport.provenance!,
+          source_type: "backend_mock",
+          evidence_source: "retrieval_mock",
+          provider_used: false,
+          retrieval_provider: null,
+        },
+      },
+      null,
+    );
+
+    expect(meta?.sourceLabel).toBe("backend_mock");
+    expect(meta?.caution).toContain("mock 路径");
+  });
+
+  it("marks backend_replay results as replayed rather than current input analysis", () => {
+    const meta = getReportProvenanceMeta(
+      {
+        ...sampleReport,
+        provenance: {
+          ...sampleReport.provenance!,
+          source_type: "backend_replay",
+          evidence_source: "request_mock",
+        },
+      },
+      null,
+    );
+
+    expect(meta?.sourceLabel).toBe("backend_replay");
+    expect(meta?.caution).toContain("analyze");
+  });
+
+  it("marks local demo payloads as demo data", () => {
     const meta = getReportProvenanceMeta(sampleReport, {
-      sourceKind: "local_demo",
+      sourceKind: "demo_payload",
       fallbackReason: "backend_offline",
     });
 
-    expect(meta?.sourceLabel).toBe("本地 demo payload");
+    expect(meta?.sourceLabel).toBe("demo_payload");
     expect(meta?.fallbackLabel).toBe("后端离线回退");
-    expect(meta?.caution).toContain("不是本次输入的实时分析结果");
+    expect(meta?.caution).toContain("claim");
   });
 
-  it("marks frontend safe fallback results as conservative UI shells", () => {
+  it("marks frontend fallback results as conservative shells", () => {
     const fallbackReport = buildFallbackReport("晨星生物已经宣布裁员40%了吗？", "question");
     const meta = getReportProvenanceMeta(fallbackReport, {
-      sourceKind: "frontend_safe_fallback",
+      sourceKind: "frontend_fallback",
       fallbackReason: "analyze_failed",
     });
 
-    expect(meta?.sourceLabel).toBe("前端 safe fallback");
+    expect(meta?.sourceLabel).toBe("frontend_fallback");
     expect(meta?.fallbackLabel).toBe("请求失败回退");
-    expect(meta?.summary).toContain("保守展示壳");
+    expect(meta?.summary).toContain("Report");
   });
 
   it("defaults to an unknown provenance label when metadata is missing", () => {
-    const meta = getReportProvenanceMeta(sampleReport, null);
+    const meta = getReportProvenanceMeta({
+      ...sampleReport,
+      provenance: null,
+    }, null);
 
-    expect(meta?.sourceLabel).toBe("来源不明");
+    expect(meta?.sourceLabel).toBe("unknown");
     expect(meta?.fallbackLabel).toBe("来源待确认");
     expect(meta?.caution).toContain("旧 payload 或字段不足");
   });
 });
+

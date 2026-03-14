@@ -1,4 +1,4 @@
-﻿import type {
+import type {
   AnalysisStatus,
   ConfidenceValue,
   Evidence,
@@ -6,6 +6,7 @@
   OutputMode,
   Report,
   ReportFallbackReason,
+  ReportProvenance,
   ReportProvenanceState,
   ReportSourceKind,
   Verdict,
@@ -49,7 +50,8 @@ export interface ReportProvenanceMeta {
   summary: string;
   caution?: string;
   fallbackLabel?: string;
-  tone: "backend" | "demo" | "fallback" | "unknown";
+  detailBadges: string[];
+  tone: "live" | "mock" | "replay" | "demo" | "fallback" | "unknown";
 }
 
 export function getModeMeta(mode: OutputMode) {
@@ -84,6 +86,70 @@ function getFallbackLabel(reason?: ReportFallbackReason) {
   }
 }
 
+function getBackendFallbackLabel(provenance: ReportProvenance | null | undefined) {
+  if (!provenance?.fallback_used) {
+    return undefined;
+  }
+
+  return provenance.fallback_reasons.length > 0 ? "后端保守降级" : "后端回退中";
+}
+
+function formatFallbackReasons(reasons: string[]) {
+  return reasons.length > 0 ? reasons.join(" / ") : "未提供具体原因";
+}
+
+function getBackendDetailBadges(provenance: ReportProvenance) {
+  const badges = [
+    `claims:${provenance.claim_source}`,
+    `evidence:${provenance.evidence_source}`,
+    `timeline:${provenance.timeline_source}`,
+  ];
+
+  if (provenance.provider_used) {
+    badges.push(`provider:${provenance.retrieval_provider ?? "on"}`);
+  }
+
+  if (provenance.retrieval_cache_status) {
+    badges.push(`cache:${provenance.retrieval_cache_status}`);
+  }
+
+  if (provenance.fallback_used) {
+    badges.push("fallback:on");
+  }
+
+  return badges;
+}
+
+function getEffectiveProvenanceState(report: Report, provenance: ReportProvenanceState | null): ReportProvenanceState {
+  if (provenance) {
+    return provenance;
+  }
+
+  if (report.provenance) {
+    return {
+      sourceKind: report.provenance.source_type,
+      reportProvenance: report.provenance,
+    };
+  }
+
+  return {
+    sourceKind: "unknown",
+    fallbackReason: "missing_provenance",
+  };
+}
+
+function getBackendLiveCaution(provenance: ReportProvenance) {
+  if (provenance.evidence_source !== "retrieval_live") {
+    return `当前虽然标记为 backend_live，但 evidence_source=${provenance.evidence_source}，还不能把它讲成真实检索已完整跑通。`;
+  }
+
+  if (provenance.fallback_used) {
+    return `后端这次仍触发了保守降级：${formatFallbackReasons(provenance.fallback_reasons)}。`;
+  }
+
+  return undefined;
+}
+
 export function getReportProvenanceMeta(
   report: Report | null,
   provenance: ReportProvenanceState | null,
@@ -93,46 +159,68 @@ export function getReportProvenanceMeta(
   }
 
   const modeMeta = getModeMeta(report.mode);
-  const safeProvenance =
-    provenance ??
-    ({
-      sourceKind: "unknown",
-      fallbackReason: "missing_provenance",
-    } satisfies ReportProvenanceState);
+  const effectiveProvenance = getEffectiveProvenanceState(report, provenance);
+  const backendProvenance = effectiveProvenance.reportProvenance ?? report.provenance ?? null;
 
-  switch (safeProvenance.sourceKind) {
-    case "backend_response":
+  switch (effectiveProvenance.sourceKind) {
+    case "backend_live":
       return {
-        sourceKind: safeProvenance.sourceKind,
-        sourceLabel: "真实后端响应",
-        summary: `当前页面以${modeMeta.label}展示本次后端 analyze 的直接返回，不是本地 demo 或前端安全回退。`,
-        tone: "backend",
+        sourceKind: effectiveProvenance.sourceKind,
+        sourceLabel: "backend_live",
+        summary: `当前页面以${modeMeta.label}展示后端实时 analyze 返回，证据路径为 ${backendProvenance?.evidence_source ?? "unknown"}，时间线路径为 ${backendProvenance?.timeline_source ?? "unknown"}。`,
+        caution: backendProvenance ? getBackendLiveCaution(backendProvenance) : "缺少完整 provenance 细节，讲解时仍需按保守路径理解。",
+        fallbackLabel: getBackendFallbackLabel(backendProvenance),
+        detailBadges: backendProvenance ? getBackendDetailBadges(backendProvenance) : [],
+        tone: "live",
       };
-    case "local_demo":
+    case "backend_mock":
       return {
-        sourceKind: safeProvenance.sourceKind,
-        sourceLabel: "本地 demo payload",
+        sourceKind: effectiveProvenance.sourceKind,
+        sourceLabel: "backend_mock",
+        summary: `当前页面以${modeMeta.label}展示后端 mock 联调结果，证据路径为 ${backendProvenance?.evidence_source ?? "unknown"}。`,
+        caution: "这是后端 mock 路径，只适合联调或演示，不应当作真实较真已经完成。",
+        fallbackLabel: getBackendFallbackLabel(backendProvenance),
+        detailBadges: backendProvenance ? getBackendDetailBadges(backendProvenance) : [],
+        tone: "mock",
+      };
+    case "backend_replay":
+      return {
+        sourceKind: effectiveProvenance.sourceKind,
+        sourceLabel: "backend_replay",
+        summary: `当前页面以${modeMeta.label}展示后端 replay 回放结果，适合复现 UI、测试或联调口径。`,
+        caution: "这不是针对当前输入的实时 analyze，请不要把结论、时间线或 claim 讲成最新分析输出。",
+        fallbackLabel: getBackendFallbackLabel(backendProvenance),
+        detailBadges: backendProvenance ? getBackendDetailBadges(backendProvenance) : [],
+        tone: "replay",
+      };
+    case "demo_payload":
+      return {
+        sourceKind: effectiveProvenance.sourceKind,
+        sourceLabel: "demo_payload",
         summary: `当前页面仍以${modeMeta.label}展示仓库内 demo payload，用来稳定演示页面结构和边界。`,
         caution: "这不是本次输入的实时分析结果，请不要把结论、时间线或 claim 当成真实推理输出。",
-        fallbackLabel: getFallbackLabel(safeProvenance.fallbackReason),
+        fallbackLabel: getFallbackLabel(effectiveProvenance.fallbackReason),
+        detailBadges: [],
         tone: "demo",
       };
-    case "frontend_safe_fallback":
+    case "frontend_fallback":
       return {
-        sourceKind: safeProvenance.sourceKind,
-        sourceLabel: "前端 safe fallback",
+        sourceKind: effectiveProvenance.sourceKind,
+        sourceLabel: "frontend_fallback",
         summary: `当前页面只保留${modeMeta.label}的保守展示壳，用来提示边界和空态，不代表后端已产出可用 Report。`,
         caution: "请不要把当前页面内容解释成真实分析；恢复接口后应重新提交输入。",
-        fallbackLabel: getFallbackLabel(safeProvenance.fallbackReason),
+        fallbackLabel: getFallbackLabel(effectiveProvenance.fallbackReason),
+        detailBadges: [],
         tone: "fallback",
       };
     default:
       return {
-        sourceKind: safeProvenance.sourceKind,
-        sourceLabel: "来源不明",
-        summary: "当前页面拿到了可渲染数据，但缺少足够 provenance 标记，先按非真实分析结果理解。",
+        sourceKind: effectiveProvenance.sourceKind,
+        sourceLabel: "unknown",
+        summary: "当前页面拿到了可渲染数据，但 report.provenance 缺失或不完整，先按非真实分析结果理解。",
         caution: "旧 payload 或字段不足的结果都会落到这个标签，避免误讲成真实 analyze 输出。",
-        fallbackLabel: getFallbackLabel(safeProvenance.fallbackReason),
+        fallbackLabel: getFallbackLabel(effectiveProvenance.fallbackReason),
+        detailBadges: [],
         tone: "unknown",
       };
   }

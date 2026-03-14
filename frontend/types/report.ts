@@ -1,4 +1,4 @@
-﻿export type OutputMode = "complete_mode" | "partial_mode" | "safe_mode";
+export type OutputMode = "complete_mode" | "partial_mode" | "safe_mode";
 
 export type InputType = "auto" | "text" | "url" | "question";
 
@@ -10,12 +10,41 @@ export type AnalysisStatus =
   | "safe_mode"
   | "error";
 
-export type ReportSourceKind = "backend_response" | "local_demo" | "frontend_safe_fallback" | "unknown";
+export type EventSourceType = "input_normalized" | "url_extract" | "provider_enriched";
+
+export type ClaimSourceType = "rule" | "provider" | "provider_plus_rule";
+
+export type EvidenceSourceType = "retrieval_live" | "retrieval_mock" | "request_mock" | "none";
+
+export type TimelineSourceType = "retrieval" | "input_seed" | "none";
+
+export type ReportSourceType =
+  | "backend_live"
+  | "backend_mock"
+  | "backend_replay"
+  | "demo_payload"
+  | "frontend_fallback";
+
+export type ReportSourceKind = ReportSourceType | "unknown";
 
 export type ReportFallbackReason = "backend_offline" | "analyze_failed" | "missing_provenance";
 
+export interface ReportProvenance {
+  source_type: ReportSourceType;
+  event_source: EventSourceType;
+  claim_source: ClaimSourceType;
+  evidence_source: EvidenceSourceType;
+  timeline_source: TimelineSourceType;
+  retrieval_provider: string | null;
+  retrieval_cache_status: string | null;
+  provider_used: boolean;
+  fallback_used: boolean;
+  fallback_reasons: string[];
+}
+
 export interface ReportProvenanceState {
   sourceKind: ReportSourceKind;
+  reportProvenance?: ReportProvenance | null;
   fallbackReason?: ReportFallbackReason;
 }
 
@@ -83,6 +112,7 @@ export interface Report {
   final_summary: string;
   risks: string[];
   sources: Evidence[];
+  provenance?: ReportProvenance | null;
 }
 
 export interface AnalyzeRequest {

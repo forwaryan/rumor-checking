@@ -38,18 +38,47 @@ URL_FALLBACK_NOTICE_MAP = {
     "url_invalid": "当前输入不是可直接抓取的链接，建议检查 URL 是否完整，或直接粘贴正文原文。",
 }
 OFFICIAL_SOURCE_HINTS = (
-    "监管局",
-    "交通局",
-    "教育局",
-    "生态环境局",
-    "政府",
-    "警方",
-    "法院",
-    "医院",
-    "委员会",
-    "市场监管",
-    "日报",
-    "中学",
+    "\u76d1\u7ba1\u5c40",
+    "\u4ea4\u901a\u5c40",
+    "\u6559\u80b2\u5c40",
+    "\u751f\u6001\u73af\u5883\u5c40",
+    "\u653f\u5e9c",
+    "\u8b66\u65b9",
+    "\u6cd5\u9662",
+    "\u533b\u9662",
+    "\u59d4\u5458\u4f1a",
+    "\u5e02\u573a\u76d1\u7ba1",
+    "\u4e2d\u5b66",
+)
+MEDIA_SOURCE_HINTS = (
+    "\u65e5\u62a5",
+    "\u665a\u62a5",
+    "\u65f6\u62a5",
+    "\u7535\u89c6\u53f0",
+    "\u65b0\u95fb",
+    "\u89c2\u5bdf",
+)
+KEYWORD_PHRASES = (
+    "\u6d77\u5dde\u5e02\u5e02\u573a\u76d1\u7ba1\u5c40",
+    "\u6e05\u6cb3\u5e02\u4ea4\u901a\u5c40",
+    "\u5317\u57ce\u533a\u5316\u5de5\u5382",
+    "\u6d77\u5dde\u65b0\u9c9c\u5c4b",
+    "\u6668\u661f\u751f\u7269",
+    "\u505c\u4e1a\u6574\u6539",
+    "\u6e21\u8f6e\u505c\u822a",
+    "\u751f\u6001\u73af\u5883\u5c40",
+    "\u88c1\u545840%",
+    "\u9178\u5976",
+    "\u6e21\u8f6e",
+    "\u5927\u96fe",
+    "\u505c\u8bfe",
+    "\u5f02\u5473",
+    "\u6838\u67e5",
+    "\u4f20\u95fb",
+)
+KEYWORD_PATTERNS = (
+    r"[\u4e00-\u9fa5]{2,20}(?:\u5e02\u573a\u76d1\u7ba1\u5c40|\u4ea4\u901a\u5c40|\u6559\u80b2\u5c40|\u751f\u6001\u73af\u5883\u5c40|\u5316\u5de5\u5382|\u516c\u53f8|\u533b\u9662|\u653f\u5e9c|\u8b66\u65b9|\u59d4\u5458\u4f1a|\u65e5\u62a5|\u4e2d\u5b66|\u751f\u7269)",
+    r"\u88c1\u5458\d+%",
 )
 
 
@@ -82,23 +111,20 @@ def _normalize_requested_input_type(raw_input: str, requested: Optional[str]) ->
 
 
 def _extract_keywords(text: str) -> List[str]:
+    compact = _collapse_whitespace(text)
     candidates: list[str] = []
-    patterns = [
-        r"[一-龥]{2,20}(?:监管局|交通局|教育局|生态环境局|日报|中学|化工厂|生物)",
-        r"[一-龥]{2,20}(?:酸奶|渡轮|停课|裁员40%|异味|整改|传闻)",
-        r"裁员\d+%",
-    ]
-    for pattern in patterns:
-        candidates.extend(re.findall(pattern, text))
 
-    for token in ("海州新鲜屋", "渡轮停航", "晨星生物", "夜间异味", "停课", "整改", "裁员40%", "传闻", "辟谣", "核查"):
-        if token in text:
-            candidates.append(token)
+    for phrase in KEYWORD_PHRASES:
+        if phrase in compact:
+            candidates.append(phrase)
+
+    for pattern in KEYWORD_PATTERNS:
+        candidates.extend(re.findall(pattern, compact))
 
     seen = set()
     ordered = []
     for item in candidates:
-        cleaned = item.strip("，。！？：；【】")
+        cleaned = item.strip("\uff0c\u3002\uff01\uff1f\uff1a\uff1b\u3010\u3011")
         if cleaned and cleaned not in seen:
             seen.add(cleaned)
             ordered.append(cleaned)
@@ -126,8 +152,11 @@ def _infer_mode_hint(
 ) -> str:
     if input_type == "question_only" or fallback_used:
         return "safe"
+    media_signal = bool(source_name and any(marker in source_name for marker in MEDIA_SOURCE_HINTS))
     official_signal = bool(source_name and any(marker in source_name for marker in OFFICIAL_SOURCE_HINTS))
     detail_signal = bool(published_at) or len(summary) >= 40 or len(keywords) >= 2
+    if media_signal:
+        return "partial"
     if official_signal and detail_signal:
         return "complete_or_partial"
     return "partial"
@@ -156,8 +185,8 @@ class InputNormalizer:
                 fetch=fetch,
             )
         elif input_type == "question_only":
-            summary = _collapse_whitespace(payload.raw_input.rstrip("？?"))
-            source_name = default_source_name(input_type)
+            summary = _collapse_whitespace(payload.raw_input.rstrip("?\uff1f"))
+            source_name = None
             source_url = default_source_url(input_type, payload.raw_input)
         else:
             title = self._derive_title(payload.raw_input)

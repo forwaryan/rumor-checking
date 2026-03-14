@@ -24,6 +24,7 @@ CLAIM_NEGATION_MARKERS = (
     "未发现",
     "未发布",
     "未安排",
+    "未有",
     "没有",
     "不存在",
     "仍在救治",
@@ -51,6 +52,9 @@ SOURCE_GAP_CLAIM_MARKERS = (
     "缺少完整正文",
 )
 SOURCE_GAP_EVIDENCE_MARKERS = SOURCE_GAP_CLAIM_MARKERS + ("截图", "转发", "聚合页", "无落款", "无来源")
+HIGH_TRUST_SOURCE_TIERS = {"S", "A"}
+DECISIVE_HIGH_CONFIDENCE_TIER = "S"
+QUANTITY_TOKEN_PATTERN = re.compile(r"\d+(?:\.\d+)?%|\d+(?:\.\d+)?[人名例起条线艘班个年月天小时分钟]")
 
 
 @dataclass(frozen=True)
@@ -210,31 +214,37 @@ class VerdictEngine:
             else:
                 refuting.append(item)
 
+        quantitative_conflict = self._detect_quantitative_conflict(
+            claim_text=normalized_claim,
+            evidence_pool=evidence_pool,
+        )
+        if quantitative_conflict is not None:
+            return quantitative_conflict
+
         if supporting and refuting:
-            supporting_high_trust = [item for item in supporting if item.source_tier in {"S", "A"}]
-            refuting_high_trust = [item for item in refuting if item.source_tier in {"S", "A"}]
+            supporting_high_trust = [item for item in supporting if item.source_tier in HIGH_TRUST_SOURCE_TIERS]
+            refuting_high_trust = [item for item in refuting if item.source_tier in HIGH_TRUST_SOURCE_TIERS]
             if supporting_high_trust and not refuting_high_trust:
-                confidence = "high" if len(supporting_high_trust) >= 2 else "medium"
+                confidence = self._confidence_from_high_trust_hits(supporting_high_trust)
                 return "supported", confidence, "高可信来源主要支持该说法，反向线索仍停留在低可信传播节点，当前先按支持处理。", (supporting + refuting)[:2]
             if refuting_high_trust and not supporting_high_trust:
-                confidence = "high" if len(refuting_high_trust) >= 2 else "medium"
+                confidence = self._confidence_from_high_trust_hits(refuting_high_trust)
                 return "refuted", confidence, "高可信来源主要否定该说法，反向线索仍停留在低可信传播节点，当前先按否定处理。", (refuting + supporting)[:2]
             confidence = "medium" if (supporting_high_trust or refuting_high_trust) else "low"
             return "conflicting", confidence, "公开来源中同时出现了支持和否定线索，当前应保持冲突态。", (refuting + supporting)[:2]
         if refuting:
-            high_trust_hits = [item for item in refuting if item.source_tier in {"S", "A"}]
+            high_trust_hits = [item for item in refuting if item.source_tier in HIGH_TRUST_SOURCE_TIERS]
             if high_trust_hits:
-                confidence = "high" if len(high_trust_hits) >= 2 else "medium"
+                confidence = self._confidence_from_high_trust_hits(high_trust_hits)
                 return "refuted", confidence, "检索到与该说法高度相关的辟谣或否认来源，当前更倾向于判定为不成立。", refuting[:2]
             return "insufficient", "low", "相关证据存在否定信号，但可信度还不足以强判。", refuting[:2]
         if supporting:
-            high_trust_hits = [item for item in supporting if item.source_tier in {"S", "A"}]
+            high_trust_hits = [item for item in supporting if item.source_tier in HIGH_TRUST_SOURCE_TIERS]
             if high_trust_hits:
-                confidence = "high" if len(high_trust_hits) >= 2 else "medium"
+                confidence = self._confidence_from_high_trust_hits(high_trust_hits)
                 return "supported", confidence, "检索到与该说法高度相关的公开来源，当前更倾向于判定为成立。", supporting[:2]
             return "insufficient", "low", "找到了一些相关来源，但可信度还不足以强判。", supporting[:2]
         return "insufficient", "low", "检索结果与该说法的语义重合仍不足，先保持保守。", relevant[:2] or evidence_pool[:1]
-
     def _evaluate_source_gap_claim(self, evidence_pool: List[EvidenceItem]) -> Tuple[str, str, str, List[EvidenceItem]] | None:
         supporting = [item for item in evidence_pool if self._looks_like_source_gap_evidence(item)]
         if not supporting:
@@ -272,13 +282,16 @@ class VerdictEngine:
         seen = set()
 
         def push(term: str) -> None:
-            if len(ordered) >= 24:
+            if len(ordered) >= 48:
                 return
             if term and term not in seen:
                 seen.add(term)
                 ordered.append(term)
 
         for term in re.findall(r"[a-z0-9]{2,}", text):
+            push(term)
+
+        for term in self._extract_quantity_tokens(text):
             push(term)
 
         for chunk in re.findall(r"[\u4e00-\u9fff]{2,}", text):
@@ -290,11 +303,58 @@ class VerdictEngine:
                     continue
                 for index in range(0, len(chunk) - window + 1):
                     push(chunk[index : index + window])
-                    if len(ordered) >= 24:
+                    if len(ordered) >= 48:
                         return ordered
 
         return ordered
 
+    def _confidence_from_high_trust_hits(self, items: List[EvidenceItem]) -> str:
+        if len(items) >= 2 or any(item.source_tier == DECISIVE_HIGH_CONFIDENCE_TIER for item in items):
+            return "high"
+        if items:
+            return "medium"
+        return "low"
+
+    def _extract_quantity_tokens(self, text: str) -> List[str]:
+        return [match.group(0) for match in QUANTITY_TOKEN_PATTERN.finditer(text)]
+
+    def _detect_quantitative_conflict(
+        self,
+        *,
+        claim_text: str,
+        evidence_pool: List[EvidenceItem],
+    ) -> Tuple[str, str, str, List[EvidenceItem]] | None:
+        claim_quantity_tokens = set(self._extract_quantity_tokens(claim_text))
+        if not claim_quantity_tokens:
+            return None
+
+        evidence_with_quantities: List[Tuple[EvidenceItem, set[str]]] = []
+        distinct_quantities = set()
+        claim_quantity_supported = False
+        for item in evidence_pool:
+            if item.source_tier not in HIGH_TRUST_SOURCE_TIERS:
+                continue
+            haystack = self._normalize_claim(f"{item.title} {item.snippet} {item.relevance_reason}")
+            quantity_tokens = set(self._extract_quantity_tokens(haystack))
+            if not quantity_tokens:
+                continue
+            evidence_with_quantities.append((item, quantity_tokens))
+            distinct_quantities.update(quantity_tokens)
+            if quantity_tokens & claim_quantity_tokens:
+                claim_quantity_supported = True
+
+        if len(evidence_with_quantities) < 2 or len(distinct_quantities) < 2 or not claim_quantity_supported:
+            return None
+        if not any(tokens.isdisjoint(claim_quantity_tokens) for _, tokens in evidence_with_quantities):
+            return None
+
+        selected = [item for item, _ in evidence_with_quantities[:2]]
+        return (
+            "conflicting",
+            "medium",
+            "高可信来源对同一数量细节给出了不一致说法，当前应保持冲突态。",
+            selected,
+        )
     def _contains_claim_negation(self, text: str) -> bool:
         return any(marker in text for marker in CLAIM_NEGATION_MARKERS)
 

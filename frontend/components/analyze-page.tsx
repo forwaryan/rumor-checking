@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { ClaimTable } from "@/components/claim-table";
@@ -89,13 +89,14 @@ export function AnalyzePage() {
     setStatus("submitting");
     setErrorMessage(null);
     setFallbackMessage(null);
+    setReportProvenance(null);
 
     if (target.demoId && backendState === "offline") {
       const localReport = getLocalDemoReport(target.demoId);
       if (localReport) {
         setReport(localReport);
         setReportProvenance({
-          sourceKind: "local_demo",
+          sourceKind: "demo_payload",
           fallbackReason: "backend_offline",
         });
         setStatus(getStatusFromMode(localReport.mode));
@@ -107,7 +108,17 @@ export function AnalyzePage() {
     try {
       const nextReport = await analyzeReport(target.request);
       setReport(nextReport);
-      setReportProvenance({ sourceKind: "backend_response" });
+      setReportProvenance(
+        nextReport.provenance
+          ? {
+              sourceKind: nextReport.provenance.source_type,
+              reportProvenance: nextReport.provenance,
+            }
+          : {
+              sourceKind: "unknown",
+              fallbackReason: "missing_provenance",
+            },
+      );
       setStatus(getStatusFromMode(nextReport.mode));
     } catch {
       if (target.demoId) {
@@ -115,7 +126,7 @@ export function AnalyzePage() {
         if (localReport) {
           setReport(localReport);
           setReportProvenance({
-            sourceKind: "local_demo",
+            sourceKind: "demo_payload",
             fallbackReason: "analyze_failed",
           });
           setStatus(getStatusFromMode(localReport.mode));
@@ -129,7 +140,7 @@ export function AnalyzePage() {
       const fallbackReport = buildFallbackReport(target.request.raw_input, target.request.input_type);
       setReport(fallbackReport);
       setReportProvenance({
-        sourceKind: "frontend_safe_fallback",
+        sourceKind: "frontend_fallback",
         fallbackReason: "analyze_failed",
       });
       setStatus("safe_mode");
@@ -172,14 +183,15 @@ export function AnalyzePage() {
           <p className="eyebrow">Cluster-E / Experience Shell</p>
           <h1>单页 rumor-checking 工作台</h1>
           <p>
-            当前示例输入已对齐后端真实 scenario。页面会优先走真实 <code>analyze</code> 链路，只有在后端离线或请求失败时，
-            才回退到同主题本地 payload；顶部状态区也会标明当前结果来自真实后端、demo payload 还是前端 safe fallback。
+            页面会优先走真实 <code>analyze</code> 链路，并直接消费后端冻结的 <code>report.provenance</code>。
+            顶部状态区会明确区分 <code>backend_live</code>、<code>backend_mock</code>、<code>backend_replay</code>、
+            <code>demo_payload</code> 和 <code>frontend_fallback</code>，避免把 demo、回放或保守回退误讲成真实分析。
           </p>
         </div>
         <div className="hero__card">
-          <span>三档模式</span>
-          <strong>complete / partial / safe</strong>
-          <p>在线时看真实 Report，离线时仍能稳定演示同主题页面，不再依赖缺失的 replay 接口。</p>
+          <span>结果来源</span>
+          <strong>live / mock / replay / demo / fallback</strong>
+          <p>后端缺字段或旧 payload 仍会落到保守标签，不会伪装成真实较真路径。</p>
         </div>
       </header>
 

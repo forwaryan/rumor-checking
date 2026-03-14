@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   --ink: #18222c;
   --muted: #5f6774;
   --paper: #f4efe5;
@@ -379,28 +379,40 @@ a:hover {
   background: rgba(255, 255, 255, 0.68);
 }
 
-.provenance-pill--backend {
+.provenance-pill--live {
   color: var(--green);
   border-color: rgba(29, 106, 84, 0.24);
   background: rgba(29, 106, 84, 0.09);
 }
 
-.provenance-pill--demo {
+.provenance-pill--mock {
   color: var(--blue);
   border-color: rgba(40, 90, 138, 0.22);
   background: rgba(40, 90, 138, 0.1);
 }
 
-.provenance-pill--fallback {
+.provenance-pill--replay {
   color: var(--gold);
   border-color: rgba(182, 133, 45, 0.26);
   background: rgba(182, 133, 45, 0.11);
 }
 
-.provenance-pill--unknown {
+.provenance-pill--demo {
+  color: var(--accent-deep);
+  border-color: rgba(124, 47, 25, 0.22);
+  background: rgba(197, 91, 57, 0.1);
+}
+
+.provenance-pill--fallback {
   color: var(--danger);
   border-color: rgba(163, 62, 46, 0.22);
   background: rgba(163, 62, 46, 0.08);
+}
+
+.provenance-pill--unknown {
+  color: var(--ink);
+  border-color: rgba(24, 34, 44, 0.14);
+  background: rgba(24, 34, 44, 0.06);
 }
 
 .provenance-pill--subtle {
@@ -685,3 +697,4 @@ a:hover {
     width: 100%;
   }
 }
+
