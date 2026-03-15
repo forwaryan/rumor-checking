@@ -99,26 +99,15 @@ class KimiProvider:
     def enabled(self) -> bool:
         return self.settings.kimi_enabled
 
-    def analyze(self, event: NormalizedEvent) -> Optional[ProviderAnalysis]:
+    def analyze(self, event: NormalizedEvent) -> ProviderAnalysis:
         if not self.enabled:
-            return None
-        if event.input_type in {"url_news", "url_unknown"} or event.fallback_used:
-            return None
+            raise RuntimeError("Kimi structured analysis is not configured.")
 
-        try:
-            content = self._request_completion(event)
-            analysis = self._parse_content(content)
-        except Exception as exc:
-            logger.warning(
-                "kimi_provider_failed input_type=%s error_type=%s",
-                event.input_type,
-                exc.__class__.__name__,
-            )
-            return None
-
-        if analysis is None:
+        content = self._request_completion(event)
+        analysis = self._parse_content(content)
+        if analysis is None or not analysis.claims:
             logger.warning("kimi_provider_empty_result input_type=%s", event.input_type)
-            return None
+            raise RuntimeError("Kimi returned no structured claims.")
         return analysis
 
     def _request_completion(self, event: NormalizedEvent) -> str:

@@ -4,6 +4,7 @@ import {
   collectEvidence,
   getReportProvenanceMeta,
   getStatusFromMode,
+  getVerificationScoreMeta,
   validateInput,
 } from "@/lib/report-utils";
 import type { Report } from "@/types/report";
@@ -187,5 +188,85 @@ describe("report-utils", () => {
     expect(meta?.sourceLabel).toBe("来源待确认");
     expect(meta?.fallbackLabel).toBe("来源待确认");
     expect(meta?.caution).toContain("缺字段");
+  });
+
+  it("scores a live partial report into the mid range", () => {
+    const scoreMeta = getVerificationScoreMeta(sampleReport, null);
+
+    expect(scoreMeta.score).toBe(6);
+    expect(scoreMeta.tone).toBe("medium");
+    expect(scoreMeta.modeLabel).toBe("中完成度");
+  });
+
+  it("caps demo or replay style data below a perfect score", () => {
+    const scoreMeta = getVerificationScoreMeta(
+      {
+        ...sampleReport,
+        mode: "complete_mode",
+        event: {
+          ...sampleReport.event,
+          mode: "complete_mode",
+        },
+        timeline: [
+          {
+            node_type: "origin",
+            title: "节点 1",
+            url: "https://example.org/timeline/1",
+            source_name: "来源 A",
+            published_at: "2026-03-01T09:00:00+08:00",
+            summary: "节点 1",
+            why_selected: "测试",
+          },
+          {
+            node_type: "clarification",
+            title: "节点 2",
+            url: "https://example.org/timeline/2",
+            source_name: "来源 B",
+            published_at: "2026-03-02T09:00:00+08:00",
+            summary: "节点 2",
+            why_selected: "测试",
+          },
+        ],
+        claim_results: [
+          ...sampleReport.claim_results,
+          {
+            claim: "claim B",
+            claim_type: "fact",
+            verdict: "refuted",
+            confidence: "medium",
+            evidence: [
+              {
+                title: "补充证据",
+                url: "https://example.org/evidence/extra",
+                source_name: "来源 D",
+                published_at: "2026-03-05T09:00:00+08:00",
+                snippet: "补充证据摘要",
+                relevance_reason: "用于拉高完整度",
+                source_tier: "A",
+              },
+            ],
+            notes: "test",
+          },
+        ],
+      },
+      {
+        sourceKind: "demo_payload",
+        fallbackReason: "backend_offline",
+      },
+    );
+
+    expect(scoreMeta.score).toBe(7);
+    expect(scoreMeta.summary).toContain("不是实时联网结果");
+  });
+
+  it("keeps frontend fallback reports in the low score band", () => {
+    const fallbackReport = buildFallbackReport("最近有个女网红脑出血死了真的假的？", "question");
+    const scoreMeta = getVerificationScoreMeta(fallbackReport, {
+      sourceKind: "frontend_fallback",
+      fallbackReason: "analyze_failed",
+    });
+
+    expect(scoreMeta.score).toBeLessThanOrEqual(3);
+    expect(scoreMeta.tone).toBe("low");
   });
 });

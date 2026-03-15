@@ -19,12 +19,12 @@ def load_eval_fixture(filename: str):
 
 @pytest.fixture(autouse=True)
 def stable_test_env(monkeypatch):
-    monkeypatch.setenv("ANALYSIS_PROVIDER", "off")
-    monkeypatch.setenv("KIMI_API_KEY", "")
-    monkeypatch.setenv("RETRIEVAL_PROVIDER", "mock")
-    monkeypatch.setenv("RETRIEVAL_FALLBACK_TO_MOCK", "true")
+    monkeypatch.setenv("ANALYSIS_PROVIDER", "kimi")
+    monkeypatch.setenv("KIMI_API_KEY", "test-kimi-key")
+    monkeypatch.setenv("RETRIEVAL_PROVIDER", "kimi")
+    monkeypatch.setenv("RETRIEVAL_FALLBACK_TO_MOCK", "false")
     monkeypatch.setenv("RETRIEVAL_CACHE_ENABLED", "true")
-    monkeypatch.setenv("RETRIEVAL_CACHE_ALLOW_STALE_ON_ERROR", "true")
+    monkeypatch.setenv("RETRIEVAL_CACHE_ALLOW_STALE_ON_ERROR", "false")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()

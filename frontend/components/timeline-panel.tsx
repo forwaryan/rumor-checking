@@ -7,7 +7,7 @@ interface TimelinePanelProps {
 
 function getEmptyCopy(mode: Report["mode"] | null) {
   if (mode === "safe_mode") {
-    return "传播链暂不足以完整还原，当前页面只保留边界化提示。";
+    return "传播链暂不足以还原，当前页面只保留时间线空态和边界提示。";
   }
 
   if (mode === "partial_mode") {
@@ -24,8 +24,8 @@ export function TimelinePanel({ report }: TimelinePanelProps) {
     <section className="panel panel--timeline">
       <div className="panel-heading">
         <div>
-          <p className="eyebrow">Timeline Panel</p>
-          <h2>关键来源时间线</h2>
+          <p className="eyebrow">Timeline</p>
+          <h2>传播过程时间线</h2>
         </div>
       </div>
 

@@ -12,6 +12,12 @@ from backend.app.models.schemas import (
     EvidenceSourceType,
     NormalizedEvent,
 )
+from backend.app.services.entity_anchor import (
+    candidate_matches_subject_anchors,
+    extract_subject_anchors,
+    text_contains_subject_mismatch,
+)
+from backend.app.services.question_intent import detect_trend_topic, is_broad_trend_claim
 from backend.app.services.retrieval_models import RetrievalBundle
 
 CLAIM_NEGATION_MARKERS = (
@@ -67,8 +73,6 @@ SOURCE_GAP_EVIDENCE_MARKERS = SOURCE_GAP_CLAIM_MARKERS + ("截图", "转发", "�
 HIGH_TRUST_SOURCE_TIERS = {"S", "A"}
 DECISIVE_HIGH_CONFIDENCE_TIER = "S"
 QUANTITY_TOKEN_PATTERN = re.compile(r"\d+(?:\.\d+)?%|\d+(?:\.\d+)?[人名例起条线艘班个年月天小时分钟]")
-
-
 @dataclass(frozen=True)
 class VerdictEvaluation:
     claim_results: List[ClaimResult]
@@ -139,6 +143,7 @@ class VerdictEngine:
             verdict, confidence, notes, selected = self._evaluate_fact_claim(
                 claim_text=claim.claim,
                 evidence_pool=evidence_pool,
+                subject_anchors=self._subject_anchors_for_claim(claim_text=claim.claim, event=event),
             )
             results.append(
                 ClaimResult(
@@ -199,8 +204,17 @@ class VerdictEngine:
         *,
         claim_text: str,
         evidence_pool: List[EvidenceItem],
+        subject_anchors: List[str],
     ) -> Tuple[str, str, str, List[EvidenceItem]]:
         normalized_claim = self._normalize_claim(claim_text)
+        trend_result = self._evaluate_broad_trend_claim(
+            claim_text=claim_text,
+            normalized_claim=normalized_claim,
+            evidence_pool=evidence_pool,
+            subject_anchors=subject_anchors,
+        )
+        if trend_result is not None:
+            return trend_result
         if self._is_source_gap_claim(normalized_claim):
             source_gap_result = self._evaluate_source_gap_claim(evidence_pool)
             if source_gap_result is not None:
@@ -215,7 +229,23 @@ class VerdictEngine:
         refuting: List[EvidenceItem] = []
         relevant: List[EvidenceItem] = []
         for item in evidence_pool:
-            haystack = self._normalize_claim(f"{item.title} {item.snippet} {item.relevance_reason}")
+            item_text = f"{item.title} {item.snippet} {item.source_name} {item.relevance_reason}"
+            if subject_anchors and not candidate_matches_subject_anchors(
+                subject_anchors,
+                item.title,
+                item.snippet,
+                item.source_name,
+                item.relevance_reason,
+            ):
+                continue
+            haystack = self._normalize_claim(item_text)
+            if subject_anchors and text_contains_subject_mismatch(
+                item.title,
+                item.snippet,
+                item.source_name,
+                item.relevance_reason,
+            ):
+                continue
             overlap = [term for term in claim_terms if term in haystack]
             if len(overlap) < 2 and not (len(claim_terms) <= 2 and overlap):
                 continue
@@ -257,6 +287,17 @@ class VerdictEngine:
                 return "supported", confidence, "检索到与该说法高度相关的公开来源，当前更倾向于判定为成立。", supporting[:2]
             return "insufficient", "low", "找到了一些相关来源，但可信度还不足以强判。", supporting[:2]
         return "insufficient", "low", "检索结果与该说法的语义重合仍不足，先保持保守。", relevant[:2] or evidence_pool[:1]
+
+    def _subject_anchors_for_claim(self, *, claim_text: str, event: NormalizedEvent) -> List[str]:
+        if event.input_type != "question_only":
+            return []
+        if is_broad_trend_claim(claim_text):
+            return []
+        claim_anchors = extract_subject_anchors(claim_text)
+        if claim_anchors:
+            return claim_anchors
+        return extract_subject_anchors(" ".join(filter(None, [event.title, event.summary, event.raw_input])))
+
     def _evaluate_source_gap_claim(self, evidence_pool: List[EvidenceItem]) -> Tuple[str, str, str, List[EvidenceItem]] | None:
         supporting = [item for item in evidence_pool if self._looks_like_source_gap_evidence(item)]
         if not supporting:
@@ -269,6 +310,41 @@ class VerdictEngine:
             "现有传播内容只有截图、聚合页或来源链不完整的材料，可支持“来源不足”的保守判断。",
             supporting[:2],
         )
+
+    def _evaluate_broad_trend_claim(
+        self,
+        *,
+        claim_text: str,
+        normalized_claim: str,
+        evidence_pool: List[EvidenceItem],
+        subject_anchors: List[str],
+    ) -> Tuple[str, str, str, List[EvidenceItem]] | None:
+        if subject_anchors or not is_broad_trend_claim(claim_text):
+            return None
+
+        topic = detect_trend_topic(normalized_claim) or detect_trend_topic(claim_text)
+        if topic is None:
+            return None
+
+        supporting: List[EvidenceItem] = []
+        for item in evidence_pool:
+            haystack = self._normalize_claim(f"{item.title} {item.snippet} {item.source_name} {item.relevance_reason}")
+            if topic not in haystack or self._contains_evidence_refutation(haystack):
+                continue
+            supporting.append(item)
+
+        high_trust_hits = [item for item in supporting if item.source_tier in HIGH_TRUST_SOURCE_TIERS]
+        if high_trust_hits:
+            confidence = self._confidence_from_high_trust_hits(high_trust_hits)
+            return (
+                "supported",
+                confidence,
+                "检索结果里已经出现多条与该范围问题直接相关的公开报道，当前可以回答为“最近确实有相关消息”，但它不是单一事件。",
+                high_trust_hits[:2],
+            )
+        if supporting:
+            return "insufficient", "low", "检索里有一些相关报道，但高可信来源还不够，先保持保守。", supporting[:2]
+        return None
 
     def _normalize_claim(self, text: str) -> str:
         normalized = text.strip().lower()

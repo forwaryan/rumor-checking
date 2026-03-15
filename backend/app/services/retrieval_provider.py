@@ -212,12 +212,12 @@ class KimiWebSearchProvider:
 
     def search(self, query_text: str) -> List[SearchResult]:
         if not self.enabled:
-            return []
+            raise RuntimeError("Kimi web search is not configured.")
 
         content = self._run_search_loop(query_text)
-        if not content:
-            return []
         results = self._parse_results(query_text, content)
+        if content and not results:
+            raise RuntimeError("Kimi web search returned no usable search results payload.")
         logger.info("kimi_web_search_results query=%s count=%s", query_text, len(results))
         return results
 
@@ -250,7 +250,7 @@ class KimiWebSearchProvider:
             content = self._coerce_content(message.get("content"))
             if not tool_used:
                 logger.warning("kimi_web_search_skipped_tool query=%s", query_text)
-                return ""
+                raise RuntimeError("Kimi web search skipped the required web_search tool.")
             return content
 
         raise RuntimeError("Kimi web search exceeded tool rounds")

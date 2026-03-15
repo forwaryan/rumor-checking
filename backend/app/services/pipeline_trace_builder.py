@@ -5,6 +5,7 @@ from typing import Iterable, Optional
 
 from backend.app.models.schemas import AnalyzeRequest, NormalizedEvent, PipelineTrace, PipelineTraceStep, Report
 from backend.app.services.claim_extractor import ClaimExtraction
+from backend.app.services.question_intent import is_broad_trend_question
 from backend.app.services.question_resolver import QuestionResolution
 from backend.app.services.retrieval_models import RetrievalBundle, SearchResult
 from backend.app.services.timeline_builder import TimelineBuild
@@ -195,6 +196,20 @@ class PipelineTraceBuilder:
                 status="skipped",
                 summary="当前输入不是纯问句，跳过问句收束。",
                 details=[],
+            )
+
+        if is_broad_trend_question(normalized_event.raw_input):
+            details = [
+                "系统识别到这是范围型问句，适合保留多条检索命中做整体判断，而不是强行锁到单一事件。",
+            ]
+            if initial_retrieval_bundle and initial_retrieval_bundle.canonical_results:
+                details.append(f"当前保留 {len(initial_retrieval_bundle.canonical_results)} 条候选结果参与后续判定。")
+            return PipelineTraceStep(
+                stage_key="question_resolution",
+                title="问句收束",
+                status="completed",
+                summary="识别为范围型问句，后续不会把它误收束成单一事件，而是按多条公开结果综合判断。",
+                details=details,
             )
 
         if question_resolution.selected_result is None:

@@ -63,7 +63,7 @@ export function EvidenceList({ report }: EvidenceListProps) {
     <section className="panel panel--evidence">
       <div className="panel-heading">
         <div>
-          <p className="eyebrow">Evidence List</p>
+          <p className="eyebrow">Evidence</p>
           <h2>{"\u8bc1\u636e\u4e0e\u68c0\u7d22\u547d\u4e2d"}</h2>
         </div>
       </div>

@@ -5,14 +5,18 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from fastapi import status
+
 from backend.app.core.config import Settings, get_settings
+from backend.app.core.exceptions import AppError
 from backend.app.models.schemas import NormalizedEvent
 from backend.app.services.contract_utils import ensure_datetime_string
-from backend.app.services.mock_retriever import MockRetriever
+from backend.app.services.question_intent import detect_trend_topic, is_broad_trend_question
+from backend.app.services.question_text import clean_question_term, strip_question_tail
 from backend.app.services.retrieval_cache import RetrievalCache
 from backend.app.services.retrieval_deduper import chronological_sort_key, merge_search_results
 from backend.app.services.retrieval_models import RetrievalBundle, SearchResult
-from backend.app.services.retrieval_provider import GdeltNewsProvider, KimiWebSearchProvider, RetrievalProvider
+from backend.app.services.retrieval_provider import KimiWebSearchProvider, RetrievalProvider
 
 logger = logging.getLogger(__name__)
 UTC = timezone.utc
@@ -64,12 +68,10 @@ class RetrievalService:
     def __init__(
         self,
         settings: Optional[Settings] = None,
-        mock_retriever: Optional[MockRetriever] = None,
         provider: Optional[RetrievalProvider] = None,
         cache: Optional[RetrievalCache] = None,
     ) -> None:
         self.settings = settings or get_settings()
-        self.mock_retriever = mock_retriever or MockRetriever(settings=self.settings)
         self.provider = provider or self._build_provider()
         self.cache = cache or RetrievalCache(
             cache_root=self.settings.retrieval_cache_dir,
@@ -77,9 +79,7 @@ class RetrievalService:
         )
 
     def _build_provider(self) -> RetrievalProvider:
-        if self.settings.retrieval_provider == "kimi":
-            return KimiWebSearchProvider(settings=self.settings)
-        return GdeltNewsProvider(settings=self.settings)
+        return KimiWebSearchProvider(settings=self.settings)
 
     def retrieve_for_event(
         self,
@@ -89,80 +89,42 @@ class RetrievalService:
     ) -> RetrievalBundle:
         request_context = request_context or {}
         query = self._build_query(event, request_context=request_context)
-        bypass_cache = self._as_bool(request_context.get("bypass_retrieval_cache") or request_context.get("skip_retrieval_cache") or request_context.get("skip_cache"))
-        cache_only = self._as_bool(request_context.get("retrieval_cache_only"))
-        allow_stale_cache = self._as_bool(request_context.get("allow_stale_retrieval_cache"))
-        cache_enabled = self.settings.retrieval_cache_enabled and not bypass_cache
-        allow_real_retrieval = (
-            self.provider.enabled
-            and bool(query)
-            and event.input_type in {"text_news", "question_only", "url_news"}
-        )
+        cache_enabled = self.settings.retrieval_cache_enabled
 
-        if allow_real_retrieval:
+        if not self.provider.enabled:
+            raise AppError(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                code="kimi_not_configured",
+                message="Kimi retrieval is required, but Kimi is not configured.",
+            )
+
+        if not query:
+            raise AppError(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                code="empty_retrieval_query",
+                message="The request could not be rewritten into a valid Kimi search query.",
+            )
+
+        try:
+            raw_results = self.provider.search(query)
+        except AppError:
+            raise
+        except Exception as exc:
+            logger.warning("kimi_retrieval_failed provider=%s error_type=%s", self.provider.name, exc.__class__.__name__)
+            raise AppError(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                code="kimi_retrieval_failed",
+                message="Kimi retrieval failed. The request was not downgraded to any non-Kimi path.",
+                details={"error_type": exc.__class__.__name__, "failure_detail": self._describe_exception(exc)},
+            ) from exc
+
+        if raw_results:
+            bundle = self._build_bundle(query, raw_results, cache_status="write_only" if cache_enabled else "not_used")
             if cache_enabled:
-                cached_bundle = self.cache.read(
-                    query_text=query,
-                    provider_name=self.provider.name,
-                    allow_stale=cache_only and allow_stale_cache,
-                )
-                if cached_bundle is not None:
-                    logger.info("retrieval_cache_hit provider=%s query=%s", self.provider.name, query)
-                    return cached_bundle
+                self.cache.write(query_text=query, provider_name=self.provider.name, bundle=bundle)
+            return bundle
 
-            if cache_only:
-                return self._fallback_or_empty(
-                    event=event,
-                    query=query,
-                    fallback_reason="retrieval_cache_only_miss",
-                    provider_requested=True,
-                )
-
-            try:
-                raw_results = self.provider.search(query)
-            except Exception as exc:
-                logger.warning("real_retrieval_failed provider=%s error_type=%s", self.provider.name, exc.__class__.__name__)
-                if cache_enabled and self.settings.retrieval_cache_allow_stale_on_error:
-                    stale_bundle = self.cache.read(query_text=query, provider_name=self.provider.name, allow_stale=True)
-                    if stale_bundle is not None:
-                        logger.info("retrieval_cache_stale_hit provider=%s query=%s", self.provider.name, query)
-                        return stale_bundle
-                return self._fallback_or_empty(
-                    event=event,
-                    query=query,
-                    fallback_reason="real_retrieval_failed",
-                    provider_requested=True,
-                    failure_detail=self._describe_exception(exc),
-                )
-
-            if raw_results:
-                bundle = self._build_bundle(query, raw_results, cache_status="bypassed" if bypass_cache else "miss")
-                if cache_enabled:
-                    self.cache.write(query_text=query, provider_name=self.provider.name, bundle=bundle)
-                return bundle
-
-            return self._fallback_or_empty(
-                event=event,
-                query=query,
-                fallback_reason="real_retrieval_empty",
-                provider_requested=True,
-            )
-
-        if self.settings.retrieval_provider == "mock":
-            return self.mock_retriever.retrieve_for_event(event).with_runtime_metadata(
-                cache_status="not_used",
-                retrieved_at=ensure_datetime_string(datetime.now(UTC).isoformat()),
-            )
-
-        if self.settings.retrieval_provider == "off":
-            return self._empty_bundle(query or event.raw_input.strip(), provider_name="off")
-
-        return self._fallback_or_empty(
-            event=event,
-            query=query,
-            fallback_reason="retrieval_provider_unavailable",
-            provider_requested=False,
-        )
+        return self._empty_bundle(query, provider_name=self.provider.name)
 
     def _build_bundle(self, query: str, raw_results: list[SearchResult], *, cache_status: str) -> RetrievalBundle:
         retrieved_at = ensure_datetime_string(datetime.now(UTC).isoformat())
@@ -206,32 +168,6 @@ class RetrievalService:
                 ordered_parts.append(compact)
         return " ".join(ordered_parts) or event.raw_input.strip()
 
-    def _fallback_or_empty(
-        self,
-        *,
-        event: NormalizedEvent,
-        query: str,
-        fallback_reason: str,
-        provider_requested: bool,
-        failure_detail: str | None = None,
-    ) -> RetrievalBundle:
-        if self.settings.retrieval_fallback_to_mock:
-            fallback_bundle = self.mock_retriever.retrieve_for_event(event)
-            return fallback_bundle.with_runtime_metadata(
-                cache_status="not_used",
-                fallback_used=provider_requested,
-                fallback_reason=fallback_reason,
-                retrieved_at=ensure_datetime_string(datetime.now(UTC).isoformat()),
-                failure_detail=failure_detail,
-            )
-        provider_name = self.provider.name if provider_requested else self.settings.retrieval_provider
-        return self._empty_bundle(
-            query or event.raw_input.strip(),
-            provider_name=provider_name or "off",
-            fallback_reason=fallback_reason,
-            failure_detail=failure_detail,
-        )
-
     def _empty_bundle(
         self,
         query: str,
@@ -242,7 +178,7 @@ class RetrievalService:
     ) -> RetrievalBundle:
         return RetrievalBundle(
             query=query,
-            matched_case_id="real_search" if provider_name not in {"mock", "off"} else None,
+            matched_case_id="real_search",
             provider_name=provider_name,
             cache_status="not_used",
             fallback_reason=fallback_reason,
@@ -251,15 +187,21 @@ class RetrievalService:
         )
 
     def _rewrite_question_query(self, raw_input: str) -> str:
+        if is_broad_trend_question(raw_input):
+            topic = detect_trend_topic(raw_input)
+            if topic:
+                return topic
+
         query = raw_input.strip()
         for pattern, replacement in QUESTION_REWRITE_REPLACEMENTS:
             query = re.sub(pattern, replacement, query)
+        query = strip_question_tail(query)
 
         terms = []
         seen = set()
 
         def push(term: str) -> None:
-            cleaned = term.strip()
+            cleaned = clean_question_term(term.strip())
             if not cleaned or cleaned in QUESTION_STOPWORDS or cleaned in seen:
                 return
             seen.add(cleaned)

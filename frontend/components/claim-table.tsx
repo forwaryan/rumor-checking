@@ -10,8 +10,8 @@ export function ClaimTable({ report }: ClaimTableProps) {
     <section className="panel panel--claims">
       <div className="panel-heading">
         <div>
-          <p className="eyebrow">Claim Table</p>
-          <h2>claim 核查表</h2>
+          <p className="eyebrow">Claim Review</p>
+          <h2>逐条核查点</h2>
         </div>
       </div>
 
@@ -53,7 +53,7 @@ export function ClaimTable({ report }: ClaimTableProps) {
         </div>
       ) : (
         <p className="empty-state">
-          没有 claim 时，页面会保持空态提示；在安全模式下，也不会为了“看起来完整”强塞结论表。
+          没有 claim 时，页面会保持空态提示；证据不足时，也不会为了“看起来完整”强塞结论表。
         </p>
       )}
     </section>

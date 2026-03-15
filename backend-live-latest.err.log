@@ -27,3 +27,26 @@ INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
 2026-03-15 02:33:46,564 | INFO | httpx | HTTP Request: POST https://api.moonshot.cn/v1/chat/completions "HTTP/1.1 200 OK"
 2026-03-15 02:33:46,566 | INFO | backend.app.services.retrieval_provider | kimi_web_search_results query=北城区化工厂夜间异味被居民连续投诉，区生态环境局已经进场 北城区化工厂夜间异味被居民连续投诉，区生态环境局已经进场核查，但媒体称工厂停产整顿，公司又回应只暂停一条产线。 北城区化工厂 生态环境局 异味 核查 count=3
 2026-03-15 02:34:06,679 | WARNING | backend.app.services.kimi_provider | kimi_provider_failed input_type=text_news error_type=ReadTimeout
+2026-03-15 02:43:37,125 | INFO | httpx | HTTP Request: POST https://api.moonshot.cn/v1/chat/completions "HTTP/1.1 200 OK"
+2026-03-15 02:43:37,127 | WARNING | backend.app.services.kimi_provider | kimi_provider_empty_result input_type=question_only
+2026-03-15 03:35:54,092 | INFO | httpx | HTTP Request: POST https://api.moonshot.cn/v1/chat/completions "HTTP/1.1 200 OK"
+2026-03-15 03:35:55,788 | INFO | httpx | HTTP Request: POST https://api.moonshot.cn/v1/chat/completions "HTTP/1.1 200 OK"
+2026-03-15 03:35:55,792 | WARNING | backend.app.services.kimi_provider | kimi_provider_empty_result input_type=question_only
+2026-03-15 03:35:57,868 | INFO | httpx | HTTP Request: POST https://api.moonshot.cn/v1/chat/completions "HTTP/1.1 200 OK"
+2026-03-15 03:35:57,873 | INFO | backend.app.services.retrieval_provider | kimi_web_search_results query=Morningstar  count=2
+2026-03-15 03:36:17,116 | INFO | httpx | HTTP Request: POST https://api.moonshot.cn/v1/chat/completions "HTTP/1.1 200 OK"
+2026-03-15 03:36:17,121 | WARNING | backend.app.services.kimi_provider | kimi_provider_empty_result input_type=question_only
+2026-03-15 03:47:37,705 | INFO | httpx | HTTP Request: POST https://api.moonshot.cn/v1/chat/completions "HTTP/1.1 200 OK"
+2026-03-15 03:47:37,710 | WARNING | backend.app.services.kimi_provider | kimi_provider_empty_result input_type=question_only
+2026-03-15 04:05:49,426 | INFO | httpx | HTTP Request: POST https://api.moonshot.cn/v1/chat/completions "HTTP/1.1 200 OK"
+2026-03-15 04:05:49,428 | WARNING | backend.app.services.kimi_provider | kimi_provider_empty_result input_type=question_only
+2026-03-15 04:07:02,391 | INFO | httpx | HTTP Request: POST https://api.moonshot.cn/v1/chat/completions "HTTP/1.1 200 OK"
+2026-03-15 04:07:02,393 | WARNING | backend.app.services.kimi_provider | kimi_provider_empty_result input_type=question_only
+2026-03-15 21:09:37,478 | INFO | httpx | HTTP Request: POST https://api.moonshot.cn/v1/chat/completions "HTTP/1.1 200 OK"
+2026-03-15 21:09:43,352 | INFO | httpx | HTTP Request: POST https://api.moonshot.cn/v1/chat/completions "HTTP/1.1 200 OK"
+2026-03-15 21:09:43,355 | INFO | backend.app.services.retrieval_provider | kimi_web_search_results query=最近是不是有女网红脑出血死了 count=3
+2026-03-15 21:09:58,909 | INFO | httpx | HTTP Request: POST https://api.moonshot.cn/v1/chat/completions "HTTP/1.1 200 OK"
+2026-03-15 21:13:02,100 | INFO | httpx | HTTP Request: POST https://api.moonshot.cn/v1/chat/completions "HTTP/1.1 200 OK"
+2026-03-15 21:13:06,906 | INFO | httpx | HTTP Request: POST https://api.moonshot.cn/v1/chat/completions "HTTP/1.1 200 OK"
+2026-03-15 21:13:06,907 | INFO | backend.app.services.retrieval_provider | kimi_web_search_results query=最近是不是有女网红脑梗死了 count=3
+2026-03-15 21:13:27,023 | WARNING | backend.app.services.kimi_provider | kimi_provider_failed input_type=question_only error_type=ReadTimeout

@@ -42,6 +42,8 @@
   - 后端主链实现记录。
 - [../backend/docs/real-retrieval-pipeline.md](../backend/docs/real-retrieval-pipeline.md)
   - retrieval 架构与缓存说明。
+- [../backend/docs/entity-drift-fix-and-regression-guard.md](../backend/docs/entity-drift-fix-and-regression-guard.md)
+  - `question_only` 主体漂移修复专项文档，含流程图、对比表和回归护栏。
 - [../frontend/IMPLEMENTATION_SUMMARY.md](../frontend/IMPLEMENTATION_SUMMARY.md)
   - 前端实现总结。
 - [../contracts/README.md](../contracts/README.md)

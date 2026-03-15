@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from backend.app.models.schemas import ClaimItem, ClaimSourceType, NormalizedEvent
+from backend.app.services.question_intent import rewrite_broad_trend_question_as_claim
 
 SCAFFOLDING_MARKERS = (
     "系统已",
@@ -38,19 +39,13 @@ class ClaimExtractor:
         event: NormalizedEvent,
         provider_claims: Optional[List[ClaimItem]] = None,
     ) -> ClaimExtraction:
-        rule_claims = self._extract_rule_claims(event)
-        if provider_claims:
-            supplemental_claims = rule_claims if len(provider_claims) < 2 else []
-            merged, added_rule = self._merge_claims(provider_claims, supplemental_claims)
-            if merged:
-                source = "provider_plus_rule" if added_rule else "provider"
-                return ClaimExtraction(claims=merged, source=source)
+        if not provider_claims:
+            raise ValueError("Kimi-only mode requires provider claims.")
 
-        if rule_claims:
-            return ClaimExtraction(claims=rule_claims, source="rule")
-
-        claim = event.summary if event.summary.endswith("。") else f"{event.summary}。"
-        return ClaimExtraction(claims=[ClaimItem(claim=claim, claim_type=self.classify(claim))], source="rule")
+        merged, _ = self._merge_claims(provider_claims, None)
+        if not merged:
+            raise ValueError("Kimi returned no usable claims.")
+        return ClaimExtraction(claims=merged, source="provider")
 
     def classify(self, claim: str) -> str:
         if any(token in claim for token in ["觉得", "认为", "明显", "不值得相信", "隐瞒", "混乱"]):
@@ -62,6 +57,10 @@ class ClaimExtractor:
         return "fact"
 
     def _extract_rule_claims(self, event: NormalizedEvent) -> List[ClaimItem]:
+        broad_trend_claim = rewrite_broad_trend_question_as_claim(event.raw_input)
+        if event.input_type == "question_only" and broad_trend_claim:
+            return [ClaimItem(claim=broad_trend_claim, claim_type="fact")]
+
         fragments = self._candidate_fragments(event)
         claims: List[ClaimItem] = []
         seen: set[str] = set()

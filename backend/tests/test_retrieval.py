@@ -732,3 +732,152 @@ def test_question_query_rewrite_preserves_core_rumor_terms():
     assert "脑出血" in query
     assert "死亡" in query
 
+
+def test_question_query_rewrite_collapses_broad_trend_question_to_topic():
+    service = RetrievalService()
+
+    assert service._rewrite_question_query("最近是不是有裁员") == "裁员"
+
+
+def test_question_only_pipeline_rejects_partial_subject_match_candidates(tmp_path: Path):
+    provider = FakeProvider(
+        results=[
+            _make_result(
+                result_id="real-1",
+                title="晨星回应裁员传闻",
+                snippet="Morningstar 表示正在评估组织调整，但没有确认与用户提问的是同一家公司。",
+                published_at="2026-03-13T09:00:00+08:00",
+                source_name="Morningstar",
+                source_tier="S",
+                url="https://morningstar.example.com/layoff",
+            ),
+            _make_result(
+                result_id="real-2",
+                title="生物医药行业 2024 年持续裁员",
+                snippet="行业观察提到多家生物公司出现裁员，但没有点名晨星生物。",
+                published_at="2026-03-13T10:00:00+08:00",
+                source_name="行业周刊",
+                source_tier="A",
+                url="https://industry.example.com/biotech-layoffs",
+            ),
+        ]
+    )
+    pipeline = AnalyzePipeline()
+    pipeline.provider_enricher.enrich = lambda event: (event, None)
+    pipeline.retriever = RetrievalService(
+        settings=replace(get_settings(), retrieval_provider="gdelt", retrieval_fallback_to_mock=False),
+        provider=provider,
+        cache=RetrievalCache(cache_root=tmp_path, ttl_seconds=3600),
+    )
+
+    report = pipeline.analyze(
+        AnalyzeRequest(
+            raw_input="晨星生物是不是裁员了？",
+            input_type="question",
+        )
+    )
+
+    assert len(provider.calls) == 1
+    assert report.mode == "safe_mode"
+    assert report.provenance.event_source == "input_normalized"
+    assert report.provenance.evidence_source == "retrieval_live"
+    assert all(item.verdict == "insufficient" for item in report.claim_results if item.claim_type == "fact")
+    assert report.retrieval_hits
+    assert "Morningstar" not in report.event.title
+    assert "不能证明原句说的就是其中哪一个" in report.investigation.final_conclusion
+
+
+def test_question_only_pipeline_keeps_exact_entity_matches_resolvable(tmp_path: Path):
+    provider = FakeProvider(
+        results=[
+            _make_result(
+                result_id="real-1",
+                title="Morningstar 回应深圳团队裁员旧闻",
+                snippet="Morningstar 表示相关组织调整发生于旧批次，不代表新的大规模裁员计划。",
+                published_at="2026-03-13T09:00:00+08:00",
+                source_name="Morningstar",
+                source_tier="S",
+                url="https://morningstar.example.com/shenzhen-layoff",
+            ),
+            _make_result(
+                result_id="real-2",
+                title="媒体跟进 Morningstar 裁员旧闻",
+                snippet="财经媒体梳理了 Morningstar 过往的深圳团队调整背景。",
+                published_at="2026-03-13T11:00:00+08:00",
+                source_name="证券时报",
+                source_tier="A",
+                url="https://finance.example.com/morningstar-followup",
+            ),
+        ]
+    )
+    pipeline = AnalyzePipeline()
+    pipeline.provider_enricher.enrich = lambda event: (event, None)
+    pipeline.retriever = RetrievalService(
+        settings=replace(get_settings(), retrieval_provider="gdelt", retrieval_fallback_to_mock=False),
+        provider=provider,
+        cache=RetrievalCache(cache_root=tmp_path, ttl_seconds=3600),
+    )
+
+    report = pipeline.analyze(
+        AnalyzeRequest(
+            raw_input="Morningstar 裁员是真的吗？",
+            input_type="question",
+        )
+    )
+
+    assert len(provider.calls) == 2
+    assert report.provenance.event_source == "retrieval_resolved"
+    assert report.retrieval_hits
+
+
+def test_question_only_pipeline_answers_broad_trend_questions_without_forcing_single_event(tmp_path: Path):
+    provider = FakeProvider(
+        results=[
+            _make_result(
+                result_id="trend-1",
+                title="Meta 启动新一轮裁员调整",
+                snippet="公司确认多个团队出现岗位优化和裁员安排。",
+                published_at="2026-03-13T09:00:00+08:00",
+                source_name="Reuters",
+                source_tier="A",
+                url="https://reuters.example.com/meta-layoff",
+            ),
+            _make_result(
+                result_id="trend-2",
+                title="亚马逊宣布部分业务继续裁员",
+                snippet="亚马逊在最新组织调整中继续削减相关岗位。",
+                published_at="2026-03-13T11:00:00+08:00",
+                source_name="news.cn",
+                source_tier="A",
+                url="https://news.example.com/amazon-layoff",
+            ),
+        ]
+    )
+    pipeline = AnalyzePipeline()
+    pipeline.provider_enricher.enrich = lambda event: (event, None)
+    pipeline.retriever = RetrievalService(
+        settings=replace(get_settings(), retrieval_provider="gdelt", retrieval_fallback_to_mock=False),
+        provider=provider,
+        cache=RetrievalCache(cache_root=tmp_path, ttl_seconds=3600),
+    )
+
+    report = pipeline.analyze(
+        AnalyzeRequest(
+            raw_input="最近是不是有裁员",
+            input_type="question",
+        )
+    )
+
+    assert len(provider.calls) == 1
+    assert provider.calls[0] == "裁员"
+    assert report.mode == "partial_mode"
+    assert report.provenance.event_source == "input_normalized"
+    assert report.provenance.evidence_source == "retrieval_live"
+    assert report.retrieval_hits
+    assert any(item.verdict == "supported" for item in report.claim_results)
+    assert "最近确实有裁员相关消息" in report.final_summary
+    assert "不是单一事件" in report.investigation.final_conclusion
+    assert any("不是单一事件" in item.answer for item in report.content_check.possible_answers)
+    question_resolution_step = next(step for step in report.pipeline_trace.steps if step.stage_key == "question_resolution")
+    assert "范围型问句" in question_resolution_step.summary
+

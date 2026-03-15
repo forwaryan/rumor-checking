@@ -22,17 +22,17 @@ const modeCopy: Record<
   }
 > = {
   complete_mode: {
-    label: "完整模式",
-    kicker: "主要链路可用",
-    summary: "事件、时间线、claim 和证据都已落盘，适合完整展示。",
+    label: "高完成度",
+    kicker: "主要证据较完整",
+    summary: "事件、时间线、claim 和证据都已落盘，适合较完整展示。",
   },
   partial_mode: {
-    label: "部分模式",
+    label: "中完成度",
     kicker: "已有局部结论",
     summary: "页面只展示已核到的部分，并明确保留缺口与待补证点。",
   },
   safe_mode: {
-    label: "安全模式",
+    label: "低完成度",
     kicker: "关键证据不足",
     summary: "系统按保守口径收束，只展示边界说明，不输出过度确定结论。",
   },
@@ -111,6 +111,19 @@ export interface ReportProvenanceMeta {
   tone: "live" | "mock" | "replay" | "demo" | "fallback" | "unknown";
 }
 
+export interface KimiUsageMeta {
+  label: string;
+  tone: "live" | "fallback" | "unknown";
+}
+
+export interface VerificationScoreMeta {
+  score: number;
+  label: string;
+  modeLabel: string;
+  tone: "high" | "medium" | "low";
+  summary: string;
+}
+
 export function getModeMeta(mode: OutputMode) {
   return modeCopy[mode];
 }
@@ -132,6 +145,10 @@ export function getStatusFromMode(mode: OutputMode): AnalysisStatus {
     default:
       return "safe_mode";
   }
+}
+
+export function getVerificationScoreRuleText() {
+  return "基础分：证据较完整 8 分、已有局部结论 5 分、证据稀缺 2 分；明确 claim >= 2 +1；有效证据 >= 3 且含 A/S 来源 +1；时间线 >= 2 且来自检索 +1；存在冲突 -1；fallback 或无证据链 -1；demo/mock/replay 最高 7 分，前端 fallback 最高 3 分。";
 }
 
 function getFallbackLabel(reason?: ReportFallbackReason) {
@@ -219,7 +236,6 @@ export function getReportProvenanceMeta(
     return null;
   }
 
-  const modeMeta = getModeMeta(report.mode);
   const effectiveProvenance = getEffectiveProvenanceState(report, provenance);
   const backendProvenance = effectiveProvenance.reportProvenance ?? report.provenance ?? null;
 
@@ -228,7 +244,7 @@ export function getReportProvenanceMeta(
       return {
         sourceKind: effectiveProvenance.sourceKind,
         sourceLabel: sourceTypeTone.backend_live,
-        summary: `这次结果来自后端实时分析。当前页面展示的是${modeMeta.label}，并且证据链已经接入真实检索。`,
+        summary: "这次结果来自后端实时分析，页面展示的是本次请求真实落盘后的结果，并且证据链已经接入真实检索。",
         caution: backendProvenance
           ? getBackendLiveCaution(backendProvenance)
           : "当前缺少完整 provenance 细节，讲解时仍应按保守口径理解。",
@@ -260,7 +276,7 @@ export function getReportProvenanceMeta(
       return {
         sourceKind: effectiveProvenance.sourceKind,
         sourceLabel: sourceTypeTone.demo_payload,
-        summary: "这次页面展示的是仓库内置演示数据，用来稳定演示页面结构、模式切换和空态边界。",
+        summary: "这次页面展示的是仓库内置演示数据，用来稳定演示页面结构、分数变化和空态边界。",
         caution: "这不是本次输入的实时分析结果，请不要把结论、时间线或 claim 当成真实联网推理输出。",
         fallbackLabel: getFallbackLabel(effectiveProvenance.fallbackReason),
         detailBadges: [],
@@ -287,6 +303,128 @@ export function getReportProvenanceMeta(
         tone: "unknown",
       };
   }
+}
+
+export function getKimiUsageMeta(
+  report: Report | null,
+  provenance: ReportProvenanceState | null,
+): KimiUsageMeta | null {
+  if (!report) {
+    return null;
+  }
+
+  const effectiveProvenance = getEffectiveProvenanceState(report, provenance);
+  const backendProvenance = effectiveProvenance.reportProvenance ?? report.provenance ?? null;
+  if (!backendProvenance) {
+    return {
+      label: "Kimi：状态未知",
+      tone: "unknown",
+    };
+  }
+
+  if (backendProvenance.retrieval_provider !== "kimi") {
+    return {
+      label: `Kimi：未走${backendProvenance.retrieval_provider ? `（当前是 ${backendProvenance.retrieval_provider}）` : ""}`,
+      tone: "fallback",
+    };
+  }
+
+  if (backendProvenance.provider_used && !backendProvenance.fallback_used) {
+    return {
+      label: "Kimi：检索 + 结构化",
+      tone: "live",
+    };
+  }
+
+  if (backendProvenance.provider_used) {
+    return {
+      label: "Kimi：已走但发生降级",
+      tone: "fallback",
+    };
+  }
+
+  return {
+    label: "Kimi：仅检索 / 结构化未命中",
+    tone: "fallback",
+  };
+}
+
+export function getVerificationScoreMeta(
+  report: Report,
+  provenance: ReportProvenanceState | null,
+): VerificationScoreMeta {
+  const modeMeta = getModeMeta(report.mode);
+  const effectiveProvenance = getEffectiveProvenanceState(report, provenance);
+  const backendProvenance = effectiveProvenance.reportProvenance ?? report.provenance ?? null;
+  const decisiveClaims = report.claim_results.filter((item) => item.verdict !== "insufficient");
+  const evidence = collectEvidence(report);
+  const highTierEvidenceCount = evidence.filter((item) => sourceTierWeight[item.source_tier] >= sourceTierWeight.A).length;
+  const supportedCount = decisiveClaims.filter((item) => item.verdict === "supported").length;
+  const refutedCount = decisiveClaims.filter((item) => item.verdict === "refuted").length;
+  const hasConflict =
+    decisiveClaims.some((item) => item.verdict === "conflicting") || (supportedCount > 0 && refutedCount > 0);
+
+  let score = report.mode === "complete_mode" ? 8 : report.mode === "partial_mode" ? 5 : 2;
+
+  if (decisiveClaims.length >= 2) {
+    score += 1;
+  }
+
+  if (evidence.length >= 3 && highTierEvidenceCount >= 1) {
+    score += 1;
+  }
+
+  if (report.timeline.length >= 2 && backendProvenance?.timeline_source === "retrieval") {
+    score += 1;
+  }
+
+  if (hasConflict) {
+    score -= 1;
+  }
+
+  if (backendProvenance?.fallback_used || backendProvenance?.evidence_source === "none" || evidence.length === 0) {
+    score -= 1;
+  }
+
+  if (report.mode === "safe_mode") {
+    score = Math.min(score, 4);
+  } else if (report.mode === "partial_mode") {
+    score = Math.min(score, 7);
+  }
+
+  switch (effectiveProvenance.sourceKind) {
+    case "backend_mock":
+    case "backend_replay":
+    case "demo_payload":
+      score = Math.min(score, 7);
+      break;
+    case "frontend_fallback":
+      score = Math.min(score, 3);
+      break;
+    default:
+      break;
+  }
+
+  score = Math.max(1, Math.min(10, score));
+
+  let summary = "当前只适合提示边界和下一步核查点，不适合给过度确定的结论。";
+  if (effectiveProvenance.sourceKind === "frontend_fallback") {
+    summary = "当前只是前端保守回退壳，分数只表示页面可展示程度，不代表已经完成真实核查。";
+  } else if (["backend_mock", "backend_replay", "demo_payload"].includes(effectiveProvenance.sourceKind)) {
+    summary = "当前不是实时联网结果，分数只表示这份结果的展示完整度，不代表当前输入已经被真实核查。";
+  } else if (score >= 8) {
+    summary = "当前公开证据、claim 和时间线已相对完整，适合较完整讲解，但仍要结合风险项理解。";
+  } else if (score >= 5) {
+    summary = "当前已经形成局部结论，但链路仍有缺口或边界，不应包装成完整复盘。";
+  }
+
+  return {
+    score,
+    label: `${score}/10`,
+    modeLabel: modeMeta.label,
+    tone: score >= 8 ? "high" : score >= 5 ? "medium" : "low",
+    summary,
+  };
 }
 
 export function formatDisplayTime(value: string) {
@@ -526,12 +664,12 @@ export function buildFallbackReport(input: string, inputType: InputType): Report
   return {
     mode: "safe_mode",
     event: {
-      title: "接口暂不可达，当前展示安全模式回退结果",
+      title: "接口暂不可达，当前仅展示回退结果",
       summary: preview || "系统还没有拿到足够上下文，暂时无法进入标准核查流程。",
       source_url: sourceUrl,
       source_name: sourceName,
       published_at: now,
-      keywords: ["fallback", "safe_mode", "待核查"],
+      keywords: ["fallback", "待核查", "证据不足"],
       mode: "safe_mode",
     },
     timeline: [],
@@ -547,7 +685,7 @@ export function buildFallbackReport(input: string, inputType: InputType): Report
     ],
     final_summary: "当前页面没有拿到真实 Report，因此只保留边界说明。建议稍后重试，或先用稳定 demo case 继续演示。",
     risks: [
-      "当前结果不是后端真实分析输出，只是前端安全回退壳。",
+      "当前结果不是后端真实分析输出，只是前端回退壳。",
       "时间线、claim 和证据都未完成真实检索，请避免把它当作核查结论。",
     ],
     investigation: {
@@ -626,8 +764,8 @@ export function buildFallbackReport(input: string, inputType: InputType): Report
           stage_key: "report_output",
           title: "报告输出",
           status: "warning",
-          summary: "页面当前展示的是安全模式回退结果，不代表真实核查已完成。",
-          details: ["mode：safe_mode", "source_type：frontend_fallback"],
+          summary: "页面当前展示的是前端回退结果，不代表真实核查已完成。",
+          details: ["核查完成度：1/10", "source_type：frontend_fallback"],
         },
       ],
     },

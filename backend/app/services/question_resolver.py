@@ -5,6 +5,13 @@ import re
 from typing import List, Optional, Sequence
 
 from backend.app.models.schemas import NormalizedEvent
+from backend.app.services.entity_anchor import (
+    candidate_matches_subject_anchors,
+    extract_subject_anchors,
+    text_contains_subject_mismatch,
+)
+from backend.app.services.question_intent import is_broad_trend_question
+from backend.app.services.question_text import clean_question_term, strip_question_tail
 from backend.app.services.retrieval_models import RetrievalBundle, SearchResult
 
 QUESTION_STOPWORDS = {
@@ -85,7 +92,7 @@ def _normalize_text(value: Optional[str]) -> str:
     )
     for old, new in replacements:
         normalized = normalized.replace(old, new)
-    return _collapse_whitespace(normalized)
+    return _collapse_whitespace(strip_question_tail(normalized))
 
 
 def _extract_terms(text: str) -> List[str]:
@@ -93,7 +100,7 @@ def _extract_terms(text: str) -> List[str]:
     seen = set()
 
     def push(term: str) -> None:
-        cleaned = term.strip()
+        cleaned = clean_question_term(term.strip())
         if not cleaned or cleaned in QUESTION_STOPWORDS or cleaned in seen:
             return
         seen.add(cleaned)
@@ -137,6 +144,7 @@ def _question_claim(question: str) -> str:
     )
     for old, new in replacements:
         claim = claim.replace(old, new)
+    claim = strip_question_tail(claim)
     claim = _collapse_whitespace(claim.strip(" \uff0c,\uff1a:；;。"))
     return claim
 
@@ -193,6 +201,8 @@ class QuestionResolver:
     ) -> QuestionResolution:
         if event.input_type != "question_only" or retrieval_bundle is None or not retrieval_bundle.canonical_results:
             return QuestionResolution(event=event, follow_up_query=None, selected_result=None)
+        if is_broad_trend_question(event.raw_input):
+            return QuestionResolution(event=event, follow_up_query=None, selected_result=None)
 
         selected_result = self._select_result(event.raw_input, retrieval_bundle.canonical_results)
         if selected_result is None:
@@ -227,8 +237,18 @@ class QuestionResolver:
         candidates: Sequence[SearchResult],
     ) -> Optional[SearchResult]:
         question_terms = _extract_terms(question)
+        subject_anchors = extract_subject_anchors(question)
         scored: list[tuple[int, int, str, int, SearchResult]] = []
         for item in candidates:
+            if subject_anchors and not candidate_matches_subject_anchors(
+                subject_anchors,
+                item.title,
+                item.snippet,
+                item.source_name,
+            ):
+                continue
+            if subject_anchors and text_contains_subject_mismatch(item.title, item.snippet, item.source_name):
+                continue
             haystack = _normalize_text(f"{item.title} {item.snippet} {item.source_name}")
             overlap = sum(1 for term in question_terms if term and term in haystack)
             if overlap < 2:
@@ -239,6 +259,8 @@ class QuestionResolver:
             score += _specificity_bonus(item.snippet)
             if item.is_high_trust:
                 score += 4
+            if subject_anchors:
+                score += 8
             if any(token in haystack for token in ("去世", "死亡", "脑出血", "脑溢血")):
                 score += 3
             scored.append((score, overlap, item.published_at, item.tier_weight, item))

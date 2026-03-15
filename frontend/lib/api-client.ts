@@ -346,7 +346,12 @@ export function parseReport(value: unknown): Report {
 async function parseJson<T>(response: Response) {
   if (!response.ok) {
     const detail = await response.text();
-    throw new ApiClientError(detail || "请求失败", response.status);
+    let parsedMessage: string | null = null;
+    try {
+      const payload = JSON.parse(detail) as { error?: { message?: string } };
+      parsedMessage = payload.error?.message?.trim() || null;
+    } catch {}
+    throw new ApiClientError(parsedMessage || detail || "请求失败", response.status);
   }
 
   return (await response.json()) as T;

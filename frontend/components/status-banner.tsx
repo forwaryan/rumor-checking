@@ -1,5 +1,10 @@
-import { ModePill } from "@/components/mode-pill";
-import { getModeMeta, getReportProvenanceMeta, getTopLineAssessment } from "@/lib/report-utils";
+import { ScorePill } from "@/components/score-pill";
+import {
+  getKimiUsageMeta,
+  getReportProvenanceMeta,
+  getTopLineAssessment,
+  getVerificationScoreMeta,
+} from "@/lib/report-utils";
 import type { AnalysisStatus, Report, ReportProvenanceState } from "@/types/report";
 
 interface StatusBannerProps {
@@ -13,10 +18,9 @@ interface StatusBannerProps {
 
 function getStatusCopy(status: AnalysisStatus, report: Report | null) {
   if (report && (status === "complete" || status === "partial" || status === "safe_mode")) {
-    const meta = getModeMeta(report.mode);
     return {
-      title: `${meta.label} / ${meta.kicker}`,
-      body: meta.summary,
+      title: "结果已生成",
+      body: "页面会按核查完成度、证据和边界信息展示当前结果。",
     };
   }
 
@@ -24,7 +28,7 @@ function getStatusCopy(status: AnalysisStatus, report: Report | null) {
     case "submitting":
       return {
         title: "正在联网核查",
-        body: "系统会先完成检索、claim 收束和证据整理，再决定能否进入完整展示模式。",
+        body: "系统会先完成检索、claim 收束和证据整理，再给出一句话结论和 10 分制核查完成度。",
       };
     case "error":
       return {
@@ -50,6 +54,8 @@ export function StatusBanner({
   const copy = getStatusCopy(status, report);
   const provenanceMeta = status === "submitting" ? null : getReportProvenanceMeta(report, provenance);
   const topLine = report ? getTopLineAssessment(report) : null;
+  const scoreMeta = report ? getVerificationScoreMeta(report, provenance) : null;
+  const kimiUsageMeta = status === "submitting" ? null : getKimiUsageMeta(report, provenance);
 
   return (
     <section className={`status-banner status-banner--${status}`}>
@@ -58,14 +64,20 @@ export function StatusBanner({
         <div className="status-banner__headline">
           <div>
             <h3>{topLine?.title ?? copy.title}</h3>
-            <p>{topLine?.summary ?? copy.body}</p>
+            <p>{topLine?.summary ?? scoreMeta?.summary ?? copy.body}</p>
           </div>
-          {report ? <ModePill mode={report.mode} /> : null}
+          {report ? <ScorePill report={report} provenance={provenance} /> : null}
         </div>
 
         {topLine ? (
           <>
             <div className="status-banner__fact-row">
+              {kimiUsageMeta ? (
+                <span className={`provenance-pill provenance-pill--${kimiUsageMeta.tone}`}>{kimiUsageMeta.label}</span>
+              ) : null}
+              {scoreMeta ? (
+                <span className="provenance-pill provenance-pill--subtle">{`核查完成度：${scoreMeta.label}`}</span>
+              ) : null}
               <span className="provenance-pill provenance-pill--subtle">{`置信度：${topLine.confidenceLabel}`}</span>
               <span className="provenance-pill provenance-pill--subtle">{`已纳入证据：${topLine.evidenceCount} 条`}</span>
               <span className="provenance-pill provenance-pill--subtle">{`可见来源：${topLine.sourceCount} 条`}</span>

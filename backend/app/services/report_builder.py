@@ -16,6 +16,13 @@ from backend.app.models.schemas import (
     TimelineNode,
 )
 from backend.app.services.contract_utils import default_source_name, default_source_url, ensure_datetime_string
+from backend.app.services.question_intent import (
+    is_broad_trend_question,
+    rewrite_broad_trend_question_as_claim,
+    safe_trend_summary,
+    supported_trend_summary,
+    trend_follow_up_hint,
+)
 
 URL_FALLBACK_RISK_MAP = {
     "url_content_incomplete": "\u9875\u9762\u53ea\u62ff\u5230\u90e8\u5206\u6b63\u6587\u6216\u7247\u6bb5\uff0c\u5f53\u524d\u53ea\u80fd\u6309\u4fdd\u5b88\u8f93\u51fa\u7406\u89e3\u3002",
@@ -59,6 +66,7 @@ class ReportBuilder:
         final_summary, risks = self._compose_sections(
             mode=mode,
             event=event,
+            original_input=original_input or event.raw_input,
             claim_results=claim_results,
             timeline=timeline,
             evidence=evidence,
@@ -134,6 +142,7 @@ class ReportBuilder:
         *,
         mode: str,
         event: NormalizedEvent,
+        original_input: str,
         claim_results: List[ClaimResult],
         timeline: List[TimelineNode],
         evidence: List[EvidenceItem],
@@ -144,8 +153,13 @@ class ReportBuilder:
         refuted_claims = [item for item in claim_results if item.verdict == "refuted"]
         insufficient_claims = [item for item in claim_results if item.verdict == "insufficient"]
         conflicting_claims = [item for item in claim_results if item.verdict == "conflicting"]
+        trend_question = is_broad_trend_question(original_input)
 
-        if supported_claims and refuted_claims:
+        if trend_question and supported_claims:
+            summary = supported_trend_summary(original_input) or "当前公开来源更倾向于：最近确实有相关消息，但它不是单一事件。"
+        elif trend_question and mode == "safe_mode":
+            summary = safe_trend_summary(original_input) or "这更像一个范围问题，当前还不能直接下确定性结论。"
+        elif supported_claims and refuted_claims:
             summary = "这句话里同时有能被公开来源支持和被反驳的部分，当前更应按“真假混杂、部分被加料”来理解。"
         elif supported_claims and insufficient_claims and mode != "complete_mode":
             summary = "核心事件大体能对上，但句子里的部分追加细节仍缺公开证据，不能整句一起判真。"
@@ -176,7 +190,7 @@ class ReportBuilder:
             risks.append("\u5f53\u524d\u8fd8\u6ca1\u6709\u8fdb\u5165\u8bc1\u636e\u94fe\u7684\u7a33\u5b9a\u6765\u6e90\u3002")
         if mode == "safe_mode":
             risks.append("\u5f53\u524d\u9875\u9762\u53ea\u9002\u5408\u63d0\u793a\u6838\u67e5\u70b9\uff0c\u4e0d\u5e94\u88ab\u5f53\u4f5c\u786e\u5b9a\u6027\u7ed3\u8bba\u3002")
-            risks.append("\u5efa\u8bae\u8865\u5145\u59d3\u540d\u3001\u94fe\u63a5\u3001\u539f\u6587\u6216\u65f6\u95f4\u70b9\u540e\u518d\u8bd5\u3002")
+            risks.append(trend_follow_up_hint(original_input) or "\u5efa\u8bae\u8865\u5145\u59d3\u540d\u3001\u94fe\u63a5\u3001\u539f\u6587\u6216\u65f6\u95f4\u70b9\u540e\u518d\u8bd5\u3002")
         if not timeline:
             risks.append("\u65f6\u95f4\u7ebf\u672a\u5efa\u7acb\u6210\u529f\uff0c\u5f53\u524d\u7ed3\u679c\u4e0d\u4ee3\u8868\u5b8c\u6574\u4f20\u64ad\u94fe\u3002")
 
@@ -245,6 +259,9 @@ class ReportBuilder:
         public_event: Event,
         claim_results: List[ClaimResult],
     ) -> str:
+        trend_claim = rewrite_broad_trend_question_as_claim(original_input)
+        if trend_claim:
+            return trend_claim.rstrip("。")
         decisive = next((item.claim.rstrip("。") for item in claim_results if item.verdict in {"supported", "refuted", "conflicting"}), None)
         if decisive:
             return decisive
@@ -274,8 +291,11 @@ class ReportBuilder:
         conflicting_count = sum(1 for item in claim_results if item.verdict == "conflicting")
         insufficient_count = sum(1 for item in claim_results if item.verdict == "insufficient")
         high_trust_hit_count = sum(1 for item in retrieval_hits if item.source_tier in {"S", "A"})
+        trend_question = is_broad_trend_question(original_input)
 
-        if provenance.event_source == "retrieval_resolved":
+        if trend_question:
+            event_lock_detail = "这类提问更像范围型问题，不适合强行锁成单一事件；系统会保留多条检索命中，判断“最近是否真的出现了这类消息”。"
+        elif provenance.event_source == "retrieval_resolved":
             event_lock_detail = "第一轮检索已经锁定到较匹配的候选事件，后续 claim 和证据判断会围绕这个更具体的对象继续展开。"
         elif retrieval_hits:
             event_lock_detail = (
@@ -296,7 +316,11 @@ class ReportBuilder:
         return [
             InvestigationStep(
                 title="先把口语问题收束成可核查对象",
-                detail=f"原始输入是“{original_input.strip()}”，系统先把它收束成更适合核查的命题：{reframed_question}。",
+                detail=(
+                    f"原始输入是“{original_input.strip()}”，系统先把它收束成更适合核查的命题：{reframed_question}。"
+                    if not trend_question
+                    else f"原始输入是“{original_input.strip()}”，系统先识别出这不是单一事件问句，而是范围型提问；因此会改成“{reframed_question}”这类更适合检索的判断。"
+                ),
             ),
             InvestigationStep(
                 title="再判断能不能锁定到具体事件",
@@ -334,6 +358,7 @@ class ReportBuilder:
         supported = next((item for item in claim_results if item.verdict == "supported"), None)
         conflicting = next((item for item in claim_results if item.verdict == "conflicting"), None)
         high_trust_hit_count = sum(1 for item in retrieval_hits if item.source_tier in {"S", "A"})
+        trend_question = is_broad_trend_question(original_input)
 
         def push(scenario: str, likelihood: str, summary: str) -> None:
             if scenario in seen or len(possibilities) >= 4:
@@ -347,13 +372,19 @@ class ReportBuilder:
                 )
             )
 
+        if trend_question and supported is not None:
+            push(
+                "最近确实有多起相关消息，但不是同一家公司同一事件",
+                supported.confidence,
+                "当前检索命中里已经能看到多条相关公开报道，因此可以回答“最近确实有”，但不能把它讲成单一事件。",
+            )
         if refuted is not None:
             push(
                 "这句话对应的主说法不成立，或已经被回应/辟谣",
                 refuted.confidence,
                 f"当前最强的反向线索是“{refuted.claim}”，备注为：{refuted.notes}",
             )
-        if supported is not None:
+        if supported is not None and not trend_question:
             push(
                 "相关事件大体存在，但原话可能把细节说满了",
                 supported.confidence,
@@ -365,7 +396,13 @@ class ReportBuilder:
                 conflicting.confidence,
                 f"系统已经识别到冲突 claim：“{conflicting.claim}”；当前更适合保留争议，而不是强判真假。",
             )
-        if retrieval_hits and provenance.event_source != "retrieval_resolved":
+        if trend_question and not retrieval_hits:
+            push(
+                "这更像一个范围问题，当前还缺公司名、行业或时间锚点",
+                "medium",
+                "像“最近是不是有裁员”这类问题不是单一事件；如果检索没有稳定命中，就需要先把范围收窄。",
+            )
+        elif retrieval_hits and provenance.event_source != "retrieval_resolved" and not trend_question:
             push(
                 "可能存在多个相似事件，原问题还没给出足够锚点来锁定同一人同一事",
                 "medium" if high_trust_hit_count else "low",
@@ -408,8 +445,13 @@ class ReportBuilder:
         refuted = next((item for item in claim_results if item.verdict == "refuted"), None)
         supported = next((item for item in claim_results if item.verdict == "supported"), None)
         conflicting = next((item for item in claim_results if item.verdict == "conflicting"), None)
+        trend_question = is_broad_trend_question(original_input)
 
-        if refuted is not None:
+        if trend_question and supported is not None:
+            conclusion = supported_trend_summary(original_input) or "当前更倾向于：最近确实有相关消息，但它不是单一事件。"
+        elif trend_question and mode == "safe_mode":
+            conclusion = safe_trend_summary(original_input) or "当前还不能直接下结论，这更像一个范围型问题。"
+        elif refuted is not None:
             conclusion = f"当前更倾向于：这句话对应的核心说法不成立，或至少已经被公开回应明显削弱。"
         elif supported is not None:
             conclusion = f"当前更倾向于：相关事件大体存在，但原句仍可能省略了限定条件或夸大了细节。"
@@ -423,7 +465,12 @@ class ReportBuilder:
         if not timeline:
             conclusion += " 传播链也还没有完全还原。"
         if not evidence:
-            conclusion += " 公开证据链仍然偏弱，最好补充姓名、原帖链接、原文或明确时间点。"
+            follow_up_hint = trend_follow_up_hint(original_input)
+            conclusion += (
+                f" 公开证据链仍然偏弱，{follow_up_hint}"
+                if follow_up_hint
+                else " 公开证据链仍然偏弱，最好补充姓名、原帖链接、原文或明确时间点。"
+            )
         elif mode != "complete_mode":
             conclusion += " 虽然已经有部分证据，但还不足以把边界完全抹掉。"
         if public_event.title and public_event.title != "待核事件":

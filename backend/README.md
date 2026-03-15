@@ -32,6 +32,7 @@ flowchart LR
 
 更完整的架构图、时序图、provider 回退流程图、请求/响应样例和演进路线图见 [backend/docs/api-foundation-implementation-record.md](/home/forwaryan/mianshi/rumor-checking/backend/docs/api-foundation-implementation-record.md)。
 真实检索链路的专项解释，包括架构图、时序图、缓存流程图、模块表、方法与可行性分析，见 [backend/docs/real-retrieval-pipeline.md](/home/forwaryan/mianshi/rumor-checking/backend/docs/real-retrieval-pipeline.md)。
+这轮 `question_only` 主体漂移修复的专项说明、修复前后流程图、表格对比和回归护栏见 [backend/docs/entity-drift-fix-and-regression-guard.md](/home/forwaryan/mianshi/rumor-checking/backend/docs/entity-drift-fix-and-regression-guard.md)。
 
 ## Provider 开关
 

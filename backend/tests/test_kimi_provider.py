@@ -61,3 +61,26 @@ def test_kimi_provider_uses_k2_5_temperature_requirement(monkeypatch):
     assert analysis is not None
     assert captured["json"]["model"] == "kimi-k2.5"
     assert captured["json"]["temperature"] == 1.0
+
+
+def test_kimi_provider_skips_broad_trend_questions(monkeypatch):
+    def fail_post(*args, **kwargs):
+        raise AssertionError("broad trend questions should not call analysis provider")
+
+    monkeypatch.setenv("ANALYSIS_PROVIDER", "kimi")
+    monkeypatch.setenv("KIMI_API_KEY", "test-kimi-key")
+    get_settings.cache_clear()
+    monkeypatch.setattr(kimi_provider_module.httpx, "post", fail_post)
+    try:
+        provider = KimiProvider()
+        analysis = provider.analyze(
+            NormalizedEvent(
+                summary="最近是不是有裁员",
+                input_type="question_only",
+                raw_input="最近是不是有裁员",
+            )
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert analysis is None

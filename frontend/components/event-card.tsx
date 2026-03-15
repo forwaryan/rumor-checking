@@ -1,28 +1,29 @@
-import { ModePill } from "@/components/mode-pill";
+import { ScorePill } from "@/components/score-pill";
 import {
   formatDisplayTime,
   getDisplayEventSource,
   getDisplayEventSummary,
   getDisplayEventTitle,
 } from "@/lib/report-utils";
-import type { Report } from "@/types/report";
+import type { Report, ReportProvenanceState } from "@/types/report";
 
 interface EventCardProps {
   report: Report | null;
+  provenance: ReportProvenanceState | null;
 }
 
-export function EventCard({ report }: EventCardProps) {
+export function EventCard({ report, provenance }: EventCardProps) {
   if (!report) {
     return (
       <section className="panel panel--feature">
         <div className="panel-heading">
           <div>
-            <p className="eyebrow">Event Card</p>
+            <p className="eyebrow">Result Snapshot</p>
             <h2>事件概览与结论</h2>
           </div>
         </div>
         <p className="empty-state">
-          提交输入后，这里会先显示一句话结论、事件摘要和当前模式，帮助演示时在 30 秒内讲清页面。
+          提交输入后，这里会先显示一句话结论、事件摘要和当前核查分，帮助演示时在 30 秒内讲清页面。
         </p>
       </section>
     );
@@ -36,10 +37,10 @@ export function EventCard({ report }: EventCardProps) {
     <section className="panel panel--feature">
       <div className="panel-heading">
         <div>
-          <p className="eyebrow">Event Card</p>
+          <p className="eyebrow">Result Snapshot</p>
           <h2>{displayTitle}</h2>
         </div>
-        <ModePill mode={report.mode} />
+        <ScorePill report={report} provenance={provenance} />
       </div>
 
       <p className="lede">{report.final_summary}</p>

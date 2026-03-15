@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from fastapi import status
+
+from backend.app.core.config import get_settings
+from backend.app.core.exceptions import AppError
 from backend.app.models.schemas import AnalyzeRequest, Report, ReportProvenance, RetrievalDiagnostics
 from backend.app.services.claim_extractor import ClaimExtractor
 from backend.app.services.content_check_builder import ContentCheckBuilder
@@ -15,6 +19,7 @@ from backend.app.services.verdict_engine import VerdictEngine
 
 class AnalyzePipeline:
     def __init__(self) -> None:
+        self.settings = get_settings()
         self.input_normalizer = InputNormalizer()
         self.provider_enricher = ProviderEnricher()
         self.retriever = RetrievalService()
@@ -27,6 +32,7 @@ class AnalyzePipeline:
         self.pipeline_trace_builder = PipelineTraceBuilder()
 
     def analyze(self, request: AnalyzeRequest) -> Report:
+        self._ensure_kimi_only_ready()
         if request.request_context.get("force_error"):
             raise RuntimeError("forced_error_for_testing")
 
@@ -35,17 +41,33 @@ class AnalyzePipeline:
         retrieval_bundle = initial_retrieval_bundle
         question_resolution = self.question_resolver.resolve(event=normalized_event, retrieval_bundle=initial_retrieval_bundle)
         resolved_event = question_resolution.event
-        event, provider_claims = self.provider_enricher.enrich(resolved_event)
+        try:
+            event, provider_claims = self.provider_enricher.enrich(resolved_event)
+        except Exception as exc:
+            raise AppError(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                code="kimi_analysis_failed",
+                message="Kimi structured analysis failed. The request was not downgraded to any rule-only path.",
+                details={"error_type": exc.__class__.__name__},
+            ) from exc
         follow_up_bundle = None
         follow_up_used = False
         if question_resolution.follow_up_query:
             follow_up_context = dict(request.request_context)
             follow_up_context["force_retrieval_query"] = question_resolution.follow_up_query
             follow_up_bundle = self.retriever.retrieve_for_event(event, request_context=follow_up_context)
-            if follow_up_bundle.canonical_results or follow_up_bundle.matched_case_id or follow_up_bundle.fallback_used:
+            if follow_up_bundle.canonical_results or follow_up_bundle.matched_case_id:
                 retrieval_bundle = follow_up_bundle
                 follow_up_used = True
-        claim_extraction = self.claim_extractor.extract_with_source(event, provider_claims=provider_claims)
+        try:
+            claim_extraction = self.claim_extractor.extract_with_source(event, provider_claims=provider_claims)
+        except Exception as exc:
+            raise AppError(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                code="kimi_claims_missing",
+                message="Kimi did not return usable claims, so the request was rejected instead of falling back to heuristics.",
+                details={"error_type": exc.__class__.__name__},
+            ) from exc
         verdict = self.verdict_engine.evaluate_with_source(
             request=request,
             event=event,
@@ -96,6 +118,15 @@ class AnalyzePipeline:
         )
         return report.model_copy(update={"content_check": content_check, "pipeline_trace": pipeline_trace})
 
+    def _ensure_kimi_only_ready(self) -> None:
+        if self.settings.kimi_ready:
+            return
+        raise AppError(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            code="kimi_not_configured",
+            message="Kimi-only mode is enabled, but Kimi is not configured.",
+        )
+
     def _build_retrieval_diagnostics(self, retrieval_bundle) -> RetrievalDiagnostics | None:
         if retrieval_bundle is None:
             return None
@@ -118,10 +149,6 @@ class AnalyzePipeline:
                 fallback_reasons.append(reason)
 
         source_type = "backend_live"
-        if request.request_context.get("report_origin") == "backend_replay":
-            source_type = "backend_replay"
-        elif request.mock_evidence or request.mock_fetch_result or (retrieval_bundle and retrieval_bundle.provider_name == "mock"):
-            source_type = "backend_mock"
 
         retrieval_provider = None
         retrieval_cache_status = None

@@ -117,9 +117,6 @@ class ProviderEnricher:
 
     def enrich(self, event: NormalizedEvent) -> Tuple[NormalizedEvent, Optional[List[ClaimItem]]]:
         analysis = self.provider.analyze(event)
-        if analysis is None:
-            return event, None
-
         provider_title = _choose_better_text(
             "title",
             analysis.event.title,
@@ -129,11 +126,11 @@ class ProviderEnricher:
             "title": _choose_better_text("title", provider_title, event.title),
             "summary": _choose_better_text("summary", analysis.event.summary, event.summary) or event.summary,
             "keywords": _merge_keywords(analysis.event.keywords, event.keywords) or event.keywords,
-            "event_source": "provider_enriched" if any([provider_title, analysis.event.summary, analysis.event.keywords, analysis.claims]) else event.event_source,
+            "event_source": "provider_enriched",
         }
         if event.input_type == "text_news":
             updated_fields["source_name"] = _choose_source_name(analysis.event.source_name, event.source_name)
             updated_fields["published_at"] = analysis.event.published_at or event.published_at
 
         enriched_event = event.model_copy(update=updated_fields)
-        return enriched_event, analysis.claims or None
+        return enriched_event, analysis.claims

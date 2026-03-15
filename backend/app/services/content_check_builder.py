@@ -3,6 +3,12 @@ from __future__ import annotations
 from typing import Iterable, List
 
 from backend.app.models.schemas import AnswerSuggestion, ClaimResult, ContentCheck, ContentCheckItem, Report
+from backend.app.services.question_intent import (
+    is_broad_trend_question,
+    safe_trend_summary,
+    supported_trend_summary,
+    trend_follow_up_hint,
+)
 
 
 def _trim_claim(text: str) -> str:
@@ -96,6 +102,7 @@ class ContentCheckBuilder:
     ) -> List[AnswerSuggestion]:
         suggestions: List[AnswerSuggestion] = []
         seen: set[str] = set()
+        trend_question = is_broad_trend_question(original_input)
 
         def push(angle: str, answer: str) -> None:
             normalized = answer.strip()
@@ -110,7 +117,17 @@ class ContentCheckBuilder:
         top_uncertain = uncertain[0] if uncertain else None
         top_opinion = opinions[0] if opinions else None
 
-        if top_true and top_false:
+        if trend_question and top_true:
+            push(
+                "直接回答",
+                supported_trend_summary(original_input) or "当前公开来源更倾向于：最近确实有相关消息，但它不是单一事件。",
+            )
+        elif trend_question and report.mode == "safe_mode":
+            push(
+                "直接回答",
+                safe_trend_summary(original_input) or "这更像一个范围问题，当前还不能直接下确定性结论。",
+            )
+        elif top_true and top_false:
             push(
                 "直接回答",
                 (
@@ -156,7 +173,12 @@ class ContentCheckBuilder:
                 f"像“{_trim_claim(top_opinion.claim)}”这种表述更偏观点或判断，不能直接按真假强判。",
             )
 
-        if report.mode == "safe_mode" or not report.sources:
+        if trend_question:
+            push(
+                "继续较真",
+                trend_follow_up_hint(original_input) or "如果要继续较真，最好把公司名、行业或时间范围再说具体一点。",
+            )
+        elif report.mode == "safe_mode" or not report.sources:
             push(
                 "继续较真",
                 "如果要继续较真，最好补姓名、原帖链接、平台账号、截图原文或明确时间点。",
