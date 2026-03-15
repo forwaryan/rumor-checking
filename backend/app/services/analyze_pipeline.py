@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from backend.app.core.config import get_settings
 from backend.app.models.schemas import AnalyzeRequest, Report, ReportProvenance, RetrievalDiagnostics
+from backend.app.services.agent_reasoner import KimiAgentReasoner
 from backend.app.services.claim_extractor import ClaimExtractor
 from backend.app.services.content_check_builder import ContentCheckBuilder
 from backend.app.services.input_normalizer import InputNormalizer
@@ -18,6 +19,7 @@ class AnalyzePipeline:
     def __init__(self) -> None:
         self.settings = get_settings()
         self.input_normalizer = InputNormalizer()
+        self.agent_reasoner = KimiAgentReasoner()
         self.provider_enricher = ProviderEnricher()
         self.retriever = RetrievalService()
         self.question_resolver = QuestionResolver()
@@ -35,29 +37,41 @@ class AnalyzePipeline:
         normalized_event = self.input_normalizer.normalize(request)
         initial_retrieval_bundle = self.retriever.retrieve_for_event(normalized_event, request_context=request.request_context)
         retrieval_bundle = initial_retrieval_bundle
-        question_resolution = self.question_resolver.resolve(event=normalized_event, retrieval_bundle=initial_retrieval_bundle)
+        question_resolution = self._resolve_question(event=normalized_event, retrieval_bundle=initial_retrieval_bundle)
         resolved_event = question_resolution.event
-        try:
-            event, provider_claims = self.provider_enricher.enrich(resolved_event)
-        except Exception:
-            event, provider_claims = resolved_event, None
         follow_up_bundle = None
         follow_up_used = False
         if question_resolution.follow_up_query:
             follow_up_context = dict(request.request_context)
             follow_up_context["force_retrieval_query"] = question_resolution.follow_up_query
-            follow_up_bundle = self.retriever.retrieve_for_event(event, request_context=follow_up_context)
+            follow_up_bundle = self.retriever.retrieve_for_event(resolved_event, request_context=follow_up_context)
             if follow_up_bundle.canonical_results or follow_up_bundle.matched_case_id:
                 retrieval_bundle = follow_up_bundle
                 follow_up_used = True
-        claim_extraction = self.claim_extractor.extract_with_source(event, provider_claims=provider_claims)
-        verdict = self.verdict_engine.evaluate_with_source(
+        agent_synthesis = self._synthesize_with_agent(
             request=request,
-            event=event,
-            claims=claim_extraction.claims,
+            event=resolved_event,
             retrieval_bundle=retrieval_bundle,
         )
-        timeline = self.timeline_builder.build_with_source(event, retrieval_bundle=retrieval_bundle)
+        if agent_synthesis is not None:
+            event = agent_synthesis.event
+            provider_claims = agent_synthesis.claim_extraction.claims
+            claim_extraction = agent_synthesis.claim_extraction
+            verdict = agent_synthesis.verdict
+            timeline = agent_synthesis.timeline
+        else:
+            try:
+                event, provider_claims = self.provider_enricher.enrich(resolved_event)
+            except Exception:
+                event, provider_claims = resolved_event, None
+            claim_extraction = self.claim_extractor.extract_with_source(event, provider_claims=provider_claims)
+            verdict = self.verdict_engine.evaluate_with_source(
+                request=request,
+                event=event,
+                claims=claim_extraction.claims,
+                retrieval_bundle=retrieval_bundle,
+            )
+            timeline = self.timeline_builder.build_with_source(event, retrieval_bundle=retrieval_bundle)
         provenance = self._build_provenance(
             request=request,
             event=event,
@@ -100,6 +114,25 @@ class AnalyzePipeline:
             report=report,
         )
         return report.model_copy(update={"content_check": content_check, "pipeline_trace": pipeline_trace})
+
+    def _resolve_question(self, *, event, retrieval_bundle):
+        try:
+            agent_resolution = self.agent_reasoner.resolve_question(event=event, retrieval_bundle=retrieval_bundle)
+        except Exception:
+            agent_resolution = None
+        if agent_resolution is not None:
+            return agent_resolution
+        return self.question_resolver.resolve(event=event, retrieval_bundle=retrieval_bundle)
+
+    def _synthesize_with_agent(self, *, request, event, retrieval_bundle):
+        try:
+            return self.agent_reasoner.synthesize(
+                request=request,
+                event=event,
+                retrieval_bundle=retrieval_bundle,
+            )
+        except Exception:
+            return None
 
     def _build_retrieval_diagnostics(self, retrieval_bundle) -> RetrievalDiagnostics | None:
         if retrieval_bundle is None:

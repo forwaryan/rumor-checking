@@ -66,6 +66,10 @@
   - 协作流程文档入口。
 - [../prompt-history.md](../prompt-history.md)
   - 历史 prompt 记录。
+- [prompt-history-best-prompts-guide.md](prompt-history-best-prompts-guide.md)
+  - `prompt-history.md` 中优秀 prompt 的梳理、讲述角度和可复用模板。
+- [prompt-history-core-chain-archive.md](prompt-history-core-chain-archive.md)
+  - 按核心链路对 `prompt-history.md` 做的全量归档与过程积累分类。
 
 ## 5. 数据与评测
 
