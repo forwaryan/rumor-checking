@@ -1,6 +1,6 @@
 ﻿# 11 当前运行路径与环境变量
 
-更新时间：2026-03-14 21:46（Asia/Shanghai）
+更新时间：2026-03-15 23:30（Asia/Shanghai）
 对应验收：`overview/13_f8-random-acceptance.md`
 
 ## 1. 这份文档的定位
@@ -13,18 +13,20 @@
 - 每条路径分别依赖哪些环境变量
 - 哪条路径可以交付，哪条路径只能保留为内部诊断或保底降级
 
-如果本文与更早的 README、波次文档或历史口播冲突，以 `F8` 验收记录和当前实现为准。
+如果本文与更早的 README、波次文档或历史口播冲突，以当前实现、`backend/.env.example` 和本页为准。`overview/13_f8-random-acceptance.md` 保留的是 `2026-03-14` 历史验收，不再等同于默认开发基线。
 
-## 2. 四类运行路径总表
+## 2. 运行路径总表
 
 | 路径 | 启动方式 | 关键变量 | 预期来源标签 | 当前定位 |
 | --- | --- | --- | --- | --- |
-| `mock demo` | 后端 `uvicorn` + 前端 `npm run dev` 或 `start-local-windows.ps1` | `ANALYSIS_PROVIDER=kimi`、`RETRIEVAL_PROVIDER=mock`、`RETRIEVAL_FALLBACK_TO_MOCK=true`、`NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000` | 以 `backend_mock / retrieval_mock` 为主 | 当前推荐的可交付演示路径 |
+| `default dev` | 后端 `uvicorn` + 前端 `npm run dev` 或 `start-local-windows.ps1` | `ANALYSIS_PROVIDER=off`、`RETRIEVAL_PROVIDER=mock`、`RETRIEVAL_FALLBACK_TO_MOCK=true`、`NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000` | 以 `backend_mock / retrieval_mock` 为主 | 当前默认开发与回归路径 |
+| `default demo` | 与 `default dev` 相同 | 与 `default dev` 相同 | 以 `backend_mock / retrieval_mock` 为主 | 当前推荐的可交付演示路径 |
+| `enhanced demo` | 与 `default demo` 相同，但显式开 Kimi 分析增强 | `ANALYSIS_PROVIDER=kimi`、`KIMI_API_KEY=...`、`RETRIEVAL_PROVIDER=mock`、`RETRIEVAL_FALLBACK_TO_MOCK=true` | 仍以 `backend_mock / retrieval_mock` 为主 | 可选增强，不是默认依赖 |
 | `live probe` | 同上，但强制 live retrieval | `RETRIEVAL_PROVIDER=gdelt`、`RETRIEVAL_FALLBACK_TO_MOCK=false` | 目标是观察 `backend_live + retrieval_live` 是否出现 | 仅内部诊断；`F8` 未通过 |
 | `replay` | 当前没有公开启动链路 | 不新增公开变量 | 只有后端显式返回时才会出现 `backend_replay` | 不是当前交付路径 |
 | `frontend fallback` | 前端启动即可；后端离线或请求失败时自动触发 | 无新增变量 | `demo_payload` 或 `frontend_fallback` | 只做保底演示，不算真实 analyze |
 
-## 3. 当前推荐路径：`mock demo`
+## 3. 当前推荐路径：`default dev` / `default demo`
 
 ### 3.1 启动命令
 
@@ -51,17 +53,17 @@ powershell -ExecutionPolicy Bypass -File .\frontend\start-local-windows.ps1 -Bac
 
 ### 3.2 环境变量建议
 
-`F8` 默认环境快照如下：
+冻结后的默认基线如下：
 
-- `ANALYSIS_PROVIDER=kimi`
+- `ANALYSIS_PROVIDER=off`
 - `RETRIEVAL_PROVIDER=mock`
 - `RETRIEVAL_FALLBACK_TO_MOCK=true`
 - 前端指向 `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000`
 
 说明：
 
-- 这组变量可以复现实测口径，但它产出的主要是 `mock/demo` 路径，不是 `real_live` 验收路径。
-- `ANALYSIS_PROVIDER=off|kimi` 仍以 `backend/README.md` 为准；如果不开 provider，系统仍可运行，但本文不把未经过 `F8` 单独验收的新组合写成推荐默认口径。
+- 这组变量不依赖 Kimi key，适合新人上手、默认联调、默认 smoke 和默认演示。
+- 如果显式切到 `ANALYSIS_PROVIDER=kimi` 并配置 `KIMI_API_KEY`，标题、摘要和 claim 抽取会更丰富，但 provenance 仍然是 `mock/demo` 路径，不是 `real_live` 验收路径。
 - 当前最稳的演示素材只有 `expired-yogurt`；不要把 `chemical-odor` 和 `morningstar-layoff` 排进默认演示主线。
 
 ### 3.3 这条路径能交付什么
@@ -106,7 +108,7 @@ powershell -ExecutionPolicy Bypass -File .\frontend\start-local-windows.ps1 -Bac
 
 | 分组 | 变量 | 当前建议 | 备注 |
 | --- | --- | --- | --- |
-| 后端 provider | `ANALYSIS_PROVIDER` | 保持 `kimi` 或按 `backend/README.md` 明确关闭 | `F8` 默认快照使用 `kimi` |
+| 后端 provider | `ANALYSIS_PROVIDER` | 默认 `off`；需要增强抽取时才显式设 `kimi` | 默认基线不依赖 Kimi key |
 | 后端 provider | `KIMI_API_KEY`、`KIMI_BASE_URL`、`KIMI_MODEL`、`PROVIDER_TIMEOUT_SECONDS` | 仅在需要 provider 时配置 | 实测仍存在 `ReadTimeout` 风险 |
 | 后端 retrieval | `RETRIEVAL_PROVIDER` | 对外交付保持 `mock`；内部 live probe 才切 `gdelt` | 当前默认不是 live 验收路径 |
 | 后端 retrieval | `RETRIEVAL_FALLBACK_TO_MOCK` | 对外交付保持 `true`；内部 live probe 才设 `false` | 设为 `false` 后 `F8` 未拿到 `real_live` |
@@ -127,4 +129,4 @@ powershell -ExecutionPolicy Bypass -File .\frontend\start-local-windows.ps1 -Bac
 
 ## 9. 一句话结论
 
-截至 2026-03-14，当前推荐交付的是 `mock demo + provenance 边界清楚` 的演示路径；`live probe`、`replay` 和 `frontend fallback` 都不能被讲成已经通过最终验收的真实能力。
+截至 2026-03-15，当前推荐交付的是 `default off/mock 基线 + provenance 边界清楚` 的演示路径；`live probe`、`replay` 和 `frontend fallback` 都不能被讲成已经通过最终验收的真实能力。

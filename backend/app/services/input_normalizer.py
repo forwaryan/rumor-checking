@@ -1,6 +1,7 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import List, Optional
 
 from fastapi import status
@@ -14,6 +15,7 @@ from backend.app.services.contract_utils import (
     looks_like_url,
     source_name_from_url,
 )
+from backend.app.services.entity_anchor import extract_subject_anchors
 from backend.app.services.url_content_extractor import UrlContentExtractor
 
 
@@ -38,52 +40,99 @@ URL_FALLBACK_NOTICE_MAP = {
     "url_invalid": "当前输入不是可直接抓取的链接，建议检查 URL 是否完整，或直接粘贴正文原文。",
 }
 OFFICIAL_SOURCE_HINTS = (
-    "\u76d1\u7ba1\u5c40",
-    "\u4ea4\u901a\u5c40",
-    "\u6559\u80b2\u5c40",
-    "\u751f\u6001\u73af\u5883\u5c40",
-    "\u653f\u5e9c",
-    "\u8b66\u65b9",
-    "\u6cd5\u9662",
-    "\u533b\u9662",
-    "\u59d4\u5458\u4f1a",
-    "\u5e02\u573a\u76d1\u7ba1",
-    "\u4e2d\u5b66",
+    "监管局",
+    "交通局",
+    "教育局",
+    "生态环境局",
+    "政府",
+    "警方",
+    "法院",
+    "医院",
+    "委员会",
+    "市场监管",
+    "中学",
 )
 MEDIA_SOURCE_HINTS = (
-    "\u65e5\u62a5",
-    "\u665a\u62a5",
-    "\u65f6\u62a5",
-    "\u7535\u89c6\u53f0",
-    "\u65b0\u95fb",
-    "\u89c2\u5bdf",
+    "日报",
+    "晚报",
+    "时报",
+    "电视台",
+    "新闻",
+    "观察",
 )
 KEYWORD_PHRASES = (
-    "\u6d77\u5dde\u5e02\u5e02\u573a\u76d1\u7ba1\u5c40",
-    "\u6e05\u6cb3\u5e02\u4ea4\u901a\u5c40",
-    "\u5317\u57ce\u533a\u5316\u5de5\u5382",
-    "\u6d77\u5dde\u65b0\u9c9c\u5c4b",
-    "\u6668\u661f\u751f\u7269",
-    "\u505c\u4e1a\u6574\u6539",
-    "\u6e21\u8f6e\u505c\u822a",
-    "\u751f\u6001\u73af\u5883\u5c40",
-    "\u88c1\u545840%",
-    "\u9178\u5976",
-    "\u6e21\u8f6e",
-    "\u5927\u96fe",
-    "\u505c\u8bfe",
-    "\u5f02\u5473",
-    "\u6838\u67e5",
-    "\u4f20\u95fb",
+    "海州市市场监管局",
+    "清河市交通局",
+    "北城区化工厂",
+    "海州新鲜屋",
+    "晨星生物",
+    "停业整改",
+    "渡轮停航",
+    "生态环境局",
+    "裁员40%",
+    "酸奶",
+    "渡轮",
+    "大雾",
+    "停课",
+    "异味",
+    "核查",
+    "传闻",
 )
 KEYWORD_PATTERNS = (
-    r"[\u4e00-\u9fa5]{2,20}(?:\u5e02\u573a\u76d1\u7ba1\u5c40|\u4ea4\u901a\u5c40|\u6559\u80b2\u5c40|\u751f\u6001\u73af\u5883\u5c40|\u5316\u5de5\u5382|\u516c\u53f8|\u533b\u9662|\u653f\u5e9c|\u8b66\u65b9|\u59d4\u5458\u4f1a|\u65e5\u62a5|\u4e2d\u5b66|\u751f\u7269)",
-    r"\u88c1\u5458\d+%",
+    r"[\u4e00-\u9fa5]{2,20}(?:市场监管局|交通局|教育局|生态环境局|化工厂|公司|医院|政府|警方|委员会|日报|中学|生物|运营公司|平台)",
+    r"裁员\d+%",
+    r"[\u4e00-\u9fa5A-Za-z0-9]{2,20}(?=(?:明天|今晚|下周|本周|近日|已|已经|将|会|正在)?(?:全线|全面)?(?:停航|停运|停课|裁员|脑出血|去世|死亡|核查|回应|通报|检修|整改|恢复|救治|辟谣))",
+)
+TIME_PATTERNS = (
+    r"\d{4}[-/]\d{1,2}[-/]\d{1,2}",
+    r"\d{4}年\d{1,2}月\d{1,2}日",
+    r"\d{1,2}月\d{1,2}日(?:上午|下午|凌晨|晚上|晚间|中午)?",
+    r"(?:明天|今晚|今早|今天|今日|昨天|昨日|下周|本周|近日|近期)",
+)
+NOISY_INPUT_MARKERS = (
+    "截图",
+    "聊天记录",
+    "群聊",
+    "朋友圈",
+    "爆料",
+    "网传",
+    "短视频",
+    "视频",
+    "录音",
+)
+NOISY_PREFIX_PATTERN = re.compile(
+    r"^(?:【[^】]+】\s*)?(?:网传|爆料称|截图显示|聊天记录显示|群聊(?:消息)?(?:显示|称)?|朋友圈(?:消息)?(?:显示|称)?|短视频(?:显示|称)?|视频(?:显示|称)?|录音(?:显示|称)?)\s*"
 )
 
 
 def _collapse_whitespace(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _extract_time_keywords(text: str) -> List[str]:
+    ordered: List[str] = []
+    seen = set()
+    for pattern in TIME_PATTERNS:
+        for item in re.findall(pattern, text):
+            cleaned = _collapse_whitespace(item).strip("，。！？:：；;")
+            if cleaned and cleaned not in seen:
+                seen.add(cleaned)
+                ordered.append(cleaned)
+    return ordered[:3]
+
+
+def _rewrite_noisy_text(text: str) -> str:
+    compact = _collapse_whitespace(text)
+    compact = re.sub(r"^(?:【[^】]+】\s*)+", "", compact)
+    compact = NOISY_PREFIX_PATTERN.sub("", compact)
+    carrier_match = re.search(
+        r"(?:截图|聊天记录|群聊|爆料|网传|短视频|视频|录音)[^:：]{0,12}[:：](.+)$",
+        compact,
+    )
+    if carrier_match:
+        compact = carrier_match.group(1).strip()
+    compact = re.sub(r"[\"'“”‘’]+", "", compact)
+    return _collapse_whitespace(compact)
 
 
 def _infer_input_type(raw_input: str) -> InternalInputType:
@@ -112,7 +161,7 @@ def _normalize_requested_input_type(raw_input: str, requested: Optional[str]) ->
 
 def _extract_keywords(text: str) -> List[str]:
     compact = _collapse_whitespace(text)
-    candidates: list[str] = []
+    candidates: List[str] = []
 
     for phrase in KEYWORD_PHRASES:
         if phrase in compact:
@@ -121,10 +170,13 @@ def _extract_keywords(text: str) -> List[str]:
     for pattern in KEYWORD_PATTERNS:
         candidates.extend(re.findall(pattern, compact))
 
+    candidates.extend(extract_subject_anchors(compact))
+    candidates.extend(_extract_time_keywords(compact))
+
     seen = set()
     ordered = []
     for item in candidates:
-        cleaned = item.strip("\uff0c\u3002\uff01\uff1f\uff1a\uff1b\u3010\u3011")
+        cleaned = item.strip("，。！？:：；;【】")
         if cleaned and cleaned not in seen:
             seen.add(cleaned)
             ordered.append(cleaned)
@@ -132,12 +184,12 @@ def _extract_keywords(text: str) -> List[str]:
 
 
 def _extract_date(text: str) -> Optional[str]:
-    match = re.search(r"(\d{4})年(\d{1,2})月(\d{1,2})日", text)
+    match = re.search(r"(\d{4})[-/年](\d{1,2})[-/月](\d{1,2})日?", text)
     if match:
         return f"{match.group(1)}-{int(match.group(2)):02d}-{int(match.group(3)):02d}"
     match = re.search(r"(\d{1,2})月(\d{1,2})日", text)
     if match:
-        return f"2026-{int(match.group(1)):02d}-{int(match.group(2)):02d}"
+        return f"{datetime.now().year}-{int(match.group(1)):02d}-{int(match.group(2)):02d}"
     return None
 
 
@@ -185,7 +237,7 @@ class InputNormalizer:
                 fetch=fetch,
             )
         elif input_type == "question_only":
-            summary = _collapse_whitespace(payload.raw_input.rstrip("?\uff1f"))
+            summary = _collapse_whitespace(payload.raw_input.rstrip("?？"))
             source_name = None
             source_url = default_source_url(input_type, payload.raw_input)
         else:
@@ -301,7 +353,12 @@ class InputNormalizer:
         )
 
     def _derive_summary(self, raw_input: str) -> str:
-        stripped = _collapse_whitespace(raw_input)
+        stripped = _rewrite_noisy_text(raw_input) if any(marker in raw_input for marker in NOISY_INPUT_MARKERS) else _collapse_whitespace(raw_input)
+        sentences = [item.strip() for item in re.split(r"[。！？?!]", stripped) if item.strip()]
+        if len(sentences) >= 2:
+            candidate = "。".join(sentences[:2])
+            if 18 <= len(candidate) <= 110:
+                return candidate
         if len(stripped) <= 110:
             return stripped
         return stripped[:107] + "..."
@@ -331,7 +388,10 @@ class InputNormalizer:
         return "链接页面抽取失败，当前只能先给出保守提示"
 
     def _extract_source_name(self, raw_input: str) -> Optional[str]:
-        match = re.search(r"([一-龥]{2,20}(?:监管局|交通局|教育局|生态环境局|日报|中学|化工厂|公司|医院|政府|警方))", raw_input)
+        match = re.search(
+            r"([A-Za-z0-9一-龥]{2,24}(?:市场监管局|监管局|交通局|教育局|生态环境局|运营公司|日报|晚报|电视台|中学|学校|大学|化工厂|集团|公司|医院|政府|警方|平台|委员会))",
+            raw_input,
+        )
         return match.group(1) if match else None
 
     def _dedupe_keywords(self, extracted_keywords: List[str]) -> List[str]:

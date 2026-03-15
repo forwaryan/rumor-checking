@@ -13,6 +13,21 @@
 - `C1` 到 `C8` 已完成并稳定可测
 - `C9` 已进入第一阶段：Kimi provider 配置、调用封装、事件/claim enrichment、安全回退与测试已完成
 - `C10` 已完成：公开 HTML 页面 URL 正文抽取、结构化字段回填与清晰 fallback 已接入
+- `2026-03-15` 起默认运行基线已冻结为 `ANALYSIS_PROVIDER=off`、`RETRIEVAL_PROVIDER=mock`、`RETRIEVAL_FALLBACK_TO_MOCK=true`
+
+## 环境与默认基线
+
+- Python：`>= 3.8`
+  当前已在 `Python 3.8.10` 下跑通 `pytest backend/tests -q`。
+- 默认开发 / 默认演示基线：
+
+```dotenv
+ANALYSIS_PROVIDER=off
+RETRIEVAL_PROVIDER=mock
+RETRIEVAL_FALLBACK_TO_MOCK=true
+```
+
+- 可选增强：如需更丰富的标题、摘要和 claim 抽取，再显式开启 `ANALYSIS_PROVIDER=kimi` 并配置 `KIMI_API_KEY`。
 
 ## 快速框架图
 
@@ -36,7 +51,7 @@ flowchart LR
 
 ## Provider 开关
 
-当前真实 provider 默认关闭，只有显式配置后才会调用：
+当前分析 provider 默认关闭，只有显式配置后才会调用：
 
 - `ANALYSIS_PROVIDER=off|kimi`
 - `KIMI_API_KEY`
@@ -96,7 +111,7 @@ flowchart LR
 推荐做法：
 
 1. 复制 `backend/.env.example` 为 `backend/.env`
-2. 在 `backend/.env` 中填写：
+2. 默认基线保持 `.env.example` 原值即可；只有在需要 Kimi 增强时，再补充：
 
 ```text
 ANALYSIS_PROVIDER=kimi
@@ -170,7 +185,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/analyze \
 推荐验证命令：
 
 ```bash
-pytest backend/tests/test_kimi_provider.py backend/tests/test_kimi_provider_quality.py backend/tests/test_api.py -q
+pytest backend/tests -q
 ```
 
 当前这组验收证明的是：

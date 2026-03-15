@@ -11,7 +11,9 @@
     "claim_results",
     "final_summary",
     "risks",
-    "sources"
+    "sources",
+    "retrieval_hits",
+    "provenance"
   ],
   "properties": {
     "mode": {
@@ -58,56 +60,65 @@
       },
       "default": []
     },
-    "content_check": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "likely_true",
-        "likely_false",
-        "controversial",
-        "opinions",
-        "uncertain",
-        "possible_answers"
-      ],
-      "properties": {
-        "likely_true": {
-          "$ref": "#/$defs/contentCheckItems"
+    "retrieval_hits": {
+      "type": "array",
+      "items": {
+        "$ref": "./evidence.schema.json"
+      },
+      "default": []
+    },
+    "retrieval_diagnostics": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/retrievalDiagnostics"
         },
-        "likely_false": {
-          "$ref": "#/$defs/contentCheckItems"
-        },
-        "controversial": {
-          "$ref": "#/$defs/contentCheckItems"
-        },
-        "opinions": {
-          "$ref": "#/$defs/contentCheckItems"
-        },
-        "uncertain": {
-          "$ref": "#/$defs/contentCheckItems"
-        },
-        "possible_answers": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "angle",
-              "answer"
-            ],
-            "properties": {
-              "angle": {
-                "type": "string",
-                "minLength": 1
-              },
-              "answer": {
-                "type": "string",
-                "minLength": 1
-              }
-            }
-          }
+        {
+          "type": "null"
         }
-      }
+      ]
+    },
+    "overall_credibility_score": {
+      "$ref": "#/$defs/nullableBoundedScore"
+    },
+    "overall_credibility_label": {
+      "$ref": "#/$defs/nullableCredibilityLabel"
+    },
+    "score_breakdown": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/scoreBreakdown"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "claim_contributions": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/claimContribution"
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "timeline_confidence": {
+      "$ref": "#/$defs/nullableBoundedScore"
+    },
+    "independent_source_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "investigation": {
       "type": "object",
@@ -187,6 +198,57 @@
         }
       }
     },
+    "content_check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "likely_true",
+        "likely_false",
+        "controversial",
+        "opinions",
+        "uncertain",
+        "possible_answers"
+      ],
+      "properties": {
+        "likely_true": {
+          "$ref": "#/$defs/contentCheckItems"
+        },
+        "likely_false": {
+          "$ref": "#/$defs/contentCheckItems"
+        },
+        "controversial": {
+          "$ref": "#/$defs/contentCheckItems"
+        },
+        "opinions": {
+          "$ref": "#/$defs/contentCheckItems"
+        },
+        "uncertain": {
+          "$ref": "#/$defs/contentCheckItems"
+        },
+        "possible_answers": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "angle",
+              "answer"
+            ],
+            "properties": {
+              "angle": {
+                "type": "string",
+                "minLength": 1
+              },
+              "answer": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
     "pipeline_trace": {
       "type": "object",
       "additionalProperties": false,
@@ -240,9 +302,314 @@
           }
         }
       }
+    },
+    "provenance": {
+      "$ref": "#/$defs/reportProvenance"
     }
   },
   "$defs": {
+    "nullableBoundedScore": {
+      "anyOf": [
+        {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "nullableCredibilityLabel": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/credibilityLabel"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "credibilityLabel": {
+      "type": "string",
+      "enum": [
+        "high_credibility",
+        "medium_credibility",
+        "low_credibility",
+        "mixed",
+        "insufficient_evidence"
+      ]
+    },
+    "contributionLabel": {
+      "type": "string",
+      "enum": [
+        "supports",
+        "weakens",
+        "mixed",
+        "neutral"
+      ]
+    },
+    "scoreWeights": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "claim",
+        "source_quality",
+        "cross_source_agreement",
+        "timeline"
+      ],
+      "properties": {
+        "claim": {
+          "const": 0.5
+        },
+        "source_quality": {
+          "const": 0.2
+        },
+        "cross_source_agreement": {
+          "const": 0.2
+        },
+        "timeline": {
+          "const": 0.1
+        }
+      }
+    },
+    "scoreBreakdown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "claim_score",
+        "source_quality_score",
+        "cross_source_agreement_score",
+        "timeline_score",
+        "weights",
+        "summary",
+        "limiting_factors"
+      ],
+      "properties": {
+        "claim_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "source_quality_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "cross_source_agreement_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "timeline_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "weights": {
+          "$ref": "#/$defs/scoreWeights"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "limiting_factors": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "claimContribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "claim",
+        "claim_type",
+        "verdict",
+        "contribution_label",
+        "contribution_score",
+        "reason"
+      ],
+      "properties": {
+        "claim": {
+          "type": "string",
+          "minLength": 1
+        },
+        "claim_type": {
+          "type": "string",
+          "enum": [
+            "fact",
+            "opinion",
+            "prediction",
+            "unverifiable"
+          ]
+        },
+        "verdict": {
+          "type": "string",
+          "enum": [
+            "supported",
+            "refuted",
+            "insufficient",
+            "conflicting"
+          ]
+        },
+        "contribution_label": {
+          "$ref": "#/$defs/contributionLabel"
+        },
+        "contribution_score": {
+          "type": "number",
+          "minimum": -100,
+          "maximum": 100
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "retrievalDiagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "query",
+        "provider_name",
+        "cache_status",
+        "retrieved_at",
+        "raw_result_count",
+        "canonical_result_count",
+        "failure_detail"
+      ],
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "provider_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cache_status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "retrieved_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "raw_result_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "canonical_result_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failure_detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "reportProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_type",
+        "event_source",
+        "claim_source",
+        "evidence_source",
+        "timeline_source",
+        "retrieval_provider",
+        "retrieval_cache_status",
+        "provider_used",
+        "fallback_used",
+        "fallback_reasons"
+      ],
+      "properties": {
+        "source_type": {
+          "type": "string",
+          "enum": [
+            "backend_live",
+            "backend_mock",
+            "backend_replay",
+            "demo_payload",
+            "frontend_fallback"
+          ]
+        },
+        "event_source": {
+          "type": "string",
+          "enum": [
+            "input_normalized",
+            "url_extract",
+            "provider_enriched",
+            "retrieval_resolved"
+          ]
+        },
+        "claim_source": {
+          "type": "string",
+          "enum": [
+            "rule",
+            "provider",
+            "provider_plus_rule"
+          ]
+        },
+        "evidence_source": {
+          "type": "string",
+          "enum": [
+            "retrieval_live",
+            "retrieval_mock",
+            "request_mock",
+            "none"
+          ]
+        },
+        "timeline_source": {
+          "type": "string",
+          "enum": [
+            "retrieval",
+            "input_seed",
+            "none"
+          ]
+        },
+        "retrieval_provider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "retrieval_cache_status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider_used": {
+          "type": "boolean"
+        },
+        "fallback_used": {
+          "type": "boolean"
+        },
+        "fallback_reasons": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
     "contentCheckItems": {
       "type": "array",
       "default": [],

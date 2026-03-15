@@ -4,8 +4,8 @@
   "query": "最近有个女网红脑出血死了真的假的",
   "normalized_query": "最近有个女网红脑出血死了真的假的",
   "cache_key": "f55b2fb7f89f9301723906f8",
-  "created_at": "2026-03-14T20:04:06.950468+00:00",
-  "expires_at": "2026-03-15T08:04:06.950468+00:00",
+  "created_at": "2026-03-15T15:12:36.707287+00:00",
+  "expires_at": "2026-03-16T03:12:36.707287+00:00",
   "bundle": {
     "query": "最近有个女网红脑出血死了真的假的",
     "matched_case_id": "real_search",
@@ -27,7 +27,7 @@
         "merged_result_ids": [],
         "merged_notes": [],
         "provider_name": "kimi",
-        "retrieved_at": "2026-03-14T20:04:06.948822+00:00"
+        "retrieved_at": "2026-03-15T15:12:36.706897+00:00"
       },
       {
         "case_id": "real_search",
@@ -45,7 +45,7 @@
         "merged_result_ids": [],
         "merged_notes": [],
         "provider_name": "kimi",
-        "retrieved_at": "2026-03-14T20:04:06.948822+00:00"
+        "retrieved_at": "2026-03-15T15:12:36.706897+00:00"
       }
     ],
     "canonical_results": [
@@ -65,7 +65,7 @@
         "merged_result_ids": [],
         "merged_notes": [],
         "provider_name": "kimi",
-        "retrieved_at": "2026-03-14T20:04:06.948822+00:00"
+        "retrieved_at": "2026-03-15T15:12:36.706897+00:00"
       },
       {
         "case_id": "real_search",
@@ -83,7 +83,7 @@
         "merged_result_ids": [],
         "merged_notes": [],
         "provider_name": "kimi",
-        "retrieved_at": "2026-03-14T20:04:06.948822+00:00"
+        "retrieved_at": "2026-03-15T15:12:36.706897+00:00"
       }
     ],
     "expected_origin_result_id": null,
@@ -93,7 +93,7 @@
     "cache_status": "write_only",
     "fallback_used": false,
     "fallback_reason": null,
-    "retrieved_at": "2026-03-14T20:04:06.948822+00:00",
+    "retrieved_at": "2026-03-15T15:12:36.706897+00:00",
     "failure_detail": null
   }
 }

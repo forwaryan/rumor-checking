@@ -116,7 +116,12 @@ class ProviderEnricher:
         self.provider = provider or KimiProvider()
 
     def enrich(self, event: NormalizedEvent) -> Tuple[NormalizedEvent, Optional[List[ClaimItem]]]:
+        if getattr(self.provider, "enabled", True) is False:
+            return event, None
+
         analysis = self.provider.analyze(event)
+        if analysis is None:
+            return event, None
         provider_title = _choose_better_text(
             "title",
             analysis.event.title,

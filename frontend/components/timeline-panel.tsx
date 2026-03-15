@@ -1,4 +1,5 @@
-﻿import { formatDisplayTime, sortTimeline } from "@/lib/report-utils";
+﻿import { getIndependentSourceCount, getTimelineConfidence } from "@/lib/report-high-score";
+import { formatDisplayTime, sortTimeline } from "@/lib/report-utils";
 import type { Report } from "@/types/report";
 
 interface TimelinePanelProps {
@@ -19,6 +20,8 @@ function getEmptyCopy(mode: Report["mode"] | null) {
 
 export function TimelinePanel({ report }: TimelinePanelProps) {
   const timeline = report ? sortTimeline(report.timeline) : [];
+  const timelineConfidence = getTimelineConfidence(report);
+  const independentSourceCount = getIndependentSourceCount(report);
 
   return (
     <section className="panel panel--timeline">
@@ -28,6 +31,21 @@ export function TimelinePanel({ report }: TimelinePanelProps) {
           <h2>时间线</h2>
         </div>
       </div>
+
+      {report ? (
+        <>
+          <p className="panel-copy">这条链路解释“消息是怎么传开的”，不直接等于真假判断。</p>
+          <div className="tag-row">
+            <span className="provenance-pill provenance-pill--subtle">
+              {timelineConfidence === null ? "传播链完成度：待返回" : `传播链完成度：${Math.round(timelineConfidence)}/100`}
+            </span>
+            <span className="provenance-pill provenance-pill--subtle">{`关键节点：${timeline.length} 个`}</span>
+            {independentSourceCount !== null ? (
+              <span className="provenance-pill provenance-pill--subtle">{`独立来源：${independentSourceCount} 个`}</span>
+            ) : null}
+          </div>
+        </>
+      ) : null}
 
       {timeline.length ? (
         <ol className="timeline-list">
@@ -40,6 +58,7 @@ export function TimelinePanel({ report }: TimelinePanelProps) {
                   <span>{formatDisplayTime(node.published_at)}</span>
                 </div>
                 <p>{node.summary}</p>
+                <p className="timeline-why">{`为何入选：${node.why_selected}`}</p>
                 <a href={node.url} target="_blank" rel="noreferrer">
                   {node.source_name}
                 </a>

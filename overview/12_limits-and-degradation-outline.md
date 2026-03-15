@@ -1,6 +1,6 @@
 ﻿# 12 当前限制与降级边界
 
-更新时间：2026-03-14 21:46（Asia/Shanghai）
+更新时间：2026-03-15 23:30（Asia/Shanghai）
 对应验收：`overview/13_f8-random-acceptance.md`
 
 ## 1. 这份文档的定位
@@ -11,7 +11,7 @@
 
 ## 2. 当前可以讲什么
 
-- 可以讲：后端测试基线稳定，`health`、API、retrieval 基础测试和 provider 基础测试都有通过记录。
+- 可以讲：后端测试基线稳定，`pytest backend/tests -q` 当前实测 `58 passed`。
 - 可以讲：页面已经能区分 `backend_live / backend_mock / backend_replay / demo_payload / frontend_fallback`，不会把本地 fallback 伪装成 live 结果。
 - 可以讲：`expired-yogurt` 仍可作为稳定 mock demo 演示完整结构化输出。
 - 可以讲：系统已经能把保守路径标记出来，`fallback_used=true` 或 `evidence_source=none` 不会再被当成“已较真成功”。
@@ -19,7 +19,7 @@
 ## 3. 当前不能讲什么
 
 - 不能讲：当前随机输入已经验证了“任意新闻都能较真”。`F8` 的 `real_live` 样本数是 `0`。
-- 不能讲：三条稳定 demo 都已在真实检索路径上通过。当前默认环境主要还是 `mock` 路径。
+- 不能讲：三条稳定 demo 都已在真实检索路径上通过。当前默认环境仍主要是 `mock` 路径。
 - 不能讲：`chemical-odor` 仍是稳定 `partial_mode` demo。它在 `F8` 中已漂移到 `safe_mode`。
 - 不能讲：`morningstar-layoff` 仍是稳定 `safe_mode` demo。它在 `F8` 中已漂移到 `complete_mode`。
 - 不能讲：frontend fallback、demo payload 或 mock retrieval 等同于实时联网分析结果。
@@ -55,7 +55,7 @@
 
 ## 6. 输入与主链边界
 
-- 文本输入：当前能走完整 analyze 主链，但默认环境下仍多落在 `mock` 路径。
+- 文本输入：当前能走完整 analyze 主链；默认基线 `ANALYSIS_PROVIDER=off` 也可运行，且默认仍多落在 `mock` 路径。
 - 问题输入：可以触发后端主链，但在默认环境和 live probe 中都还没有形成稳定的真实检索通过样本。
 - URL 输入：只支持公开 HTML 页面；登录页、强反爬、浏览器渲染页面、PDF 和图片正文都仍会触发保守路径。
 - verdict、evidence、timeline 仍是基于当前检索结果和规则链路的 V1 组合，不应讲成完整 RAG 或 agent 搜证系统。
@@ -77,11 +77,11 @@
 
 | 风险 | 证据 | 当前影响 | 临时规避 |
 | --- | --- | --- | --- |
-| 默认环境 retrieval 仍是 `mock` | `F8` 默认快照 `RETRIEVAL_PROVIDER=mock` | 默认演示和随机输入都不能代表真实检索 | README、Smoke、口播统一写成 mock/demo 边界 |
+| 默认基线 retrieval 仍是 `mock` | `2026-03-15` 冻结基线 `RETRIEVAL_PROVIDER=mock` | 默认演示和随机输入都不能代表真实检索 | README、Smoke、口播统一写成 mock/demo 边界 |
 | `chemical-odor` 漂移到 `safe_mode` | 稳定 demo 明细里 `DEMO02` 失败 | 不能继续当 partial demo 使用 | 从默认演示主线移除，待实现窗口复核 |
 | `morningstar-layoff` 漂移到 `complete_mode` | 稳定 demo 明细里 `DEMO03` 高风险失败 | 会把本该保守的 case 误讲成确定性结论 | 从默认演示主线移除，禁止作为 safe demo 口播 |
 | live retrieval 未通过验收 | `gdelt_live_probe` 为 `0/4 real_live` | 当前不能讲真实检索较真 | 只保留为内部 probe，不纳入对外通过口径 |
-| provider 在线批次存在超时 | 随机批次多次 `ReadTimeout` | 开放输入帮助性不稳定，且会悄悄回到规则链路 | 对外交付时不要把 provider 打开讲成稳定增益 |
+| 可选 Kimi provider 在线批次存在超时 | 历史随机批次多次 `ReadTimeout` | 开放输入帮助性不稳定，且会悄悄回到规则链路 | 对外交付时不要把 provider 打开讲成默认依赖或稳定增益 |
 
 ## 9. 当前 go / no-go 结论
 
@@ -91,4 +91,4 @@
 
 ## 10. 一句话结论
 
-截至 2026-03-14，当前系统已经具备“路径清楚、边界明确、mock/demo 可交付”的 V1 形态，但真实检索链路仍未通过 `F8` 最终验收，因此任何对外说明都必须把 live 能力与降级/演示路径明确拆开。
+截至 2026-03-15，当前系统已经具备“默认 `off/mock` 基线清楚、边界明确、mock/demo 可交付”的 V1 形态，但真实检索链路仍未通过 `F8` 最终验收，因此任何对外说明都必须把 live 能力与降级/演示路径明确拆开。

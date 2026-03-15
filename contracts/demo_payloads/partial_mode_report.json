@@ -157,5 +157,110 @@
       "relevance_reason": "与公司回应形成冲突。",
       "source_tier": "A"
     }
-  ]
+  ],
+  "retrieval_hits": [
+    {
+      "title": "区生态环境局称已进场核查",
+      "url": "https://env.example.cn/beicheng/2026-03-03",
+      "source_name": "北城区生态环境局",
+      "published_at": "2026-03-03T09:00:00+08:00",
+      "snippet": "生态环境局表示已对居民投诉启动现场核查。",
+      "relevance_reason": "官方确认介入调查。",
+      "source_tier": "S"
+    },
+    {
+      "title": "公司回应仅暂停一条产线",
+      "url": "https://company.example.cn/news/2026-03-05",
+      "source_name": "北城区化工厂",
+      "published_at": "2026-03-05T12:00:00+08:00",
+      "snippet": "公司称仅有一条产线暂停，其余产线正常。",
+      "relevance_reason": "与完全停产说法冲突。",
+      "source_tier": "A"
+    },
+    {
+      "title": "财经媒体称化工厂停产整顿",
+      "url": "https://finance.example.cn/industry/2026-03-05-2",
+      "source_name": "财经观察",
+      "published_at": "2026-03-05T10:30:00+08:00",
+      "snippet": "报道提到工厂已停产整顿。",
+      "relevance_reason": "与公司回应形成冲突。",
+      "source_tier": "A"
+    }
+  ],
+  "retrieval_diagnostics": {
+    "query": "北城区 化工厂 异味 停产 核查",
+    "provider_name": "demo_payload",
+    "cache_status": "demo_seeded",
+    "retrieved_at": "2026-03-15T22:45:00+08:00",
+    "raw_result_count": 6,
+    "canonical_result_count": 3,
+    "failure_detail": null
+  },
+  "overall_credibility_score": 57,
+  "overall_credibility_label": "mixed",
+  "score_breakdown": {
+    "claim_score": 58,
+    "source_quality_score": 70,
+    "cross_source_agreement_score": 40,
+    "timeline_score": 60,
+    "weights": {
+      "claim": 0.5,
+      "source_quality": 0.2,
+      "cross_source_agreement": 0.2,
+      "timeline": 0.1
+    },
+    "summary": "官方核查已支撑部分事实，但停产范围存在互相冲突的 A 级来源，整体应按真假混杂处理。",
+    "limiting_factors": [
+      "停产范围缺少更高优先级的统一证据。",
+      "传播链虽然可解释，但峰值节点仍主要来自二级传播。"
+    ]
+  },
+  "claim_contributions": [
+    {
+      "claim": "北城区化工厂已被居民连续投诉夜间异味。",
+      "claim_type": "fact",
+      "verdict": "supported",
+      "contribution_label": "supports",
+      "contribution_score": 16,
+      "reason": "它解释了事件为何进入监管视野，是当前传播链的触发事实。"
+    },
+    {
+      "claim": "区生态环境局已经进场核查。",
+      "claim_type": "fact",
+      "verdict": "supported",
+      "contribution_label": "supports",
+      "contribution_score": 20,
+      "reason": "官方介入核查显著抬升了事件的可验证性。"
+    },
+    {
+      "claim": "北城区化工厂已经完全停产。",
+      "claim_type": "fact",
+      "verdict": "conflicting",
+      "contribution_label": "mixed",
+      "contribution_score": -18,
+      "reason": "关键细节在多个 A 级来源之间冲突，直接拉低整体可信度。"
+    },
+    {
+      "claim": "北城区化工厂一直在隐瞒真实污染情况。",
+      "claim_type": "opinion",
+      "verdict": "insufficient",
+      "contribution_label": "neutral",
+      "contribution_score": 0,
+      "reason": "这是观点延伸，当前只记录风险边界，不直接计入总分。"
+    }
+  ],
+  "timeline_confidence": 61,
+  "independent_source_count": 3,
+  "provenance": {
+    "source_type": "demo_payload",
+    "event_source": "retrieval_resolved",
+    "claim_source": "rule",
+    "evidence_source": "retrieval_mock",
+    "timeline_source": "retrieval",
+    "retrieval_provider": "demo_payload",
+    "retrieval_cache_status": "demo_seeded",
+    "provider_used": false,
+    "fallback_used": false,
+    "fallback_reasons": []
+  }
 }

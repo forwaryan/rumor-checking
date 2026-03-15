@@ -11,7 +11,12 @@ import httpx
 
 from backend.app.core.config import Settings, get_settings
 from backend.app.services.contract_utils import ensure_datetime_string
-from backend.app.services.retrieval_models import SearchResult
+from backend.app.services.retrieval_models import (
+    SearchResult,
+    build_independence_key,
+    detect_signal_tags,
+    infer_source_category,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -185,6 +190,9 @@ class GdeltNewsProvider:
                     published_at=published_at,
                     snippet=snippet,
                     source_tier=_infer_source_tier(url, source_name),
+                    source_category=infer_source_category(url, source_name),
+                    independence_key=build_independence_key(url, source_name),
+                    signal_tags=detect_signal_tags(title, snippet, source_name),
                 )
             )
             if len(results) >= self.settings.retrieval_max_results:
@@ -371,6 +379,9 @@ class KimiWebSearchProvider:
                     published_at=_published_at(item.get("published_at")),
                     snippet=snippet,
                     source_tier=_infer_source_tier(url, source_name),
+                    source_category=infer_source_category(url, source_name),
+                    independence_key=build_independence_key(url, source_name),
+                    signal_tags=detect_signal_tags(title, snippet, source_name),
                 )
             )
             if len(results) >= self.settings.retrieval_max_results:

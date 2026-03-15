@@ -4,6 +4,8 @@
 对应窗口：`T-random-acceptance` / `Cluster-F / Quality Gate / F8`
 原始结果：`overview/13_f8-random-acceptance.raw.json`
 
+> 注：本文件记录的是 `2026-03-14` 历史验收快照。当时默认样本运行在 `analysis_provider=kimi`、`retrieval_provider=mock`、`retrieval_fallback_to_mock=true` 的环境上。自 `2026-03-15` 起，仓库冻结的默认开发/演示基线已调整为 `ANALYSIS_PROVIDER=off`、`RETRIEVAL_PROVIDER=mock`、`RETRIEVAL_FALLBACK_TO_MOCK=true`；如需复现本页结果，请以这里记录的历史环境为准。
+
 ## 1. 验收口径
 
 本轮沿用 `tasks/cluster-c-api-foundation.md` 中 `C11` 冻结的 provenance 口径：

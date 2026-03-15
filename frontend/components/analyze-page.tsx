@@ -6,6 +6,7 @@ import { ContentCheckPanel } from "@/components/content-check-panel";
 import { EvidenceList } from "@/components/evidence-list";
 import { EventCard } from "@/components/event-card";
 import { InputPanel } from "@/components/input-panel";
+import { ReportOverviewPanel } from "@/components/report-overview-panel";
 import { RiskPanel } from "@/components/risk-panel";
 import { StatusBanner } from "@/components/status-banner";
 import { TimelinePanel } from "@/components/timeline-panel";
@@ -140,10 +141,40 @@ export function AnalyzePage() {
   return (
     <main className="page-shell">
       <header className="masthead">
-        <div className="masthead__intro">
-          <p className="eyebrow">Rumor Checking Desk</p>
-          <h1>较真工作台</h1>
-          <p>页面只保留输入、结论、内容核查、时间线和证据五块核心信息，不再展示解释型流程卡片。</p>
+        <div className="masthead__top">
+          <div className="masthead__intro">
+            <p className="eyebrow">Rumor Checking Desk</p>
+            <h1>较真工作台</h1>
+            <p>输入一句话、新闻正文或 URL，输出整体可信度、传播链还原、内容核查结论和风险边界。</p>
+          </div>
+          <div className="masthead__summary">
+            <p className="eyebrow">Input / Output</p>
+            <strong>先回答“更像真、假，还是真假混杂”，再拆开看内容核查和传播链两条主流程。</strong>
+            <p>结果页只讲已经冻结的字段，不伪装 live 能力，不把局部结果包装成完整复盘。</p>
+          </div>
+        </div>
+
+        <div className="masthead__workflow">
+          <article className="workflow-stage-card workflow-stage-card--done">
+            <span className="workflow-stage-card__step">01 输入</span>
+            <strong>输入线索</strong>
+            <p>支持问题、正文和 URL，先把人、事、时间线索收进来。</p>
+          </article>
+          <article className="workflow-stage-card workflow-stage-card--active">
+            <span className="workflow-stage-card__step">02 核查</span>
+            <strong>拆 claim 做内容核查</strong>
+            <p>把事实、观点、可能有误分开看，避免整条新闻一刀切。</p>
+          </article>
+          <article className="workflow-stage-card workflow-stage-card--active">
+            <span className="workflow-stage-card__step">03 传播</span>
+            <strong>还原传播链</strong>
+            <p>解释它是怎么传开的，哪些节点值得被选进时间线。</p>
+          </article>
+          <article className="workflow-stage-card">
+            <span className="workflow-stage-card__step">04 输出</span>
+            <strong>合并结果与边界</strong>
+            <p>最后只输出整体可信度、风险提示和当前局限，不做额外承诺。</p>
+          </article>
         </div>
       </header>
 
@@ -157,7 +188,7 @@ export function AnalyzePage() {
             <div className="studio-section__header">
               <p className="studio-section__eyebrow">Input</p>
               <h2>输入待核查内容</h2>
-              <p className="studio-section__copy">支持一句话、新闻正文和 URL。</p>
+              <p className="studio-section__copy">支持一句话、新闻正文和 URL，提交后会输出整体可信度、双主流程结果和风险边界。</p>
             </div>
             <InputPanel
               value={inputValue}
@@ -192,7 +223,7 @@ export function AnalyzePage() {
             <div className="studio-section__header">
               <p className="studio-section__eyebrow">Summary</p>
               <h2>先看结论和边界</h2>
-              <p className="studio-section__copy">先回答，再看事件概览和风险。</p>
+              <p className="studio-section__copy">先看一句话结论、整体可信度、双主流程完成度和风险边界。</p>
             </div>
             <StatusBanner
               status={status}
@@ -202,8 +233,11 @@ export function AnalyzePage() {
               onRetry={lastRequest ? () => void retryLastRequest() : null}
             />
             <div className="result-hero-grid">
-              <EventCard report={report} />
-              <RiskPanel report={report} provenance={reportProvenance} />
+              <ReportOverviewPanel report={report} provenance={reportProvenance} />
+              <div className="result-side-stack">
+                <EventCard report={report} />
+                <RiskPanel report={report} provenance={reportProvenance} />
+              </div>
             </div>
           </div>
         </section>
@@ -217,7 +251,7 @@ export function AnalyzePage() {
             <div className="studio-section__header">
               <p className="studio-section__eyebrow">Content</p>
               <h2>看句子里哪些部分站得住</h2>
-              <p className="studio-section__copy">只保留内容核查本身，不再展示额外的解释卡片。</p>
+              <p className="studio-section__copy">把事实、观点、可能有误和待补证项分开展示，避免把整条新闻混成一句话。</p>
             </div>
             <ContentCheckPanel report={report} />
           </div>
@@ -232,7 +266,7 @@ export function AnalyzePage() {
             <div className="studio-section__header">
               <p className="studio-section__eyebrow">Evidence</p>
               <h2>最后看传播过程和证据</h2>
-              <p className="studio-section__copy">时间线解释传播，claim 和来源解释判定依据。</p>
+              <p className="studio-section__copy">传播链解释“它如何传开”，claim 和来源解释“为什么这么判断”。</p>
             </div>
             <TimelinePanel report={report} />
             <div className="evidence-stage-grid">

@@ -48,7 +48,12 @@ def merge_search_results(results: Sequence[SearchResult]) -> tuple[SearchResult,
     for group_items in groups.values():
         if len(group_items) == 1:
             item = group_items[0]
-            merged_results.append(item.with_merge_metadata(canonical_result_id=item.result_id))
+            merged_results.append(
+                item.with_merge_metadata(
+                    canonical_result_id=item.result_id,
+                    relation_type="repost" if item.is_repost_like else "original",
+                )
+            )
             continue
 
         canonical = max(group_items, key=lambda item: canonical_sort_key(item, group_items))
@@ -66,6 +71,7 @@ def merge_search_results(results: Sequence[SearchResult]) -> tuple[SearchResult,
                 canonical_result_id=canonical.result_id,
                 merged_result_ids=tuple(merged_ids),
                 merged_notes=tuple(merged_notes),
+                relation_type="repost" if canonical.is_repost_like else "original",
             )
         )
 
@@ -92,11 +98,18 @@ def classify_relation(left: SearchResult, right: SearchResult) -> Optional[str]:
     if compact_text(left.url) == compact_text(right.url):
         return DUPLICATE_LABEL
     if normalize_title(left.title) == normalize_title(right.title):
-        is_repost = looks_like_repost(left.title, left.source_name) or looks_like_repost(right.title, right.source_name)
+        is_repost = (
+            looks_like_repost(left.title, left.source_name)
+            or looks_like_repost(right.title, right.source_name)
+            or left.is_aggregator_source
+            or right.is_aggregator_source
+        )
         return REPOST_LABEL if is_repost else DUPLICATE_LABEL
     if left.published_at[:10] != right.published_at[:10]:
         return None
     if titles_overlap(left.title, right.title):
+        if left.is_aggregator_source or right.is_aggregator_source:
+            return REPOST_LABEL
         return NEAR_DUPLICATE_LABEL
     return None
 
@@ -115,7 +128,7 @@ def titles_overlap(left_title: str, right_title: str) -> bool:
 
 def normalize_title(title: str) -> str:
     compact = title.strip().lower()
-    compact = re.sub(r"^(转载|转发|聚合页|聚合|网传|爆料)[:?\s-]*", "", compact)
+    compact = re.sub(r"^(转载|转发|聚合页|聚合|搬运)[:?\s-]*", "", compact)
     return re.sub(r"[\W_]+", "", compact)
 
 

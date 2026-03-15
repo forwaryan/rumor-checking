@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import dataclass
 import re
@@ -15,45 +15,66 @@ from backend.app.services.question_text import clean_question_term, strip_questi
 from backend.app.services.retrieval_models import RetrievalBundle, SearchResult
 
 QUESTION_STOPWORDS = {
-    "\u6700\u8fd1",
-    "\u6709\u4e2a",
-    "\u6709\u4e00\u4e2a",
-    "\u662f\u4e0d\u662f",
-    "\u662f\u5426",
-    "\u771f\u7684\u5047\u7684",
-    "\u771f\u5047\u7684",
-    "\u771f\u7684\u5417",
-    "\u5c5e\u5b9e\u5417",
-    "\u6d88\u606f",
-    "\u4f20\u95fb",
-    "\u65b0\u95fb",
-    "\u4e8b\u60c5",
-    "\u8fd9\u4e2a",
-    "\u90a3\u4e2a",
-    "\u56e0\u4e3a",
+    "最近",
+    "有个",
+    "有一个",
+    "是不是",
+    "是否",
+    "真的假的",
+    "真的假的",
+    "真的吗",
+    "属实吗",
+    "消息",
+    "传闻",
+    "新闻",
+    "事情",
+    "这个",
+    "那个",
+    "因为",
 }
 TITLE_NOISE_MARKERS = (
-    "\u56de\u5e94",
-    "\u5426\u8ba4",
-    "\u8f9f\u8c23",
-    "\u6f84\u6e05",
-    "\u901a\u62a5",
-    "\u8bf4\u660e",
-    "\u8868\u793a",
-    "\u8bc1\u5b9e",
-    "\u4f20\u95fb",
-    "\u6d88\u606f",
-    "\u8bf4\u6cd5",
-    "\u7f51\u4f20",
-    "\u7f51\u66dd",
+    "回应",
+    "否认",
+    "辟谣",
+    "澄清",
+    "通报",
+    "说明",
+    "表示",
+    "证实",
+    "传闻",
+    "消息",
+    "说法",
+    "网传",
+    "网曝",
 )
 GENERIC_CLAIM_MARKERS = (
-    "\u5973\u7f51\u7ea2",
-    "\u7f51\u7ea2",
-    "\u4e3b\u64ad",
-    "\u6709\u4eba",
-    "\u8fd9\u4e2a\u4e8b\u60c5",
-    "\u8fd9\u4ef6\u4e8b",
+    "女网红",
+    "网红",
+    "主播",
+    "有人",
+    "这个事情",
+    "这件事",
+)
+QUESTION_ACTION_MARKERS = (
+    "停航",
+    "停运",
+    "停课",
+    "裁员",
+    "脑出血",
+    "脑溢血",
+    "去世",
+    "死亡",
+    "住院",
+    "救治",
+    "回应",
+    "通报",
+    "核查",
+    "整改",
+    "恢复",
+    "辟谣",
+)
+TIME_TOKEN_PATTERN = re.compile(
+    r"\d{4}[-/年]\d{1,2}[-/月]\d{1,2}日?|\d{1,2}月\d{1,2}日(?:上午|下午|凌晨|晚上|晚间|中午)?|明天|今晚|今早|今天|今日|昨天|昨日|下周|本周|近日|近期"
 )
 EVENT_SOURCE = "retrieval_resolved"
 
@@ -74,20 +95,20 @@ def _normalize_text(value: Optional[str]) -> str:
         return ""
     normalized = value.strip().lower()
     replacements = (
-        ("\u662f\u4e0d\u662f", " "),
-        ("\u662f\u5426", " "),
-        ("\u6709\u6ca1\u6709", " "),
-        ("\u6700\u8fd1", " "),
-        ("\u6709\u4e00\u4e2a", " "),
-        ("\u6709\u4e2a", " "),
-        ("\u771f\u7684\u5047\u7684", " "),
-        ("\u771f\u7684\u662f\u5047\u7684", " "),
-        ("\u771f\u7684\u5417", " "),
-        ("\u5c5e\u5b9e\u5417", " "),
-        ("\uff1f", " "),
+        ("是不是", " "),
+        ("是否", " "),
+        ("有没有", " "),
+        ("最近", " "),
+        ("有一个", " "),
+        ("有个", " "),
+        ("真的假的", " "),
+        ("真的还是假的", " "),
+        ("真的吗", " "),
+        ("属实吗", " "),
+        ("？", " "),
         ("?", " "),
-        ("\u3002", " "),
-        ("\uff0c", " "),
+        ("。", " "),
+        ("，", " "),
         (",", " "),
     )
     for old, new in replacements:
@@ -123,29 +144,64 @@ def _extract_terms(text: str) -> List[str]:
     return ordered
 
 
+def _extract_time_tokens(text: str) -> List[str]:
+    ordered: List[str] = []
+    seen = set()
+    for match in TIME_TOKEN_PATTERN.finditer(text):
+        token = _collapse_whitespace(match.group(0))
+        if token and token not in seen:
+            seen.add(token)
+            ordered.append(token)
+    return ordered
+
+
+def _extract_query_focus_terms(text: str) -> List[str]:
+    ordered: List[str] = []
+    seen = set()
+
+    def push(term: str) -> None:
+        cleaned = _collapse_whitespace(term)
+        if not cleaned or cleaned in seen or cleaned in QUESTION_STOPWORDS:
+            return
+        seen.add(cleaned)
+        ordered.append(cleaned)
+
+    for anchor in extract_subject_anchors(text):
+        push(anchor)
+    for marker in QUESTION_ACTION_MARKERS:
+        if marker in text:
+            push(marker)
+    for token in _extract_time_tokens(text):
+        push(token)
+    for token in _extract_terms(text):
+        if re.search(r"\d", token) or re.fullmatch(r"[a-z0-9][a-z0-9&.\-]{1,30}", token):
+            push(token)
+    return ordered
+
+
 def _question_claim(question: str) -> str:
-    claim = question.strip().rstrip("\uff1f?")
+    claim = question.strip().rstrip("？?")
     replacements = (
-        ("\u8bf7\u95ee", ""),
-        ("\u60f3\u95ee\u4e00\u4e0b", ""),
-        ("\u60f3\u95ee", ""),
-        ("\u6700\u8fd1", ""),
-        ("\u6709\u4e00\u4e2a", ""),
-        ("\u6709\u4e2a", ""),
-        ("\u662f\u4e0d\u662f", ""),
-        ("\u662f\u5426", ""),
-        ("\u771f\u7684\u5047\u7684", ""),
-        ("\u771f\u7684\u662f\u5047\u7684", ""),
-        ("\u771f\u7684\u5417", ""),
-        ("\u5c5e\u5b9e\u5417", ""),
-        ("\u6b7b\u6389\u4e86", "\u6b7b\u4ea1"),
-        ("\u6b7b\u6389", "\u6b7b\u4ea1"),
-        ("\u6b7b\u4e86", "\u6b7b\u4ea1"),
+        ("请问", ""),
+        ("想问一下", ""),
+        ("想问", ""),
+        ("最近", ""),
+        ("有一个", ""),
+        ("有个", ""),
+        ("是不是", ""),
+        ("是否", ""),
+        ("真的假的", ""),
+        ("真的还是假的", ""),
+        ("真的吗", ""),
+        ("属实吗", ""),
+        ("死掉了", "死亡"),
+        ("死掉", "死亡"),
+        ("死了", "死亡"),
     )
     for old, new in replacements:
         claim = claim.replace(old, new)
     claim = strip_question_tail(claim)
-    claim = _collapse_whitespace(claim.strip(" \uff0c,\uff1a:；;。"))
+    claim = _collapse_whitespace(claim.strip(" ，,:：；;。"))
     return claim
 
 
@@ -153,8 +209,8 @@ def _clean_candidate_claim(text: str) -> str:
     cleaned = text.strip()
     for marker in TITLE_NOISE_MARKERS:
         cleaned = cleaned.replace(marker, " ")
-    cleaned = re.sub(r"[\uff1a:|\u4e28/\\-]", " ", cleaned)
-    cleaned = cleaned.strip(" \uff0c,\uff1a:；;。")
+    cleaned = re.sub(r"[：:|丨/\\-]", " ", cleaned)
+    cleaned = cleaned.strip(" ，,:：；;。")
     return _collapse_whitespace(cleaned)
 
 
@@ -185,7 +241,7 @@ def _specificity_bonus(text: str) -> int:
     bonus = 0
     if re.search(r"\d", text):
         bonus += 2
-    if any(token in text for token in ("\u56de\u5e94", "\u901a\u62a5", "\u8f9f\u8c23", "\u6f84\u6e05", "\u8b66\u65b9", "\u533b\u9662", "\u5b98\u65b9", "\u53bb\u4e16", "\u6b7b\u4ea1", "\u8111\u51fa\u8840", "\u8111\u6ea2\u8840", "\u88c1\u5458")):
+    if any(token in text for token in ("回应", "通报", "辟谣", "澄清", "警方", "医院", "官方", "去世", "死亡", "脑出血", "脑溢血", "裁员")):
         bonus += 2
     if len(text) >= 18:
         bonus += 1
@@ -210,7 +266,7 @@ class QuestionResolver:
 
         summary = self._build_resolved_summary(event.raw_input, selected_result)
         keywords = _merge_keywords(
-            _extract_terms(summary),
+            _extract_query_focus_terms(summary),
             [selected_result.source_name, *event.keywords, *_extract_terms(event.raw_input)],
         )
         resolved_event = event.model_copy(
@@ -238,7 +294,7 @@ class QuestionResolver:
     ) -> Optional[SearchResult]:
         question_terms = _extract_terms(question)
         subject_anchors = extract_subject_anchors(question)
-        scored: list[tuple[int, int, str, int, SearchResult]] = []
+        scored: List[tuple[int, int, str, int, SearchResult]] = []
         for item in candidates:
             if subject_anchors and not candidate_matches_subject_anchors(
                 subject_anchors,
@@ -286,25 +342,48 @@ class QuestionResolver:
             return candidate_claim
 
         summary = base_claim
-        for token in re.findall(r"\d+(?:\.\d+)?%?", question):
-            if token and token not in summary:
-                summary = f"{summary} {token}".strip()
-        for token in _extract_terms(candidate_claim):
+        for token in _extract_query_focus_terms(question):
             if token not in summary and (re.search(r"\d", token) or len(token) >= 4):
+                summary = f"{summary} {token}".strip()
+        for token in _extract_query_focus_terms(candidate_claim):
+            if token not in summary and (re.search(r"\d", token) or len(token) >= 4 or token in QUESTION_ACTION_MARKERS):
                 summary = f"{summary} {token}".strip()
         return _collapse_whitespace(summary)
 
     def _build_follow_up_prompt(self, question: str, selected_result: SearchResult) -> str:
         return (
-            f"\u539f\u59cb\u95ee\u9898\uff1a{question}\n"
-            "\u7b2c\u4e00\u6b21\u68c0\u7d22\u540e\u9009\u4e2d\u7684\u6700\u53ef\u80fd\u5019\u9009\u4e8b\u4ef6\uff1a\n"
-            f"- \u6807\u9898\uff1a{selected_result.title}\n"
-            f"- \u6458\u8981\uff1a{selected_result.snippet}\n"
-            f"- \u6765\u6e90\uff1a{selected_result.source_name}\n"
-            f"- \u65f6\u95f4\uff1a{selected_result.published_at}\n"
-            "\u8bf7\u56f4\u7ed5\u8fd9\u4e2a\u66f4\u5177\u4f53\u7684\u5019\u9009\u4e8b\u4ef6\u7ee7\u7eed\u505a\u7ed3\u6784\u5316\u62bd\u53d6\uff0c\u4e0d\u8981\u56de\u5230\u6cdb\u5316\u4f20\u95fb\u3002"
+            f"原始问题：{question}\n"
+            "第一次检索后选中的最可能候选事件：\n"
+            f"- 标题：{selected_result.title}\n"
+            f"- 摘要：{selected_result.snippet}\n"
+            f"- 来源：{selected_result.source_name}\n"
+            f"- 时间：{selected_result.published_at}\n"
+            "请围绕这个更具体的候选事件继续做结构化抽取，不要回到泛化传闻。"
         )
 
     def _build_follow_up_query(self, summary: str, selected_result: SearchResult) -> str:
+        tokens: List[str] = []
+        seen = set()
+
+        def push(value: Optional[str]) -> None:
+            if not value:
+                return
+            cleaned = _collapse_whitespace(value)
+            if not cleaned or cleaned in seen:
+                return
+            seen.add(cleaned)
+            tokens.append(cleaned)
+
+        for value in _extract_query_focus_terms(summary):
+            push(value)
+        push(selected_result.source_name)
+        for value in _extract_query_focus_terms(selected_result.title):
+            push(value)
+        for value in _extract_query_focus_terms(selected_result.snippet):
+            push(value)
+
+        if tokens:
+            return " ".join(tokens[:8])
+
         parts = [summary, selected_result.source_name, selected_result.title]
         return " ".join(part.strip() for part in parts if part and part.strip())

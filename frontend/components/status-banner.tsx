@@ -1,4 +1,5 @@
-import { getTopLineAssessment, getVerificationScoreMeta } from "@/lib/report-utils";
+import { getOverallCredibilityMeta } from "@/lib/report-high-score";
+import { getReportProvenanceMeta, getTopLineAssessment, getVerificationScoreMeta } from "@/lib/report-utils";
 import type { AnalysisStatus, Report, ReportProvenanceState } from "@/types/report";
 
 interface StatusBannerProps {
@@ -21,7 +22,7 @@ function getStatusCopy(status: AnalysisStatus, report: Report | null) {
     case "submitting":
       return {
         title: "正在联网核查",
-        body: "系统会先完成检索、claim 收束和证据整理，再给出一句话结论和 10 分制核查完成度。",
+        body: "系统会并行整理内容核查和传播链，再输出一句话结论、双主流程完成度和风险边界。",
       };
     case "error":
       return {
@@ -31,7 +32,7 @@ function getStatusCopy(status: AnalysisStatus, report: Report | null) {
     default:
       return {
         title: "准备就绪",
-        body: "提交后会先给出一句话结论，再展示事件、内容核查和证据。",
+        body: "提交后会先给出一句话结论，再展示整体可信度、传播链、内容核查和证据。",
       };
   }
 }
@@ -46,6 +47,8 @@ export function StatusBanner({
   const copy = getStatusCopy(status, report);
   const topLine = report ? getTopLineAssessment(report) : null;
   const scoreMeta = report ? getVerificationScoreMeta(report, provenance) : null;
+  const overallMeta = getOverallCredibilityMeta(report, provenance);
+  const provenanceMeta = getReportProvenanceMeta(report, provenance);
 
   return (
     <section className={`status-banner status-banner--${status}`}>
@@ -61,6 +64,9 @@ export function StatusBanner({
         {topLine ? (
           <>
             <div className="status-banner__fact-row">
+              {overallMeta ? (
+                <span className="provenance-pill provenance-pill--subtle">{`整体可信度：${overallMeta.scoreLabel} · ${overallMeta.label}`}</span>
+              ) : null}
               {scoreMeta ? (
                 <span className="provenance-pill provenance-pill--subtle">{`核查完成度：${scoreMeta.label}`}</span>
               ) : null}
@@ -74,6 +80,26 @@ export function StatusBanner({
               </div>
             ) : null}
           </>
+        ) : null}
+
+        {provenanceMeta ? (
+          <div className="status-banner__provenance">
+            <div className="status-banner__provenance-heading">
+              <div className="status-banner__provenance-badges">
+                <span className={`provenance-pill provenance-pill--${provenanceMeta.tone}`}>{provenanceMeta.sourceLabel}</span>
+                {provenanceMeta.fallbackLabel ? (
+                  <span className="provenance-pill provenance-pill--subtle">{provenanceMeta.fallbackLabel}</span>
+                ) : null}
+                {provenanceMeta.detailBadges.map((badge) => (
+                  <span key={badge} className="provenance-pill provenance-pill--subtle">
+                    {badge}
+                  </span>
+                ))}
+              </div>
+              <p className="status-banner__provenance-summary">{provenanceMeta.summary}</p>
+              {provenanceMeta.caution ? <p className="status-banner__provenance-note">{provenanceMeta.caution}</p> : null}
+            </div>
+          </div>
         ) : null}
 
         {errorMessage ? <p className="status-banner__error">{errorMessage}</p> : null}

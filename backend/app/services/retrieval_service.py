@@ -1,22 +1,29 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import logging
 import re
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import status
-
 from backend.app.core.config import Settings, get_settings
 from backend.app.core.exceptions import AppError
 from backend.app.models.schemas import NormalizedEvent
 from backend.app.services.contract_utils import ensure_datetime_string
+from backend.app.services.mock_retriever import MockRetriever
 from backend.app.services.question_intent import detect_trend_topic, is_broad_trend_question
 from backend.app.services.question_text import clean_question_term, strip_question_tail
 from backend.app.services.retrieval_cache import RetrievalCache
 from backend.app.services.retrieval_deduper import chronological_sort_key, merge_search_results
-from backend.app.services.retrieval_models import RetrievalBundle, SearchResult
-from backend.app.services.retrieval_provider import KimiWebSearchProvider, RetrievalProvider
+from backend.app.services.retrieval_models import (
+    RetrievalBundle,
+    RetrievalQuerySpec,
+    SearchResult,
+    build_independence_key,
+    detect_signal_tags,
+    infer_source_category,
+    looks_like_repost,
+)
+from backend.app.services.retrieval_provider import GdeltNewsProvider, KimiWebSearchProvider, RetrievalProvider
 
 logger = logging.getLogger(__name__)
 UTC = timezone.utc
@@ -63,6 +70,10 @@ QUESTION_KEY_PHRASES = (
     "\u901a\u62a5",
     "\u88c1\u5458",
 )
+OFFICIAL_QUERY_TERMS = ("\u5b98\u65b9", "\u56de\u5e94", "\u901a\u62a5", "\u8bf4\u660e", "\u8f9f\u8c23")
+PROPAGATION_QUERY_TERMS = ("\u4f20\u95fb", "\u7f51\u4f20", "\u70ed\u8bae", "\u53d1\u9175", "\u8f6c\u53d1")
+CLAUSE_SPLIT_RE = re.compile(r"[\u3002\uff01\uff1f!?;；，,\n]+")
+
 
 class RetrievalService:
     def __init__(
@@ -73,13 +84,18 @@ class RetrievalService:
     ) -> None:
         self.settings = settings or get_settings()
         self.provider = provider or self._build_provider()
+        self.mock_retriever = MockRetriever(settings=self.settings)
         self.cache = cache or RetrievalCache(
             cache_root=self.settings.retrieval_cache_dir,
             ttl_seconds=self.settings.retrieval_cache_ttl_seconds,
         )
 
-    def _build_provider(self) -> RetrievalProvider:
-        return KimiWebSearchProvider(settings=self.settings)
+    def _build_provider(self) -> Optional[RetrievalProvider]:
+        if self.settings.retrieval_provider == "gdelt":
+            return GdeltNewsProvider(settings=self.settings)
+        if self.settings.retrieval_provider == "kimi":
+            return KimiWebSearchProvider(settings=self.settings)
+        return None
 
     def retrieve_for_event(
         self,
@@ -88,72 +104,396 @@ class RetrievalService:
         request_context: Optional[dict[str, Any]] = None,
     ) -> RetrievalBundle:
         request_context = request_context or {}
-        query = self._build_query(event, request_context=request_context)
-        cache_enabled = self.settings.retrieval_cache_enabled
-
-        if not self.provider.enabled:
+        query_plan = self._build_query_plan(event, request_context=request_context)
+        if not query_plan:
             raise AppError(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                code="kimi_not_configured",
-                message="Kimi retrieval is required, but Kimi is not configured.",
-            )
-
-        if not query:
-            raise AppError(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=422,
                 code="empty_retrieval_query",
-                message="The request could not be rewritten into a valid Kimi search query.",
+                message="The request could not be rewritten into a valid retrieval query.",
             )
 
-        try:
-            raw_results = self.provider.search(query)
-        except AppError:
-            raise
-        except Exception as exc:
-            logger.warning("kimi_retrieval_failed provider=%s error_type=%s", self.provider.name, exc.__class__.__name__)
-            raise AppError(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                code="kimi_retrieval_failed",
-                message="Kimi retrieval failed. The request was not downgraded to any non-Kimi path.",
-                details={"error_type": exc.__class__.__name__, "failure_detail": self._describe_exception(exc)},
-            ) from exc
+        primary_query = query_plan[0].query
+        cache_enabled = self.settings.retrieval_cache_enabled
+        provider_name = self.settings.retrieval_provider
+        if self.provider is not None and provider_name in {"mock", "off"} and self.provider.name not in {"mock", "off"}:
+            provider_name = self.provider.name
+        bypass_cache = self._as_bool(
+            request_context.get("skip_retrieval_cache") or request_context.get("bypass_retrieval_cache")
+        )
+        cache_only = self._as_bool(request_context.get("retrieval_cache_only"))
+        allow_stale = self._as_bool(request_context.get("allow_stale_retrieval_cache"))
 
-        if raw_results:
-            bundle = self._build_bundle(query, raw_results, cache_status="write_only" if cache_enabled else "not_used")
-            if cache_enabled:
-                self.cache.write(query_text=query, provider_name=self.provider.name, bundle=bundle)
-            return bundle
+        if provider_name == "off":
+            return self._empty_bundle(primary_query, provider_name="off", query_plan=query_plan)
 
-        return self._empty_bundle(query, provider_name=self.provider.name)
+        if provider_name == "mock":
+            return self._mock_bundle(event, query_plan=query_plan)
 
-    def _build_bundle(self, query: str, raw_results: list[SearchResult], *, cache_status: str) -> RetrievalBundle:
+        query_bundles: list[RetrievalBundle] = []
+        query_failures: list[str] = []
+        cache_statuses: list[str] = []
+        provider_failure_details: list[str] = []
+        provider_unavailable = self.provider is None or not self.provider.enabled
+
+        for spec in query_plan:
+            if cache_enabled and not bypass_cache:
+                cached = self.cache.read(
+                    query_text=spec.query,
+                    provider_name=provider_name,
+                    allow_stale=cache_only or allow_stale,
+                    scope_key=spec.normalized_scope(),
+                )
+                if cached is not None:
+                    query_bundles.append(
+                        cached.with_runtime_metadata(
+                            query_groups=(spec,),
+                            query_failures=(),
+                        )
+                    )
+                    cache_statuses.append(cached.cache_status)
+                    continue
+
+            if cache_only:
+                query_failures.append(f"{spec.label}:cache_miss")
+                cache_statuses.append("miss")
+                continue
+
+            if provider_unavailable:
+                logger.warning("retrieval_provider_unavailable provider=%s query_label=%s", provider_name, spec.label)
+                query_failures.append(f"{spec.label}:provider_unavailable")
+                continue
+
+            try:
+                raw_results = self.provider.search(spec.query)
+            except AppError:
+                raise
+            except Exception as exc:
+                failure_detail = self._describe_exception(exc)
+                logger.warning(
+                    "retrieval_failed provider=%s query_label=%s error_type=%s",
+                    self.provider.name,
+                    spec.label,
+                    exc.__class__.__name__,
+                )
+                if cache_enabled and (allow_stale or self.settings.retrieval_cache_allow_stale_on_error):
+                    stale_cached = self.cache.read(
+                        query_text=spec.query,
+                        provider_name=provider_name,
+                        allow_stale=True,
+                        scope_key=spec.normalized_scope(),
+                    )
+                    if stale_cached is not None:
+                        query_bundles.append(
+                            stale_cached.with_runtime_metadata(
+                                fallback_used=True,
+                                fallback_reason="real_retrieval_failed",
+                                failure_detail=failure_detail,
+                                query_groups=(spec,),
+                                query_failures=(),
+                            )
+                        )
+                        cache_statuses.append("stale_hit")
+                        continue
+                query_failures.append(f"{spec.label}:{failure_detail}")
+                provider_failure_details.append(f"{spec.label}:{failure_detail}")
+                continue
+
+            bundle = self._build_single_query_bundle(
+                spec,
+                raw_results,
+                provider_name=provider_name,
+                cache_status="bypassed" if bypass_cache else ("write_only" if cache_enabled else "not_used"),
+            )
+            if cache_enabled and not bypass_cache:
+                self.cache.write(
+                    query_text=spec.query,
+                    provider_name=provider_name,
+                    bundle=bundle,
+                    scope_key=spec.normalized_scope(),
+                )
+            query_bundles.append(bundle)
+            cache_statuses.append(bundle.cache_status)
+
+        if not query_bundles:
+            if cache_only:
+                return self._empty_bundle(
+                    primary_query,
+                    provider_name=provider_name,
+                    cache_status="miss",
+                    fallback_reason="retrieval_cache_only_miss",
+                    failure_detail=self._summarize_query_failures(query_failures),
+                    query_plan=query_plan,
+                    query_failures=tuple(query_failures),
+                )
+            if provider_unavailable:
+                return self._provider_unavailable_bundle(
+                    event,
+                    query=primary_query,
+                    provider_name=provider_name,
+                    query_plan=query_plan,
+                    query_failures=tuple(query_failures),
+                )
+            if provider_failure_details:
+                return self._provider_failure_bundle(
+                    event,
+                    query=primary_query,
+                    provider_name=provider_name,
+                    failure_detail=self._summarize_query_failures(provider_failure_details),
+                    query_plan=query_plan,
+                    query_failures=tuple(query_failures),
+                )
+            return self._empty_bundle(
+                primary_query,
+                provider_name=provider_name,
+                cache_status="bypassed" if bypass_cache else "not_used",
+                failure_detail=self._summarize_query_failures(query_failures),
+                query_plan=query_plan,
+                query_failures=tuple(query_failures),
+            )
+
+        return self._combine_query_bundles(
+            primary_query=primary_query,
+            query_plan=query_plan,
+            query_bundles=query_bundles,
+            provider_name=provider_name,
+            cache_statuses=cache_statuses,
+            query_failures=query_failures,
+        )
+
+    def _build_single_query_bundle(
+        self,
+        spec: RetrievalQuerySpec,
+        raw_results: list[SearchResult],
+        *,
+        provider_name: str,
+        cache_status: str,
+    ) -> RetrievalBundle:
         retrieved_at = ensure_datetime_string(datetime.now(UTC).isoformat())
         runtime_results = [
-            item.with_runtime_metadata(provider_name=self.provider.name, retrieved_at=retrieved_at)
+            self._enrich_result(item, spec=spec, provider_name=provider_name, retrieved_at=retrieved_at)
             for item in raw_results
         ]
         canonical_results = merge_search_results(runtime_results)
-        high_trust_count = sum(1 for item in canonical_results if item.is_high_trust)
-        mode_hint = "complete_or_partial" if high_trust_count >= 2 else "partial"
         return RetrievalBundle(
-            query=query,
+            query=spec.query,
             matched_case_id="real_search",
-            mode_hint=mode_hint,
+            mode_hint=self._mode_hint_for_results(canonical_results),
             raw_results=tuple(sorted(runtime_results, key=chronological_sort_key)),
             canonical_results=tuple(sorted(canonical_results, key=chronological_sort_key)),
-            provider_name=self.provider.name,
-            cache_key=self.cache.build_cache_key(query_text=query, provider_name=self.provider.name),
+            provider_name=provider_name,
+            cache_key=self.cache.build_cache_key(
+                query_text=spec.query,
+                provider_name=provider_name,
+                scope_key=spec.normalized_scope(),
+            ),
             cache_status=cache_status,
             retrieved_at=retrieved_at,
+            query_groups=(spec,),
         )
 
-    def _build_query(self, event: NormalizedEvent, *, request_context: dict[str, Any]) -> str:
+    def _combine_query_bundles(
+        self,
+        *,
+        primary_query: str,
+        query_plan: list[RetrievalQuerySpec],
+        query_bundles: list[RetrievalBundle],
+        provider_name: str,
+        cache_statuses: list[str],
+        query_failures: list[str],
+    ) -> RetrievalBundle:
+        raw_results: list[SearchResult] = []
+        expected_origin_result_id = None
+        expected_turning_point_result_id = None
+        matched_case_id = None
+        fallback_used = False
+        fallback_reason = None
+        retrieved_at = None
+        child_failures: list[str] = []
+
+        for bundle in query_bundles:
+            raw_results.extend(bundle.raw_results)
+            if matched_case_id is None and bundle.matched_case_id:
+                matched_case_id = bundle.matched_case_id
+            if expected_origin_result_id is None and bundle.expected_origin_result_id:
+                expected_origin_result_id = bundle.expected_origin_result_id
+            if expected_turning_point_result_id is None and bundle.expected_turning_point_result_id:
+                expected_turning_point_result_id = bundle.expected_turning_point_result_id
+            if bundle.fallback_used:
+                fallback_used = True
+                fallback_reason = fallback_reason or bundle.fallback_reason
+            if bundle.retrieved_at and (retrieved_at is None or bundle.retrieved_at > retrieved_at):
+                retrieved_at = bundle.retrieved_at
+            child_failures.extend(bundle.query_failures)
+
+        canonical_results = merge_search_results(raw_results)
+        all_failures = list(dict.fromkeys([*query_failures, *child_failures]))
+        combined = RetrievalBundle(
+            query=primary_query,
+            matched_case_id=matched_case_id or "real_search",
+            mode_hint=self._mode_hint_for_results(canonical_results),
+            raw_results=tuple(sorted(raw_results, key=chronological_sort_key)),
+            canonical_results=tuple(sorted(canonical_results, key=chronological_sort_key)),
+            expected_origin_result_id=expected_origin_result_id,
+            expected_turning_point_result_id=expected_turning_point_result_id,
+            provider_name=provider_name,
+            cache_key=self._combine_cache_keys(query_bundles),
+            cache_status=self._summarize_cache_status(cache_statuses),
+            fallback_used=fallback_used,
+            fallback_reason=fallback_reason,
+            retrieved_at=retrieved_at or ensure_datetime_string(datetime.now(UTC).isoformat()),
+            failure_detail=self._summarize_query_failures(all_failures),
+            query_groups=tuple(query_plan),
+            query_failures=tuple(all_failures),
+        )
+        return combined
+
+    def _build_query_plan(self, event: NormalizedEvent, *, request_context: dict[str, Any]) -> list[RetrievalQuerySpec]:
         forced_query = request_context.get("force_retrieval_query")
         if isinstance(forced_query, str) and forced_query.strip():
-            return forced_query.strip()
+            base_query = forced_query.strip()
+            return self._dedupe_query_plan(
+                [
+                    RetrievalQuerySpec(
+                        label="follow_up_core",
+                        query=base_query,
+                        rationale="问题解析后围绕候选事件做 follow-up 检索。",
+                        claim_hint=base_query,
+                    ),
+                    RetrievalQuerySpec(
+                        label="follow_up_official",
+                        query=self._extend_query(base_query, *OFFICIAL_QUERY_TERMS, event.source_name),
+                        rationale="补抓候选事件的官方回应、通报与说明。",
+                        claim_hint=base_query,
+                    ),
+                    RetrievalQuerySpec(
+                        label="follow_up_propagation",
+                        query=self._extend_query(base_query, *PROPAGATION_QUERY_TERMS),
+                        rationale="补抓候选事件的传播扩散节点。",
+                        claim_hint=base_query,
+                    ),
+                ]
+            )
+
+        primary_query = self._build_primary_query(event)
+        if not primary_query:
+            return []
+
+        keyword_query = self._build_term_query(event.title, event.summary, " ".join(event.keywords[:5]), event.source_name)
+        first_clause_query = self._build_term_query(*self._extract_claim_clauses(event.title, event.summary))
+        official_query = self._extend_query(keyword_query or primary_query, *OFFICIAL_QUERY_TERMS, event.source_name)
+        propagation_query = self._extend_query(keyword_query or primary_query, *PROPAGATION_QUERY_TERMS)
 
         if event.input_type == "question_only":
-            if self.provider.name == "kimi":
+            if is_broad_trend_question(event.raw_input):
+                return self._dedupe_query_plan(
+                    [
+                        RetrievalQuerySpec(
+                            label="trend_topic",
+                            query=primary_query,
+                            rationale="范围型问句先收敛到主题，不强行拆成单事件传播链。",
+                            claim_hint=primary_query,
+                        )
+                    ]
+                )
+            rewritten_query = self._rewrite_question_query(event.raw_input)
+            official_query = self._extend_query(rewritten_query or primary_query, *OFFICIAL_QUERY_TERMS, event.source_name)
+            propagation_query = self._extend_query(rewritten_query or primary_query, *PROPAGATION_QUERY_TERMS)
+            primary_label = "question_raw" if self.settings.retrieval_provider == "kimi" else "question_core"
+            return self._dedupe_query_plan(
+                [
+                    RetrievalQuerySpec(
+                        label=primary_label,
+                        query=primary_query,
+                        rationale="保留问句核心表达，先抓与原始问题最接近的公开结果。",
+                        claim_hint=rewritten_query or primary_query,
+                    ),
+                    RetrievalQuerySpec(
+                        label="question_claim",
+                        query=rewritten_query,
+                        rationale="收紧到 claim-first 的核心实体和动作，避免只命中泛化传闻。",
+                        claim_hint=rewritten_query or primary_query,
+                    ),
+                    RetrievalQuerySpec(
+                        label="question_official",
+                        query=official_query,
+                        rationale="补抓官方回应、医院/警方/机构说明等高可信来源。",
+                        claim_hint=rewritten_query or primary_query,
+                    ),
+                    RetrievalQuerySpec(
+                        label="question_propagation",
+                        query=propagation_query,
+                        rationale="补抓网传、发酵、转载等传播链节点。",
+                        claim_hint=rewritten_query or primary_query,
+                    ),
+                ]
+            )
+
+        return self._dedupe_query_plan(
+            [
+                RetrievalQuerySpec(
+                    label="event_core",
+                    query=primary_query,
+                    rationale="围绕事件标题、摘要与关键词建立主检索 query。",
+                    claim_hint=event.summary or primary_query,
+                ),
+                RetrievalQuerySpec(
+                    label="event_claim",
+                    query=first_clause_query or keyword_query,
+                    rationale="把事件摘要压到更接近单条 claim 的 query，补足细粒度证据。",
+                    claim_hint=event.summary or primary_query,
+                ),
+                RetrievalQuerySpec(
+                    label="event_official",
+                    query=official_query,
+                    rationale="优先抓官方源、主流媒体跟进与后续说明。",
+                    claim_hint=event.summary or primary_query,
+                ),
+                RetrievalQuerySpec(
+                    label="event_propagation",
+                    query=propagation_query,
+                    rationale="补抓传播扩散和转载放大节点，供时间线使用。",
+                    claim_hint=event.summary or primary_query,
+                ),
+            ]
+        )
+
+    def _dedupe_query_plan(self, candidates: list[RetrievalQuerySpec]) -> list[RetrievalQuerySpec]:
+        query_plan: list[RetrievalQuerySpec] = []
+        seen_queries: set[str] = set()
+        for candidate in candidates:
+            normalized_query = self._normalize_query(candidate.query)
+            if not normalized_query or normalized_query in seen_queries:
+                continue
+            seen_queries.add(normalized_query)
+            query_plan.append(
+                RetrievalQuerySpec(
+                    label=candidate.label,
+                    query=normalized_query,
+                    rationale=candidate.rationale,
+                    claim_hint=candidate.claim_hint,
+                    cache_scope=candidate.cache_scope or f"{candidate.label}:{candidate.claim_hint or normalized_query}",
+                )
+            )
+            if len(query_plan) >= 4:
+                break
+        if len(query_plan) == 1:
+            only = query_plan[0]
+            official_query = self._extend_query(only.query, *OFFICIAL_QUERY_TERMS)
+            if self._normalize_query(official_query) and self._normalize_query(official_query) != self._normalize_query(only.query):
+                query_plan.append(
+                    RetrievalQuerySpec(
+                        label=f"{only.label}_official",
+                        query=self._normalize_query(official_query),
+                        rationale="补一条官方回应 query，避免单 query 漏掉关键说明。",
+                        claim_hint=only.claim_hint or only.query,
+                        cache_scope=f"{only.label}_official:{only.claim_hint or only.query}",
+                    )
+                )
+        return query_plan[:5]
+
+    def _build_primary_query(self, event: NormalizedEvent) -> str:
+        if event.input_type == "question_only":
+            if self.settings.retrieval_provider == "kimi":
                 return event.raw_input.strip().rstrip("\uFF1F?")
             return self._rewrite_question_query(event.raw_input)
 
@@ -168,22 +508,192 @@ class RetrievalService:
                 ordered_parts.append(compact)
         return " ".join(ordered_parts) or event.raw_input.strip()
 
+    def _build_term_query(self, *texts: Optional[str], max_terms: int = 8) -> str:
+        terms: list[str] = []
+        seen: set[str] = set()
+        for text in texts:
+            if not text:
+                continue
+            for term in re.findall(r"[A-Za-z0-9%]{2,}|[\u4e00-\u9fff]{2,12}", text):
+                cleaned = term.strip()
+                if not cleaned or cleaned in seen:
+                    continue
+                seen.add(cleaned)
+                terms.append(cleaned)
+                if len(terms) >= max_terms:
+                    return " ".join(terms)
+        return " ".join(terms)
+
+    def _extract_claim_clauses(self, *texts: Optional[str]) -> list[str]:
+        clauses: list[str] = []
+        seen: set[str] = set()
+        for text in texts:
+            if not text:
+                continue
+            for clause in CLAUSE_SPLIT_RE.split(text):
+                compact = self._normalize_query(clause)
+                if len(compact) < 4 or compact in seen:
+                    continue
+                seen.add(compact)
+                clauses.append(compact)
+                if len(clauses) >= 3:
+                    return clauses
+        return clauses
+
+    def _extend_query(self, base_query: str, *extra_terms: Optional[str]) -> str:
+        return self._build_term_query(base_query, " ".join(term for term in extra_terms if term))
+
+    def _enrich_result(
+        self,
+        result: SearchResult,
+        *,
+        spec: RetrievalQuerySpec,
+        provider_name: str,
+        retrieved_at: str,
+    ) -> SearchResult:
+        relation_type = result.relation_type
+        if relation_type is None and (result.duplicate_of or looks_like_repost(result.title, result.source_name)):
+            relation_type = "repost"
+        return (
+            result.with_runtime_metadata(provider_name=provider_name, retrieved_at=retrieved_at)
+            .with_enrichment_metadata(
+                source_category=infer_source_category(result.url, result.source_name),
+                independence_key=build_independence_key(result.url, result.source_name),
+                relation_type=relation_type,
+                signal_tags=detect_signal_tags(result.title, result.snippet, result.source_name),
+                query_label=spec.label,
+            )
+        )
+
+    def _combine_cache_keys(self, bundles: list[RetrievalBundle]) -> Optional[str]:
+        keys = [bundle.cache_key for bundle in bundles if bundle.cache_key]
+        if not keys:
+            return None
+        if len(keys) == 1:
+            return keys[0]
+        return f"multi:{'+'.join(keys[:3])}"
+
+    def _summarize_cache_status(self, statuses: list[str]) -> str:
+        normalized = [status for status in statuses if status]
+        if not normalized:
+            return "not_used"
+        unique = list(dict.fromkeys(normalized))
+        if len(unique) == 1:
+            return unique[0]
+        if all(status in {"hit", "stale_hit"} for status in unique):
+            return "partial_hit"
+        return "mixed"
+
+    def _mode_hint_for_results(self, canonical_results: tuple[SearchResult, ...]) -> str:
+        high_trust_sources = {
+            item.effective_independence_key for item in canonical_results if item.is_high_trust and item.effective_independence_key
+        }
+        if len(high_trust_sources) >= 2:
+            return "complete_or_partial"
+        if canonical_results:
+            return "partial"
+        return "safe"
+
     def _empty_bundle(
         self,
         query: str,
         *,
         provider_name: str,
+        cache_status: str = "not_used",
+        fallback_used: bool = False,
         fallback_reason: str | None = None,
         failure_detail: str | None = None,
+        query_plan: Optional[list[RetrievalQuerySpec]] = None,
+        query_failures: tuple[str, ...] = (),
     ) -> RetrievalBundle:
         return RetrievalBundle(
             query=query,
             matched_case_id="real_search",
             provider_name=provider_name,
-            cache_status="not_used",
+            cache_status=cache_status,
+            fallback_used=fallback_used,
             fallback_reason=fallback_reason,
             retrieved_at=ensure_datetime_string(datetime.now(UTC).isoformat()),
             failure_detail=failure_detail,
+            query_groups=tuple(query_plan or ()),
+            query_failures=query_failures,
+        )
+
+    def _mock_bundle(
+        self,
+        event: NormalizedEvent,
+        *,
+        query_plan: list[RetrievalQuerySpec],
+        fallback_used: bool = False,
+        fallback_reason: str | None = None,
+        failure_detail: str | None = None,
+        query_failures: tuple[str, ...] = (),
+    ) -> RetrievalBundle:
+        bundle = self.mock_retriever.retrieve_for_event(event)
+        return bundle.with_runtime_metadata(
+            provider_name="mock",
+            cache_status="not_used",
+            fallback_used=fallback_used,
+            fallback_reason=fallback_reason,
+            failure_detail=failure_detail,
+            retrieved_at=ensure_datetime_string(datetime.now(UTC).isoformat()),
+            query_groups=tuple(query_plan),
+            query_failures=query_failures,
+        )
+
+    def _provider_unavailable_bundle(
+        self,
+        event: NormalizedEvent,
+        *,
+        query: str,
+        provider_name: str,
+        query_plan: list[RetrievalQuerySpec],
+        query_failures: tuple[str, ...],
+    ) -> RetrievalBundle:
+        if self.settings.retrieval_fallback_to_mock:
+            return self._mock_bundle(
+                event,
+                query_plan=query_plan,
+                fallback_used=True,
+                fallback_reason="retrieval_provider_unavailable",
+                query_failures=query_failures,
+            )
+        return self._empty_bundle(
+            query,
+            provider_name=provider_name,
+            fallback_used=True,
+            fallback_reason="retrieval_provider_unavailable",
+            query_plan=query_plan,
+            query_failures=query_failures,
+        )
+
+    def _provider_failure_bundle(
+        self,
+        event: NormalizedEvent,
+        *,
+        query: str,
+        provider_name: str,
+        failure_detail: str,
+        query_plan: list[RetrievalQuerySpec],
+        query_failures: tuple[str, ...],
+    ) -> RetrievalBundle:
+        if self.settings.retrieval_fallback_to_mock:
+            return self._mock_bundle(
+                event,
+                query_plan=query_plan,
+                fallback_used=True,
+                fallback_reason="real_retrieval_failed",
+                failure_detail=failure_detail,
+                query_failures=query_failures,
+            )
+        return self._empty_bundle(
+            query,
+            provider_name=provider_name,
+            fallback_used=True,
+            fallback_reason="real_retrieval_failed",
+            failure_detail=failure_detail,
+            query_plan=query_plan,
+            query_failures=query_failures,
         )
 
     def _rewrite_question_query(self, raw_input: str) -> str:
@@ -230,6 +740,15 @@ class RetrievalService:
 
         return " ".join(terms[:8]) or raw_input.strip().rstrip("\uFF1F?")
 
+    def _normalize_query(self, query: str) -> str:
+        return re.sub(r"\s+", " ", query).strip()
+
+    def _summarize_query_failures(self, failures: list[str]) -> Optional[str]:
+        normalized = [failure for failure in failures if failure]
+        if not normalized:
+            return None
+        return "; ".join(list(dict.fromkeys(normalized))[:4])
+
     def _describe_exception(self, exc: Exception) -> str:
         response = getattr(exc, "response", None)
         if response is not None:
@@ -246,5 +765,3 @@ class RetrievalService:
         if isinstance(value, str):
             return value.strip().lower() in {"1", "true", "yes", "on"}
         return False
-
-

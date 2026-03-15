@@ -46,5 +46,35 @@
     "当前页面只适合提示待核查点，不应被当作定性结论。",
     "时间线未建立成功，当前结果不代表完整传播链。"
   ],
-  "sources": []
+  "sources": [],
+  "retrieval_hits": [],
+  "retrieval_diagnostics": {
+    "query": "晨星生物 裁员 40%",
+    "provider_name": "demo_payload",
+    "cache_status": "demo_seeded",
+    "retrieved_at": "2026-03-15T22:45:00+08:00",
+    "raw_result_count": 0,
+    "canonical_result_count": 0,
+    "failure_detail": "insufficient_public_evidence"
+  },
+  "overall_credibility_score": null,
+  "overall_credibility_label": "insufficient_evidence",
+  "score_breakdown": null,
+  "claim_contributions": [],
+  "timeline_confidence": null,
+  "independent_source_count": 0,
+  "provenance": {
+    "source_type": "demo_payload",
+    "event_source": "input_normalized",
+    "claim_source": "rule",
+    "evidence_source": "none",
+    "timeline_source": "none",
+    "retrieval_provider": "demo_payload",
+    "retrieval_cache_status": "demo_seeded",
+    "provider_used": false,
+    "fallback_used": true,
+    "fallback_reasons": [
+      "insufficient_public_evidence"
+    ]
+  }
 }

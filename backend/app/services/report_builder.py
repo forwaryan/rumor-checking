@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import List, Tuple
+from urllib.parse import urlparse
 
 from backend.app.models.schemas import (
+    ClaimContribution,
     ClaimResult,
     Event,
     EvidenceItem,
@@ -13,6 +16,7 @@ from backend.app.models.schemas import (
     Report,
     RetrievalDiagnostics,
     ReportProvenance,
+    ScoreBreakdown,
     TimelineNode,
 )
 from backend.app.services.contract_utils import default_source_name, default_source_url, ensure_datetime_string
@@ -39,6 +43,29 @@ RETRIEVAL_FALLBACK_REASONS = {
     "retrieval_cache_only_miss",
 }
 SERIOUS_HARM_MARKERS = ("脑出血", "脑溢血", "去世", "死亡", "病危", "抢救", "住院", "昏迷")
+HIGH_TRUST_TIERS = {"S", "A"}
+DECISIVE_VERDICTS = {"supported", "refuted", "conflicting"}
+SOURCE_TIER_SCORES = {"S": 95.0, "A": 82.0, "B": 58.0, "C": 30.0}
+TIMELINE_COMPLETENESS_WEIGHTS = {
+    "origin": 30,
+    "amplification": 15,
+    "peak": 15,
+    "turn": 20,
+    "clarification": 20,
+}
+OFFICIAL_SOURCE_MARKERS = ("政府", "监管局", "教育局", "交通局", "公安", "医院", "学校", "官方", "company", "official")
+MAINSTREAM_SOURCE_MARKERS = ("日报", "晚报", "电视台", "新闻", "news", "时报", "finance")
+RESPONSE_MARKERS = ("回应", "否认", "辟谣", "澄清", "说明", "通报", "核查", "调查")
+
+
+@dataclass(frozen=True)
+class ScoreComputation:
+    overall_score: float | None
+    label: str | None
+    breakdown: ScoreBreakdown | None
+    claim_contributions: List[ClaimContribution] | None
+    timeline_confidence: float | None
+    independent_source_count: int
 
 
 class ReportBuilder:
@@ -94,6 +121,13 @@ class ReportBuilder:
             final_summary=final_summary,
             provenance=provenance,
         )
+        score_computation = self._build_score_computation(
+            mode=mode,
+            claim_results=claim_results,
+            timeline=timeline,
+            evidence=evidence,
+            retrieval_hits=retrieval_hits,
+        )
 
         return Report(
             mode=mode,
@@ -103,6 +137,12 @@ class ReportBuilder:
             sources=evidence,
             retrieval_hits=retrieval_hits,
             retrieval_diagnostics=retrieval_diagnostics,
+            overall_credibility_score=score_computation.overall_score,
+            overall_credibility_label=score_computation.label,
+            score_breakdown=score_computation.breakdown,
+            claim_contributions=score_computation.claim_contributions,
+            timeline_confidence=score_computation.timeline_confidence,
+            independent_source_count=score_computation.independent_source_count,
             final_summary=final_summary,
             risks=risks,
             investigation=investigation,
@@ -476,6 +516,409 @@ class ReportBuilder:
         if public_event.title and public_event.title != "待核事件":
             conclusion += f" 当前最接近的事件锚点是“{public_event.title}”。"
         return conclusion
+
+    def _build_score_computation(
+        self,
+        *,
+        mode: str,
+        claim_results: List[ClaimResult],
+        timeline: List[TimelineNode],
+        evidence: List[EvidenceItem],
+        retrieval_hits: List[EvidenceItem],
+    ) -> ScoreComputation:
+        independent_source_count = self._estimate_independent_source_count(retrieval_hits or evidence)
+        timeline_confidence = self._estimate_timeline_confidence(
+            timeline=timeline,
+            retrieval_hits=retrieval_hits,
+            independent_source_count=independent_source_count,
+        )
+        if mode == "safe_mode" or not evidence:
+            return ScoreComputation(
+                overall_score=None,
+                label=None,
+                breakdown=None,
+                claim_contributions=None,
+                timeline_confidence=timeline_confidence,
+                independent_source_count=independent_source_count,
+            )
+
+        claim_contributions = self._build_claim_contributions(claim_results)
+        claim_score = self._compute_claim_score(claim_results, claim_contributions)
+        source_quality_score = self._compute_source_quality_score(
+            evidence=evidence,
+            retrieval_hits=retrieval_hits,
+            independent_source_count=independent_source_count,
+        )
+        cross_source_agreement_score = self._compute_cross_source_agreement_score(
+            claim_results=claim_results,
+            evidence=evidence,
+            independent_source_count=independent_source_count,
+        )
+        timeline_score = float(timeline_confidence or 0.0)
+        overall_score = round(
+            claim_score * 0.5
+            + source_quality_score * 0.2
+            + cross_source_agreement_score * 0.2
+            + timeline_score * 0.1,
+            1,
+        )
+        label = self._derive_credibility_label(
+            overall_score=overall_score,
+            claim_results=claim_results,
+            evidence=evidence,
+        )
+        overall_score = self._cap_score_for_label(overall_score, label)
+        limiting_factors = self._build_limiting_factors(
+            claim_results=claim_results,
+            evidence=evidence,
+            independent_source_count=independent_source_count,
+            timeline_confidence=timeline_confidence,
+        )
+        breakdown = ScoreBreakdown(
+            claim_score=claim_score,
+            source_quality_score=source_quality_score,
+            cross_source_agreement_score=cross_source_agreement_score,
+            timeline_score=timeline_score,
+            summary=self._build_score_summary(
+                label=label,
+                claim_results=claim_results,
+                independent_source_count=independent_source_count,
+                timeline_confidence=timeline_confidence,
+                limiting_factors=limiting_factors,
+            ),
+            limiting_factors=limiting_factors,
+        )
+        return ScoreComputation(
+            overall_score=overall_score,
+            label=label,
+            breakdown=breakdown,
+            claim_contributions=claim_contributions,
+            timeline_confidence=timeline_confidence,
+            independent_source_count=independent_source_count,
+        )
+
+    def _build_claim_contributions(self, claim_results: List[ClaimResult]) -> List[ClaimContribution]:
+        contributions: List[ClaimContribution] = []
+        for item in claim_results:
+            contribution_label = self._contribution_label_for_result(item)
+            contribution_score = self._contribution_score_for_result(item)
+            contributions.append(
+                ClaimContribution(
+                    claim=item.claim,
+                    claim_type=item.claim_type,
+                    verdict=item.verdict,
+                    contribution_label=contribution_label,
+                    contribution_score=contribution_score,
+                    reason=self._claim_contribution_reason(
+                        claim_result=item,
+                        contribution_label=contribution_label,
+                        contribution_score=contribution_score,
+                    ),
+                )
+            )
+        return contributions
+
+    def _compute_claim_score(
+        self,
+        claim_results: List[ClaimResult],
+        claim_contributions: List[ClaimContribution],
+    ) -> float:
+        fact_results = [item for item in claim_results if item.claim_type == "fact"]
+        if not fact_results:
+            return 35.0
+        per_claim_scores = [
+            max(0.0, min(100.0, 50.0 + contribution.contribution_score))
+            for contribution in claim_contributions
+            if contribution.claim_type == "fact"
+        ]
+        if not per_claim_scores:
+            return 35.0
+        insufficient_ratio = sum(1 for item in fact_results if item.verdict == "insufficient") / len(fact_results)
+        claim_score = sum(per_claim_scores) / len(per_claim_scores)
+        claim_score -= insufficient_ratio * 12.0
+        return round(max(0.0, min(100.0, claim_score)), 1)
+
+    def _compute_source_quality_score(
+        self,
+        *,
+        evidence: List[EvidenceItem],
+        retrieval_hits: List[EvidenceItem],
+        independent_source_count: int,
+    ) -> float:
+        source_pool = retrieval_hits or evidence
+        if not source_pool:
+            return 0.0
+        tier_scores = [SOURCE_TIER_SCORES.get(item.source_tier, 30.0) for item in source_pool[:4]]
+        score = sum(tier_scores) / len(tier_scores)
+        score += min(12.0, independent_source_count * 4.0)
+        if any(self._is_official_like_source(item.source_name) for item in source_pool):
+            score += 6.0
+        if not any(item.source_tier in HIGH_TRUST_TIERS for item in source_pool):
+            score -= 10.0
+        return round(max(0.0, min(100.0, score)), 1)
+
+    def _compute_cross_source_agreement_score(
+        self,
+        *,
+        claim_results: List[ClaimResult],
+        evidence: List[EvidenceItem],
+        independent_source_count: int,
+    ) -> float:
+        fact_results = [item for item in claim_results if item.claim_type == "fact"]
+        if not fact_results:
+            return 30.0
+        supported_count = sum(1 for item in fact_results if item.verdict == "supported")
+        refuted_count = sum(1 for item in fact_results if item.verdict == "refuted")
+        conflicting_count = sum(1 for item in fact_results if item.verdict == "conflicting")
+        insufficient_count = sum(1 for item in fact_results if item.verdict == "insufficient")
+        score = 55.0
+        if supported_count and not refuted_count and not conflicting_count:
+            score += 15.0
+        if refuted_count and not supported_count and not conflicting_count:
+            score += 15.0
+        if supported_count and refuted_count:
+            score -= 18.0
+        if conflicting_count:
+            score -= 20.0
+        if insufficient_count >= max(1, len(fact_results) // 2):
+            score -= 12.0
+        if independent_source_count >= 2:
+            score += 10.0
+        if any(item.source_tier in HIGH_TRUST_TIERS for item in evidence):
+            score += 8.0
+        if independent_source_count <= 1 and len(evidence) >= 2:
+            score -= 8.0
+        return round(max(0.0, min(100.0, score)), 1)
+
+    def _estimate_timeline_confidence(
+        self,
+        *,
+        timeline: List[TimelineNode],
+        retrieval_hits: List[EvidenceItem],
+        independent_source_count: int,
+    ) -> float | None:
+        if not timeline and not retrieval_hits:
+            return None
+        completeness = self._timeline_completeness(timeline)
+        high_trust_hit_count = sum(1 for item in retrieval_hits if item.source_tier in HIGH_TRUST_TIERS)
+        score = completeness * 0.45
+        score += min(25.0, independent_source_count * 7.0)
+        score += min(20.0, high_trust_hit_count * 6.0)
+        score += min(10.0, len(timeline) * 2.0)
+        if any(self._is_official_like_source(item.source_name) for item in retrieval_hits):
+            score += 8.0
+        if any(self._timeline_has_response_signal(node) for node in timeline):
+            score += 6.0
+        if any(node.node_type == "peak" for node in timeline):
+            score += 4.0
+        if independent_source_count <= 1 and len(retrieval_hits) >= 3:
+            score -= 18.0
+        if high_trust_hit_count == 0 and not any(
+            self._is_official_like_source(item.source_name) or self._looks_like_mainstream_source(item.source_name)
+            for item in retrieval_hits
+        ):
+            score -= 12.0
+        if not timeline:
+            score = min(score, 35.0)
+        return round(max(0.0, min(100.0, score)), 1)
+
+    def _timeline_completeness(self, timeline: List[TimelineNode]) -> float:
+        score = 0.0
+        seen_node_types = set()
+        for node in timeline:
+            if node.node_type in seen_node_types:
+                continue
+            seen_node_types.add(node.node_type)
+            score += TIMELINE_COMPLETENESS_WEIGHTS.get(node.node_type, 0)
+        return min(score, 100.0)
+
+    def _estimate_independent_source_count(self, source_pool: List[EvidenceItem]) -> int:
+        keys = {self._source_key(item) for item in source_pool if self._source_key(item)}
+        return len(keys)
+
+    def _source_key(self, item: EvidenceItem) -> str:
+        hostname = urlparse(item.url).hostname or ""
+        if hostname:
+            normalized_hostname = hostname.lower()
+            if normalized_hostname.startswith("www."):
+                normalized_hostname = normalized_hostname[4:]
+            return normalized_hostname
+        return item.source_name.strip().lower()
+
+    def _derive_credibility_label(
+        self,
+        *,
+        overall_score: float,
+        claim_results: List[ClaimResult],
+        evidence: List[EvidenceItem],
+    ) -> str:
+        fact_results = [item for item in claim_results if item.claim_type == "fact"]
+        supported_count = sum(1 for item in fact_results if item.verdict == "supported")
+        refuted_count = sum(1 for item in fact_results if item.verdict == "refuted")
+        conflicting_count = sum(1 for item in fact_results if item.verdict == "conflicting")
+        decisive_count = sum(1 for item in fact_results if item.verdict in DECISIVE_VERDICTS)
+        high_trust_count = sum(1 for item in evidence if item.source_tier in HIGH_TRUST_TIERS)
+        if supported_count and refuted_count:
+            return "mixed"
+        if conflicting_count:
+            return "mixed"
+        if decisive_count == 0 or high_trust_count == 0:
+            return "insufficient_evidence"
+        if overall_score >= 75.0:
+            return "high_credibility"
+        if overall_score >= 55.0:
+            return "medium_credibility"
+        return "low_credibility"
+
+    def _cap_score_for_label(self, overall_score: float, label: str) -> float:
+        if label == "insufficient_evidence":
+            return round(min(overall_score, 49.0), 1)
+        if label == "mixed":
+            return round(min(max(overall_score, 45.0), 69.0), 1)
+        if label == "low_credibility":
+            return round(min(overall_score, 54.0), 1)
+        if label == "medium_credibility":
+            return round(min(max(overall_score, 55.0), 74.0), 1)
+        if label == "high_credibility":
+            return round(max(overall_score, 75.0), 1)
+        return round(overall_score, 1)
+
+    def _build_limiting_factors(
+        self,
+        *,
+        claim_results: List[ClaimResult],
+        evidence: List[EvidenceItem],
+        independent_source_count: int,
+        timeline_confidence: float | None,
+    ) -> List[str]:
+        fact_results = [item for item in claim_results if item.claim_type == "fact"]
+        supported_count = sum(1 for item in fact_results if item.verdict == "supported")
+        refuted_count = sum(1 for item in fact_results if item.verdict == "refuted")
+        conflicting_count = sum(1 for item in fact_results if item.verdict == "conflicting")
+        insufficient_count = sum(1 for item in fact_results if item.verdict == "insufficient")
+        limiting_factors: List[str] = []
+        if not any(item.source_tier in HIGH_TRUST_TIERS for item in evidence):
+            limiting_factors.append("当前缺少 S/A 级来源，公开证据仍偏弱。")
+        if supported_count and refuted_count:
+            limiting_factors.append("同一输入中同时存在被支持和被反驳的 claim，整条新闻呈现真假混杂。")
+        if conflicting_count:
+            limiting_factors.append("至少一条 claim 仍处于冲突态，来源版本没有完全收敛。")
+        if fact_results and insufficient_count >= max(1, len(fact_results) // 2):
+            limiting_factors.append("多数 fact claim 仍停留在 insufficient，结论边界不能收得太满。")
+        if independent_source_count <= 1:
+            limiting_factors.append("独立来源数量仍偏少，容易受单一转述链影响。")
+        if timeline_confidence is None or timeline_confidence < 60.0:
+            limiting_factors.append("传播链闭环度仍不够高，时间线分项需要保守解释。")
+        return limiting_factors
+
+    def _build_score_summary(
+        self,
+        *,
+        label: str,
+        claim_results: List[ClaimResult],
+        independent_source_count: int,
+        timeline_confidence: float | None,
+        limiting_factors: List[str],
+    ) -> str:
+        supported_count = sum(1 for item in claim_results if item.verdict == "supported")
+        refuted_count = sum(1 for item in claim_results if item.verdict == "refuted")
+        conflicting_count = sum(1 for item in claim_results if item.verdict == "conflicting")
+        if label == "high_credibility":
+            lead = "claim 层与公开来源整体收敛，当前更接近高可信结果"
+        elif label == "medium_credibility":
+            lead = "claim 层已有较稳定主判断，但仍保留部分边界"
+        elif label == "low_credibility":
+            lead = "主说法被高可信来源削弱，整条新闻可信度偏低"
+        elif label == "mixed":
+            lead = "claim 层同时出现可支持和可反驳的部分，整体按真假混杂处理"
+        else:
+            lead = "当前证据仍不足以把总分解释成确定性结论"
+        detail = (
+            f"支持 {supported_count} 条、反驳 {refuted_count} 条、冲突 {conflicting_count} 条；"
+            f"独立来源 {independent_source_count} 个"
+        )
+        if timeline_confidence is not None:
+            detail += f"，时间线置信度 {timeline_confidence:.0f}"
+        else:
+            detail += "，时间线仍未形成稳定闭环"
+        if limiting_factors:
+            detail += "；主要不确定性：" + "；".join(limiting_factors[:2])
+        return lead + "；" + detail + "。"
+
+    def _contribution_label_for_result(self, claim_result: ClaimResult) -> str:
+        if claim_result.verdict == "supported":
+            return "supports"
+        if claim_result.verdict == "refuted":
+            return "weakens"
+        if claim_result.verdict == "conflicting":
+            return "mixed"
+        return "neutral"
+
+    def _contribution_score_for_result(self, claim_result: ClaimResult) -> float:
+        confidence_scalar = self._confidence_scalar(claim_result.confidence)
+        if claim_result.verdict == "supported":
+            return round(12.0 + confidence_scalar * 23.0, 1)
+        if claim_result.verdict == "refuted":
+            return round(-(12.0 + confidence_scalar * 28.0), 1)
+        if claim_result.verdict == "conflicting":
+            return round(-(4.0 + confidence_scalar * 8.0), 1)
+        return 0.0
+
+    def _claim_contribution_reason(
+        self,
+        *,
+        claim_result: ClaimResult,
+        contribution_label: str,
+        contribution_score: float,
+    ) -> str:
+        evidence_count = len(claim_result.evidence)
+        highest_tier = self._highest_tier(claim_result.evidence)
+        evidence_detail = (
+            f"当前关联 {evidence_count} 条证据，最高来源等级 {highest_tier}。"
+            if evidence_count
+            else "当前没有附着到稳定证据。"
+        )
+        if contribution_label == "supports":
+            return f"{claim_result.notes} {evidence_detail} 这条 claim 会抬高整条新闻可信度。"
+        if contribution_label == "weakens":
+            return f"{claim_result.notes} {evidence_detail} 这条 claim 会明显拉低整条新闻可信度。"
+        if contribution_label == "mixed":
+            return f"{claim_result.notes} {evidence_detail} 这条 claim 仍处于冲突态，说明整条新闻存在真假混杂。"
+        if contribution_score == 0:
+            return f"{claim_result.notes} {evidence_detail} 当前先不把它当作总分主贡献。"
+        return f"{claim_result.notes} {evidence_detail}"
+
+    def _highest_tier(self, evidence: List[EvidenceItem]) -> str:
+        if not evidence:
+            return "none"
+        for tier in ("S", "A", "B", "C"):
+            if any(item.source_tier == tier for item in evidence):
+                return tier
+        return "C"
+
+    def _confidence_scalar(self, value: str | float) -> float:
+        if isinstance(value, str):
+            if value == "high":
+                return 1.0
+            if value == "medium":
+                return 0.7
+            return 0.4
+        numeric_value = float(value)
+        if numeric_value > 1.0:
+            numeric_value = numeric_value / 100.0
+        return max(0.0, min(1.0, numeric_value))
+
+    def _timeline_has_response_signal(self, node: TimelineNode) -> bool:
+        haystack = f"{node.title} {node.summary} {node.why_selected}".lower()
+        return any(marker in haystack for marker in RESPONSE_MARKERS)
+
+    def _is_official_like_source(self, source_name: str) -> bool:
+        normalized = source_name.lower()
+        return any(marker in normalized for marker in OFFICIAL_SOURCE_MARKERS)
+
+    def _looks_like_mainstream_source(self, source_name: str) -> bool:
+        normalized = source_name.lower()
+        return any(marker in normalized for marker in MAINSTREAM_SOURCE_MARKERS)
 
     def _normalize_confidence(self, value: str | float) -> str:
         if isinstance(value, str) and value in {"high", "medium", "low"}:

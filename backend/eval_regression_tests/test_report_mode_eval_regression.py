@@ -185,6 +185,40 @@ def _evaluate_case(case: dict, report_provenance_factory) -> CaseEvaluation:
     if expected.get("must_explicitly_mark_fallback") and FALLBACK_MARKER not in combined_text:
         mismatches.append("fallback case did not explicitly mark conservative output")
 
+    if report.mode == "safe_mode":
+        if report.overall_credibility_score is not None:
+            mismatches.append("safe_mode should not emit overall credibility score")
+        if report.overall_credibility_label is not None:
+            mismatches.append("safe_mode should not emit overall credibility label")
+        if report.score_breakdown is not None:
+            mismatches.append("safe_mode should not emit score breakdown")
+        if report.claim_contributions is not None:
+            mismatches.append("safe_mode should not emit claim contributions")
+    else:
+        if report.sources:
+            if report.overall_credibility_score is None:
+                mismatches.append("non-safe report with evidence did not emit overall credibility score")
+            if report.overall_credibility_label is None:
+                mismatches.append("non-safe report with evidence did not emit overall credibility label")
+            if report.score_breakdown is None:
+                mismatches.append("non-safe report with evidence did not emit score breakdown")
+            if report.claim_contributions is None:
+                mismatches.append("non-safe report with evidence did not emit claim contributions")
+            if report.score_breakdown is not None:
+                weights = report.score_breakdown.weights
+                if (
+                    weights.claim != 0.5
+                    or weights.source_quality != 0.2
+                    or weights.cross_source_agreement != 0.2
+                    or weights.timeline != 0.1
+                ):
+                    mismatches.append("score weights drifted away from the frozen contract")
+        if report.timeline and report.timeline_confidence is None:
+            mismatches.append("timeline confidence should be emitted when a timeline exists")
+
+    if report.independent_source_count is None or report.independent_source_count < 0:
+        mismatches.append("independent source count should be emitted as a non-negative number")
+
     return CaseEvaluation(
         case_id=case["case_id"],
         mismatches=mismatches,

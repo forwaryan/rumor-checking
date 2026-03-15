@@ -326,7 +326,7 @@ export function parseReport(value: unknown): Report {
 
   const mode = ensureMode(value.mode);
 
-  return {
+  const report: Report = {
     mode,
     event: parseEvent(value.event, mode),
     timeline: parseTimeline(value.timeline),
@@ -341,6 +341,15 @@ export function parseReport(value: unknown): Report {
     pipeline_trace: parsePipelineTrace(value.pipeline_trace),
     provenance: parseReportProvenance(value.provenance),
   };
+
+  return Object.assign(report, {
+    overall_credibility_score: value.overall_credibility_score,
+    overall_credibility_label: value.overall_credibility_label,
+    score_breakdown: value.score_breakdown,
+    claim_contributions: value.claim_contributions,
+    timeline_confidence: value.timeline_confidence,
+    independent_source_count: value.independent_source_count,
+  }) as Report;
 }
 
 async function parseJson<T>(response: Response) {

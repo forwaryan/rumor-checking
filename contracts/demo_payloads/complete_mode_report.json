@@ -108,7 +108,9 @@
     }
   ],
   "final_summary": "当前高可信证据已支撑主链路，核心结论围绕“海州市市场监管局已对涉事门店下达停业整改通知。”展开。",
-  "risks": [],
+  "risks": [
+    "品牌回应属于当事主体视角，仍应与官方通报区分权重。"
+  ],
   "sources": [
     {
       "title": "海州市市场监管局通报海州新鲜屋整改情况",
@@ -128,5 +130,100 @@
       "relevance_reason": "当事主体补充整改进展。",
       "source_tier": "A"
     }
-  ]
+  ],
+  "retrieval_hits": [
+    {
+      "title": "海州市市场监管局通报海州新鲜屋整改情况",
+      "url": "https://gov.example.cn/hzsamr/2026-03-01",
+      "source_name": "海州市市场监管局",
+      "published_at": "2026-03-01T09:00:00+08:00",
+      "snippet": "通报显示，涉事门店已被责令停业整改，并发现2批次酸奶超过保质期。",
+      "relevance_reason": "官方通报直接给出处置结论。",
+      "source_tier": "S"
+    },
+    {
+      "title": "海州新鲜屋发布致歉说明",
+      "url": "https://brand.example.cn/apology/2026-03-03",
+      "source_name": "海州新鲜屋",
+      "published_at": "2026-03-03T12:00:00+08:00",
+      "snippet": "品牌方表示已完成问题商品下架，并配合整改。",
+      "relevance_reason": "当事主体补充整改进展。",
+      "source_tier": "A"
+    }
+  ],
+  "retrieval_diagnostics": {
+    "query": "海州新鲜屋 酸奶 抽检 停业整改",
+    "provider_name": "demo_payload",
+    "cache_status": "demo_seeded",
+    "retrieved_at": "2026-03-15T22:45:00+08:00",
+    "raw_result_count": 4,
+    "canonical_result_count": 2,
+    "failure_detail": null
+  },
+  "overall_credibility_score": 87,
+  "overall_credibility_label": "high_credibility",
+  "score_breakdown": {
+    "claim_score": 90,
+    "source_quality_score": 88,
+    "cross_source_agreement_score": 84,
+    "timeline_score": 74,
+    "weights": {
+      "claim": 0.5,
+      "source_quality": 0.2,
+      "cross_source_agreement": 0.2,
+      "timeline": 0.1
+    },
+    "summary": "主 claim 由 S 级官方通报直接支持，来源独立性足够，传播链也已出现权威起点与回应节点。",
+    "limiting_factors": [
+      "品牌回应是补充说明，不应与监管通报视作同权重证据。"
+    ]
+  },
+  "claim_contributions": [
+    {
+      "claim": "海州市市场监管局已对涉事门店下达停业整改通知。",
+      "claim_type": "fact",
+      "verdict": "supported",
+      "contribution_label": "supports",
+      "contribution_score": 28,
+      "reason": "它是整个事件最核心且有官方直接证据支持的 claim。"
+    },
+    {
+      "claim": "抽检发现海州新鲜屋有2批次酸奶超过保质期。",
+      "claim_type": "fact",
+      "verdict": "supported",
+      "contribution_label": "supports",
+      "contribution_score": 24,
+      "reason": "关键细节可被监管通报直接核验，增强总分可信度。"
+    },
+    {
+      "claim": "目前未发现大规模食物中毒病例。",
+      "claim_type": "fact",
+      "verdict": "supported",
+      "contribution_label": "supports",
+      "contribution_score": 12,
+      "reason": "属于补充性事实，支持力度弱于核心 claim。"
+    },
+    {
+      "claim": "这次通报明显只是企业公关。",
+      "claim_type": "opinion",
+      "verdict": "insufficient",
+      "contribution_label": "neutral",
+      "contribution_score": 0,
+      "reason": "这是观点表达，当前 contract 只记录边界，不把它直接计入总分。"
+    }
+  ],
+  "timeline_confidence": 82,
+  "independent_source_count": 2,
+  "provenance": {
+    "source_type": "demo_payload",
+    "event_source": "retrieval_resolved",
+    "claim_source": "rule",
+    "evidence_source": "retrieval_mock",
+    "timeline_source": "retrieval",
+    "retrieval_provider": "demo_payload",
+    "retrieval_cache_status": "demo_seeded",
+    "provider_used": false,
+    "fallback_used": false,
+    "fallback_reasons": []
+  }
 }

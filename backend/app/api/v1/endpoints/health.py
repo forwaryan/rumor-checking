@@ -13,7 +13,10 @@ def health_check() -> dict:
     if not settings.kimi_ready:
         return {
             "status": "degraded",
-            "detail": "Kimi is not configured. Analyze requests will fail until KIMI_API_KEY is available.",
+            "detail": (
+                "Kimi-backed analysis or retrieval is selected, "
+                "but KIMI_API_KEY is not configured."
+            ),
             "service": settings.app_name,
             "environment": settings.environment,
             "version": settings.version,

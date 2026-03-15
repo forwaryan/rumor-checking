@@ -328,6 +328,54 @@ def test_retrieval_cache_round_trip(tmp_path: Path):
     assert loaded.canonical_results[0].title == bundle.canonical_results[0].title
 
 
+def test_retrieval_service_builds_multi_query_bundle_with_independence_and_conflict_signals(tmp_path: Path):
+    event = _event_for_case("R03")
+    provider = FakeProvider(
+        results=[
+            _make_result(
+                result_id="real-rumor",
+                title="网传晨星生物将裁员40%",
+                snippet="自媒体爆料称多个部门将裁员40%。",
+                published_at="2026-03-05T08:00:00+08:00",
+                source_name="职场爆料",
+                source_tier="C",
+                url="https://rumor.example.com/morningstar-1",
+            ),
+            _make_result(
+                result_id="real-turn",
+                title="晨星生物回应裁员传闻：没有40%裁员计划",
+                snippet="公司回应称不存在所谓40%裁员安排。",
+                published_at="2026-03-06T09:00:00+08:00",
+                source_name="晨星生物",
+                source_tier="S",
+                url="https://ir.example.com/morningstar-response",
+            ),
+            _make_result(
+                result_id="real-follow",
+                title="证券时报：公司否认裁员40%",
+                snippet="媒体跟进称交易所问询后公司否认相关传闻。",
+                published_at="2026-03-06T12:00:00+08:00",
+                source_name="证券时报",
+                source_tier="A",
+                url="https://finance.example.com/morningstar-followup",
+            ),
+        ]
+    )
+    service = RetrievalService(
+        settings=replace(get_settings(), retrieval_provider="gdelt"),
+        provider=provider,
+        cache=RetrievalCache(cache_root=tmp_path, ttl_seconds=3600),
+    )
+
+    bundle = service.retrieve_for_event(event)
+
+    assert 2 <= len(bundle.query_groups) <= 5
+    assert bundle.independent_source_count >= 2
+    assert "rumor_vs_response" in bundle.conflict_signals
+    assert bundle.high_trust_result_count >= 2
+    assert bundle.to_diagnostics().failure_detail is None
+
+
 def test_retrieval_service_falls_back_to_mock_when_real_provider_fails(tmp_path: Path):
     event = _event_for_case("R01")
     service = RetrievalService(
@@ -375,6 +423,40 @@ def test_retrieval_service_cache_only_mode_returns_empty_without_fallback(tmp_pa
     assert bundle.fallback_reason == "retrieval_cache_only_miss"
 
 
+def test_retrieval_service_caches_each_query_group_separately(tmp_path: Path):
+    event = _event_for_case("R01")
+    provider = FakeProvider(
+        results=[
+            _make_result(
+                result_id="real-1",
+                title="海州市市场监管局通报海州新鲜屋整改情况",
+                snippet="发现2批次酸奶超过保质期，涉事门店停业整改。",
+                published_at="2026-03-01T09:00:00+08:00",
+                source_name="海州市市场监管局",
+                source_tier="S",
+                url="https://gov.example.cn/hzsamr/2026-03-01",
+            )
+        ]
+    )
+    service = RetrievalService(
+        settings=replace(get_settings(), retrieval_provider="gdelt"),
+        provider=provider,
+        cache=RetrievalCache(cache_root=tmp_path, ttl_seconds=3600),
+    )
+
+    first = service.retrieve_for_event(event)
+    first_call_count = len(provider.calls)
+    cached = service.retrieve_for_event(event, request_context={"retrieval_cache_only": True})
+
+    cache_files = list((tmp_path / "gdelt").glob("*.json"))
+
+    assert first_call_count == len(first.query_groups)
+    assert len(cache_files) == len(first.query_groups)
+    assert cached.canonical_results
+    assert len(provider.calls) == first_call_count
+    assert cached.cache_status in {"partial_hit", "hit", "mixed"}
+
+
 def test_question_only_pipeline_uses_real_retrieval_bundle(tmp_path: Path):
     provider = FakeProvider(
         results=[
@@ -413,9 +495,9 @@ def test_question_only_pipeline_uses_real_retrieval_bundle(tmp_path: Path):
         )
     )
 
-    assert len(provider.calls) == 2
+    assert len(provider.calls) >= 4
     assert provider.calls[1] != provider.calls[0]
-    assert "gov.cn" in provider.calls[1]
+    assert any("gov" in call or "官方" in call for call in provider.calls[1:])
     assert report.mode == "partial_mode"
     assert report.sources
     assert report.timeline
@@ -469,7 +551,7 @@ def test_kimi_question_retrieval_keeps_raw_rumor_phrasing(tmp_path: Path):
     )
 
     assert provider.calls[0] == "最近有个女网红脑出血死了真的假的"
-    assert len(provider.calls) == 2
+    assert len(provider.calls) >= 4
     assert report.mode == "partial_mode"
     assert report.event.title in {
         "医院回应网传女网红脑出血去世：仍在救治",
@@ -615,11 +697,12 @@ def test_retrieval_service_skip_cache_alias_bypasses_cached_bundle(tmp_path: Pat
     bypassed = service.retrieve_for_event(event, request_context={"skip_retrieval_cache": True})
     cached = service.retrieve_for_event(event)
 
+    per_run_call_count = len(first.query_groups)
     assert first.canonical_results[0].result_id == "real-1"
     assert bypassed.canonical_results[0].result_id == "real-2"
     assert bypassed.cache_status == "bypassed"
     assert cached.canonical_results[0].result_id == "real-1"
-    assert len(provider.calls) == 2
+    assert len(provider.calls) == per_run_call_count * 2
 
 
 def test_timeline_builder_selects_key_nodes_from_real_bundle():
@@ -676,8 +759,8 @@ def test_timeline_builder_selects_key_nodes_from_real_bundle():
         provider_name="gdelt",
     )
 
-    timeline = TimelineBuilder().build(event, retrieval_bundle=bundle)
-    nodes = {item.node_type: item for item in timeline}
+    timeline_build = TimelineBuilder().build_with_source(event, retrieval_bundle=bundle)
+    nodes = {item.node_type: item for item in timeline_build.nodes}
 
     assert {"origin", "amplification", "turn", "clarification"}.issubset(nodes)
     assert nodes["origin"].url == "https://example.com/rumor"
@@ -688,6 +771,23 @@ def test_timeline_builder_selects_key_nodes_from_real_bundle():
     assert "回应" in nodes["turn"].why_selected or "转折" in nodes["turn"].why_selected
     assert nodes["clarification"].url == "https://example.com/clarification"
     assert "说明" in nodes["clarification"].why_selected or "澄清" in nodes["clarification"].why_selected
+    assert timeline_build.completeness >= 80
+    assert timeline_build.confidence >= 60
+
+
+def test_timeline_builder_scores_frozen_propagation_cases():
+    builder = TimelineBuilder()
+    retriever = MockRetriever()
+
+    for case_id in ("R01", "R03"):
+        event = _event_for_case(case_id)
+        bundle = retriever.retrieve_for_event(event)
+        timeline_build = builder.build_with_source(event, retrieval_bundle=bundle)
+
+        assert timeline_build.source == "retrieval"
+        assert timeline_build.nodes
+        assert timeline_build.completeness >= 60
+        assert timeline_build.confidence >= 50
 
 
 def test_question_only_resolution_stays_unresolved_without_high_trust_results():
@@ -777,7 +877,7 @@ def test_question_only_pipeline_rejects_partial_subject_match_candidates(tmp_pat
         )
     )
 
-    assert len(provider.calls) == 1
+    assert len(provider.calls) >= 1
     assert report.mode == "safe_mode"
     assert report.provenance.event_source == "input_normalized"
     assert report.provenance.evidence_source == "retrieval_live"
@@ -825,7 +925,7 @@ def test_question_only_pipeline_keeps_exact_entity_matches_resolvable(tmp_path: 
         )
     )
 
-    assert len(provider.calls) == 2
+    assert len(provider.calls) >= 4
     assert report.provenance.event_source == "retrieval_resolved"
     assert report.retrieval_hits
 
@@ -868,7 +968,7 @@ def test_question_only_pipeline_answers_broad_trend_questions_without_forcing_si
         )
     )
 
-    assert len(provider.calls) == 1
+    assert 1 <= len(provider.calls) <= 2
     assert provider.calls[0] == "裁员"
     assert report.mode == "partial_mode"
     assert report.provenance.event_source == "input_normalized"

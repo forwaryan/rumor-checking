@@ -20,6 +20,14 @@ ClaimSourceType = Literal["rule", "provider", "provider_plus_rule"]
 EvidenceSourceType = Literal["retrieval_live", "retrieval_mock", "request_mock", "none"]
 TimelineSourceType = Literal["retrieval", "input_seed", "none"]
 ReportSourceType = Literal["backend_live", "backend_mock", "backend_replay", "demo_payload", "frontend_fallback"]
+CredibilityLabel = Literal[
+    "high_credibility",
+    "medium_credibility",
+    "low_credibility",
+    "mixed",
+    "insufficient_evidence",
+]
+ContributionLabel = Literal["supports", "weakens", "mixed", "neutral"]
 
 
 class MockFetchResult(BaseModel):
@@ -189,6 +197,32 @@ class PipelineTrace(BaseModel):
     steps: List[PipelineTraceStep] = Field(default_factory=list)
 
 
+class ScoreWeights(BaseModel):
+    claim: Literal[0.5] = 0.5
+    source_quality: Literal[0.2] = 0.2
+    cross_source_agreement: Literal[0.2] = 0.2
+    timeline: Literal[0.1] = 0.1
+
+
+class ScoreBreakdown(BaseModel):
+    claim_score: float = Field(..., ge=0, le=100)
+    source_quality_score: float = Field(..., ge=0, le=100)
+    cross_source_agreement_score: float = Field(..., ge=0, le=100)
+    timeline_score: float = Field(..., ge=0, le=100)
+    weights: ScoreWeights = Field(default_factory=ScoreWeights)
+    summary: str
+    limiting_factors: List[str] = Field(default_factory=list)
+
+
+class ClaimContribution(BaseModel):
+    claim: str
+    claim_type: ClaimType
+    verdict: VerdictType
+    contribution_label: ContributionLabel
+    contribution_score: float = Field(..., ge=-100, le=100)
+    reason: str
+
+
 class Report(BaseModel):
     mode: ReportMode
     event: Event
@@ -199,6 +233,12 @@ class Report(BaseModel):
     sources: List[EvidenceItem] = Field(default_factory=list)
     retrieval_hits: List[EvidenceItem] = Field(default_factory=list)
     retrieval_diagnostics: Optional[RetrievalDiagnostics] = None
+    overall_credibility_score: Optional[float] = Field(default=None, ge=0, le=100)
+    overall_credibility_label: Optional[CredibilityLabel] = None
+    score_breakdown: Optional[ScoreBreakdown] = None
+    claim_contributions: Optional[List[ClaimContribution]] = None
+    timeline_confidence: Optional[float] = Field(default=None, ge=0, le=100)
+    independent_source_count: Optional[int] = Field(default=None, ge=0)
     investigation: Optional[Investigation] = None
     content_check: Optional[ContentCheck] = None
     pipeline_trace: Optional[PipelineTrace] = None

@@ -10,6 +10,7 @@ import httpx
 from backend.app.core.config import Settings, get_settings
 from backend.app.models.schemas import ClaimItem, NormalizedEvent, ProviderAnalysis, ProviderEventDraft
 from backend.app.services.contract_utils import ensure_datetime_string
+from backend.app.services.question_intent import is_broad_trend_question
 
 logger = logging.getLogger(__name__)
 
@@ -97,15 +98,17 @@ class KimiProvider:
 
     @property
     def enabled(self) -> bool:
-        return self.settings.kimi_enabled
+        return self.settings.analysis_provider == "kimi" and bool(self.settings.kimi_api_key)
 
-    def analyze(self, event: NormalizedEvent) -> ProviderAnalysis:
+    def analyze(self, event: NormalizedEvent) -> Optional[ProviderAnalysis]:
         if not self.enabled:
             raise RuntimeError("Kimi structured analysis is not configured.")
+        if event.input_type == "question_only" and is_broad_trend_question(event.raw_input):
+            return None
 
         content = self._request_completion(event)
         analysis = self._parse_content(content)
-        if analysis is None or not analysis.claims:
+        if analysis is None:
             logger.warning("kimi_provider_empty_result input_type=%s", event.input_type)
             raise RuntimeError("Kimi returned no structured claims.")
         return analysis

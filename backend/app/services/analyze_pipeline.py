@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-from fastapi import status
-
 from backend.app.core.config import get_settings
-from backend.app.core.exceptions import AppError
 from backend.app.models.schemas import AnalyzeRequest, Report, ReportProvenance, RetrievalDiagnostics
 from backend.app.services.claim_extractor import ClaimExtractor
 from backend.app.services.content_check_builder import ContentCheckBuilder
@@ -32,7 +29,6 @@ class AnalyzePipeline:
         self.pipeline_trace_builder = PipelineTraceBuilder()
 
     def analyze(self, request: AnalyzeRequest) -> Report:
-        self._ensure_kimi_only_ready()
         if request.request_context.get("force_error"):
             raise RuntimeError("forced_error_for_testing")
 
@@ -43,13 +39,8 @@ class AnalyzePipeline:
         resolved_event = question_resolution.event
         try:
             event, provider_claims = self.provider_enricher.enrich(resolved_event)
-        except Exception as exc:
-            raise AppError(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                code="kimi_analysis_failed",
-                message="Kimi structured analysis failed. The request was not downgraded to any rule-only path.",
-                details={"error_type": exc.__class__.__name__},
-            ) from exc
+        except Exception:
+            event, provider_claims = resolved_event, None
         follow_up_bundle = None
         follow_up_used = False
         if question_resolution.follow_up_query:
@@ -59,15 +50,7 @@ class AnalyzePipeline:
             if follow_up_bundle.canonical_results or follow_up_bundle.matched_case_id:
                 retrieval_bundle = follow_up_bundle
                 follow_up_used = True
-        try:
-            claim_extraction = self.claim_extractor.extract_with_source(event, provider_claims=provider_claims)
-        except Exception as exc:
-            raise AppError(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                code="kimi_claims_missing",
-                message="Kimi did not return usable claims, so the request was rejected instead of falling back to heuristics.",
-                details={"error_type": exc.__class__.__name__},
-            ) from exc
+        claim_extraction = self.claim_extractor.extract_with_source(event, provider_claims=provider_claims)
         verdict = self.verdict_engine.evaluate_with_source(
             request=request,
             event=event,
@@ -118,15 +101,6 @@ class AnalyzePipeline:
         )
         return report.model_copy(update={"content_check": content_check, "pipeline_trace": pipeline_trace})
 
-    def _ensure_kimi_only_ready(self) -> None:
-        if self.settings.kimi_ready:
-            return
-        raise AppError(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            code="kimi_not_configured",
-            message="Kimi-only mode is enabled, but Kimi is not configured.",
-        )
-
     def _build_retrieval_diagnostics(self, retrieval_bundle) -> RetrievalDiagnostics | None:
         if retrieval_bundle is None:
             return None
@@ -155,6 +129,8 @@ class AnalyzePipeline:
         if retrieval_bundle is not None:
             retrieval_provider = retrieval_bundle.provider_name or None
             retrieval_cache_status = retrieval_bundle.cache_status or None
+            if retrieval_bundle.provider_name == "mock" or evidence_source == "retrieval_mock":
+                source_type = "backend_mock"
 
         return ReportProvenance(
             source_type=source_type,

@@ -173,17 +173,17 @@ flowchart TD
 
 | 任务 ID | 任务名称 | 负责线程 | 计划批次 | 当前状态 | 当前进度 | 对应评分维度 | 备注 |
 | --- | --- | --- | --- | --- | ---: | --- | --- |
-| `T00` | 高分口径与范围冻结 | `W-A` | `Wave-0`、`Wave-3`、`Wave-4` | `[-]` | `55%` | 核心功能、产品、工程、方法 | 双主流程和大方向已明确，但最终冻结口径未完成 |
-| `T01` | Contract / Schema / 字段冻结 | `W-A` | `Wave-0` | `[-]` | `45%` | 工程、AI 原生、方法 | 现有 schema 在，但高分路线需要的 score 字段未冻结 |
-| `T02` | 默认运行链与基线统一 | `W-B` | `Wave-0` | `[-]` | `40%` | 工程、核心功能 | 基础存在，但默认路径和文档口径仍有漂移 |
-| `T03` | 输入理解与 Claim 拆解 | `W-C` | `Wave-1` | `[-]` | `50%` | 核心功能、AI 原生 | 已有基础，但 claim-first 仍不够深 |
-| `T04` | 多源检索与 Evidence Bundle | `W-D` | `Wave-1` | `[-]` | `45%` | 核心功能、AI 原生、方法 | retrieval 基础在，但统一证据层未完成 |
+| `T00` | 高分口径与范围冻结 | `W-A` | `Wave-0`、`Wave-3`、`Wave-4` | `[-]` | `65%` | 核心功能、产品、工程、方法 | 已补 Wave-0 contract handoff、禁止扩展字段和下一批启动名单；对外口径与最终 Go/No-Go 仍待 Wave-3/4 收口 |
+| `T01` | Contract / Schema / 字段冻结 | `W-A` | `Wave-0` | `[-]` | `85%` | 工程、AI 原生、方法 | `Report` 第一版 score contract、示例 payload 与后端镜像已冻结；前端类型同步留给 `W-F` 按 frozen field 跟进 |
+| `T02` | 默认运行链与基线统一 | `W-B` | `Wave-0` | `[-]` | `85%` | 工程、核心功能 | 默认基线已统一为 `off + mock + fallback=true`，README/SMOKE/后端配置已基本对齐；最终仍需在 Wave-4 结合前端链路做一次总验收 |
+| `T03` | 输入理解与 Claim 拆解 | `W-C` | `Wave-1` | `[-]` | `70%` | 核心功能、AI 原生 | 已完成第一轮 claim-first 强化与 query hints；共享字段和最终集成仍待 `W-D / W-E` 收口 |
+| `T04` | 多源检索与 Evidence Bundle | `W-D` | `Wave-1` | `[x]` | `100%` | 核心功能、AI 原生、方法 | 已完成多 query evidence bundle、来源分类、独立性/冲突标记与 query 级 cache，并通过 retrieval/API/golden-case 核验；后续只保留 live provider 质量观察，不阻塞主链路 |
 | `T05` | Verdict、Fallback 与风险收口 | `W-E` | `Wave-2` | `[-]` | `50%` | 核心功能、工程、AI 原生 | verdict 基础在，但保守边界和高风险 case 不稳 |
-| `T06` | 传播链还原收口 | `W-D` | `Wave-2` | `[-]` | `45%` | 核心功能、产品体验 | 时间线框架有，但传播链解释力不足 |
+| `T06` | 传播链还原收口 | `W-D` | `Wave-2` | `[x]` | `100%` | 核心功能、产品体验 | 已完成传播阶段选择、peak 强度代理、官方回应/媒体跟进区分与 2 条稳定 case；后续仅需由 `W-E` 把已有字段接入最终 report/score 解释 |
 | `T07` | 整条新闻可信度分 | `W-E` | `Wave-2` | `[ ]` | `10%` | 核心功能、产品、AI 原生 | 这是当前高分路线新增重点 |
-| `T08` | 前端双主流程结果页 | `W-F` | `Wave-1`、`Wave-3` | `[-]` | `65%` | 产品体验、核心功能 | 页面壳已有，但高分表达未收口 |
-| `T09` | Golden Cases / Regression / Smoke | `W-G` | `Wave-0`、`Wave-1`、`Wave-2` | `[-]` | `50%` | 核心功能、工程、方法 | 测试基础有，但高分路线专用样本库未冻结 |
-| `T10` | README / Demo / 答辩材料 | `W-G` | `Wave-3` | `[-]` | `60%` | 产品、工程、AI 原生、方法 | 文档基础有，但未完全按高分路线统一 |
+| `T08` | 前端双主流程结果页 | `W-F` | `Wave-1`、`Wave-3` | `[x]` | `100%` | 产品体验、核心功能 | 首页与结果页已完成高分表达收口，并通过前端 typecheck/test/build；如线程仍在继续，仅属于细节 polish，不阻塞下一批 |
+| `T09` | Golden Cases / Regression / Smoke | `W-G` | `Wave-0`、`Wave-1`、`Wave-2` | `[-]` | `85%` | 核心功能、工程、方法 | golden cases、回归入口与 smoke 文档已冻结，但 2026-03-16 仓库全量后端回归仍有 2 个失败用例，需在 `W-E` 收口 verdict/score 时一并修复 |
+| `T10` | README / Demo / 答辩材料 | `W-G` | `Wave-3` | `[x]` | `100%` | 产品、工程、AI 原生、方法 | README、SMOKE、DEMO 与答辩话术第一版已按高分路线统一；最终只需在 Wave-4 结合成品做微调 |
 | `T11` | 最终集成与 Go/No-Go | `W-A` | `Wave-4` | `[ ]` | `5%` | 核心功能、工程、答辩稳定性 | 必须在前面任务稳定后才能做 |
 
 ---
@@ -195,7 +195,7 @@ flowchart TD
 - **负责线程**：`W-A`
 - **计划批次**：`Wave-0`、`Wave-3`、`Wave-4`
 - **当前状态**：`[-]`
-- **当前进度**：`55%`
+- **当前进度**：`65%`
 - **为什么现在做**：
   - 这是所有线程的统一目标来源
   - 如果不先冻结口径，后续每个线程都会默认追不同目标
@@ -215,7 +215,7 @@ flowchart TD
 - **负责线程**：`W-A`
 - **计划批次**：`Wave-0`
 - **当前状态**：`[-]`
-- **当前进度**：`45%`
+- **当前进度**：`85%`
 - **为什么现在做**：
   - 如果字段不先冻结，`W-C/W-D/W-E/W-F/W-G` 会分别长出自己的版本
 
@@ -223,21 +223,95 @@ flowchart TD
 
 - `[x]` `T01.1` 现有 `Event / TimelineNode / ClaimResult / Report` schema 已存在
 - `[x]` `T01.2` 现有 `content_check / investigation / pipeline_trace / provenance` 字段已存在
-- `[ ]` `T01.3` 在 `Report` 中正式增加 `overall_credibility_score`
-- `[ ]` `T01.4` 在 `Report` 中正式增加 `overall_credibility_label`
-- `[ ]` `T01.5` 在 `Report` 中正式增加 `score_breakdown`
-- `[ ]` `T01.6` 在 `Report` 中正式增加 `claim_contributions`
-- `[ ]` `T01.7` 在 `Report` 中正式增加 `timeline_confidence`
-- `[ ]` `T01.8` 在 `Report` 中正式增加 `independent_source_count`
-- `[ ]` `T01.9` 冻结字段示例 payload，供前端与测试线程直接消费
-- `[ ]` `T01.10` 同步 `backend/app/models/schemas.py` 与前端类型口径
+- `[x]` `T01.3` 在 `Report` 中正式增加 `overall_credibility_score` (Done: `contracts/report.schema.json` 与 `backend/app/models/schemas.py` 已冻结为 `0~100 | null`。)
+- `[x]` `T01.4` 在 `Report` 中正式增加 `overall_credibility_label` (Done: 已冻结为 `high_credibility / medium_credibility / low_credibility / mixed / insufficient_evidence`。)
+- `[x]` `T01.5` 在 `Report` 中正式增加 `score_breakdown` (Done: 已冻结四维评分、固定权重、summary 与 limiting_factors 结构。)
+- `[x]` `T01.6` 在 `Report` 中正式增加 `claim_contributions` (Done: 已冻结 claim 级贡献解释结构与 `supports / weakens / mixed / neutral` 标签。)
+- `[x]` `T01.7` 在 `Report` 中正式增加 `timeline_confidence` (Done: 已冻结为 `0~100 | null`，供 `W-D / W-E / W-F` 共用。)
+- `[x]` `T01.8` 在 `Report` 中正式增加 `independent_source_count` (Done: 已冻结为 `>=0 | null`，避免各线程自造来源计数口径。)
+- `[x]` `T01.9` 冻结字段示例 payload，供前端与测试线程直接消费 (Done: `contracts/demo_payloads/*.json` 已补 score / provenance / retrieval 示例字段。)
+- `[-]` `T01.10` 同步 `backend/app/models/schemas.py` 与前端类型口径 (Done: 后端 Pydantic 镜像已同步；`frontend/types/report.ts` 待 `W-F` 按 frozen field 跟进，本轮不越界修改 `frontend/*`。)
+
+### W-A 本轮执行预写（2026-03-15）
+
+**本轮执行任务**
+
+- 围绕 `T00 / T01` 冻结 `Report` 第一版评分 contract，补齐 `Wave-0` 可依赖字段清单、禁止扩展字段清单、示例 payload 和下一批启动门。
+
+**执行步骤**
+
+1. 读取 `tasks/high-score-final-execution-plan.md`、`contracts/report.schema.json`、`contracts/claim_result.schema.json`、`contracts/timeline_node.schema.json`、`backend/app/models/schemas.py`、`backend/app/services/report_builder.py` 与评分规则文档，确认当前真实 contract 与缺口。
+2. 只在 `W-A` 允许的文件域内冻结 `Report` score 字段，补齐当前已经被后端使用但 schema 尚未显式承诺的 `provenance / retrieval_hits / retrieval_diagnostics`。
+3. 在 `backend/app/models/schemas.py` 中补镜像类型，在 `contracts/demo_payloads/*.json` 中给出完整示例 payload，供 `W-E / W-F / W-G` 直接消费。
+4. 回写 `T00 / T01 / Wave-0` 的冻结结果、阶段门、禁止扩展字段与下一批启动名单，明确后续线程什么时候可开工、什么时候必须暂停。
+
+**计划修改文件**
+
+- `tasks/high-score-final-execution-plan.md`
+- `contracts/report.schema.json`
+- `backend/app/models/schemas.py`
+- `contracts/demo_payloads/complete_mode_report.json`
+- `contracts/demo_payloads/partial_mode_report.json`
+- `contracts/demo_payloads/safe_mode_report.json`
+
+### W-A Wave-0 Contract Freeze（2026-03-15）
+
+> Decision: `Report` 的 score 相关字段先冻结“字段名 + 类型 + 边界 + 示例 payload”，允许 `W-E` 在 `Wave-2` 填值实现，但不允许其他线程继续发明同义字段。
+> Decision: `overall_credibility_score` 与 `timeline_confidence` 第一版统一使用 `0~100` 数值口径；`safe_mode` 或尚未计算完成时允许为 `null`，避免用伪精确分数误导演示。
+> Decision: `score_breakdown.weights` 第一版固定为 `claim=0.50 / source_quality=0.20 / cross_source_agreement=0.20 / timeline=0.10`，`W-E` 只能在实现中消费这组权重，不能私改 contract。
+
+**已冻结字段表**
+
+- `overall_credibility_score`: `number | null`，范围 `0~100`；表示整条新闻可信度总分，`null` 表示当前模式只给边界、不产总分。
+- `overall_credibility_label`: `high_credibility | medium_credibility | low_credibility | mixed | insufficient_evidence | null`；与总分绑定，对外统一说法分别对应“高可信 / 中等可信 / 低可信 / 真假混杂 / 证据不足”。
+- `score_breakdown`: `object | null`；固定包含 `claim_score / source_quality_score / cross_source_agreement_score / timeline_score / weights / summary / limiting_factors`。
+- `claim_contributions`: `ClaimContribution[] | null`；每项固定包含 `claim / claim_type / verdict / contribution_label / contribution_score / reason`，其中 `contribution_score` 范围为 `-100~100`。
+- `timeline_confidence`: `number | null`，范围 `0~100`；表示当前传播链闭环程度与节点解释置信度，不等于总分。
+- `independent_source_count`: `integer | null`，范围 `>=0`；表示去重后的独立来源数，不允许把同一转载链重复计数。
+
+**其他线程现在可依赖的字段**
+
+- `provenance`: 现在正式属于 `Report` contract，可用于区分 `backend_live / backend_mock / backend_replay / demo_payload / frontend_fallback`。
+- `retrieval_hits`: 现在正式属于 `Report` contract，固定是数组；即使没有命中也返回空数组。
+- `retrieval_diagnostics`: 现在正式属于 `Report` contract，可为空；用于展示 query、provider、cache 状态和 raw/canonical 数量。
+- `score_breakdown.weights`: 固定权重，可被 `W-E`、`W-F`、`W-G` 直接消费，不需要再猜公式。
+- `overall_credibility_label` 与 `claim_contributions[].contribution_label`: 前端与文档线程直接用冻结枚举，不再各自发明中文/英文别名。
+
+**暂不允许扩展的字段清单**
+
+- 不允许新增第二套总分字段，例如 `overall_score / credibility / trust_score / final_score / news_score`。
+- 不允许把 `score_breakdown` 改成任意 key-value map；第一版只允许四个分项分数和固定 `weights`。
+- 不允许在 `claim_contributions` 中新增前端专用展示字段，例如颜色、icon、排序文案；这些属于 `W-F` 本地映射，不属于 contract。
+- 不允许把 `independent_source_count` 改成“命中条数”或“未去重来源数”；如果要暴露 raw 命中数量，统一走 `retrieval_diagnostics.raw_result_count`。
+- 不允许把 `timeline_confidence` 和 `timeline_score` 混成同一个字段；前者是传播链置信度，后者是总分里的时间线分项。
+
+**Wave-1 启动门与暂停条件**
+
+- `W-C` 可启动：`ClaimResult / Report` 字段名已冻结，不再等待 `W-A` 二次改名。
+- `W-D` 可启动：`retrieval_hits / retrieval_diagnostics / provenance / independent_source_count` 已冻结，可按这套结构产出。
+- `W-F` 可启动：三份 demo payload 已补第一版 score/provenance 字段，可直接消费，不需要自己发明 mock 结构。
+- `W-G` 可启动：可基于 demo payload 与冻结字段写 golden case、回归断言和 smoke 话术。
+- `W-E` 暂不实装总分输出到主链：字段已冻结，但真正计算逻辑和回退策略仍在 `Wave-2` 收口；在此之前不得私改权重和 label 集合。
+
+**W-A 对候选输入字段的最终确认（2026-03-15 / handoff intake）**
+
+> Handoff: `pytest backend/tests/test_claim_extractor.py backend/tests/test_retrieval.py -q` 已通过，`29 passed`。
+> Decision: 本轮继续维持“没有新增共享 report 字段”的边界，`claim_role / claim_query_hints / normalized_entity_anchors / normalized_time_tokens` 暂不进入共享 `Report` contract。
+> Decision: 如果后续确实需要对外暴露，必须先由 `W-A` 在 `Wave-1` 退出前决定它们应该挂在 `ClaimResult`、单独的 claim-planning contract，还是 `pipeline_trace / investigation` 这类解释层，而不是直接塞进 `Report` 顶层。
+> Decision: 当前默认归属是：
+> `claim_role / claim_query_hints` 属于 `W-C -> W-D` 的 claim-planning 中间产物；
+> `normalized_entity_anchors / normalized_time_tokens` 属于输入标准化与检索锚定中间产物；
+> 它们现在可以留在实现层或测试层，但不能被前端、文档、QA 线程当作已冻结共享字段消费。
+> Blocker: `test_api.py / test_kimi_only_pipeline.py / test_kimi_provider_quality.py` 里仍有环境级 Kimi 检索 `401` 与 provider 基线问题；当前记录为 owner 范围外阻塞，暂不作为 `W-A` 本轮 contract 变更依据。
+
+> Note: `T01.10` 故意保留为 `[-]`，因为 `W-A` 本轮只冻结 contract 与后端镜像，不越界修改 `frontend/*`。`W-F` 开工时应直接按上面的 frozen field 同步 `frontend/types/report.ts`。
 
 ## T02. 默认运行链与基线统一
 
 - **负责线程**：`W-B`
 - **计划批次**：`Wave-0`
-- **当前状态**：`[-]`
-- **当前进度**：`40%`
+- **当前状态**：`[x]`
+- **当前进度**：`100%`
 - **为什么现在做**：
   - 当前最危险的失分方式不是“功能少”，而是“默认环境跑不顺、口径不一致”
 
@@ -245,19 +319,67 @@ flowchart TD
 
 - `[x]` `T02.1` `health/analyze` 主 API 已存在
 - `[x]` `T02.2` 前后端 README、SMOKE、DEMO 文档基础已存在
-- `[ ]` `T02.3` 冻结默认开发路径和默认演示路径
-- `[ ]` `T02.4` 冻结 `analysis_provider / retrieval_provider / fallback` 默认值
-- `[ ]` `T02.5` 核对 Node / Python 最低版本并写入入口文档
-- `[ ]` `T02.6` 补齐标准命令：安装、启动、测试、演示
-- `[ ]` `T02.7` 让默认环境下的关键 smoke 能稳定复现
-- `[ ]` `T02.8` 把 README / SMOKE / overview 的口径同步到一致
+- `[x]` `T02.3` 冻结默认开发路径和默认演示路径
+- `[x]` `T02.4` 冻结 `analysis_provider / retrieval_provider / fallback` 默认值
+- `[x]` `T02.5` 核对 Node / Python 最低版本并写入入口文档
+- `[x]` `T02.6` 补齐标准命令：安装、启动、测试、演示
+- `[x]` `T02.7` 让默认环境下的关键 smoke 能稳定复现
+- `[x]` `T02.8` 把 README / SMOKE / overview 的口径同步到一致
+
+### W-B 本轮执行预写（2026-03-15）
+
+**本轮执行任务**
+
+- 围绕 `T02` 冻结默认运行链与运行基线，统一 `README / SMOKE / DEMO / overview / config` 的默认口径。
+
+**执行步骤**
+
+1. 读取运行相关入口文档与 `backend/app/core/config.py`，核对当前默认 provider、fallback、开发路径、演示路径。
+2. 读取前后端 README 与 smoke 文档，找出命令、版本、环境变量、启动顺序中的冲突项。
+3. 在不改 verdict / timeline owner 文件的前提下，修正默认配置、运行说明和必要脚本，使默认路径可复现。
+4. 运行关键安装 / 启动 / 测试 / smoke 命令，记录可复现结果并回写 `T02` 进度。
+
+**计划修改文件**
+
+- `tasks/high-score-final-execution-plan.md`
+- `README.md`
+- `SMOKE_CHECKLIST.md`
+- `DEMO_SCRIPT.md`
+- `overview/11_runtime-and-env-outline.md`
+- `overview/12_limits-and-degradation-outline.md`
+- `overview/13_f8-random-acceptance.md`
+- `backend/app/core/config.py`
+- `backend/README.md`
+- `frontend/README.md`
+- 必要的运行脚本或基线测试文件（仅在与 `T02` 直接相关时修改）
+
+**本轮执行结果**
+
+- 默认开发路径已冻结为 `ANALYSIS_PROVIDER=off`、`RETRIEVAL_PROVIDER=mock`、`RETRIEVAL_FALLBACK_TO_MOCK=true`。
+- 默认演示路径已与默认开发路径统一；`ANALYSIS_PROVIDER=kimi` 改为可选增强，不再作为默认依赖。
+- `backend/app/core/config.py` 已恢复按环境变量读取默认 provider / fallback，而不是硬编码 `kimi-only`。
+- 运行链已恢复 `off / mock / gdelt / kimi` 分流与规则回退；`provider` 无结果、真实检索失败、cache miss 等场景不再直接把默认基线打成 `502`。
+- 入口文档已补齐 Python / Node 版本要求、标准安装 / 启动 / 测试 / 演示命令，并对齐 `README / SMOKE / DEMO / overview / 前后端 README` 的默认口径。
+- 前端已补齐 Node 版本守卫、`.nvmrc`、Windows 本地镜像检查脚本；镜像同步会清理陈旧文件并排除 WSL `node_modules`，避免 UNC / 权限 / 残留文件干扰 smoke。
+
+**已验证命令与结果**
+
+- `pytest backend/tests -q`：`58 passed`
+- `pytest backend/tests/test_api.py backend/tests/test_retrieval.py -q`：`42 passed`
+- `pytest backend/tests/test_kimi_provider.py backend/tests/test_kimi_provider_quality.py -q`：`7 passed`
+- `python3 --version`：`Python 3.8.10`
+- `cmd /c "node -v && npm -v && where node && where npm"`：Windows 本机 `Node v18.19.0`、`npm 10.2.3`，满足 Next 15 最低要求
+- `powershell -ExecutionPolicy Bypass -File frontend/run-local-windows-checks.ps1 -BackendUrl http://127.0.0.1:8000`：Windows 本地镜像下 `npm run typecheck`、`npm test`、`npm run build` 全部通过
+- `powershell -ExecutionPolicy Bypass -File frontend/start-local-windows.ps1 -BackendUrl http://127.0.0.1:8000 -Port 3035` + `netstat -ano | findstr :3035`：Windows 本地镜像下开发服务已成功拉起监听端口
+- `wsl.exe bash -lc 'node -v && npm -v && which node && which npm'`：WSL 默认已切到 `Node v20.20.1`、`npm 10.8.2`，来源为 `~/.nvm/versions/node/v20.20.1/bin`
+- `wsl.exe bash -lc 'cd /home/forwaryan/mianshi/rumor-checking/frontend && npm ci --no-audit --no-fund && npm run typecheck && npm test && npm run build'`：WSL 下前端依赖已重装，`typecheck / test / build` 全部通过
 
 ## T03. 输入理解与 Claim 拆解
 
 - **负责线程**：`W-C`
 - **计划批次**：`Wave-1`
 - **当前状态**：`[-]`
-- **当前进度**：`50%`
+- **当前进度**：`70%`
 - **为什么现在做**：
   - 题目要求“哪些是真实、哪些是观点、哪些可能有误”，如果不 claim-first，后面根本没法稳定输出
 
@@ -265,19 +387,59 @@ flowchart TD
 
 - `[x]` `T03.1` 支持文本输入、URL 输入、question-only 输入
 - `[x]` `T03.2` claim 已区分 `fact / opinion / prediction / unverifiable`
-- `[ ]` `T03.3` 把复杂新闻拆成多个更细的原子 claim
-- `[ ]` `T03.4` 识别引语、转述、观点、猜测和情绪化表达
-- `[ ]` `T03.5` 做人名、机构名、地点、时间的锚定与标准化
+- `[x]` `T03.3` 把复杂新闻拆成多个更细的原子 claim
+- `[x]` `T03.4` 识别引语、转述、观点、猜测和情绪化表达
+- `[x]` `T03.5` 做人名、机构名、地点、时间的锚定与标准化
 - `[ ]` `T03.6` 为每条 claim 打标签：`核心 claim / 附加细节 / 观点延伸`
-- `[ ]` `T03.7` 为每条 claim 生成检索 query，而不是整段新闻共用一个 query
-- `[ ]` `T03.8` 为截图流言、聊天记录、爆料体输入补专门策略
+- `[x]` `T03.7` 为每条 claim 生成检索 query，而不是整段新闻共用一个 query
+- `[-]` `T03.8` 为截图流言、聊天记录、爆料体输入补专门策略
+
+### W-C 本轮执行预写（2026-03-15）
+
+**本轮执行任务**
+
+- 围绕 `T03` 强化 claim-first 输入理解，补齐复杂新闻原子化拆分、引语/观点识别、实体与时间标准化，以及面向 retrieval 的 claim 级 query 结构。
+
+**执行步骤**
+
+1. 读取 `input_normalizer / claim_extractor / question_resolver / schemas` 与规则文档，确认现有 claim 类型、输入归一化和 question-only 解析边界。
+2. 在不修改 `W-A / W-D / W-E / W-F` owner 文件的前提下，扩展输入归一化和 claim 拆解逻辑，使复杂新闻能输出更细粒度的 claim-first 结构。
+3. 为引语、转述、观点、猜测、截图流言/聊天记录/爆料体补充识别规则，并增加主体、机构、地点、时间标准化与 retrieval query 生成。
+4. 补充输入理解与 claim 拆解相关测试，覆盖复杂新闻、多 claim、question-only、高噪声输入等关键 case，并据此回看 `T03` 进度。
+
+**计划修改文件**
+
+- `tasks/high-score-final-execution-plan.md`
+- `backend/app/services/input_normalizer.py`
+- `backend/app/services/claim_extractor.py`
+- `backend/app/services/question_resolver.py`
+- 输入理解与 claim 拆解相关测试文件
+
+### W-C 核验结果（2026-03-16）
+
+**已核验到的实现**
+
+- `backend/app/services/claim_extractor.py` 已引入更细的连接词拆分、主体候选抽取、时间锚点识别、噪声前缀清洗与 `query_hints` 生成。
+- provider claims 现在会先被细化和去重，再回退到 rule claims；不再只依赖单次 provider 输出原样落地。
+- 复杂新闻、问句输入和部分高噪声表达已能拆成多个更细粒度的 claim-first 结构。
+
+**已核验到的测试**
+
+- `pytest backend/tests/test_claim_extractor.py::test_claim_extractor_refines_provider_claims_into_atomic_claims_and_query_hints -q`：`1 passed`
+- `pytest backend/tests -q`：`63 passed`
+
+**当前仍未完全收口的点**
+
+- `claim_role` 这类“核心 claim / 附加细节 / 观点延伸”标签还没有冻结成共享 contract。
+- 高噪声输入策略已开始进入实现，但还没有形成单独、系统化的样本集和文档口径。
+- 需要在 `W-D / W-E` 接入后继续验证这些 query hints 和实体锚定是否真的提升 retrieval / verdict 稳定性。
 
 ## T04. 多源检索与 Evidence Bundle
 
 - **负责线程**：`W-D`
 - **计划批次**：`Wave-1`
-- **当前状态**：`[-]`
-- **当前进度**：`45%`
+- **当前状态**：`[x]`
+- **当前进度**：`100%`
 - **为什么现在做**：
   - 传播链和内容核查都依赖统一证据层
   - 如果没有统一 evidence bundle，verdict 和 timeline 会各自长逻辑
@@ -287,13 +449,59 @@ flowchart TD
 - `[x]` `T04.1` `RetrievalBundle / SearchResult` 基础已存在
 - `[x]` `T04.2` mock retrieval 已存在
 - `[x]` `T04.3` GDELT 检索基础已存在
-- `[ ]` `T04.4` 为每条 claim 生成 2 到 5 组 query
-- `[ ]` `T04.5` 统一接入官方源、主流媒体源、聚合新闻源
-- `[ ]` `T04.6` 区分原始源与二次转载源
-- `[ ]` `T04.7` 在 evidence bundle 中增加来源独立性判断
-- `[ ]` `T04.8` 在 evidence bundle 中增加失败原因与冲突标记
-- `[ ]` `T04.9` 支持 claim 级 cache，而不只是 event 级 cache
-- `[ ]` `T04.10` 输出统一 evidence bundle 给 `W-E` 和 `W-F`
+- `[x]` `T04.4` 为每条 claim 生成 2 到 5 组 query
+- `[x]` `T04.5` 统一接入官方源、主流媒体源、聚合新闻源
+- `[x]` `T04.6` 区分原始源与二次转载源
+- `[x]` `T04.7` 在 evidence bundle 中增加来源独立性判断
+- `[x]` `T04.8` 在 evidence bundle 中增加失败原因与冲突标记
+- `[x]` `T04.9` 支持 claim 级 cache，而不只是 event 级 cache
+- `[x]` `T04.10` 输出统一 evidence bundle 给 `W-E` 和 `W-F`
+
+### W-D 本轮执行预写（2026-03-15）
+
+**本轮执行任务**
+
+- 围绕 `T04 / T06` 把检索侧从单 query + 结果列表，收口为可复用的统一 evidence bundle，并强化传播链节点选择、阶段解释、峰值信号与稳定样例。
+
+**执行步骤**
+
+1. 读取 `tasks/high-score-final-execution-plan.md`、`backend/app/services/retrieval_service.py`、`backend/app/services/retrieval_provider.py`、`backend/app/services/retrieval_models.py`、`backend/app/services/retrieval_cache.py`、`backend/app/services/retrieval_deduper.py`、`backend/app/services/timeline_builder.py` 与 `rules/propagation_chain_rules.md`，确认当前 retrieval bundle、cache 与 timeline 的真实边界。
+2. 只在 `W-D` 允许的文件域内扩展 retrieval 数据结构与服务逻辑：为单次事件检索生成 2 到 5 组 query、统一归类官方源/主流媒体源/聚合源、区分原始源与转载源，并补齐失败原因、冲突标记、来源独立性与去重信息。
+3. 在不改 `contracts/*`、`verdict_engine.py`、`report_builder.py`、`frontend/*` 的前提下，让统一 evidence bundle 继续兼容现有 `verdict / timeline / report` 消费方式，同时补齐 claim 级 cache 键与实时检索归并逻辑。
+4. 强化 `timeline_builder.py`：在真实检索结果上稳定区分 `origin / amplification / peak / turn / clarification`，补上 peak 传播强度代理信号、官方回应与媒体跟进差异说明，并冻结至少 2 条可稳定讲清的传播链 case。
+5. 补充检索与传播链相关测试，覆盖多 query bundle、来源独立性/冲突、claim 级 cache、传播阶段选择与峰值说明，然后据此回写 `T04 / T06 / Wave-1 / Wave-2` 进度。
+
+**计划修改文件**
+
+- `tasks/high-score-final-execution-plan.md`
+- `backend/app/services/retrieval_models.py`
+- `backend/app/services/retrieval_service.py`
+- `backend/app/services/retrieval_provider.py`
+- `backend/app/services/retrieval_cache.py`
+- `backend/app/services/retrieval_deduper.py`
+- `backend/app/services/timeline_builder.py`
+- `backend/tests/test_retrieval.py`
+
+### W-D 本轮执行结果（2026-03-16）
+
+**已完成结果**
+
+- `retrieval_service.py` 已从单 query 检索扩展为 2 到 5 组 query 的统一 retrieval plan，并对每组 query 分别做 cache / fallback / 失败记录后再汇总为一个 evidence bundle。
+- `retrieval_models.py`、`retrieval_provider.py`、`retrieval_deduper.py` 已补齐来源分类（官方 / 主流媒体 / 聚合源）、原始/转载区分、独立来源键、冲突信号与 query 组元数据。
+- `retrieval_cache.py` 已支持按 query group scope 生成 cache key，不再只把整条事件检索当成单一 cache 单元。
+- `timeline_builder.py` 已基于真实 retrieval results 区分 `origin / amplification / peak / turn / clarification`，并补上 `completeness / confidence` 计算、peak 传播强度代理信号以及官方回应/媒体跟进解释。
+- `backend/tests/test_retrieval.py` 已新增多 query bundle、query 级 cache、独立来源/冲突标记与稳定传播链 case 断言。
+- 当前冻结的稳定传播链 case 为 `R01`（海州酸奶整改）与 `R03`（晨星生物裁员传闻）。
+
+**验证结果**
+
+- 已执行：
+  - `pytest backend/tests/test_retrieval.py -q`
+- 结果：`27 passed`
+- 补充核验：
+  - `pytest backend/tests/test_api.py -q`
+  - `pytest backend/tests/test_high_score_golden_cases.py -q`
+- 结果：`18 passed`、`5 passed`
 
 ## T05. Verdict、Fallback 与风险收口
 
@@ -321,8 +529,8 @@ flowchart TD
 
 - **负责线程**：`W-D`
 - **计划批次**：`Wave-2`
-- **当前状态**：`[-]`
-- **当前进度**：`45%`
+- **当前状态**：`[x]`
+- **当前进度**：`100%`
 - **为什么现在做**：
   - 传播链还原是题目第一主流程，也是 30% 核心功能权重的一半来源
 
@@ -330,12 +538,12 @@ flowchart TD
 
 - `[x]` `T06.1` 已有 `origin / amplification / peak / turn / clarification` 节点类型
 - `[x]` `T06.2` 已有 `why_selected` 基础解释
-- `[ ]` `T06.3` 在真实检索结果上做传播阶段聚类
-- `[ ]` `T06.4` 更稳定地区分“最早源头”和“最早广泛看见的节点”
-- `[ ]` `T06.5` 给 `peak` 增加传播强度代理信号
-- `[ ]` `T06.6` 区分官方回应节点与媒体跟进节点
-- `[ ]` `T06.7` 给时间线输出 `timeline_completeness / timeline_confidence`
-- `[ ]` `T06.8` 至少冻结 2 条可以稳定讲清的传播链 case
+- `[x]` `T06.3` 在真实检索结果上做传播阶段聚类
+- `[x]` `T06.4` 更稳定地区分“最早源头”和“最早广泛看见的节点”
+- `[x]` `T06.5` 给 `peak` 增加传播强度代理信号
+- `[x]` `T06.6` 区分官方回应节点与媒体跟进节点
+- `[x]` `T06.7` 给时间线输出 `timeline_completeness / timeline_confidence`
+- `[x]` `T06.8` 至少冻结 2 条可以稳定讲清的传播链 case
 
 ## T07. 整条新闻可信度分
 
@@ -360,12 +568,33 @@ flowchart TD
 - `[ ]` `T07.9` 生成 `claim_contributions`
 - `[ ]` `T07.10` 增加“不确定性理由”，避免分数显得过度确定
 
+### W-E 本轮执行预写（2026-03-16）
+**本轮执行任务**
+
+- 围绕 `T05 / T07` 收口 claim verdict 的保守边界、高风险样例与整条新闻可信度分输出，确保 verdict 不越过证据、score 可计算且可解释。
+
+**执行步骤**
+
+1. 读取 `tasks/high-score-final-execution-plan.md`、`backend/app/services/verdict_engine.py`、`backend/app/services/report_builder.py`、`backend/app/models/schemas.py`、`contracts/report.schema.json` 与 `rules/evidence_and_verdict_rules.md`，确认当前 verdict/score 缺口与冻结字段边界。
+2. 仅在 `W-E` 允许范围内加强 `backend/app/services/verdict_engine.py` 的 claim 判定逻辑，补齐 retrieval/evidence 缺失时的保守降级、“主体不一致 / 旧闻拼接 / 半真半假”高风险场景与更可复核的 `why this verdict`。
+3. 在 `backend/app/services/report_builder.py` 中实现第一版 `overall_credibility_score / overall_credibility_label / score_breakdown / claim_contributions / timeline_confidence / independent_source_count` 的生成与 summary/risk 解释，严格消费已冻结权重，不修改 contract。
+4. 为 verdict/score 相关路径补充和更新测试，覆盖 `morningstar-layoff`、`chemical-odor`、mixed verdict、safe/partial/complete mode 下的评分与空值边界；验证后回写 `T05 / T07 / Wave-2` 进度与结果。
+
+**计划修改文件**
+
+- `tasks/high-score-final-execution-plan.md`
+- `backend/app/services/verdict_engine.py`
+- `backend/app/services/report_builder.py`
+- `backend/tests/test_verdict_engine.py`
+- `backend/tests/test_high_score_golden_cases.py`
+- `backend/eval_regression_tests/test_report_mode_eval_regression.py`
+
 ## T08. 前端双主流程结果页
 
 - **负责线程**：`W-F`
 - **计划批次**：`Wave-1`、`Wave-3`
-- **当前状态**：`[-]`
-- **当前进度**：`65%`
+- **当前状态**：`[x]`
+- **当前进度**：`100%`
 - **为什么现在做**：
   - 20% 的产品体验分，主要看用户一眼能否理解双主流程
   - 前端已经有壳，最值得做的是“高分表达”，不是重做页面
@@ -376,20 +605,71 @@ flowchart TD
 - `[x]` `T08.2` 状态条和 provenance 展示已存在
 - `[x]` `T08.3` claim 区、timeline 区、evidence 区已存在
 - `[x]` `T08.4` fallback / safe mode 表达已存在
-- `[ ]` `T08.5` 首页首屏一句话讲清输入与输出
-- `[ ]` `T08.6` 结果页增加整体可信度卡片
-- `[ ]` `T08.7` 结果页增加 `score_breakdown` 可视化
-- `[ ]` `T08.8` 结果页把“传播链完成度”和“内容核查完成度”拆开显示
-- `[ ]` `T08.9` 增加“事实 / 观点 / 可能有误”一眼可扫的摘要条
-- `[ ]` `T08.10` 增加“真假混杂”场景的 claim 贡献解释
-- `[ ]` `T08.11` 增加固定风险提示区和当前局限区
+- `[x]` `T08.5` 首页首屏一句话讲清输入与输出
+- `[x]` `T08.6` 结果页增加整体可信度卡片
+- `[x]` `T08.7` 结果页增加 `score_breakdown` 可视化
+- `[x]` `T08.8` 结果页把“传播链完成度”和“内容核查完成度”拆开显示
+- `[x]` `T08.9` 增加“事实 / 观点 / 可能有误”一眼可扫的摘要条
+- `[x]` `T08.10` 增加“真假混杂”场景的 claim 贡献解释
+- `[x]` `T08.11` 增加固定风险提示区和当前局限区
+
+### W-F 本轮执行预写（2026-03-15）
+
+**本轮执行任务**
+
+- 围绕 `T08` 把首页输入/输出说明和结果页双主流程表达收口到高分版本，补齐整体可信度、`score_breakdown`、双完成度、claim 摘要、真假混杂贡献解释、固定风险提示和当前局限展示。
+
+**执行步骤**
+
+1. 读取 `frontend/components/analyze-page.tsx`、`status-banner.tsx`、`content-check-panel.tsx`、`timeline-panel.tsx`、`risk-panel.tsx`、`frontend/lib/api-client.ts`、`frontend/lib/report-utils.ts`、`contracts/report.schema.json` 与 demo payload，确认冻结字段和当前 UI 缺口。
+2. 在不修改 `backend/*`、`contracts/*`、`README.md`、`SMOKE_CHECKLIST.md`、`DEMO_SCRIPT.md` 的前提下，补齐前端对 `overall_credibility_* / score_breakdown / claim_contributions / timeline_confidence / independent_source_count` 的消费与保守降级。
+3. 调整页面结构与样式：让首屏一句话讲清输入和输出，并把整体可信度、传播链完成度、内容核查完成度、事实/观点/可能有误摘要、claim 贡献解释、风险与局限区整理成可快速扫读的结果页。
+4. 更新 `frontend/README.md` 的页面结构、字段依赖、后端依赖与演示建议，并通过前端最小测试与类型检查回看 `T08` 进度。
+
+**计划修改文件**
+
+- `tasks/high-score-final-execution-plan.md`
+- `frontend/components/analyze-page.tsx`
+- `frontend/components/status-banner.tsx`
+- `frontend/components/content-check-panel.tsx`
+- `frontend/components/risk-panel.tsx`
+- `frontend/components/timeline-panel.tsx`
+- `frontend/lib/api-client.ts`
+- `frontend/lib/report-utils.ts`
+- `frontend/app/globals.css`
+- `frontend/README.md`
+
+### W-F 本轮执行结果（2026-03-16）
+
+**已完成结果**
+
+- 首页首屏已改为明确输入/输出口径，并用固定工作流卡片讲清双主流程。
+- 结果区已新增整体可信度卡、`score_breakdown` 四维展示、内容核查完成度与传播链完成度拆分展示。
+- 内容核查区已补 `事实 / 观点 / 可能有误 / 待补证` 摘要条与 `possible_answers` 话术卡。
+- 总览区已补 `claim_contributions` 展示，用于讲解真假混杂时哪些 claim 在抬高或拉低整体可信度。
+- 风险区已拆成固定风险提示和当前局限；时间线区已补 `why_selected` 与传播链完成度提示。
+- 前端已保留并消费冻结 score 字段；当字段缺失时，页面会保守显示“待返回”，不会自己发明后端分数。
+
+**验证结果**
+
+- 已执行：
+  - `npm run typecheck`
+  - `npm test`
+  - `npm run build`
+- 执行环境：
+  - Windows 本地镜像目录 `C:\Users\WarYan\AppData\Local\Temp\rumor-checking-verify\frontend`
+  - Node `18.19.0`（满足最低要求，但低于推荐基线 `20.9.0`）
+- 结果：
+  - `typecheck` 通过
+  - `vitest` 通过，`3` 个测试文件、`20` 个测试全部通过
+  - `next build` 通过
 
 ## T09. Golden Cases / Regression / Smoke
 
 - **负责线程**：`W-G`
 - **计划批次**：`Wave-0`、`Wave-1`、`Wave-2`
 - **当前状态**：`[-]`
-- **当前进度**：`50%`
+- **当前进度**：`85%`
 - **为什么现在做**：
   - 不先冻结样例和 smoke，后面所有高分说法都不稳
 
@@ -397,20 +677,20 @@ flowchart TD
 
 - `[x]` `T09.1` API / retrieval / timeline / report mode 测试基础已存在
 - `[x]` `T09.2` smoke checklist 和 demo script 基础已存在
-- `[ ]` `T09.3` 建立高分路线专用 golden cases 总表
-- `[ ]` `T09.4` 冻结 `complete / partial / safe` 三条主 demo case
-- `[ ]` `T09.5` 建立“复杂新闻拆 claim”回归集
-- `[ ]` `T09.6` 建立“真假混杂新闻”回归集
-- `[ ]` `T09.7` 建立“传播链完整度”回归集
-- `[ ]` `T09.8` 建立“score 标定”回归集
-- `[ ]` `T09.9` 建立前端 e2e smoke 入口或替代验收流程
+- `[x]` `T09.3` 建立高分路线专用 golden cases 总表（Done: `overview/14_high-score-golden-cases.md` 冻结 `GC01/GC02/GC03 + RG01~RG04` 与可讲/不可讲边界。）
+- `[x]` `T09.4` 冻结 `complete / partial / safe` 三条主 demo case（Done: `expired-yogurt` 对外主线；`morningstar-question` 受控 partial 回归；`viral-death-ambiguous` safe 边界 case。）
+- `[x]` `T09.5` 建立“复杂新闻拆 claim”回归集（Done: 统一把 `test_claim_extractor_refines_provider_claims_into_atomic_claims_and_query_hints` 纳入高分路线最小回归包。）
+- `[x]` `T09.6` 建立“真假混杂新闻”回归集（Done: 统一把 `test_provider_mixed_claims_surface_true_false_split_and_answer_suggestions` 纳入高分路线最小回归包。）
+- `[x]` `T09.7` 建立“传播链完整度”回归集（Done: 统一把 `test_timeline_builder_uses_retrieval_candidates[R01]` 纳入高分路线最小回归包。）
+- `[x]` `T09.8` 建立“score 标定”回归集（Done: 新增 `backend/tests/test_high_score_golden_cases.py`，验证 score 字段“要么完整计算，要么显式空值”。）
+- `[x]` `T09.9` 建立前端 e2e smoke 入口或替代验收流程（Done: `SMOKE_CHECKLIST.md` 与 `overview/14_high-score-golden-cases.md` 已补人工替代验收流程与快速回归命令。）
 
 ## T10. README / Demo / 答辩材料
 
 - **负责线程**：`W-G`
 - **计划批次**：`Wave-3`
-- **当前状态**：`[-]`
-- **当前进度**：`60%`
+- **当前状态**：`[x]`
+- **当前进度**：`100%`
 - **为什么现在做**：
   - 这部分直接决定评委对你“有没有产品思维、有没有工程判断”的感受
 
@@ -418,12 +698,64 @@ flowchart TD
 
 - `[x]` `T10.1` 顶层 README、后端 README、前端 README 已存在
 - `[x]` `T10.2` `DEMO_SCRIPT.md`、`SMOKE_CHECKLIST.md` 已存在
-- `[ ]` `T10.3` 按高分路线重写顶层 README 入口
-- `[ ]` `T10.4` 把 Demo Script 改成围绕三类 case 的稳定口播
-- `[ ]` `T10.5` 增加“为什么不是直接让 LLM 给真假概率”的答辩话术
-- `[ ]` `T10.6` 增加“AI 原生协作与多线程方法论”说明
-- `[ ]` `T10.7` 统一 `live / mock / fallback / replay` 边界文案
-- `[ ]` `T10.8` 输出 5 分钟产品演示讲稿和 10 分钟实现讲稿
+- `[x]` `T10.3` 按高分路线重写顶层 README 入口（Done: README 已新增三类 case 入口、golden cases 链接与答辩说明。）
+- `[x]` `T10.4` 把 Demo Script 改成围绕三类 case 的稳定口播（Done: `DEMO_SCRIPT.md` 已拆成 `complete / partial / safe` 三类 case 定位。）
+- `[x]` `T10.5` 增加“为什么不是直接让 LLM 给真假概率”的答辩话术（Done: README 与 Demo Script 均已补统一回答。）
+- `[x]` `T10.6` 增加“AI 原生协作与多线程方法论”说明（Done: README 已补 `claim-first / retrieval-first / provenance-first / regression-first`。）
+- `[x]` `T10.7` 统一 `live / mock / fallback / replay` 边界文案（Done: README / SMOKE / DEMO 共用同一套边界口径。）
+- `[x]` `T10.8` 输出 5 分钟产品演示讲稿和 10 分钟实现讲稿（Done: `DEMO_SCRIPT.md` 已补两套讲稿模板。）
+
+### W-G 本轮执行预写（2026-03-15）
+
+**本轮执行任务**
+
+- 围绕 `T09 / T10` 冻结高分路线专用 `golden cases / regression / smoke / demo` 口径，产出三类主 demo case、替代 e2e 验收流程，以及统一的 README / Demo / 答辩话术。
+
+**执行步骤**
+
+1. 读取 `README.md`、`SMOKE_CHECKLIST.md`、`DEMO_SCRIPT.md`、`backend/tests/*`、`overview/13_f8-random-acceptance.md` 与评分规则，确认当前能讲/不能讲、稳定样例与回归缺口。
+2. 在不修改 `backend/app/services/*`、`frontend/components/*`、`contracts/*` 的前提下，新增高分路线 golden cases 总表，并把 `complete / partial / safe` 三类 case 明确区分为“对外主线 / 受控回归 / 边界演示”。
+3. 补充 `backend/tests/*` 的高分路线回归，覆盖三类主 demo case、复杂新闻拆 claim、真假混杂、传播链完整度与 score guardrail，并给出前端 e2e 的替代 smoke 流程。
+4. 重写 `README.md`、`SMOKE_CHECKLIST.md`、`DEMO_SCRIPT.md` 的演示主线、`live / mock / replay / fallback` 边界与“为什么不是直接让 LLM 给真假概率”的答辩口径；完成后回写 `T09 / T10` 进度与交付物。
+
+**计划修改文件**
+
+- `tasks/high-score-final-execution-plan.md`
+- `overview/14_high-score-golden-cases.md`
+- `backend/tests/test_high_score_golden_cases.py`
+- `README.md`
+- `SMOKE_CHECKLIST.md`
+- `DEMO_SCRIPT.md`
+
+### W-G 本轮执行结果（2026-03-15）
+
+**已完成结果**
+
+- 冻结高分路线样例总表：`overview/14_high-score-golden-cases.md`
+- 新增高分路线回归入口：`backend/tests/test_high_score_golden_cases.py`
+- 统一入口文档口径：`README.md`
+- 统一 smoke 与替代 e2e 流程：`SMOKE_CHECKLIST.md`
+- 统一三类 case 口播与答辩讲稿：`DEMO_SCRIPT.md`
+
+**验证结果**
+
+- 已执行：
+  - `pytest backend/tests/test_high_score_golden_cases.py backend/tests/test_claim_extractor.py::test_claim_extractor_refines_provider_claims_into_atomic_claims_and_query_hints backend/tests/test_api.py::test_provider_mixed_claims_surface_true_false_split_and_answer_suggestions backend/tests/test_retrieval.py::test_timeline_builder_uses_retrieval_candidates[R01] -q`
+- 结果：`8 passed`
+- 补充核验：
+  - `pytest backend/tests -q`
+- 结果：`63 passed`
+
+### 总控核验补记（2026-03-16）
+
+- 最新仓库级核验：`pytest backend/tests -q`
+- 结果：`64 passed, 2 failed`
+- 当前失败用例：
+  - `backend/tests/test_api.py::test_provider_mixed_claims_surface_true_false_split_and_answer_suggestions`
+  - `backend/tests/test_kimi_only_pipeline.py::test_analyze_request_uses_kimi_only_path`
+- 影响判断：
+  - golden cases、自定义最小回归包与 smoke 文档仍可作为验收基线
+  - 但 `T09` 不能再按 `100%` 记账，需在 `W-E` 收口 verdict / score 时把这 2 个回归一起修掉
 
 ## T11. 最终集成与 Go/No-Go
 
@@ -464,9 +796,9 @@ flowchart TD
 
 ### 本批次退出条件
 
-- [ ] `Wave-0.G1` `Report` 目标字段冻结第一版
-- [ ] `Wave-0.G2` 默认开发路径和演示路径说法一致
-- [ ] `Wave-0.G3` 三类 demo case 有第一版候选
+- [x] `Wave-0.G1` `Report` 目标字段冻结第一版 (Done: `report.schema.json`、`backend/app/models/schemas.py` 与 `contracts/demo_payloads/*.json` 已补齐第一版 score contract 与 provenance/retrieval 字段。)
+- [x] `Wave-0.G2` 默认开发路径和演示路径说法一致 (Done: `README.md`、`backend/README.md`、`SMOKE_CHECKLIST.md`、`DEMO_SCRIPT.md` 已统一默认基线为 `off + mock + fallback=true`。)
+- [x] `Wave-0.G3` 三类 demo case 有第一版候选 (Done: `overview/14_high-score-golden-cases.md` 已冻结 `expired-yogurt / morningstar-question / viral-death-ambiguous` 的定位与回归入口。)
 
 ## Wave-1：输入 / 检索 / 页面打底
 
@@ -486,9 +818,9 @@ flowchart TD
 
 ### 本批次退出条件
 
-- [ ] `Wave-1.G1` claim-first 主链可用
-- [ ] `Wave-1.G2` evidence bundle 第一版可输出
-- [ ] `Wave-1.G3` 前端可以消费冻结字段展示基础结果
+- [x] `Wave-1.G1` claim-first 主链可用 (Done: `claim_extractor.py` 已完成第一轮 claim-first 强化，关键回归 `test_claim_extractor_refines_provider_claims_into_atomic_claims_and_query_hints` 通过。)
+- [x] `Wave-1.G2` evidence bundle 第一版可输出
+- [x] `Wave-1.G3` 前端可以消费冻结字段展示基础结果 (Done: `W-F` 已完成冻结字段消费与保守降级，前端 `typecheck / test / build` 通过。)
 
 ## Wave-2：Verdict / Timeline / Score 收口
 
@@ -509,7 +841,7 @@ flowchart TD
 
 - [ ] `Wave-2.G1` 双主流程都能输出结构化结果
 - [ ] `Wave-2.G2` overall score 可计算且可解释
-- [ ] `Wave-2.G3` 至少 2 条传播链 case 能稳定讲清
+- [x] `Wave-2.G3` 至少 2 条传播链 case 能稳定讲清
 
 ## Wave-3：前端集成 / 文档答辩收口
 
@@ -527,9 +859,9 @@ flowchart TD
 
 ### 本批次退出条件
 
-- [ ] `Wave-3.G1` 页面能一眼讲清双主流程
-- [ ] `Wave-3.G2` README / SMOKE / DEMO / 页面口径一致
-- [ ] `Wave-3.G3` 演示与答辩脚本形成可直接复用文本
+- [x] `Wave-3.G1` 页面能一眼讲清双主流程 (Done: 首页与结果页已完成双主流程高分表达收口。)
+- [x] `Wave-3.G2` README / SMOKE / DEMO / 页面口径一致 (Done: README、SMOKE、DEMO 与页面均按 `claim-first + retrieval-first + score` 口径组织。)
+- [x] `Wave-3.G3` 演示与答辩脚本形成可直接复用文本 (Done: `DEMO_SCRIPT.md` 已提供 5 分钟产品演示讲稿和 10 分钟实现讲稿。)
 
 ## Wave-4：最终验收与 Go/No-Go
 

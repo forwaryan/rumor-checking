@@ -1,7 +1,15 @@
 {
   "name": "rumor-checking-frontend",
   "private": true,
+  "engines": {
+    "node": ">=18.18.0"
+  },
   "scripts": {
+    "check:node": "node scripts/check-node-version.js",
+    "predev": "npm run check:node",
+    "prebuild": "npm run check:node",
+    "pretypecheck": "npm run check:node",
+    "pretest": "npm run check:node",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

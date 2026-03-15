@@ -11,6 +11,7 @@ from backend.app.services.retrieval_provider import KimiWebSearchProvider
 
 
 def test_health_reports_degraded_when_kimi_is_not_configured(monkeypatch):
+    monkeypatch.setenv("ANALYSIS_PROVIDER", "kimi")
     monkeypatch.setenv("KIMI_API_KEY", "")
     get_settings.cache_clear()
 
@@ -22,7 +23,11 @@ def test_health_reports_degraded_when_kimi_is_not_configured(monkeypatch):
     assert response.json()["status"] == "degraded"
 
 
-def test_analyze_request_fails_loudly_when_kimi_returns_no_claims(monkeypatch):
+def test_analyze_request_falls_back_to_rule_claims_when_kimi_returns_no_claims(monkeypatch):
+    monkeypatch.setenv("ANALYSIS_PROVIDER", "kimi")
+    monkeypatch.setenv("RETRIEVAL_PROVIDER", "kimi")
+    monkeypatch.setenv("KIMI_API_KEY", "test-kimi-key")
+
     def fake_search(self, query_text: str):
         return [
             SearchResult(
@@ -59,12 +64,18 @@ def test_analyze_request_fails_loudly_when_kimi_returns_no_claims(monkeypatch):
             json={"raw_input": "最近有个女网红脑出血死了真的假的？", "input_type": "question"},
         )
 
-    assert response.status_code == 502
-    body = response.json()
-    assert body["error"]["code"] == "kimi_claims_missing"
+    assert response.status_code == 200
+    report = response.json()
+    assert report["provenance"]["retrieval_provider"] == "kimi"
+    assert report["provenance"]["claim_source"] == "rule"
+    assert report["claim_results"]
 
 
 def test_analyze_request_uses_kimi_only_path(monkeypatch):
+    monkeypatch.setenv("ANALYSIS_PROVIDER", "kimi")
+    monkeypatch.setenv("RETRIEVAL_PROVIDER", "kimi")
+    monkeypatch.setenv("KIMI_API_KEY", "test-kimi-key")
+
     def fake_search(self, query_text: str):
         return [
             SearchResult(

@@ -1,3 +1,4 @@
+import { getClaimSummaryBuckets } from "@/lib/report-high-score";
 import { formatConfidence, getVerdictLabel } from "@/lib/report-utils";
 import type { ContentCheck, ContentCheckItem, Report } from "@/types/report";
 
@@ -150,6 +151,7 @@ export function ContentCheckPanel({ report }: ContentCheckPanelProps) {
   }
 
   const contentCheck = report.content_check ?? buildFallbackContentCheck(report);
+  const summaryBuckets = getClaimSummaryBuckets(report);
 
   return (
     <section className="panel panel--content-check">
@@ -160,6 +162,16 @@ export function ContentCheckPanel({ report }: ContentCheckPanelProps) {
         </div>
       </div>
 
+      <div className="claim-summary-strip">
+        {summaryBuckets.map((bucket) => (
+          <article key={bucket.key} className={`claim-summary-card claim-summary-card--${bucket.tone}`}>
+            <span>{bucket.label}</span>
+            <strong>{bucket.count}</strong>
+            <p>{bucket.helper}</p>
+          </article>
+        ))}
+      </div>
+
       <div className="content-check-grid">
         {bucketCopy.map((bucket) => (
           <div key={bucket.key} className="content-check__block">
@@ -168,6 +180,20 @@ export function ContentCheckPanel({ report }: ContentCheckPanelProps) {
           </div>
         ))}
       </div>
+
+      {contentCheck.possible_answers.length ? (
+        <div className="content-check__answers">
+          <h3>推荐回答方式</h3>
+          <div className="content-check__answer-list">
+            {contentCheck.possible_answers.map((item) => (
+              <article key={`${item.angle}-${item.answer}`} className="content-check__answer-card">
+                <strong>{item.angle}</strong>
+                <p>{item.answer}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

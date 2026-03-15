@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseReport } from "@/lib/api-client";
+import type { Report } from "@/types/report";
 
 describe("parseReport", () => {
   it("parses a full backend report payload with provenance", () => {
@@ -48,6 +49,34 @@ describe("parseReport", () => {
       final_summary: "当前已有部分可核验结论，但证据链和时间线仍不完整，需要保留边界。",
       risks: ["存在相互冲突的证据，不能把单一版本当成最终事实。"],
       sources: [],
+      overall_credibility_score: 57,
+      overall_credibility_label: "mixed",
+      score_breakdown: {
+        claim_score: 58,
+        source_quality_score: 70,
+        cross_source_agreement_score: 40,
+        timeline_score: 60,
+        weights: {
+          claim: 0.5,
+          source_quality: 0.2,
+          cross_source_agreement: 0.2,
+          timeline: 0.1,
+        },
+        summary: "官方核查已支撑部分事实，但停产范围仍存在冲突。",
+        limiting_factors: ["停产范围缺少更高优先级的统一证据。"],
+      },
+      claim_contributions: [
+        {
+          claim: "区生态环境局已经进场核查。",
+          claim_type: "fact",
+          verdict: "supported",
+          contribution_label: "supports",
+          contribution_score: 20,
+          reason: "官方介入核查显著抬升了事件可验证性。",
+        },
+      ],
+      timeline_confidence: 61,
+      independent_source_count: 3,
       provenance: {
         source_type: "backend_live",
         event_source: "provider_enriched",
@@ -69,6 +98,8 @@ describe("parseReport", () => {
     expect(report.provenance?.source_type).toBe("backend_live");
     expect(report.provenance?.evidence_source).toBe("retrieval_live");
     expect(report.provenance?.provider_used).toBe(true);
+    expect((report as Report & Record<string, unknown>).overall_credibility_score).toBe(57);
+    expect(((report as Report & Record<string, unknown>).score_breakdown as { timeline_score?: number })?.timeline_score).toBe(60);
   });
 
   it("fills conservative defaults for sparse payloads", () => {
