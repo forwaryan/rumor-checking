@@ -30,6 +30,13 @@ def _as_int(value: str | None, default: int) -> int:
         return default
 
 
+def _normalize_retrieval_provider(value: str | None, default: str = "mock") -> str:
+    normalized = (value or default).strip().lower()
+    if normalized == "agent":
+        return "kimi"
+    return normalized
+
+
 def _read_env_file(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
     if not path.exists():
@@ -101,12 +108,16 @@ class Settings:
         return self.analysis_provider == "kimi" and bool(self.kimi_api_key)
 
     @property
+    def uses_agent_retrieval(self) -> bool:
+        return self.retrieval_provider == "kimi"
+
+    @property
     def kimi_ready(self) -> bool:
         return not self.kimi_required or bool(self.kimi_api_key)
 
     @property
     def kimi_required(self) -> bool:
-        return self.analysis_provider == "kimi" or self.retrieval_provider == "kimi"
+        return self.analysis_provider == "kimi" or self.uses_agent_retrieval
 
 
 @lru_cache()
@@ -126,10 +137,10 @@ def get_settings() -> Settings:
         kimi_api_key=os.getenv("KIMI_API_KEY"),
         kimi_base_url=os.getenv("KIMI_BASE_URL", "https://api.moonshot.cn/v1").rstrip("/"),
         kimi_model=os.getenv("KIMI_MODEL", "moonshot-v1-8k").strip(),
-        kimi_search_model=os.getenv("KIMI_SEARCH_MODEL", os.getenv("KIMI_MODEL", "kimi-k2-turbo-preview")).strip(),
+        kimi_search_model=os.getenv("KIMI_SEARCH_MODEL", "kimi-k2-turbo-preview").strip(),
         kimi_temperature=_as_float(os.getenv("KIMI_TEMPERATURE"), 0.1),
         provider_timeout_seconds=_as_float(os.getenv("PROVIDER_TIMEOUT_SECONDS"), 20.0),
-        retrieval_provider=os.getenv("RETRIEVAL_PROVIDER", "mock").strip().lower(),
+        retrieval_provider=_normalize_retrieval_provider(os.getenv("RETRIEVAL_PROVIDER"), default="mock"),
         retrieval_timeout_seconds=_as_float(os.getenv("RETRIEVAL_TIMEOUT_SECONDS"), 12.0),
         retrieval_max_results=max(_as_int(os.getenv("RETRIEVAL_MAX_RESULTS"), 8), 1),
         retrieval_cache_enabled=_as_bool(os.getenv("RETRIEVAL_CACHE_ENABLED"), default=True),

@@ -100,6 +100,7 @@ ONGOING_UNCERTAINTY_MARKERS = (
 CONTEXT_ONLY_MARKERS = ("回应", "传闻", "传言", "网传", "热议", "消息", "报道")
 POSITIVE_ASSERTION_MARKERS = ("确认", "证实", "停业", "停产", "暂停", "整改", "发现", "受伤", "送医", "去世", "入院", "恢复")
 FULL_SCOPE_CLAIM_MARKERS = ("完全", "全面", "全部", "整体")
+UNRELIABLE_ANCHOR_MARKERS = ("确认", "存在", "已经", "标题", "摘要", "来源", "时间", "原始问题", "第一次检索后")
 STRONG_OVERLAP_TERMS = {
     "停产",
     "停业",
@@ -355,12 +356,15 @@ class VerdictEngine:
     def _subject_anchors_for_claim(self, *, claim_text: str, event: NormalizedEvent) -> List[str]:
         if is_broad_trend_claim(claim_text):
             return []
-        claim_anchors = extract_subject_anchors(claim_text)
+        claim_anchors = self._filter_subject_anchors(extract_subject_anchors(claim_text))
         if claim_anchors:
             return claim_anchors
         if event.input_type != "question_only":
             return []
-        return extract_subject_anchors(" ".join(filter(None, [event.title, event.summary, event.raw_input])))
+        return self._filter_subject_anchors(extract_subject_anchors(" ".join(filter(None, [event.title, event.summary, event.raw_input]))))
+
+    def _filter_subject_anchors(self, anchors: List[str]) -> List[str]:
+        return [anchor for anchor in anchors if not any(marker in anchor for marker in UNRELIABLE_ANCHOR_MARKERS)]
 
     def _evaluate_source_gap_claim(self, evidence_pool: List[EvidenceItem]) -> Tuple[str, str, str, List[EvidenceItem]] | None:
         supporting = [item for item in evidence_pool if self._looks_like_source_gap_evidence(item)]
@@ -519,7 +523,6 @@ class VerdictEngine:
             if not self._has_sufficient_overlap(claim_terms, overlap):
                 if not (full_scope_claim and self._contains_evidence_refutation(haystack)):
                     continue
-            continue
             matched_segment = True
             evidence_is_negative = self._contains_evidence_refutation(haystack)
             if not evidence_is_negative and self._is_context_only_segment(haystack):
@@ -556,11 +559,7 @@ class VerdictEngine:
         return "low"
 
     def _has_decisive_high_trust_hits(self, items: List[EvidenceItem]) -> bool:
-        if not items:
-            return False
-        if any(item.source_tier == DECISIVE_HIGH_CONFIDENCE_TIER for item in items):
-            return True
-        return len(items) >= 2
+        return bool(items)
 
     def _extract_quantity_tokens(self, text: str) -> List[str]:
         return [match.group(0) for match in QUANTITY_TOKEN_PATTERN.finditer(text)]

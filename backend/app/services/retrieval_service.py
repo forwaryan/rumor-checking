@@ -93,7 +93,7 @@ class RetrievalService:
     def _build_provider(self) -> Optional[RetrievalProvider]:
         if self.settings.retrieval_provider == "gdelt":
             return GdeltNewsProvider(settings=self.settings)
-        if self.settings.retrieval_provider == "kimi":
+        if self.settings.uses_agent_retrieval:
             return KimiWebSearchProvider(settings=self.settings)
         return None
 
@@ -398,7 +398,7 @@ class RetrievalService:
             rewritten_query = self._rewrite_question_query(event.raw_input)
             official_query = self._extend_query(rewritten_query or primary_query, *OFFICIAL_QUERY_TERMS, event.source_name)
             propagation_query = self._extend_query(rewritten_query or primary_query, *PROPAGATION_QUERY_TERMS)
-            primary_label = "question_raw" if self.settings.retrieval_provider == "kimi" else "question_core"
+            primary_label = "question_raw" if self.settings.uses_agent_retrieval else "question_core"
             return self._dedupe_query_plan(
                 [
                     RetrievalQuerySpec(
@@ -493,7 +493,7 @@ class RetrievalService:
 
     def _build_primary_query(self, event: NormalizedEvent) -> str:
         if event.input_type == "question_only":
-            if self.settings.retrieval_provider == "kimi":
+            if self.settings.uses_agent_retrieval:
                 return event.raw_input.strip().rstrip("\uFF1F?")
             return self._rewrite_question_query(event.raw_input)
 

@@ -25,7 +25,9 @@
 - `cluster-g-demo-ops.md`
 - `multi-agent-execution-board.md`
 - `high-score-final-execution-plan.md`
+- `post-we-closeout-plan.md`
 - `high-score-thread-prompts/README.md`
+- `post-we-closeout-thread-prompts/README.md`
 
 ## 当前全局状态
 

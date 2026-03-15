@@ -294,6 +294,33 @@ def test_kimi_web_search_provider_runs_tool_loop_and_parses_results(monkeypatch)
     assert all("example.com" not in item.url for item in results)
 
 
+def test_agent_retrieval_alias_uses_kimi_web_search_provider(monkeypatch):
+    monkeypatch.setenv("RETRIEVAL_PROVIDER", "agent")
+    monkeypatch.setenv("KIMI_API_KEY", "test-kimi-key")
+    get_settings.cache_clear()
+
+    settings = get_settings()
+    service = RetrievalService(settings=settings)
+
+    assert settings.retrieval_provider == "kimi"
+    assert settings.uses_agent_retrieval is True
+    assert settings.kimi_required is True
+    assert isinstance(service.provider, KimiWebSearchProvider)
+
+
+def test_kimi_web_search_provider_falls_back_from_k2_5_to_turbo_preview():
+    provider = KimiWebSearchProvider(
+        settings=replace(
+            get_settings(),
+            retrieval_provider="kimi",
+            kimi_api_key="test-kimi-key",
+            kimi_search_model="kimi-k2.5",
+        )
+    )
+
+    assert provider._search_model() == "kimi-k2-turbo-preview"
+
+
 def test_retrieval_cache_round_trip(tmp_path: Path):
     cache = RetrievalCache(cache_root=tmp_path, ttl_seconds=3600)
     bundle = RetrievalBundle(

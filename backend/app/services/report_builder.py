@@ -206,7 +206,7 @@ class ReportBuilder:
         elif refuted_claims and insufficient_claims and mode != "complete_mode":
             summary = "主说法里有站不住的部分，但也可能混入了相近真实信息或二次加工细节，不能简单整句判假。"
         elif mode == "complete_mode":
-            headline = strong_claims[0].claim if strong_claims else event.summary
+            headline = (strong_claims[0].claim if strong_claims else event.summary).rstrip("。")
             summary = "已形成相对完整的公开证据链，当前更倾向于：" + headline + "。"
         elif mode == "partial_mode":
             summary = "已拿到部分公开证据，但链路仍不完整；当前不能给出完整定论，只给出边界化结论。"
@@ -842,7 +842,7 @@ class ReportBuilder:
         else:
             detail += "，时间线仍未形成稳定闭环"
         if limiting_factors:
-            detail += "；主要不确定性：" + "；".join(limiting_factors[:2])
+            detail += "；主要不确定性：" + "；".join(factor.rstrip("。") for factor in limiting_factors[:2])
         return lead + "；" + detail + "。"
 
     def _contribution_label_for_result(self, claim_result: ClaimResult) -> str:

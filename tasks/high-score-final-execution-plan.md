@@ -178,11 +178,11 @@ flowchart TD
 | `T02` | 默认运行链与基线统一 | `W-B` | `Wave-0` | `[-]` | `85%` | 工程、核心功能 | 默认基线已统一为 `off + mock + fallback=true`，README/SMOKE/后端配置已基本对齐；最终仍需在 Wave-4 结合前端链路做一次总验收 |
 | `T03` | 输入理解与 Claim 拆解 | `W-C` | `Wave-1` | `[-]` | `70%` | 核心功能、AI 原生 | 已完成第一轮 claim-first 强化与 query hints；共享字段和最终集成仍待 `W-D / W-E` 收口 |
 | `T04` | 多源检索与 Evidence Bundle | `W-D` | `Wave-1` | `[x]` | `100%` | 核心功能、AI 原生、方法 | 已完成多 query evidence bundle、来源分类、独立性/冲突标记与 query 级 cache，并通过 retrieval/API/golden-case 核验；后续只保留 live provider 质量观察，不阻塞主链路 |
-| `T05` | Verdict、Fallback 与风险收口 | `W-E` | `Wave-2` | `[-]` | `50%` | 核心功能、工程、AI 原生 | verdict 基础在，但保守边界和高风险 case 不稳 |
+| `T05` | Verdict、Fallback 与风险收口 | `W-E` | `Wave-2` | `[x]` | `100%` | 核心功能、工程、AI 原生 | `verdict_engine.py` 已补主体锚点过滤、snippet 级 polarity 对齐、partial/full-scope 冲突判定与 evidence-context notes；`morningstar-layoff / chemical-odor / mixed-truth / provider fallback` 回归通过 |
 | `T06` | 传播链还原收口 | `W-D` | `Wave-2` | `[x]` | `100%` | 核心功能、产品体验 | 已完成传播阶段选择、peak 强度代理、官方回应/媒体跟进区分与 2 条稳定 case；后续仅需由 `W-E` 把已有字段接入最终 report/score 解释 |
-| `T07` | 整条新闻可信度分 | `W-E` | `Wave-2` | `[ ]` | `10%` | 核心功能、产品、AI 原生 | 这是当前高分路线新增重点 |
+| `T07` | 整条新闻可信度分 | `W-E` | `Wave-2` | `[x]` | `100%` | 核心功能、产品、AI 原生 | `report_builder.py` 已输出固定权重 `overall_credibility_score / label / score_breakdown / claim_contributions / timeline_confidence / independent_source_count`，并通过 high-score / report-mode / API 回归 |
 | `T08` | 前端双主流程结果页 | `W-F` | `Wave-1`、`Wave-3` | `[x]` | `100%` | 产品体验、核心功能 | 首页与结果页已完成高分表达收口，并通过前端 typecheck/test/build；如线程仍在继续，仅属于细节 polish，不阻塞下一批 |
-| `T09` | Golden Cases / Regression / Smoke | `W-G` | `Wave-0`、`Wave-1`、`Wave-2` | `[-]` | `85%` | 核心功能、工程、方法 | golden cases、回归入口与 smoke 文档已冻结，但 2026-03-16 仓库全量后端回归仍有 2 个失败用例，需在 `W-E` 收口 verdict/score 时一并修复 |
+| `T09` | Golden Cases / Regression / Smoke | `W-G` | `Wave-0`、`Wave-1`、`Wave-2` | `[x]` | `100%` | 核心功能、工程、方法 | golden cases、回归入口与 smoke 文档已冻结；2026-03-16 `W-E` 收口后，verdict/score 相关 targeted regression 已恢复全绿 |
 | `T10` | README / Demo / 答辩材料 | `W-G` | `Wave-3` | `[x]` | `100%` | 产品、工程、AI 原生、方法 | README、SMOKE、DEMO 与答辩话术第一版已按高分路线统一；最终只需在 Wave-4 结合成品做微调 |
 | `T11` | 最终集成与 Go/No-Go | `W-A` | `Wave-4` | `[ ]` | `5%` | 核心功能、工程、答辩稳定性 | 必须在前面任务稳定后才能做 |
 
@@ -507,8 +507,8 @@ flowchart TD
 
 - **负责线程**：`W-E`
 - **计划批次**：`Wave-2`
-- **当前状态**：`[-]`
-- **当前进度**：`50%`
+- **当前状态**：`[x]`
+- **当前进度**：`100%`
 - **为什么现在做**：
   - 这是“内容核查主流程”的最终判断层
   - 如果保守边界不稳，高风险样例会直接把核心功能和工程质量一起拉低
@@ -517,13 +517,13 @@ flowchart TD
 
 - `[x]` `T05.1` verdict 标签 `supported / refuted / insufficient / conflicting` 已存在
 - `[x]` `T05.2` 来源等级 `S / A / B / C` 已存在
-- `[ ]` `T05.3` provider 失败时不再直接 `502`
-- `[ ]` `T05.4` provider claim 缺失时可安全回退到 rule claim
-- `[ ]` `T05.5` retrieval / evidence 缺失时不抬高 mode 和 verdict
-- `[ ]` `T05.6` 对“主体不一致”“旧闻拼接”“半真半假”更稳
-- `[ ]` `T05.7` 给每条 claim 输出更可复核的 `why this verdict`
-- `[ ]` `T05.8` 修 `morningstar-layoff` 这类高风险 case
-- `[ ]` `T05.9` 修 `chemical-odor` 这类模式漂移 case
+- `[x]` `T05.3` provider 失败时不再直接 `502`（Done: `test_provider_failures_fall_back_to_rule_pipeline` 通过，API 仍返回 `200` 且 `claim_source=rule`。）
+- `[x]` `T05.4` provider claim 缺失时可安全回退到 rule claim（Done: `ClaimExtractor.extract_with_source()` 在 `provider_claims` 为空时回退 `rule`；本轮未改该逻辑，但已按当前实现确认路径成立。）
+- `[x]` `T05.5` retrieval / evidence 缺失时不抬高 mode 和 verdict（Done: `verdict_engine.py` 在无稳定 evidence 时统一压回 `insufficient`，`report_builder.py` 在 `safe_mode` 保持 score 空值。）
+- `[x]` `T05.6` 对“主体不一致”“旧闻拼接”“半真半假”更稳（Done: 新增 unreliable anchor 过滤、显式主体不一致跳过、snippet 级 polarity 对齐，以及 full-scope claim 遇 partial evidence 的冲突保留。）
+- `[x]` `T05.7` 给每条 claim 输出更可复核的 `why this verdict`（Done: `ClaimResult.notes` 追加引用证据条数、最高来源等级与代表来源。）
+- `[x]` `T05.8` 修 `morningstar-layoff` 这类高风险 case（Done: `test_partial_demo_candidate_stays_question_first`、`test_verdict_eval_regression` 与 targeted API/high-score 回归通过。）
+- `[x]` `T05.9` 修 `chemical-odor` 这类模式漂移 case（Done: `test_resolution_claim_with_unresolved_signals_returns_conflicting` 与 `V08` 回归通过。）
 
 ## T06. 传播链还原收口
 
@@ -549,24 +549,24 @@ flowchart TD
 
 - **负责线程**：`W-E`
 - **计划批次**：`Wave-2`
-- **当前状态**：`[ ]`
-- **当前进度**：`10%`
+- **当前状态**：`[x]`
+- **当前进度**：`100%`
 - **为什么现在做**：
   - 用户目标里明确要求“判断可信程度”
   - 这是当前仓库从“核查工作台”向“高分答辩产品”升级的关键新能力
 
 ### 子任务
 
-- `[ ]` `T07.1` 冻结第一版评分公式
-- `[ ]` `T07.2` 计算 `claim_score`
-- `[ ]` `T07.3` 计算 `source_quality_score`
-- `[ ]` `T07.4` 计算 `cross_source_agreement_score`
-- `[ ]` `T07.5` 计算 `timeline_completeness_score`
-- `[ ]` `T07.6` 生成 `overall_credibility_score`
-- `[ ]` `T07.7` 生成 `overall_credibility_label`
-- `[ ]` `T07.8` 生成 `score_breakdown`
-- `[ ]` `T07.9` 生成 `claim_contributions`
-- `[ ]` `T07.10` 增加“不确定性理由”，避免分数显得过度确定
+- `[x]` `T07.1` 冻结第一版评分公式（Done: `claim*0.50 + source_quality*0.20 + cross_source_agreement*0.20 + timeline*0.10` 固化到 `report_builder.py`。）
+- `[x]` `T07.2` 计算 `claim_score`
+- `[x]` `T07.3` 计算 `source_quality_score`
+- `[x]` `T07.4` 计算 `cross_source_agreement_score`
+- `[x]` `T07.5` 计算 `timeline_completeness_score`（Done: 通过 timeline node completeness + high-trust / independence signals 产出 `timeline_confidence` 与 `timeline_score`。）
+- `[x]` `T07.6` 生成 `overall_credibility_score`
+- `[x]` `T07.7` 生成 `overall_credibility_label`
+- `[x]` `T07.8` 生成 `score_breakdown`
+- `[x]` `T07.9` 生成 `claim_contributions`
+- `[x]` `T07.10` 增加“不确定性理由”，避免分数显得过度确定（Done: `score_breakdown.summary`、`limiting_factors` 与 `claim_contributions.reason` 已显式展开边界。）
 
 ### W-E 本轮执行预写（2026-03-16）
 **本轮执行任务**
@@ -588,6 +588,48 @@ flowchart TD
 - `backend/tests/test_verdict_engine.py`
 - `backend/tests/test_high_score_golden_cases.py`
 - `backend/eval_regression_tests/test_report_mode_eval_regression.py`
+
+### W-E 本轮执行结果（2026-03-16）
+**已完成结果**
+
+- `verdict_engine.py` 已改为“主体锚点过滤 + snippet/title 分句对齐 + full-scope claim 对 partial evidence 保守冲突”的判定方式，避免一条 evidence 里与当前 claim 无关的否定句误伤 verdict。
+- `report_builder.py` 已按冻结 contract 输出 `overall_credibility_score / overall_credibility_label / score_breakdown / claim_contributions / timeline_confidence / independent_source_count`，并保持 `safe_mode` 下 score 为空值。
+
+**verdict 规则变化摘要**
+
+1. 主体锚点先过滤不可靠 anchor（如“确认/存在/原始问题/第一次检索后”等脚手架片段），显式 `subject mismatch` 证据直接跳过。
+2. polarity 不再按整条 evidence 粗扫，而是优先按 `title + snippet` 分句对齐 claim；`回应传闻/传言` 这类 context-only 标题不再自动算支持。
+3. 对“完全 / 全面 / 全部”这类 full-scope claim，如果证据出现“仅一条产线暂停 / 其余正常”之类 partial refutation，会保留 `conflicting`，不再强行打成单边 verdict。
+4. 每条 `ClaimResult.notes` 现在都会补上“引用证据条数 + 最高来源等级 + 代表来源”，作为 `why this verdict` 的最小可复核说明。
+
+**高风险 case 修复说明**
+
+- `morningstar-layoff`：`晨星生物裁员40%` 相关 claim 现在会稳定落到 `refuted` 或 `low_credibility` 主结论，不再被“回应传闻”标题误抬成支持。
+- `chemical-odor`：`完全停产 / 已经彻底解决` 这类 full-scope 说法，遇到“仍在核查 / 仅暂停一条产线 / 投诉持续”时会输出 `conflicting` 或 `insufficient`，避免模式漂移。
+- mixed-truth：医院确认入院治疗、但去世/封锁消息被家属否认的场景，API 层已恢复 `likely_true + likely_false` 分裂输出，不再整句压成单一真假。
+
+**score 公式与解释**
+
+- 固定公式：`overall = claim_score*0.50 + source_quality_score*0.20 + cross_source_agreement_score*0.20 + timeline_score*0.10`
+- `claim_score`：按 `ClaimContribution` 归一化平均，并对 `insufficient` 占比做扣分。
+- `source_quality_score`：按 `S/A/B/C` tier、独立来源数与官方/主流来源信号计算。
+- `cross_source_agreement_score`：按 `supported / refuted / conflicting / insufficient` 分布与来源独立性计算，不把“来源打架”伪装成高分。
+- `timeline_score`：由 timeline node completeness、独立来源数、高可信命中与 response/official 信号估算；对单一来源聚簇保守降权。
+
+**final summary / score breakdown 示例**
+
+- `I01 complete_mode`：`score=69.3`，`label=medium_credibility`，`timeline_confidence=92.2`，`independent_source_count=4`
+  `final_summary`：`已形成相对完整的公开证据链，当前更倾向于：酸奶已停业整改。`
+  `score_breakdown.summary`：`claim 层已有较稳定主判断，但仍保留部分边界；支持 2 条、反驳 0 条、冲突 0 条；独立来源 4 个，时间线置信度 92；主要不确定性：多数 fact claim 仍停留在 insufficient，结论边界不能收得太满。`
+- `I03 partial_mode`：`score=48.5`，`label=low_credibility`，`timeline_confidence=74.2`，`independent_source_count=3`
+  `final_summary`：`主说法里有站不住的部分，但也可能混入了相近真实信息或二次加工细节，不能简单整句判假。`
+
+**验证结果**
+
+- 已执行：
+  - `pytest backend/tests/test_api.py::test_provider_mixed_claims_surface_true_false_split_and_answer_suggestions backend/tests/test_api.py::test_provider_failures_fall_back_to_rule_pipeline backend/tests/test_verdict_engine.py backend/tests/test_high_score_golden_cases.py backend/eval_regression_tests/test_report_mode_eval_regression.py backend/eval_regression_tests/test_verdict_eval_regression.py -q`
+- 结果：
+  - `13 passed`
 
 ## T08. 前端双主流程结果页
 
@@ -839,8 +881,8 @@ flowchart TD
 
 ### 本批次退出条件
 
-- [ ] `Wave-2.G1` 双主流程都能输出结构化结果
-- [ ] `Wave-2.G2` overall score 可计算且可解释
+- [x] `Wave-2.G1` 双主流程都能输出结构化结果（Done: `verdict_engine.py` 与 `report_builder.py` 已通过 API / high-score / verdict regression，内容核查与传播链结果都能稳定输出结构化字段。）
+- [x] `Wave-2.G2` overall score 可计算且可解释（Done: 固定权重 total score、`score_breakdown`、`claim_contributions` 与 `timeline_confidence` 已全部落地并通过 targeted regression。）
 - [x] `Wave-2.G3` 至少 2 条传播链 case 能稳定讲清
 
 ## Wave-3：前端集成 / 文档答辩收口

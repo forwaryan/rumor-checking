@@ -216,7 +216,7 @@ class KimiWebSearchProvider:
 
     @property
     def enabled(self) -> bool:
-        return self.settings.retrieval_provider == self.name and bool(self.settings.kimi_api_key)
+        return self.settings.uses_agent_retrieval and bool(self.settings.kimi_api_key)
 
     def search(self, query_text: str) -> List[SearchResult]:
         if not self.enabled:
@@ -264,6 +264,7 @@ class KimiWebSearchProvider:
         raise RuntimeError("Kimi web search exceeded tool rounds")
 
     def _request_completion(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
+        model = self._search_model()
         response = httpx.post(
             f"{self.settings.kimi_base_url}/chat/completions",
             headers={
@@ -271,8 +272,8 @@ class KimiWebSearchProvider:
                 "Content-Type": "application/json",
             },
             json={
-                "model": self.settings.kimi_search_model,
-                "temperature": self._request_temperature(),
+                "model": model,
+                "temperature": self._request_temperature(model),
                 "response_format": {"type": "json_object"},
                 "messages": messages,
                 "tools": [KIMI_WEB_SEARCH_TOOL],
@@ -288,8 +289,20 @@ class KimiWebSearchProvider:
             raise ValueError("Kimi web search returned an invalid message payload")
         return message
 
-    def _request_temperature(self) -> float:
-        model = self.settings.kimi_search_model.strip().lower()
+    def _search_model(self) -> str:
+        model = self.settings.kimi_search_model.strip()
+        if model.lower().startswith("kimi-k2.5"):
+            fallback_model = "kimi-k2-turbo-preview"
+            logger.warning(
+                "kimi_web_search_model_fallback requested_model=%s fallback_model=%s",
+                model,
+                fallback_model,
+            )
+            return fallback_model
+        return model
+
+    def _request_temperature(self, model: str) -> float:
+        model = model.strip().lower()
         if model.startswith("kimi-k2.5"):
             return 1.0
         if model.startswith("kimi-k2-turbo-preview"):

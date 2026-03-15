@@ -74,7 +74,7 @@ flowchart LR
 
 - `RETRIEVAL_PROVIDER=mock`：只走本地 mock retrieval，适合稳定回归
 - `RETRIEVAL_PROVIDER=gdelt`：走公开 GDELT provider，失败时可回退到 mock
-- `RETRIEVAL_PROVIDER=kimi`：走 Kimi 内置 `$web_search` 联网搜索，再把网页整理成 retrieval hits
+- `RETRIEVAL_PROVIDER=agent` 或 `kimi`：走 Kimi 内置 `$web_search` 联网搜索，再把网页整理成 retrieval hits
 - `RETRIEVAL_PROVIDER=off`：关闭检索，只保留保守链路
 
 相关环境变量：
@@ -82,7 +82,7 @@ flowchart LR
 - `RETRIEVAL_TIMEOUT_SECONDS`，默认 `12`
 - `RETRIEVAL_GDELT_BASE_URL`，默认 `https://api.gdeltproject.org/api/v2/doc/doc`
 - `RETRIEVAL_MAX_RESULTS`，默认 `8`
-- `KIMI_SEARCH_MODEL`，默认继承 `KIMI_MODEL`；联网搜索推荐显式设为 `kimi-k2-turbo-preview`
+- `KIMI_SEARCH_MODEL`，默认 `kimi-k2-turbo-preview`；建议把联网搜索模型和分析模型分开配置
 - `RETRIEVAL_CACHE_ENABLED`，默认 `true`
 - `RETRIEVAL_CACHE_TTL_SECONDS`，默认 `43200`
 - `RETRIEVAL_CACHE_ALLOW_STALE_ON_ERROR`，默认 `true`
@@ -90,7 +90,7 @@ flowchart LR
 - `RETRIEVAL_CACHE_DIR`，默认 `data/cache/retrieval`
 
 当 `RETRIEVAL_PROVIDER=gdelt` 时，`question_only` 输入会先做查询改写，再走“真实检索 -> 去重归并 -> evidence / timeline”主链路。
-当 `RETRIEVAL_PROVIDER=kimi` 时，`question_only` 会优先保留原问题，交给 Kimi 的 `$web_search` 做联网搜索，再进入同一套后续判断链路。
+当 `RETRIEVAL_PROVIDER=agent` 或 `kimi` 时，`question_only` 会优先保留原问题，交给 Kimi 的 `$web_search` 做联网搜索，再进入同一套后续判断链路。
 内部还预留了三个 request-level 开关，供 replay 或 smoke 使用：
 
 - `request_context.bypass_retrieval_cache=true`
