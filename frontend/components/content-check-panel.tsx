@@ -141,12 +141,10 @@ export function ContentCheckPanel({ report }: ContentCheckPanelProps) {
         <div className="panel-heading">
           <div>
             <p className="eyebrow">Content Check</p>
-            <h2>内容核查总览</h2>
+            <h2>内容核查</h2>
           </div>
         </div>
-        <p className="empty-state">
-          这里会把一句话里的内容拆成“更像真的”“更像加料的”“观点判断”和“仍待核查”几类，避免把半真半假的输入整句讲错。
-        </p>
+        <p className="empty-state">这里会把一句话拆成几类可核查内容。</p>
       </section>
     );
   }
@@ -158,7 +156,7 @@ export function ContentCheckPanel({ report }: ContentCheckPanelProps) {
       <div className="panel-heading">
         <div>
           <p className="eyebrow">Content Check</p>
-          <h2>内容核查总览</h2>
+          <h2>内容核查</h2>
         </div>
       </div>
 
@@ -169,18 +167,6 @@ export function ContentCheckPanel({ report }: ContentCheckPanelProps) {
             {renderItems(contentCheck[bucket.key], bucket.empty, bucket.tone)}
           </div>
         ))}
-      </div>
-
-      <div className="content-check__answers">
-        <h3>可直接回答用户的话术</h3>
-        <div className="content-check__answer-list">
-          {contentCheck.possible_answers.map((item) => (
-            <article key={`${item.angle}-${item.answer}`} className="content-check__answer-card">
-              <span className="stats-label">{item.angle}</span>
-              <p>{item.answer}</p>
-            </article>
-          ))}
-        </div>
       </div>
     </section>
   );

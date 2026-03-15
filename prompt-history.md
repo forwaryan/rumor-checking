@@ -239,6 +239,21 @@
 > **🔗 上下文来源**: 	asks/cluster-d-retrieval-lab.md、	asks/current-wave-window-prompts.md、ackend/app/services/mock_retriever.py、ackend/app/services/retrieval_models.py、ackend/app/services/timeline_builder.py、ackend/app/services/analyze_pipeline.py、ackend/tests/test_retrieval.py、data/README.md、ules/propagation_chain_rules.md、workflows/prompt_logging_rules.md
 > **💡 原始指令摘要**: 用户以 [log] 方式追问当前系统为什么不能对任意新闻做“上网找证据再判断”，并要求确认这项真实检索能力是否已由其他线程在做；若没有，则由当前窗口按 Cluster-D / D5~D7 开始执行。
 
+---
+
+### 📅 2026-03-15
+> **🧵 线程标识**: `T-main`
+> **🏷️ 窗口职责**: 主控
+> **🔗 上下文来源**: `README.md`、`overview/06_current_code_implementation.md`、`contracts/report.schema.json`、`backend/app/services/analyze_pipeline.py`、`backend/app/services/verdict_engine.py`、`backend/app/services/timeline_builder.py`、`backend/app/services/content_check_builder.py`、`tasks/parallel-execution-playbook.md`、`tasks/origin-problem-goal-matrix.md`、`tasks/current-wave-window-prompts.md`
+> **💡 原始指令摘要**: 用户以 `[log]` 方式要求围绕“输入一条新闻，判断可信程度，并给出传播链证据链和内容核查”这个目标，先整理一份非常详细的任务列表，并进一步给出最大并行任务规划、每个线程的职责和可直接投喂给线程的 prompt，同时先补一份详细的人物列表和图文并茂的解释。
+
+- **🎯 本线程目标 (Context & Goal)**: 在当前仓库已经具备基础 analyze、verdict、timeline、content_check 能力的前提下，把“如何继续做成一个真正可并行推进的新闻可信度项目”整理成一份总控级执行方案，既要覆盖角色分工与原因，也要覆盖细化任务树、完成状态、线程边界和执行 prompt。
+- **🧩 已知约束 (Known Context)**: 当前仓库有现成前后端与 contracts，但对“整条新闻可信度分”尚未形成正式 contract；live retrieval 仍有边界；题目高权重仍是“传播链还原 + 内容核查”；用户允许并行调用多个 AI 模型、多个 agent 或多轮深度思考，因此方案必须优先围绕稳定接口拆线程，而不是围绕页面或零散功能拆线程。
+- **⚙️ AI 采用的策略 (AI Approach)**: 先核对现有任务并行手册、原始题目、当前代码实现和现有 schema，确认仓库里已经有哪些骨架可复用；再把目标拆成“总控、contract、输入 claim、检索、裁决、时间线、总评分、前端、QA、Demo”十类人物/线程；随后形成一份图文并茂的 Markdown 文档，内含人物列表、关系图、详细任务清单、最大并行执行阶段表和十个可直接分发给窗口的 prompt；最后按 `[log]` 规则把本轮规划记录到 `prompt-history.md`。
+- **📦 产出与落点 (Artifacts)**: `proposal/news-credibility-multi-agent-task-plan-20260315.md`、`prompt-history.md`
+- **➡️ 交接建议 (Next Handoff)**: 如果下一步要真正开多线程执行，建议先启动 `T-main-control` 与 `T-contract-score` 冻结第一版 contract，然后并发启动 `T-input-claims`、`T-retrieval-multi-source`、`T-evidence-judge`、`T-timeline-chain`、`T-frontend-results`、`T-qa-eval`；待 claim verdict 与 timeline 稳住后，再由 `T-credibility-score` 和 `T-doc-demo` 收口对外可演示形态。
+- **⭐ 效果评估**: [待填写]
+
 - **🎯 本线程目标 (Context & Goal)**: 把当前仅有 mock retrieval 的后端能力推进到“真实公开来源检索 + 本地缓存 + 可解释时间线”的最小可用版本，优先让 question_only 和随机新闻输入不再只能停留在纯保守空证据模式。
 - **🧩 已知约束 (Known Context)**: 工作区中已存在 Cluster-D 任务定义和当前波次窗口分配，但 D5/D6/D7 仍未登记执行步骤，也没有任何真实检索 provider、缓存或对应测试代码在更新；主链路必须保留 fallback，不能因真实检索失败而让 analyze 崩掉。
 - **⚙️ AI 采用的策略 (AI Approach)**: 先核对任务状态与工作区改动，确认这项能力尚未被别的窗口真正实现；随后按 task 要求先回写 D5~D7 的本轮执行任务与步骤，再实现真实检索 provider 抽象、缓存层、时间线集成与回退测试，最后回写验证结果和交接边界。
@@ -479,3 +494,38 @@
   - `T3.1`：若主体未确认或证据主体不一致，不应进入高置信结论，也不应输出看似完整的查证过程。
   - `T6.1`：provider / prompt 需要加入“主体不一致时停止扩写背景”的约束。
   - `T7.1`：应把这条样例加入专门的 mode / entity drift 回归集。
+
+---
+
+### 📅 2026-03-15
+> **🧵 线程标识**: `T-main`
+> **🏷️ 窗口职责**: 主控
+> **🔗 上下文来源**: `proposal/news-credibility-multi-agent-task-plan-20260315.md`、`proposal/codex-app-multithread-execution-plan-20260315.md`、`proposal/codex-app-thread-launch-pack-20260315.md`、`tasks/multi-agent-execution-board.md`、`rules/origin_problem_statement.md`、`rules/score_alignment_rules.md`、`tasks/README.md`
+> **💡 原始指令摘要**: 用户以 `[log]` 方式要求基于现有多线程与高分路线文档，沉淀一份非常详细的最终执行计划到 Markdown 文件中，必须明确每批次并行任务、线程归属、总批次数、任务与子任务进度、串行主链路解释，以及一个覆盖全部执行项的“总任务进度表”。
+
+- **🎯 本线程目标 (Context & Goal)**: 把此前分散在多份提案和执行板里的高分路线、Codex app 多线程边界和评分导向，收口成一份可以直接当总控板使用的最终执行计划文档，让后续线程可以围绕同一份“总任务进度表 + 批次并行表 + 串行主链路解释”推进。
+- **🧩 已知约束 (Known Context)**: 当前仓库已经有前后端、schema、timeline、verdict、前端壳和部分 smoke/test 基础，但“整条新闻可信度分”“高分路线专用的批次计划”“完整的总任务进度表”还没有统一落到一个 task 文件；用户当前使用的是 Codex app 多线程，不是自动协作的 agent team，因此计划必须按线程 owner、批次屏障和文件域思路组织。
+- **⚙️ AI 采用的策略 (AI Approach)**: 先回读 `proposal/` 下的多线程与高分路线文档、`tasks/multi-agent-execution-board.md` 与两份评分规则，抽取出最稳定的线程划分、波次顺序和高分优先级；再新建一份 `tasks/high-score-final-execution-plan.md`，按“状态标记说明 -> 高分路线 -> 串行主链 -> 线程划分 -> 批次总览 -> 总任务进度表 -> 详细任务清单 -> 分批执行计划”的顺序沉淀，并补充 Mermaid 图和子任务级进度标记；最后把新文件接入 `tasks/README.md`，作为后续线程的显式入口。
+- **📦 产出与落点 (Artifacts)**: `tasks/high-score-final-execution-plan.md`、`tasks/README.md`、`prompt-history.md`
+- **➡️ 交接建议 (Next Handoff)**: 下一步建议由 `T-main` 或实际总控窗口直接以 `tasks/high-score-final-execution-plan.md` 为唯一执行母板，先启动 `Wave-0` 对应的 `W-A / W-B / W-G`，完成 contract、基线和 demo case 初筛后，再按文档中的 `Wave-1 ~ Wave-4` 逐批派发线程。
+- **⭐ 效果评估**: [待填写]
+
+## 2026-03-15 21:40 [log]
+- 用户要求：基于“多 agent、多数据源交叉验证”的思路，生成一个非常详细的人物列表、全量任务清单、最大并行任务规划，以及每个线程可直接喂给 agent 的 prompt，并把内容写入 Markdown 文件。
+- 本轮采用的策略：不把方案散落在聊天记录中，而是落成一份新的执行板文档，集中描述 `T0-T8` 九个角色、数据源交叉验证图、线程边界、全量任务清单、最大并行波次和每个线程的标准 prompt。
+- 本轮新增文件：`tasks/multi-agent-execution-board.md`
+- 同步改动：`tasks/README.md` 已加入新执行板入口，方便后续窗口直接引用。
+- 本轮文档重点：明确“默认可运行、内容核查稳定、传播链可信、口径一致”是本轮冲 70+ 的四个核心目标，并把 `Kimi / GDELT / URL 抽取 / golden cases / replay` 放入统一 evidence bundle 视角来规划。
+- 后续建议：先按执行板启动 `T0 / T1 / T5 / T2 / T3`，待基线和样本库稳定后，再推进 `T4 / T6 / T7 / T8`。
+
+## 2026-03-15 21:55 [log]
+- 用户补充约束：实际使用环境是 Codex app 的多个并行线程，而不是 agent team。
+- 本轮处理方式：把 `tasks/multi-agent-execution-board.md` 补充为“职责角色”到“Codex app 线程”之间的映射说明，明确这套方案可用，但必须按线程协作模型执行。
+- 本轮新增内容：
+  - `7.4` 在 Codex App 并行线程模型下是否可行
+  - `7.5` 如何把原角色设计改写成线程方案
+  - `7.6` 推荐真实并行度
+  - `7.7` 线程模式下的强制执行规则
+  - `7.8` 推荐的 4 线程和 5 线程落地映射
+  - `7.9` 最终判断
+- 当前结论：该方案在 Codex app 中可行，但不能按“9 个自动协作 agent”理解；当前最推荐的是 `4 线程方案`。

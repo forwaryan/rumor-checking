@@ -1,30 +1,26 @@
-import { ScorePill } from "@/components/score-pill";
 import {
   formatDisplayTime,
   getDisplayEventSource,
   getDisplayEventSummary,
   getDisplayEventTitle,
 } from "@/lib/report-utils";
-import type { Report, ReportProvenanceState } from "@/types/report";
+import type { Report } from "@/types/report";
 
 interface EventCardProps {
   report: Report | null;
-  provenance: ReportProvenanceState | null;
 }
 
-export function EventCard({ report, provenance }: EventCardProps) {
+export function EventCard({ report }: EventCardProps) {
   if (!report) {
     return (
       <section className="panel panel--feature">
         <div className="panel-heading">
           <div>
             <p className="eyebrow">Result Snapshot</p>
-            <h2>事件概览与结论</h2>
+            <h2>事件概览</h2>
           </div>
         </div>
-        <p className="empty-state">
-          提交输入后，这里会先显示一句话结论、事件摘要和当前核查分，帮助演示时在 30 秒内讲清页面。
-        </p>
+        <p className="empty-state">提交后，这里会显示事件摘要和一句话结论。</p>
       </section>
     );
   }
@@ -40,28 +36,16 @@ export function EventCard({ report, provenance }: EventCardProps) {
           <p className="eyebrow">Result Snapshot</p>
           <h2>{displayTitle}</h2>
         </div>
-        <ScorePill report={report} provenance={provenance} />
       </div>
 
       <p className="lede">{report.final_summary}</p>
       <p className="panel-copy">{displaySummary}</p>
-      {displaySource.isDerived ? (
-        <p className="event-card__note">页面已把泛化问法收束到更具体的公开事件对象。</p>
-      ) : null}
 
       <div className="meta-row">
         <a href={displaySource.sourceUrl} target="_blank" rel="noreferrer">
           {displaySource.sourceName}
         </a>
         <span>{formatDisplayTime(displaySource.publishedAt)}</span>
-      </div>
-
-      <div className="tag-row">
-        {report.event.keywords.map((keyword) => (
-          <span key={keyword} className="tag">
-            {keyword}
-          </span>
-        ))}
       </div>
     </section>
   );

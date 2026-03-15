@@ -1,10 +1,4 @@
-import { ScorePill } from "@/components/score-pill";
-import {
-  getKimiUsageMeta,
-  getReportProvenanceMeta,
-  getTopLineAssessment,
-  getVerificationScoreMeta,
-} from "@/lib/report-utils";
+import { getTopLineAssessment, getVerificationScoreMeta } from "@/lib/report-utils";
 import type { AnalysisStatus, Report, ReportProvenanceState } from "@/types/report";
 
 interface StatusBannerProps {
@@ -12,7 +6,6 @@ interface StatusBannerProps {
   report: Report | null;
   provenance: ReportProvenanceState | null;
   errorMessage: string | null;
-  fallbackMessage: string | null;
   onRetry: (() => void) | null;
 }
 
@@ -38,7 +31,7 @@ function getStatusCopy(status: AnalysisStatus, report: Report | null) {
     default:
       return {
         title: "准备就绪",
-        body: "提交后会先给出一句话结论，再展示证据、时间线和调试链路。",
+        body: "提交后会先给出一句话结论，再展示事件、内容核查和证据。",
       };
   }
 }
@@ -48,14 +41,11 @@ export function StatusBanner({
   report,
   provenance,
   errorMessage,
-  fallbackMessage,
   onRetry,
 }: StatusBannerProps) {
   const copy = getStatusCopy(status, report);
-  const provenanceMeta = status === "submitting" ? null : getReportProvenanceMeta(report, provenance);
   const topLine = report ? getTopLineAssessment(report) : null;
   const scoreMeta = report ? getVerificationScoreMeta(report, provenance) : null;
-  const kimiUsageMeta = status === "submitting" ? null : getKimiUsageMeta(report, provenance);
 
   return (
     <section className={`status-banner status-banner--${status}`}>
@@ -66,21 +56,16 @@ export function StatusBanner({
             <h3>{topLine?.title ?? copy.title}</h3>
             <p>{topLine?.summary ?? scoreMeta?.summary ?? copy.body}</p>
           </div>
-          {report ? <ScorePill report={report} provenance={provenance} /> : null}
         </div>
 
         {topLine ? (
           <>
             <div className="status-banner__fact-row">
-              {kimiUsageMeta ? (
-                <span className={`provenance-pill provenance-pill--${kimiUsageMeta.tone}`}>{kimiUsageMeta.label}</span>
-              ) : null}
               {scoreMeta ? (
                 <span className="provenance-pill provenance-pill--subtle">{`核查完成度：${scoreMeta.label}`}</span>
               ) : null}
               <span className="provenance-pill provenance-pill--subtle">{`置信度：${topLine.confidenceLabel}`}</span>
               <span className="provenance-pill provenance-pill--subtle">{`已纳入证据：${topLine.evidenceCount} 条`}</span>
-              <span className="provenance-pill provenance-pill--subtle">{`可见来源：${topLine.sourceCount} 条`}</span>
             </div>
             {topLine.decisiveClaim ? (
               <div className="status-banner__claim-focus">
@@ -91,32 +76,6 @@ export function StatusBanner({
           </>
         ) : null}
 
-        {report && provenanceMeta ? (
-          <div className="status-banner__provenance">
-            <div className="status-banner__provenance-heading">
-              <p className="eyebrow">Result Provenance</p>
-              <div className="status-banner__provenance-badges">
-                <span className={`provenance-pill provenance-pill--${provenanceMeta.tone}`}>
-                  {provenanceMeta.sourceLabel}
-                </span>
-                {provenanceMeta.fallbackLabel ? (
-                  <span className="provenance-pill provenance-pill--subtle">{provenanceMeta.fallbackLabel}</span>
-                ) : null}
-                {provenanceMeta.detailBadges.map((badge) => (
-                  <span key={badge} className="provenance-pill provenance-pill--subtle">
-                    {badge}
-                  </span>
-                ))}
-              </div>
-            </div>
-            <p className="status-banner__provenance-summary">{provenanceMeta.summary}</p>
-            {provenanceMeta.caution ? (
-              <p className="status-banner__provenance-note">{provenanceMeta.caution}</p>
-            ) : null}
-          </div>
-        ) : null}
-
-        {fallbackMessage ? <p className="status-banner__hint">{fallbackMessage}</p> : null}
         {errorMessage ? <p className="status-banner__error">{errorMessage}</p> : null}
       </div>
 

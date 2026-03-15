@@ -7,14 +7,14 @@ interface TimelinePanelProps {
 
 function getEmptyCopy(mode: Report["mode"] | null) {
   if (mode === "safe_mode") {
-    return "传播链暂不足以还原，当前页面只保留时间线空态和边界提示。";
+    return "当前还不足以还原传播过程。";
   }
 
   if (mode === "partial_mode") {
-    return "只拿到了部分关键节点，页面不会把它包装成完整时间线。";
+    return "只拿到了部分关键节点。";
   }
 
-  return "提交输入后，这里会按 origin -> amplification -> peak -> turn -> clarification 展开关键来源时间线。";
+  return "提交后，这里会按时间顺序展示关键节点。";
 }
 
 export function TimelinePanel({ report }: TimelinePanelProps) {
@@ -25,7 +25,7 @@ export function TimelinePanel({ report }: TimelinePanelProps) {
       <div className="panel-heading">
         <div>
           <p className="eyebrow">Timeline</p>
-          <h2>传播过程时间线</h2>
+          <h2>时间线</h2>
         </div>
       </div>
 
@@ -40,7 +40,6 @@ export function TimelinePanel({ report }: TimelinePanelProps) {
                   <span>{formatDisplayTime(node.published_at)}</span>
                 </div>
                 <p>{node.summary}</p>
-                <p className="timeline-why">入选原因：{node.why_selected}</p>
                 <a href={node.url} target="_blank" rel="noreferrer">
                   {node.source_name}
                 </a>

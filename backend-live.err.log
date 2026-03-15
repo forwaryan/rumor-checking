@@ -1,5 +1,0 @@
-2026-03-13 21:41:39,818 | INFO | backend.app.main | application_created env=development version=0.1.0
-INFO:     Started server process [11164]
-INFO:     Waiting for application startup.
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)

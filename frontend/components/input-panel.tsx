@@ -57,24 +57,7 @@ export function InputPanel({
         <div className={`health-pill health-pill--${backendState}`}>{getBackendLabel(backendState)}</div>
       </div>
 
-      <p className="panel-copy">
-        支持一句话、新闻正文和 URL。现在所有真实请求都只走 Kimi；如果后端或 Kimi 出错，页面会直接报错，不再偷偷回退到本地结果。
-      </p>
-
-      <div className="input-tips">
-        <article className="input-tip">
-          <span className="stats-label">更容易查准</span>
-          <p>问题里尽量带上人名、事件、时间或原帖线索。</p>
-        </article>
-        <article className="input-tip">
-          <span className="stats-label">URL 抓不到时</span>
-          <p>如果链接正文不完整，直接粘贴原文通常更稳。</p>
-        </article>
-        <article className="input-tip">
-          <span className="stats-label">快速试跑</span>
-          <p>不想自己造例子，可以直接点下面的 demo case。</p>
-        </article>
-      </div>
+      <p className="panel-copy">信息越具体，结果越稳。问题里尽量带上人名、事件、时间或原帖线索。</p>
 
       <div className="type-switcher" role="tablist" aria-label="输入类型">
         {inputTypeOptions.map((option) => {
@@ -106,7 +89,7 @@ export function InputPanel({
       <div className="demo-strip">
         <div className="demo-strip__header">
           <span className="field-label">稳定 demo case</span>
-          <span className="demo-strip__hint">这些只负责帮你快速填充输入，不会再直接渲染本地 payload</span>
+          <span className="demo-strip__hint">只用来快速填充输入</span>
         </div>
         <div className="demo-grid">
           {demoCases.map((demoCase) => {
@@ -128,7 +111,7 @@ export function InputPanel({
 
       <div className="action-row">
         <button type="button" className="button button--primary" onClick={onSubmit} disabled={isSubmitting}>
-          {isSubmitting ? "正在较真..." : selectedDemoId ? "运行这个案例" : "开始较真"}
+          {isSubmitting ? "分析中..." : selectedDemoId ? "运行案例" : "开始分析"}
         </button>
         <button type="button" className="button button--ghost" onClick={onReset} disabled={isSubmitting}>
           清空输入
