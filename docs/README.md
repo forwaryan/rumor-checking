@@ -44,6 +44,8 @@
   - retrieval 架构与缓存说明。
 - [../backend/docs/entity-drift-fix-and-regression-guard.md](../backend/docs/entity-drift-fix-and-regression-guard.md)
   - `question_only` 主体漂移修复专项文档，含流程图、对比表和回归护栏。
+- [question-analysis-end-to-end-flow.md](question-analysis-end-to-end-flow.md)
+  - 以“用户提问 -> 流式追踪 -> agent/fallback -> 最终 report”为主线的完整流程讲解文档，适合项目答辩和实现说明。
 - [../frontend/IMPLEMENTATION_SUMMARY.md](../frontend/IMPLEMENTATION_SUMMARY.md)
   - 前端实现总结。
 - [../contracts/README.md](../contracts/README.md)
@@ -70,6 +72,10 @@
   - `prompt-history.md` 中优秀 prompt 的梳理、讲述角度和可复用模板。
 - [prompt-history-core-chain-archive.md](prompt-history-core-chain-archive.md)
   - 按核心链路对 `prompt-history.md` 做的全量归档与过程积累分类。
+- [ai-collaboration-lessons-from-rumor-checking.md](ai-collaboration-lessons-from-rumor-checking.md)
+  - 结合本项目真实经历总结的 AI 协作开发心得、踩坑与方法论。
+- [ai-collaboration-lessons-by-key-points.md](ai-collaboration-lessons-by-key-points.md)
+  - 按“我为什么会提出这些点 + 项目中暴露了什么问题”重写的 AI 协作复盘版。
 
 ## 5. 数据与评测
 

@@ -10,6 +10,7 @@ import httpx
 from backend.app.core.config import Settings, get_settings
 from backend.app.models.schemas import ClaimItem, NormalizedEvent, ProviderAnalysis, ProviderEventDraft
 from backend.app.services.contract_utils import ensure_datetime_string
+from backend.app.services.progress import emit_api_call, emit_log
 from backend.app.services.question_intent import is_broad_trend_question
 
 logger = logging.getLogger(__name__)
@@ -104,6 +105,12 @@ class KimiProvider:
         if not self.enabled:
             raise RuntimeError("Kimi structured analysis is not configured.")
         if event.input_type == "question_only" and is_broad_trend_question(event.raw_input):
+            emit_log(
+                stage_key="provider_enrichment",
+                title="跳过 provider enrichment",
+                summary="这是宽泛趋势型问题，provider enrichment 不参与。",
+                details=[],
+            )
             return None
 
         content = self._request_completion(event)
@@ -114,6 +121,17 @@ class KimiProvider:
         return analysis
 
     def _request_completion(self, event: NormalizedEvent) -> str:
+        emit_api_call(
+            stage_key="provider_enrichment",
+            call_type="llm",
+            status="running",
+            title="调用 Kimi structured analysis",
+            summary="正在请求 Moonshot 结构化抽取事件和 claims。",
+            details=[
+                f"endpoint={self.settings.kimi_base_url}/chat/completions",
+                f"model={self.settings.kimi_model}",
+            ],
+        )
         response = httpx.post(
             f"{self.settings.kimi_base_url}/chat/completions",
             headers={
@@ -133,6 +151,17 @@ class KimiProvider:
         )
         response.raise_for_status()
         payload = response.json()
+        emit_api_call(
+            stage_key="provider_enrichment",
+            call_type="llm",
+            status="completed",
+            title="Kimi structured analysis 返回",
+            summary="Moonshot 已返回结构化抽取结果。",
+            details=[
+                f"status_code={response.status_code}",
+                f"model={self.settings.kimi_model}",
+            ],
+        )
         choice = payload.get("choices", [{}])[0]
         message = choice.get("message", {})
         return self._coerce_content(message.get("content"))

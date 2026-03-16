@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 from contextlib import contextmanager
+import json
 
 import httpx
 from fastapi.testclient import TestClient
@@ -155,6 +156,28 @@ def test_validation_errors_use_unified_error_shape(client):
     body = response.json()
     assert body["error"]["code"] == "validation_error"
     assert body["error"]["trace_id"]
+
+
+def test_analyze_stream_returns_live_ndjson_events(client):
+    response = client.post(
+        "/api/v1/analyze/stream",
+        json={
+            "raw_input": "最近有个女网红脑出血死了真的假的？",
+            "input_type": "question",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/x-ndjson")
+
+    events = [json.loads(line) for line in response.text.splitlines() if line.strip()]
+    event_types = [event["type"] for event in events]
+
+    assert event_types[0] == "session"
+    assert "stage" in event_types
+    assert "report" in event_types
+    assert event_types[-1] == "complete"
+    assert any(event.get("stage_key") == "normalize_input" for event in events if event["type"] == "stage")
+    assert any(event.get("stage_key") == "report_build" for event in events if event["type"] == "stage")
 
 
 def test_analyze_text_news_builds_complete_mode_report(client):

@@ -1,5 +1,15 @@
 import type {
   AnalyzeRequest,
+  AnalysisLiveApiCallEvent,
+  AnalysisLiveCompleteEvent,
+  AnalysisLiveErrorEvent,
+  AnalysisLiveEvent,
+  AnalysisLiveLogEvent,
+  AnalysisLiveReportEvent,
+  AnalysisLiveRetrievalEvent,
+  AnalysisLiveSessionEvent,
+  AnalysisLiveStageEvent,
+  AnalysisLiveStatus,
   ClaimResult,
   ClaimSourceType,
   ConfidenceValue,
@@ -35,6 +45,7 @@ const claimSourceTypes = ["rule", "provider", "provider_plus_rule"] as const sat
 const evidenceSourceTypes = ["retrieval_live", "retrieval_mock", "request_mock", "none"] as const satisfies readonly EvidenceSourceType[];
 const timelineSourceTypes = ["retrieval", "input_seed", "none"] as const satisfies readonly TimelineSourceType[];
 const pipelineStepStatuses = ["completed", "warning", "skipped", "error"] as const satisfies readonly PipelineStepStatus[];
+const liveStatuses = ["running", "completed", "warning", "skipped", "error"] as const satisfies readonly AnalysisLiveStatus[];
 
 function getApiBase() {
   const configuredBase = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
@@ -92,6 +103,10 @@ function ensureConfidence(value: unknown): ConfidenceValue {
 
 function ensureLiteral<T extends string>(value: unknown, allowed: readonly T[]): T | null {
   return typeof value === "string" && allowed.includes(value as T) ? (value as T) : null;
+}
+
+function ensureTimestamp(value: unknown) {
+  return ensureString(value, new Date().toISOString());
 }
 
 function parseEvidence(value: unknown): Evidence[] {
@@ -366,6 +381,120 @@ async function parseJson<T>(response: Response) {
   return (await response.json()) as T;
 }
 
+function parseLiveEvent(value: unknown): AnalysisLiveEvent {
+  if (!isObject(value)) {
+    throw new ApiClientError("无法解析流式分析事件。");
+  }
+
+  const type = ensureString(value.type);
+  const emittedAt = ensureTimestamp(value.emitted_at);
+
+  if (type === "session") {
+    const event: AnalysisLiveSessionEvent = {
+      type,
+      emitted_at: emittedAt,
+      run_id: ensureString(value.run_id),
+      trace_id: ensureString(value.trace_id),
+      input_type: ensureString(value.input_type, "auto"),
+      summary: ensureString(value.summary),
+      preview: ensureString(value.preview),
+    };
+    return event;
+  }
+
+  if (type === "stage") {
+    const event: AnalysisLiveStageEvent = {
+      type,
+      emitted_at: emittedAt,
+      stage_key: ensureString(value.stage_key),
+      title: ensureString(value.title, "处理阶段"),
+      status: ensureLiteral(value.status, liveStatuses) ?? "running",
+      summary: ensureString(value.summary),
+      details: ensureStringArray(value.details),
+    };
+    return event;
+  }
+
+  if (type === "api_call") {
+    const event: AnalysisLiveApiCallEvent = {
+      type,
+      emitted_at: emittedAt,
+      call_type: ensureString(value.call_type, "http"),
+      status: ensureLiteral(value.status, liveStatuses) ?? "running",
+      title: ensureString(value.title, "外部调用"),
+      summary: ensureString(value.summary),
+      details: ensureStringArray(value.details),
+      stage_key: ensureOptionalString(value.stage_key),
+    };
+    return event;
+  }
+
+  if (type === "retrieval") {
+    const event: AnalysisLiveRetrievalEvent = {
+      type,
+      emitted_at: emittedAt,
+      stage_key: ensureString(value.stage_key),
+      query_label: ensureString(value.query_label),
+      query: ensureString(value.query),
+      provider_name: ensureString(value.provider_name, "unknown"),
+      summary: ensureString(value.summary),
+      details: ensureStringArray(value.details),
+    };
+    return event;
+  }
+
+  if (type === "log") {
+    const rawLevel = ensureString(value.level, "info");
+    const event: AnalysisLiveLogEvent = {
+      type,
+      emitted_at: emittedAt,
+      title: ensureString(value.title, "运行日志"),
+      summary: ensureString(value.summary),
+      details: ensureStringArray(value.details),
+      level: rawLevel === "warning" || rawLevel === "error" ? rawLevel : "info",
+      stage_key: ensureOptionalString(value.stage_key),
+    };
+    return event;
+  }
+
+  if (type === "report") {
+    const event: AnalysisLiveReportEvent = {
+      type,
+      emitted_at: emittedAt,
+      run_id: ensureString(value.run_id),
+      summary: ensureString(value.summary),
+      report: parseReport(value.report),
+    };
+    return event;
+  }
+
+  if (type === "error") {
+    const event: AnalysisLiveErrorEvent = {
+      type,
+      emitted_at: emittedAt,
+      run_id: ensureString(value.run_id),
+      code: ensureString(value.code, "internal_server_error"),
+      message: ensureString(value.message, "分析失败。"),
+      status_code: typeof value.status_code === "number" ? value.status_code : 500,
+      details: ensureStringArray(value.details),
+    };
+    return event;
+  }
+
+  if (type === "complete") {
+    const event: AnalysisLiveCompleteEvent = {
+      type,
+      emitted_at: emittedAt,
+      run_id: ensureString(value.run_id),
+      success: value.success === true,
+      summary: ensureString(value.summary),
+    };
+    return event;
+  }
+
+  throw new ApiClientError(`未知流式事件类型: ${type || "unknown"}`);
+}
+
 export async function analyzeReport(request: AnalyzeRequest): Promise<Report> {
   const response = await fetch(`${getApiBase()}/api/v1/analyze`, {
     method: "POST",
@@ -378,6 +507,89 @@ export async function analyzeReport(request: AnalyzeRequest): Promise<Report> {
 
   const payload = await parseJson<unknown>(response);
   return parseReport(payload);
+}
+
+export async function analyzeReportStream(
+  request: AnalyzeRequest,
+  onEvent: (event: AnalysisLiveEvent) => void,
+): Promise<Report> {
+  const response = await fetch(`${getApiBase()}/api/v1/analyze/stream`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(request),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    let parsedMessage: string | null = null;
+    try {
+      const payload = JSON.parse(detail) as { error?: { message?: string } };
+      parsedMessage = payload.error?.message?.trim() || null;
+    } catch {}
+    throw new ApiClientError(parsedMessage || detail || "请求失败", response.status);
+  }
+
+  if (!response.body) {
+    throw new ApiClientError("浏览器没有返回可读取的流式响应。");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalReport: Report | null = null;
+  let streamError: ApiClientError | null = null;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+
+    let newlineIndex = buffer.indexOf("\n");
+    while (newlineIndex !== -1) {
+      const line = buffer.slice(0, newlineIndex).trim();
+      buffer = buffer.slice(newlineIndex + 1);
+      if (line) {
+        const rawEvent = JSON.parse(line) as unknown;
+        const event = parseLiveEvent(rawEvent);
+        onEvent(event);
+        if (event.type === "report") {
+          finalReport = event.report;
+        }
+        if (event.type === "error") {
+          const message = [event.message, ...event.details].filter(Boolean).join(" ");
+          streamError = new ApiClientError(message || event.code, event.status_code);
+        }
+      }
+      newlineIndex = buffer.indexOf("\n");
+    }
+
+    if (done) {
+      const line = buffer.trim();
+      if (line) {
+        const rawEvent = JSON.parse(line) as unknown;
+        const event = parseLiveEvent(rawEvent);
+        onEvent(event);
+        if (event.type === "report") {
+          finalReport = event.report;
+        }
+        if (event.type === "error") {
+          const message = [event.message, ...event.details].filter(Boolean).join(" ");
+          streamError = new ApiClientError(message || event.code, event.status_code);
+        }
+      }
+      break;
+    }
+  }
+
+  if (streamError) {
+    throw streamError;
+  }
+  if (!finalReport) {
+    throw new ApiClientError("流式分析结束了，但没有拿到最终 Report。");
+  }
+  return finalReport;
 }
 
 export async function getHealth(): Promise<HealthResponse> {

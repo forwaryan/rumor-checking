@@ -20,6 +20,7 @@ from backend.app.models.schemas import (
 )
 from backend.app.services.claim_extractor import ClaimExtraction
 from backend.app.services.contract_utils import default_source_name, default_source_url, ensure_datetime_string
+from backend.app.services.progress import emit_api_call, emit_log
 from backend.app.services.question_intent import is_broad_trend_question
 from backend.app.services.question_resolver import QuestionResolution
 from backend.app.services.retrieval_models import RetrievalBundle, SearchResult
@@ -127,11 +128,20 @@ class KimiAgentReasoner:
             return None
 
         content = self._request_completion(
+            stage_key="question_resolution",
+            title="调用 Agent question resolution",
             system_prompt=QUESTION_RESOLUTION_SYSTEM_PROMPT,
             user_prompt=self._build_resolution_prompt(event=event, retrieval_bundle=retrieval_bundle),
         )
         payload = self._extract_json_payload(content)
         if payload is None:
+            emit_log(
+                stage_key="question_resolution",
+                level="warning",
+                title="Agent question resolution 无法解析",
+                summary="Kimi 返回内容不是可解析的 JSON。",
+                details=[],
+            )
             return None
 
         selected_result = self._result_by_id(
@@ -172,6 +182,8 @@ class KimiAgentReasoner:
             return None
 
         content = self._request_completion(
+            stage_key="agent_synthesis",
+            title="调用 Agent synthesis",
             system_prompt=SYNTHESIS_SYSTEM_PROMPT,
             user_prompt=self._build_synthesis_prompt(
                 request=request,
@@ -181,6 +193,13 @@ class KimiAgentReasoner:
         )
         payload = self._extract_json_payload(content)
         if payload is None:
+            emit_log(
+                stage_key="agent_synthesis",
+                level="warning",
+                title="Agent synthesis 无法解析",
+                summary="Kimi 返回内容不是可解析的 JSON。",
+                details=[],
+            )
             return None
 
         result_map = {item.result_id: item for item in retrieval_bundle.canonical_results}
@@ -227,8 +246,19 @@ class KimiAgentReasoner:
             ),
         )
 
-    def _request_completion(self, *, system_prompt: str, user_prompt: str) -> str:
+    def _request_completion(self, *, stage_key: str, title: str, system_prompt: str, user_prompt: str) -> str:
         model = self._reasoning_model()
+        emit_api_call(
+            stage_key=stage_key,
+            call_type="llm",
+            status="running",
+            title=title,
+            summary="正在调用 Moonshot chat/completions。",
+            details=[
+                f"endpoint={self.settings.kimi_base_url}/chat/completions",
+                f"model={model}",
+            ],
+        )
         response = httpx.post(
             f"{self.settings.kimi_base_url}/chat/completions",
             headers={
@@ -248,6 +278,17 @@ class KimiAgentReasoner:
         )
         response.raise_for_status()
         payload = response.json()
+        emit_api_call(
+            stage_key=stage_key,
+            call_type="llm",
+            status="completed",
+            title=f"{title} 返回",
+            summary="Moonshot 已返回 JSON 响应。",
+            details=[
+                f"status_code={response.status_code}",
+                f"model={model}",
+            ],
+        )
         choice = payload.get("choices", [{}])[0]
         message = choice.get("message", {})
         return self._coerce_content(message.get("content"))

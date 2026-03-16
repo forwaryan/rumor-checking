@@ -23,6 +23,7 @@ from backend.app.services.retrieval_models import (
     infer_source_category,
     looks_like_repost,
 )
+from backend.app.services.progress import emit_log, emit_retrieval
 from backend.app.services.retrieval_provider import GdeltNewsProvider, KimiWebSearchProvider, RetrievalProvider
 
 logger = logging.getLogger(__name__)
@@ -104,13 +105,28 @@ class RetrievalService:
         request_context: Optional[dict[str, Any]] = None,
     ) -> RetrievalBundle:
         request_context = request_context or {}
+        stage_key = "retrieval_follow_up" if request_context.get("force_retrieval_query") else "retrieval_initial"
         query_plan = self._build_query_plan(event, request_context=request_context)
         if not query_plan:
+            emit_log(
+                stage_key=stage_key,
+                level="warning",
+                title="检索 query plan 为空",
+                summary="当前输入没有生成有效检索 query。",
+                details=[f"event_title={event.title or 'unknown'}"],
+            )
             raise AppError(
                 status_code=422,
                 code="empty_retrieval_query",
                 message="The request could not be rewritten into a valid retrieval query.",
             )
+
+        emit_log(
+            stage_key=stage_key,
+            title="已生成 query plan",
+            summary=f"本轮检索会执行 {len(query_plan)} 条 query。",
+            details=[f"{spec.label}={spec.query}" for spec in query_plan],
+        )
 
         primary_query = query_plan[0].query
         cache_enabled = self.settings.retrieval_cache_enabled
@@ -144,26 +160,56 @@ class RetrievalService:
                     scope_key=spec.normalized_scope(),
                 )
                 if cached is not None:
-                    query_bundles.append(
-                        cached.with_runtime_metadata(
-                            query_groups=(spec,),
-                            query_failures=(),
-                        )
+                    cached_bundle = cached.with_runtime_metadata(
+                        query_groups=(spec,),
+                        query_failures=(),
                     )
+                    query_bundles.append(cached_bundle)
                     cache_statuses.append(cached.cache_status)
+                    emit_retrieval(
+                        stage_key=stage_key,
+                        query_label=spec.label,
+                        query=spec.query,
+                        provider_name=provider_name,
+                        summary=f"{spec.label} 命中缓存，直接复用检索结果。",
+                        details=_retrieval_preview_details(cached_bundle),
+                    )
                     continue
 
             if cache_only:
                 query_failures.append(f"{spec.label}:cache_miss")
                 cache_statuses.append("miss")
+                emit_log(
+                    stage_key=stage_key,
+                    level="warning",
+                    title="缓存模式未命中",
+                    summary=f"{spec.label} 只读缓存但没有命中。",
+                    details=[f"query={spec.query}"],
+                )
                 continue
 
             if provider_unavailable:
                 logger.warning("retrieval_provider_unavailable provider=%s query_label=%s", provider_name, spec.label)
                 query_failures.append(f"{spec.label}:provider_unavailable")
+                emit_log(
+                    stage_key=stage_key,
+                    level="warning",
+                    title="检索 provider 不可用",
+                    summary=f"{provider_name} 当前不可用，无法执行 {spec.label}。",
+                    details=[f"query={spec.query}"],
+                )
                 continue
 
             try:
+                emit_log(
+                    stage_key=stage_key,
+                    title="执行检索 query",
+                    summary=f"正在调用 {provider_name} 执行 {spec.label}。",
+                    details=[
+                        f"query={spec.query}",
+                        f"rationale={spec.rationale}",
+                    ],
+                )
                 raw_results = self.provider.search(spec.query)
             except AppError:
                 raise
@@ -191,11 +237,29 @@ class RetrievalService:
                                 query_groups=(spec,),
                                 query_failures=(),
                             )
-                        )
+                    )
                         cache_statuses.append("stale_hit")
+                        emit_retrieval(
+                            stage_key=stage_key,
+                            query_label=spec.label,
+                            query=spec.query,
+                            provider_name=provider_name,
+                            summary=f"{spec.label} 实时检索失败，已退回陈旧缓存。",
+                            details=_retrieval_preview_details(stale_cached),
+                        )
                         continue
                 query_failures.append(f"{spec.label}:{failure_detail}")
                 provider_failure_details.append(f"{spec.label}:{failure_detail}")
+                emit_log(
+                    stage_key=stage_key,
+                    level="warning",
+                    title="实时检索失败",
+                    summary=f"{spec.label} 调用 {provider_name} 失败。",
+                    details=[
+                        f"query={spec.query}",
+                        f"failure={failure_detail}",
+                    ],
+                )
                 continue
 
             bundle = self._build_single_query_bundle(
@@ -213,9 +277,24 @@ class RetrievalService:
                 )
             query_bundles.append(bundle)
             cache_statuses.append(bundle.cache_status)
+            emit_retrieval(
+                stage_key=stage_key,
+                query_label=spec.label,
+                query=spec.query,
+                provider_name=provider_name,
+                summary=f"{spec.label} 已返回 {len(bundle.canonical_results)} 条去重结果。",
+                details=_retrieval_preview_details(bundle),
+            )
 
         if not query_bundles:
             if cache_only:
+                emit_log(
+                    stage_key=stage_key,
+                    level="warning",
+                    title="检索返回空结果",
+                    summary="本轮检索只读缓存且全部 miss。",
+                    details=[f"provider={provider_name}"],
+                )
                 return self._empty_bundle(
                     primary_query,
                     provider_name=provider_name,
@@ -226,6 +305,13 @@ class RetrievalService:
                     query_failures=tuple(query_failures),
                 )
             if provider_unavailable:
+                emit_log(
+                    stage_key=stage_key,
+                    level="warning",
+                    title="检索 provider 不可用",
+                    summary="本轮检索没有实际调用到在线 provider。",
+                    details=[f"provider={provider_name}"],
+                )
                 return self._provider_unavailable_bundle(
                     event,
                     query=primary_query,
@@ -234,6 +320,13 @@ class RetrievalService:
                     query_failures=tuple(query_failures),
                 )
             if provider_failure_details:
+                emit_log(
+                    stage_key=stage_key,
+                    level="warning",
+                    title="检索阶段全部失败",
+                    summary="所有 query 都未拿到在线结果。",
+                    details=provider_failure_details[:4],
+                )
                 return self._provider_failure_bundle(
                     event,
                     query=primary_query,
@@ -242,6 +335,13 @@ class RetrievalService:
                     query_plan=query_plan,
                     query_failures=tuple(query_failures),
                 )
+            emit_log(
+                stage_key=stage_key,
+                level="warning",
+                title="检索阶段无结果",
+                summary="本轮检索执行完成，但没有保留下任何结果。",
+                details=query_failures[:4],
+            )
             return self._empty_bundle(
                 primary_query,
                 provider_name=provider_name,
@@ -251,7 +351,7 @@ class RetrievalService:
                 query_failures=tuple(query_failures),
             )
 
-        return self._combine_query_bundles(
+        combined_bundle = self._combine_query_bundles(
             primary_query=primary_query,
             query_plan=query_plan,
             query_bundles=query_bundles,
@@ -259,6 +359,13 @@ class RetrievalService:
             cache_statuses=cache_statuses,
             query_failures=query_failures,
         )
+        emit_log(
+            stage_key=stage_key,
+            title="检索阶段汇总完成",
+            summary=f"已汇总 {len(combined_bundle.canonical_results)} 条 canonical retrieval hits。",
+            details=_retrieval_preview_details(combined_bundle),
+        )
+        return combined_bundle
 
     def _build_single_query_bundle(
         self,
@@ -765,3 +872,18 @@ class RetrievalService:
         if isinstance(value, str):
             return value.strip().lower() in {"1", "true", "yes", "on"}
         return False
+
+
+def _retrieval_preview_details(bundle: RetrievalBundle) -> list[str]:
+    details = [
+        f"cache_status={bundle.cache_status}",
+        f"canonical_results={len(bundle.canonical_results)}",
+        f"raw_results={len(bundle.raw_results)}",
+        f"high_trust_sources={bundle.high_trust_result_count}",
+        f"independent_sources={bundle.independent_source_count}",
+    ]
+    for result in bundle.canonical_results[:3]:
+        details.append(f"hit={result.title} | {result.source_name} | {result.published_at}")
+    if bundle.failure_detail:
+        details.append(f"failure_detail={bundle.failure_detail}")
+    return details

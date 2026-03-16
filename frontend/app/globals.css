@@ -954,6 +954,12 @@ a:hover {
   background: rgba(29, 106, 84, 0.09);
 }
 
+.trace-live-pill--error {
+  color: var(--danger);
+  border-color: rgba(163, 62, 46, 0.22);
+  background: rgba(163, 62, 46, 0.08);
+}
+
 .trace-overview {
   margin-top: 1rem;
   padding: 1rem 1.05rem;
@@ -1005,6 +1011,10 @@ a:hover {
 
 .trace-step__index--completed {
   color: var(--green);
+}
+
+.trace-step__index--running {
+  color: var(--accent-deep);
 }
 
 .trace-step__index--warning {
@@ -1072,6 +1082,47 @@ a:hover {
 .trace-step__summary {
   margin: 0.75rem 0 0;
   line-height: 1.65;
+}
+
+.trace-meta-pill,
+.trace-status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0.35rem 0.72rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  border: 1px solid rgba(24, 34, 44, 0.1);
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.trace-status-pill--running {
+  color: var(--accent-deep);
+  border-color: rgba(197, 91, 57, 0.22);
+  background: rgba(197, 91, 57, 0.1);
+}
+
+.trace-status-pill--completed {
+  color: var(--green);
+  border-color: rgba(29, 106, 84, 0.22);
+  background: rgba(29, 106, 84, 0.09);
+}
+
+.trace-status-pill--warning {
+  color: var(--gold);
+  border-color: rgba(182, 133, 45, 0.24);
+  background: rgba(182, 133, 45, 0.1);
+}
+
+.trace-status-pill--skipped {
+  color: var(--muted);
+}
+
+.trace-status-pill--error {
+  color: var(--danger);
+  border-color: rgba(163, 62, 46, 0.2);
+  background: rgba(163, 62, 46, 0.08);
 }
 
 .trace-step__details {

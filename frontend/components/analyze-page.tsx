@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { AnalysisLivePanel } from "@/components/analysis-live-panel";
 import { ClaimTable } from "@/components/claim-table";
 import { ContentCheckPanel } from "@/components/content-check-panel";
 import { EvidenceList } from "@/components/evidence-list";
@@ -10,12 +11,13 @@ import { ReportOverviewPanel } from "@/components/report-overview-panel";
 import { RiskPanel } from "@/components/risk-panel";
 import { StatusBanner } from "@/components/status-banner";
 import { TimelinePanel } from "@/components/timeline-panel";
-import { analyzeReport, getHealth } from "@/lib/api-client";
+import { analyzeReportStream, getHealth } from "@/lib/api-client";
 import { getLocalDemoCaseSummaries } from "@/lib/demo-cases";
 import { getStatusFromMode, validateInput } from "@/lib/report-utils";
 import type {
-  AnalyzeRequest,
+  AnalysisLiveEvent,
   AnalysisStatus,
+  AnalyzeRequest,
   DemoCaseSummary,
   InputType,
   Report,
@@ -26,6 +28,18 @@ type BackendState = "checking" | "online" | "offline" | "degraded";
 
 interface LastRequest {
   request: AnalyzeRequest;
+}
+
+function buildReportProvenance(report: Report): ReportProvenanceState {
+  return report.provenance
+    ? {
+        sourceKind: report.provenance.source_type,
+        reportProvenance: report.provenance,
+      }
+    : {
+        sourceKind: "unknown",
+        fallbackReason: "missing_provenance",
+      };
 }
 
 export function AnalyzePage() {
@@ -40,6 +54,9 @@ export function AnalyzePage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [backendState, setBackendState] = useState<BackendState>("checking");
   const [lastRequest, setLastRequest] = useState<LastRequest | null>(null);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [analysisStartedAt, setAnalysisStartedAt] = useState<string | null>(null);
+  const [liveEvents, setLiveEvents] = useState<AnalysisLiveEvent[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -69,10 +86,16 @@ export function AnalyzePage() {
   }, [idleDemoCases]);
 
   function resetDraft() {
+    if (isStreaming) {
+      return;
+    }
+
     setInputValue("");
     setInputType("auto");
     setSelectedDemoId(null);
     setErrorMessage(null);
+    setLiveEvents([]);
+    setAnalysisStartedAt(null);
     setStatus(report ? getStatusFromMode(report.mode) : "idle");
   }
 
@@ -83,31 +106,37 @@ export function AnalyzePage() {
     setErrorMessage(null);
   }
 
+  function handleStreamEvent(event: AnalysisLiveEvent) {
+    setLiveEvents((current) => [...current, event]);
+    if (event.type === "report") {
+      setReport(event.report);
+      setReportProvenance(buildReportProvenance(event.report));
+    }
+  }
+
   async function executeSubmission(target: LastRequest) {
+    setIsStreaming(true);
     setStatus("submitting");
     setErrorMessage(null);
+    setReport(null);
     setReportProvenance(null);
+    setLiveEvents([]);
+    setAnalysisStartedAt(new Date().toISOString());
 
     try {
-      const nextReport = await analyzeReport(target.request);
+      const nextReport = await analyzeReportStream(target.request, handleStreamEvent);
       setReport(nextReport);
-      setReportProvenance(
-        nextReport.provenance
-          ? {
-              sourceKind: nextReport.provenance.source_type,
-              reportProvenance: nextReport.provenance,
-            }
-          : {
-              sourceKind: "unknown",
-              fallbackReason: "missing_provenance",
-            },
-      );
+      setReportProvenance(buildReportProvenance(nextReport));
       setStatus(getStatusFromMode(nextReport.mode));
     } catch (error) {
-      const message = error instanceof Error ? error.message : "请求失败，且页面不会再回退到本地假结果。";
+      const message =
+        error instanceof Error ? error.message : "请求失败，前端没有拿到可展示的分析结果。";
       setReport(null);
+      setReportProvenance(null);
       setStatus("error");
       setErrorMessage(message);
+    } finally {
+      setIsStreaming(false);
     }
   }
 
@@ -131,7 +160,7 @@ export function AnalyzePage() {
   }
 
   async function retryLastRequest() {
-    if (!lastRequest) {
+    if (!lastRequest || isStreaming) {
       return;
     }
 
@@ -145,35 +174,35 @@ export function AnalyzePage() {
           <div className="masthead__intro">
             <p className="eyebrow">Rumor Checking Desk</p>
             <h1>较真工作台</h1>
-            <p>输入一句话、新闻正文或 URL，输出整体可信度、传播链还原、内容核查结论和风险边界。</p>
+            <p>输入一句话、新闻正文或 URL，输出可信度、传播链、内容核查结论和风险边界。</p>
           </div>
           <div className="masthead__summary">
             <p className="eyebrow">Input / Output</p>
-            <strong>先回答“更像真、假，还是真假混杂”，再拆开看内容核查和传播链两条主流程。</strong>
-            <p>结果页只讲已经冻结的字段，不伪装 live 能力，不把局部结果包装成完整复盘。</p>
+            <strong>先回答更像真、假，还是真假混杂，再拆开看内容核查与传播链两条主流程。</strong>
+            <p>现在点下“开始分析”后，页面会实时显示后端每个阶段在做什么、调了哪些 API、拿到了哪些结果。</p>
           </div>
         </div>
 
         <div className="masthead__workflow">
           <article className="workflow-stage-card workflow-stage-card--done">
             <span className="workflow-stage-card__step">01 输入</span>
-            <strong>输入线索</strong>
-            <p>支持问题、正文和 URL，先把人、事、时间线索收进来。</p>
+            <strong>收集线索</strong>
+            <p>支持问题、正文和 URL，先把人、事、时间与原帖线索收进来。</p>
           </article>
           <article className="workflow-stage-card workflow-stage-card--active">
-            <span className="workflow-stage-card__step">02 核查</span>
-            <strong>拆 claim 做内容核查</strong>
-            <p>把事实、观点、可能有误分开看，避免整条新闻一刀切。</p>
+            <span className="workflow-stage-card__step">02 检索</span>
+            <strong>拉取公开信息</strong>
+            <p>实时展示 query plan、外部 API 调用和命中的网页结果。</p>
           </article>
           <article className="workflow-stage-card workflow-stage-card--active">
-            <span className="workflow-stage-card__step">03 传播</span>
-            <strong>还原传播链</strong>
-            <p>解释它是怎么传开的，哪些节点值得被选进时间线。</p>
+            <span className="workflow-stage-card__step">03 判断</span>
+            <strong>Agent 与规则链</strong>
+            <p>展示消歧、claim 拆解、verdict 生成与时间线构建的执行过程。</p>
           </article>
           <article className="workflow-stage-card">
             <span className="workflow-stage-card__step">04 输出</span>
-            <strong>合并结果与边界</strong>
-            <p>最后只输出整体可信度、风险提示和当前局限，不做额外承诺。</p>
+            <strong>返回报告</strong>
+            <p>最后输出总体可信度、风险边界与可追溯的执行记录。</p>
           </article>
         </div>
       </header>
@@ -188,7 +217,7 @@ export function AnalyzePage() {
             <div className="studio-section__header">
               <p className="studio-section__eyebrow">Input</p>
               <h2>输入待核查内容</h2>
-              <p className="studio-section__copy">支持一句话、新闻正文和 URL，提交后会输出整体可信度、双主流程结果和风险边界。</p>
+              <p className="studio-section__copy">支持一句话、新闻正文和 URL，提交后会实时展示后端执行轨迹。</p>
             </div>
             <InputPanel
               value={inputValue}
@@ -196,7 +225,7 @@ export function AnalyzePage() {
               selectedDemoId={selectedDemoId}
               demoCases={demoCases}
               backendState={backendState}
-              isSubmitting={status === "submitting"}
+              isSubmitting={isStreaming}
               onValueChange={(value) => {
                 setInputValue(value);
                 setSelectedDemoId(null);
@@ -211,6 +240,7 @@ export function AnalyzePage() {
               }}
               onReset={resetDraft}
             />
+            <AnalysisLivePanel status={status} isStreaming={isStreaming} startedAt={analysisStartedAt} events={liveEvents} />
           </div>
         </section>
 
@@ -223,7 +253,7 @@ export function AnalyzePage() {
             <div className="studio-section__header">
               <p className="studio-section__eyebrow">Summary</p>
               <h2>先看结论和边界</h2>
-              <p className="studio-section__copy">先看一句话结论、整体可信度、双主流程完成度和风险边界。</p>
+              <p className="studio-section__copy">这里展示最终模式、可信度、关键风险和来源说明。</p>
             </div>
             <StatusBanner
               status={status}
@@ -251,7 +281,7 @@ export function AnalyzePage() {
             <div className="studio-section__header">
               <p className="studio-section__eyebrow">Content</p>
               <h2>看句子里哪些部分站得住</h2>
-              <p className="studio-section__copy">把事实、观点、可能有误和待补证项分开展示，避免把整条新闻混成一句话。</p>
+              <p className="studio-section__copy">把事实、观点、争议点和待补证项拆开展示，避免一刀切。</p>
             </div>
             <ContentCheckPanel report={report} />
           </div>
@@ -266,7 +296,7 @@ export function AnalyzePage() {
             <div className="studio-section__header">
               <p className="studio-section__eyebrow">Evidence</p>
               <h2>最后看传播过程和证据</h2>
-              <p className="studio-section__copy">传播链解释“它如何传开”，claim 和来源解释“为什么这么判断”。</p>
+              <p className="studio-section__copy">时间线解释它如何传播，claim 与证据列表解释为什么这么判断。</p>
             </div>
             <TimelinePanel report={report} />
             <div className="evidence-stage-grid">

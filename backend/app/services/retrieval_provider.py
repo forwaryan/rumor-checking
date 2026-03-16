@@ -11,6 +11,7 @@ import httpx
 
 from backend.app.core.config import Settings, get_settings
 from backend.app.services.contract_utils import ensure_datetime_string
+from backend.app.services.progress import emit_api_call
 from backend.app.services.retrieval_models import (
     SearchResult,
     build_independence_key,
@@ -147,6 +148,17 @@ class GdeltNewsProvider:
         if not self.enabled:
             return []
 
+        emit_api_call(
+            stage_key="retrieval_initial",
+            call_type="http",
+            status="running",
+            title="调用 GDELT API",
+            summary="正在请求 GDELT 新闻接口。",
+            details=[
+                f"endpoint={self.settings.retrieval_gdelt_base_url}",
+                f"query={query_text}",
+            ],
+        )
         response = httpx.get(
             self.settings.retrieval_gdelt_base_url,
             params={
@@ -159,7 +171,19 @@ class GdeltNewsProvider:
             timeout=self.settings.retrieval_timeout_seconds,
         )
         response.raise_for_status()
-        return self._parse_articles(query_text, response.json())
+        results = self._parse_articles(query_text, response.json())
+        emit_api_call(
+            stage_key="retrieval_initial",
+            call_type="http",
+            status="completed",
+            title="GDELT API 返回",
+            summary=f"GDELT 返回 {len(results)} 条可用结果。",
+            details=[
+                f"status_code={response.status_code}",
+                f"query={query_text}",
+            ],
+        )
+        return results
 
     def _parse_articles(self, query_text: str, payload: Any) -> List[SearchResult]:
         articles = payload.get("articles") if isinstance(payload, dict) else None
@@ -265,6 +289,17 @@ class KimiWebSearchProvider:
 
     def _request_completion(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
         model = self._search_model()
+        emit_api_call(
+            stage_key="retrieval_initial",
+            call_type="llm",
+            status="running",
+            title="调用 Kimi web search",
+            summary="正在请求 Moonshot chat/completions，并要求先执行 $web_search。",
+            details=[
+                f"endpoint={self.settings.kimi_base_url}/chat/completions",
+                f"model={model}",
+            ],
+        )
         response = httpx.post(
             f"{self.settings.kimi_base_url}/chat/completions",
             headers={
@@ -283,8 +318,23 @@ class KimiWebSearchProvider:
         )
         response.raise_for_status()
         payload = response.json()
+        tool_call_count = 0
         choice = payload.get("choices", [{}])[0]
         message = choice.get("message")
+        if isinstance(message, dict) and isinstance(message.get("tool_calls"), list):
+            tool_call_count = len(message.get("tool_calls") or [])
+        emit_api_call(
+            stage_key="retrieval_initial",
+            call_type="llm",
+            status="completed",
+            title="Kimi web search 返回",
+            summary="Moonshot 已返回一轮 tool-calling / JSON 响应。",
+            details=[
+                f"status_code={response.status_code}",
+                f"model={model}",
+                f"tool_calls={tool_call_count}",
+            ],
+        )
         if not isinstance(message, dict):
             raise ValueError("Kimi web search returned an invalid message payload")
         return message

@@ -31,6 +31,18 @@ export type ReportFallbackReason = "backend_offline" | "analyze_failed" | "missi
 
 export type PipelineStepStatus = "completed" | "warning" | "skipped" | "error";
 
+export type AnalysisLiveEventType =
+  | "session"
+  | "stage"
+  | "api_call"
+  | "retrieval"
+  | "log"
+  | "report"
+  | "error"
+  | "complete";
+
+export type AnalysisLiveStatus = "running" | "completed" | "warning" | "skipped" | "error";
+
 export interface ReportProvenance {
   source_type: ReportSourceType;
   event_source: EventSourceType;
@@ -168,6 +180,91 @@ export interface PipelineTraceStep {
 export interface PipelineTrace {
   steps: PipelineTraceStep[];
 }
+
+export interface AnalysisLiveEventBase {
+  type: AnalysisLiveEventType;
+  emitted_at: string;
+}
+
+export interface AnalysisLiveSessionEvent extends AnalysisLiveEventBase {
+  type: "session";
+  run_id: string;
+  trace_id: string;
+  input_type: string;
+  summary: string;
+  preview: string;
+}
+
+export interface AnalysisLiveStageEvent extends AnalysisLiveEventBase {
+  type: "stage";
+  stage_key: string;
+  title: string;
+  status: AnalysisLiveStatus;
+  summary: string;
+  details: string[];
+}
+
+export interface AnalysisLiveApiCallEvent extends AnalysisLiveEventBase {
+  type: "api_call";
+  call_type: string;
+  status: AnalysisLiveStatus;
+  title: string;
+  summary: string;
+  details: string[];
+  stage_key?: string | null;
+}
+
+export interface AnalysisLiveRetrievalEvent extends AnalysisLiveEventBase {
+  type: "retrieval";
+  stage_key: string;
+  query_label: string;
+  query: string;
+  provider_name: string;
+  summary: string;
+  details: string[];
+}
+
+export interface AnalysisLiveLogEvent extends AnalysisLiveEventBase {
+  type: "log";
+  title: string;
+  summary: string;
+  details: string[];
+  level: "info" | "warning" | "error";
+  stage_key?: string | null;
+}
+
+export interface AnalysisLiveReportEvent extends AnalysisLiveEventBase {
+  type: "report";
+  run_id: string;
+  summary: string;
+  report: Report;
+}
+
+export interface AnalysisLiveErrorEvent extends AnalysisLiveEventBase {
+  type: "error";
+  run_id: string;
+  code: string;
+  message: string;
+  status_code: number;
+  details: string[];
+}
+
+export interface AnalysisLiveCompleteEvent extends AnalysisLiveEventBase {
+  type: "complete";
+  run_id: string;
+  success: boolean;
+  summary: string;
+}
+
+export type AnalysisLiveEvent =
+  | AnalysisLiveSessionEvent
+  | AnalysisLiveStageEvent
+  | AnalysisLiveApiCallEvent
+  | AnalysisLiveRetrievalEvent
+  | AnalysisLiveLogEvent
+  | AnalysisLiveReportEvent
+  | AnalysisLiveErrorEvent
+  | AnalysisLiveCompleteEvent;
 
 export interface Report {
   mode: OutputMode;
