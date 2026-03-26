@@ -542,10 +542,7 @@
           "type": "string",
           "enum": [
             "backend_live",
-            "backend_mock",
-            "backend_replay",
-            "demo_payload",
-            "frontend_fallback"
+            "backend_mock"
           ]
         },
         "event_source": {

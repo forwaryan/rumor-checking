@@ -218,8 +218,6 @@ class ReportBuilder:
             risks.append("\u516c\u5f00\u6765\u6e90\u4e4b\u95f4\u4ecd\u6709\u51b2\u7a81\uff0c\u4e0d\u80fd\u76f4\u63a5\u4e0b\u5355\u4e00\u7ed3\u8bba\u3002")
         if provenance.source_type == "backend_mock":
             risks.append("\u5f53\u524d\u7ed3\u679c\u6765\u81ea mock \u6570\u636e\u6216 mock \u56de\u9000\u8def\u5f84\uff0c\u4e0d\u80fd\u5f53\u4f5c\u771f\u5b9e\u8054\u7f51\u6838\u67e5\u7ed3\u8bba\u3002")
-        if provenance.source_type == "backend_replay":
-            risks.append("\u5f53\u524d\u7ed3\u679c\u6765\u81ea replay \u6f14\u793a\u6837\u672c\uff0c\u4e0d\u80fd\u5f53\u4f5c\u5b9e\u65f6\u68c0\u7d22\u7ed3\u679c\u7406\u89e3\u3002")
         if event.fallback_used:
             risks.append(self._fallback_risk_message(event))
         if any(reason in RETRIEVAL_FALLBACK_REASONS for reason in provenance.fallback_reasons):

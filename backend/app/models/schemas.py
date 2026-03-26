@@ -19,7 +19,7 @@ EventSourceType = Literal["input_normalized", "url_extract", "provider_enriched"
 ClaimSourceType = Literal["rule", "provider", "provider_plus_rule"]
 EvidenceSourceType = Literal["retrieval_live", "retrieval_mock", "request_mock", "none"]
 TimelineSourceType = Literal["retrieval", "input_seed", "none"]
-ReportSourceType = Literal["backend_live", "backend_mock", "backend_replay", "demo_payload", "frontend_fallback"]
+ReportSourceType = Literal["backend_live", "backend_mock"]
 CredibilityLabel = Literal[
     "high_credibility",
     "medium_credibility",
@@ -118,10 +118,7 @@ class ClaimResult(BaseModel):
 class ReportProvenance(BaseModel):
     source_type: ReportSourceType = Field(
         ...,
-        description=(
-            "Backend currently emits backend_live/backend_mock/backend_replay. "
-            "Frontend may additionally use demo_payload/frontend_fallback for local-only states."
-        ),
+        description="Backend currently emits backend_live/backend_mock.",
     )
     event_source: EventSourceType
     claim_source: ClaimSourceType

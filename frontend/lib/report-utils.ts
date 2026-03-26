@@ -55,9 +55,6 @@ const claimTypeTone: Record<ClaimType, string> = {
 const sourceTypeTone: Record<ReportSourceKind, string> = {
   backend_live: "实时联网结果",
   backend_mock: "后端模拟结果",
-  backend_replay: "回放结果",
-  demo_payload: "本地演示数据",
-  frontend_fallback: "前端保守回退",
   unknown: "来源待确认",
 };
 
@@ -108,7 +105,7 @@ export interface ReportProvenanceMeta {
   caution?: string;
   fallbackLabel?: string;
   detailBadges: string[];
-  tone: "live" | "mock" | "replay" | "demo" | "fallback" | "unknown";
+  tone: "live" | "mock" | "unknown";
 }
 
 export interface KimiUsageMeta {
@@ -148,20 +145,11 @@ export function getStatusFromMode(mode: OutputMode): AnalysisStatus {
 }
 
 export function getVerificationScoreRuleText() {
-  return "基础分：证据较完整 8 分、已有局部结论 5 分、证据稀缺 2 分；明确 claim >= 2 +1；有效证据 >= 3 且含 A/S 来源 +1；时间线 >= 2 且来自检索 +1；存在冲突 -1；fallback 或无证据链 -1；demo/mock/replay 最高 7 分，前端 fallback 最高 3 分。";
+  return "基础分：证据较完整 8 分、已有局部结论 5 分、证据稀缺 2 分；明确 claim >= 2 +1；有效证据 >= 3 且含 A/S 来源 +1；时间线 >= 2 且来自检索 +1；存在冲突 -1；缺少来源信息或证据链不足 -1；后端 mock 结果最高 7 分。";
 }
 
 function getFallbackLabel(reason?: ReportFallbackReason) {
-  switch (reason) {
-    case "backend_offline":
-      return "后端离线回退";
-    case "analyze_failed":
-      return "请求失败回退";
-    case "missing_provenance":
-      return "来源待确认";
-    default:
-      return undefined;
-  }
+  return reason === "missing_provenance" ? "来源待确认" : undefined;
 }
 
 function getBackendFallbackLabel(provenance: ReportProvenance | null | undefined) {
@@ -261,36 +249,6 @@ export function getReportProvenanceMeta(
         fallbackLabel: getBackendFallbackLabel(backendProvenance),
         detailBadges: backendProvenance ? getBackendDetailBadges(backendProvenance) : [],
         tone: "mock",
-      };
-    case "backend_replay":
-      return {
-        sourceKind: effectiveProvenance.sourceKind,
-        sourceLabel: sourceTypeTone.backend_replay,
-        summary: "这次页面展示的是回放结果，适合复现 UI 和测试流程，不是针对当前输入的新分析。",
-        caution: "这不是当前输入的实时 analyze 结果，请不要把结论、时间线或 claim 讲成最新联网输出。",
-        fallbackLabel: getBackendFallbackLabel(backendProvenance),
-        detailBadges: backendProvenance ? getBackendDetailBadges(backendProvenance) : [],
-        tone: "replay",
-      };
-    case "demo_payload":
-      return {
-        sourceKind: effectiveProvenance.sourceKind,
-        sourceLabel: sourceTypeTone.demo_payload,
-        summary: "这次页面展示的是仓库内置演示数据，用来稳定演示页面结构、分数变化和空态边界。",
-        caution: "这不是本次输入的实时分析结果，请不要把结论、时间线或 claim 当成真实联网推理输出。",
-        fallbackLabel: getFallbackLabel(effectiveProvenance.fallbackReason),
-        detailBadges: [],
-        tone: "demo",
-      };
-    case "frontend_fallback":
-      return {
-        sourceKind: effectiveProvenance.sourceKind,
-        sourceLabel: sourceTypeTone.frontend_fallback,
-        summary: "这次页面只保留前端保守回退壳，用来提示边界与空态，不代表后端已给出可用结论。",
-        caution: "请不要把当前页面内容解释成真实分析；接口恢复后应重新提交输入。",
-        fallbackLabel: getFallbackLabel(effectiveProvenance.fallbackReason),
-        detailBadges: [],
-        tone: "fallback",
       };
     default:
       return {
@@ -392,25 +350,14 @@ export function getVerificationScoreMeta(
     score = Math.min(score, 7);
   }
 
-  switch (effectiveProvenance.sourceKind) {
-    case "backend_mock":
-    case "backend_replay":
-    case "demo_payload":
-      score = Math.min(score, 7);
-      break;
-    case "frontend_fallback":
-      score = Math.min(score, 3);
-      break;
-    default:
-      break;
+  if (effectiveProvenance.sourceKind === "backend_mock") {
+    score = Math.min(score, 7);
   }
 
   score = Math.max(1, Math.min(10, score));
 
   let summary = "当前只适合提示边界和下一步核查点，不适合给过度确定的结论。";
-  if (effectiveProvenance.sourceKind === "frontend_fallback") {
-    summary = "当前只是前端保守回退壳，分数只表示页面可展示程度，不代表已经完成真实核查。";
-  } else if (["backend_mock", "backend_replay", "demo_payload"].includes(effectiveProvenance.sourceKind)) {
+  if (effectiveProvenance.sourceKind === "backend_mock") {
     summary = "当前不是实时联网结果，分数只表示这份结果的展示完整度，不代表当前输入已经被真实核查。";
   } else if (score >= 8) {
     summary = "当前公开证据、claim 和时间线已相对完整，适合较完整讲解，但仍要结合风险项理解。";
@@ -653,122 +600,3 @@ export function validateInput(input: string, inputType: InputType) {
   return null;
 }
 
-export function buildFallbackReport(input: string, inputType: InputType): Report {
-  const compact = input.trim().replace(/\s+/g, " ");
-  const preview = compact.length > 140 ? `${compact.slice(0, 140)}...` : compact;
-  const now = new Date().toISOString();
-
-  const sourceName = inputType === "url" ? "用户提供链接" : "用户提供文本";
-  const sourceUrl = inputType === "url" && compact ? compact : "https://example.org/demo/manual-input";
-
-  return {
-    mode: "safe_mode",
-    event: {
-      title: "接口暂不可达，当前仅展示回退结果",
-      summary: preview || "系统还没有拿到足够上下文，暂时无法进入标准核查流程。",
-      source_url: sourceUrl,
-      source_name: sourceName,
-      published_at: now,
-      keywords: ["fallback", "待核查", "证据不足"],
-      mode: "safe_mode",
-    },
-    timeline: [],
-    claim_results: [
-      {
-        claim: "当前输入值得继续核查，但系统尚未拿到足够证据形成稳定 verdict。",
-        claim_type: "unverifiable",
-        verdict: "insufficient",
-        confidence: "low",
-        evidence: [],
-        notes: "这是前端保守回退结果，只用来提示当前链路卡在后端或检索阶段。",
-      },
-    ],
-    final_summary: "当前页面没有拿到真实 Report，因此只保留边界说明。建议稍后重试，或先用稳定 demo case 继续演示。",
-    risks: [
-      "当前结果不是后端真实分析输出，只是前端回退壳。",
-      "时间线、claim 和证据都未完成真实检索，请避免把它当作核查结论。",
-    ],
-    investigation: {
-      question: compact || "待核查问题",
-      reframed_question: preview || "待核查命题",
-      thinking_process: [
-        {
-          title: "先保留原始输入",
-          detail: "当前是前端 fallback 结果，系统只能先保留用户原始问法，避免伪造检索结论。",
-        },
-        {
-          title: "暂不锁定具体事件",
-          detail: "因为真实 analyze 没有成功返回，页面无法确认具体人物、事件和传播链。",
-        },
-        {
-          title: "只输出边界，不强行下结论",
-          detail: "在后端与检索链路恢复前，页面只展示待核查路径和风险提示，不输出确定性判断。",
-        },
-      ],
-      possibilities: [
-        {
-          scenario: "输入值得继续核查，但当前没有稳定证据链",
-          likelihood: "medium",
-          summary: "需要待后端恢复后重新发起 analyze，才能判断它究竟是事实、旧闻回流还是纯传闻。",
-        },
-        {
-          scenario: "也可能只是关键锚点不足，暂时无法对上具体事件",
-          likelihood: "low",
-          summary: "姓名、原帖链接、账号名和精确时间点都会显著影响系统能否对上真实事件。",
-        },
-      ],
-      final_conclusion: "当前不能给出真假结论，因为页面拿到的是前端 fallback，而不是真实核查结果。",
-    },
-    content_check: {
-      likely_true: [],
-      likely_false: [],
-      controversial: [],
-      opinions: [],
-      uncertain: [
-        {
-          claim: preview || "当前输入仍待核查。",
-          claim_type: "unverifiable",
-          verdict: "insufficient",
-          confidence: "low",
-          reason: "当前页面展示的是前端 fallback，系统还没有拿到足够证据去区分哪部分为真、哪部分是加料。",
-        },
-      ],
-      possible_answers: [
-        {
-          angle: "直接回答",
-          answer: "目前还不能把这句话整体判真或判假，只能先当成待核查线索。",
-        },
-        {
-          angle: "继续较真",
-          answer: "要继续往下核查，最好补姓名、原帖链接、截图原文或明确时间点。",
-        },
-      ],
-    },
-    pipeline_trace: {
-      steps: [
-        {
-          stage_key: "input_received",
-          title: "接收输入",
-          status: "completed",
-          summary: "前端已记录本次输入，并准备调用 analyze 接口。",
-          details: [`原始输入：${preview || "无"}`, `输入类型：${inputType}`],
-        },
-        {
-          stage_key: "frontend_fallback",
-          title: "前端回退",
-          status: "warning",
-          summary: "真实 analyze 没有成功返回，页面只能渲染前端 fallback 结果。",
-          details: ["当前链路没有拿到后端中间步骤。", "接口恢复后重新提交，才能看到完整分析链路。"],
-        },
-        {
-          stage_key: "report_output",
-          title: "报告输出",
-          status: "warning",
-          summary: "页面当前展示的是前端回退结果，不代表真实核查已完成。",
-          details: ["核查完成度：1/10", "source_type：frontend_fallback"],
-        },
-      ],
-    },
-    sources: [],
-  };
-}

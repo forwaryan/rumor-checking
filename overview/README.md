@@ -29,8 +29,8 @@
 - `overview/04_prompt_inventory.md` 侧重项目历史中实际出现过的 Prompt 轨迹与上下文脉络。
 - 可复用的 Prompt 资产与规范化入口以 `requirements/guides/04_prompt_inventory.md` 为准。
 - `overview/10_unfinished-task-priority-and-parallel-analysis.md` 保留并行拆窗与历史执行背景，适合回看为什么当时要先做 `F8` 再做 `G3 / G4`；它不是当前对外交付口径的最终来源。
-- `overview/11_runtime-and-env-outline.md` 已按 `F8` 收口为当前运行路径与环境变量终稿，明确区分 `mock demo / live probe / replay / frontend fallback`。
-- `overview/12_limits-and-degradation-outline.md` 已按 `F8` 收口为当前限制与降级边界终稿，统一了 `live / mock / replay / fallback` 和 `complete / partial / safe_mode` 的讲法。
+- `overview/11_runtime-and-env-outline.md` 记录过运行路径与环境变量的收口过程；若其中仍出现 `replay / frontend fallback` 等旧术语，以 `docs/status/current-verified-state.md` 和当前 README 为准。
+- `overview/12_limits-and-degradation-outline.md` 记录过限制与降级边界的收口过程；当前运行时来源标签只保留 `backend_live / backend_mock`，旧术语按历史背景理解即可。
 - `overview/13_f8-random-acceptance.md` 是当前最终验收记录来源，README、Smoke 和运行说明都应以它为准。
 - `overview/14_v1-capability-assessment-and-next-parallel-plan.md` 总结当前 V1 实际达到的效果、是否已经能“对任意新闻较真”，以及下一轮更合理的并行波次。
 
@@ -38,6 +38,6 @@
 
 - 刚进入仓库，想先建立整体理解。
 - 需要向别人解释当前项目到底发展到了哪一步。
-- 想确认今天能交付哪些 live/mock/demo 路径，哪些仍只是降级或内部诊断。
+- 想确认今天能交付哪些 `backend_live / backend_mock` 路径，哪些仍只是内部诊断或历史草案。
 - 想理解为什么现在的 README、Smoke 和演示口播必须沿用同一套 `F8` 口径。
 - 想回看当前项目里到底用过哪些 Prompt、触发词和对话主题。

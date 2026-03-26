@@ -22,9 +22,9 @@
 - [../backend/README.md](../backend/README.md)
   - 后端运行方式、接口和能力边界。
 - [../frontend/README.md](../frontend/README.md)
-  - 前端运行方式、fallback 和 provenance 展示。
+  - 前端运行方式、当前 provenance 展示和已移除路径说明。
 - [../data/demos/README.md](../data/demos/README.md)
-  - replay 目录草案与 demo 资产说明。
+  - replay 草案目录与演示输入说明。
 
 ## 2. 现状与实现
 
@@ -46,8 +46,6 @@
   - `question_only` 主体漂移修复专项文档，含流程图、对比表和回归护栏。
 - [question-analysis-end-to-end-flow.md](question-analysis-end-to-end-flow.md)
   - 以“用户提问 -> 流式追踪 -> agent/fallback -> 最终 report”为主线的完整流程讲解文档，适合项目答辩和实现说明。
-- [../frontend/IMPLEMENTATION_SUMMARY.md](../frontend/IMPLEMENTATION_SUMMARY.md)
-  - 前端实现总结。
 - [../contracts/README.md](../contracts/README.md)
   - 前后端共享 schema 入口。
 

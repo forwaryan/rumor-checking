@@ -36,9 +36,6 @@ const DEFAULT_API_BASE = "";
 const reportSourceTypes = [
   "backend_live",
   "backend_mock",
-  "backend_replay",
-  "demo_payload",
-  "frontend_fallback",
 ] as const satisfies readonly ReportSourceType[];
 const eventSourceTypes = ["input_normalized", "url_extract", "provider_enriched", "retrieval_resolved"] as const satisfies readonly EventSourceType[];
 const claimSourceTypes = ["rule", "provider", "provider_plus_rule"] as const satisfies readonly ClaimSourceType[];

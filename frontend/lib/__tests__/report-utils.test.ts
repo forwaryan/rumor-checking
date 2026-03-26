@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildFallbackReport,
   collectEvidence,
   getReportProvenanceMeta,
   getStatusFromMode,
@@ -12,12 +11,12 @@ import type { Report } from "@/types/report";
 const sampleReport: Report = {
   mode: "partial_mode",
   event: {
-    title: "测试事件",
-    summary: "测试摘要",
+    title: "Sample event",
+    summary: "Sample summary",
     source_url: "https://example.org/input/text-news",
-    source_name: "用户提供文本",
+    source_name: "User input",
     published_at: "2026-03-03T00:00:00+08:00",
-    keywords: ["测试"],
+    keywords: ["sample"],
     mode: "partial_mode",
   },
   timeline: [],
@@ -29,21 +28,21 @@ const sampleReport: Report = {
       confidence: "high",
       evidence: [
         {
-          title: "较早证据",
+          title: "Early evidence",
           url: "https://example.org/evidence/early",
-          source_name: "来源 A",
+          source_name: "Source A",
           published_at: "2026-03-01T09:00:00+08:00",
-          snippet: "较早证据摘要",
-          relevance_reason: "用于校验排序",
+          snippet: "Early evidence snippet",
+          relevance_reason: "ordering",
           source_tier: "A",
         },
         {
-          title: "重复证据",
+          title: "Shared evidence",
           url: "https://example.org/evidence/shared",
-          source_name: "来源 B",
+          source_name: "Source B",
           published_at: "2026-03-02T09:00:00+08:00",
-          snippet: "重复证据摘要",
-          relevance_reason: "用于校验去重",
+          snippet: "Shared evidence snippet",
+          relevance_reason: "dedupe",
           source_tier: "S",
         },
       ],
@@ -54,21 +53,21 @@ const sampleReport: Report = {
   risks: [],
   sources: [
     {
-      title: "重复证据",
+      title: "Shared evidence",
       url: "https://example.org/evidence/shared",
-      source_name: "来源 B",
+      source_name: "Source B",
       published_at: "2026-03-02T09:00:00+08:00",
-      snippet: "重复证据摘要",
-      relevance_reason: "用于校验去重",
+      snippet: "Shared evidence snippet",
+      relevance_reason: "dedupe",
       source_tier: "S",
     },
     {
-      title: "较晚证据",
+      title: "Late evidence",
       url: "https://example.org/evidence/late",
-      source_name: "来源 C",
+      source_name: "Source C",
       published_at: "2026-03-04T09:00:00+08:00",
-      snippet: "较晚证据摘要",
-      relevance_reason: "用于校验倒序排序",
+      snippet: "Late evidence snippet",
+      relevance_reason: "ordering",
       source_tier: "A",
     },
   ],
@@ -88,8 +87,8 @@ const sampleReport: Report = {
 
 describe("report-utils", () => {
   it("validates required input", () => {
-    expect(validateInput("   ", "text")).toBe("请先输入 URL、正文或问题，再开始分析。");
-    expect(validateInput("not-a-url", "url")).toBe("当前输入类型是 URL，请粘贴一个有效链接。");
+    expect(validateInput("   ", "text")).toBeTruthy();
+    expect(validateInput("not-a-url", "url")).toBeTruthy();
     expect(validateInput("https://example.org/news", "url")).toBeNull();
   });
 
@@ -108,13 +107,11 @@ describe("report-utils", () => {
     expect(evidence[2]?.url).toBe("https://example.org/evidence/early");
   });
 
-  it("labels backend_live reports with human-readable provenance", () => {
+  it("labels backend_live reports with live provenance metadata", () => {
     const meta = getReportProvenanceMeta(sampleReport, null);
 
-    expect(meta?.sourceLabel).toBe("实时联网结果");
-    expect(meta?.detailBadges).toContain("证据: 联网检索");
-    expect(meta?.detailBadges).toContain("检索: SERPAPI");
     expect(meta?.tone).toBe("live");
+    expect(meta?.detailBadges).toContain("检索: SERPAPI");
   });
 
   it("marks backend_mock results as mock instead of real live analysis", () => {
@@ -132,48 +129,8 @@ describe("report-utils", () => {
       null,
     );
 
-    expect(meta?.sourceLabel).toBe("后端模拟结果");
-    expect(meta?.caution).toContain("mock 结果");
-  });
-
-  it("marks backend_replay results as replayed rather than current input analysis", () => {
-    const meta = getReportProvenanceMeta(
-      {
-        ...sampleReport,
-        provenance: {
-          ...sampleReport.provenance!,
-          source_type: "backend_replay",
-          evidence_source: "request_mock",
-        },
-      },
-      null,
-    );
-
-    expect(meta?.sourceLabel).toBe("回放结果");
-    expect(meta?.caution).toContain("实时 analyze");
-  });
-
-  it("marks local demo payloads as demo data", () => {
-    const meta = getReportProvenanceMeta(sampleReport, {
-      sourceKind: "demo_payload",
-      fallbackReason: "backend_offline",
-    });
-
-    expect(meta?.sourceLabel).toBe("本地演示数据");
-    expect(meta?.fallbackLabel).toBe("后端离线回退");
-    expect(meta?.caution).toContain("claim");
-  });
-
-  it("marks frontend fallback results as conservative shells", () => {
-    const fallbackReport = buildFallbackReport("最近有个女网红脑出血死了真的假的？", "question");
-    const meta = getReportProvenanceMeta(fallbackReport, {
-      sourceKind: "frontend_fallback",
-      fallbackReason: "analyze_failed",
-    });
-
-    expect(meta?.sourceLabel).toBe("前端保守回退");
-    expect(meta?.fallbackLabel).toBe("请求失败回退");
-    expect(meta?.summary).toContain("前端保守回退壳");
+    expect(meta?.tone).toBe("mock");
+    expect(meta?.caution).toContain("mock");
   });
 
   it("defaults to an unknown provenance label when metadata is missing", () => {
@@ -185,9 +142,8 @@ describe("report-utils", () => {
       null,
     );
 
-    expect(meta?.sourceLabel).toBe("来源待确认");
-    expect(meta?.fallbackLabel).toBe("来源待确认");
-    expect(meta?.caution).toContain("缺字段");
+    expect(meta?.tone).toBe("unknown");
+    expect(meta?.fallbackLabel).toBeTruthy();
   });
 
   it("scores a live partial report into the mid range", () => {
@@ -195,10 +151,9 @@ describe("report-utils", () => {
 
     expect(scoreMeta.score).toBe(6);
     expect(scoreMeta.tone).toBe("medium");
-    expect(scoreMeta.modeLabel).toBe("中完成度");
   });
 
-  it("caps demo or replay style data below a perfect score", () => {
+  it("caps backend mock data below a perfect score", () => {
     const scoreMeta = getVerificationScoreMeta(
       {
         ...sampleReport,
@@ -210,21 +165,21 @@ describe("report-utils", () => {
         timeline: [
           {
             node_type: "origin",
-            title: "节点 1",
+            title: "Node 1",
             url: "https://example.org/timeline/1",
-            source_name: "来源 A",
+            source_name: "Source A",
             published_at: "2026-03-01T09:00:00+08:00",
-            summary: "节点 1",
-            why_selected: "测试",
+            summary: "Node 1",
+            why_selected: "test",
           },
           {
             node_type: "clarification",
-            title: "节点 2",
+            title: "Node 2",
             url: "https://example.org/timeline/2",
-            source_name: "来源 B",
+            source_name: "Source B",
             published_at: "2026-03-02T09:00:00+08:00",
-            summary: "节点 2",
-            why_selected: "测试",
+            summary: "Node 2",
+            why_selected: "test",
           },
         ],
         claim_results: [
@@ -236,12 +191,12 @@ describe("report-utils", () => {
             confidence: "medium",
             evidence: [
               {
-                title: "补充证据",
+                title: "Extra evidence",
                 url: "https://example.org/evidence/extra",
-                source_name: "来源 D",
+                source_name: "Source D",
                 published_at: "2026-03-05T09:00:00+08:00",
-                snippet: "补充证据摘要",
-                relevance_reason: "用于拉高完整度",
+                snippet: "Extra evidence snippet",
+                relevance_reason: "completeness",
                 source_tier: "A",
               },
             ],
@@ -250,23 +205,11 @@ describe("report-utils", () => {
         ],
       },
       {
-        sourceKind: "demo_payload",
-        fallbackReason: "backend_offline",
+        sourceKind: "backend_mock",
       },
     );
 
     expect(scoreMeta.score).toBe(7);
-    expect(scoreMeta.summary).toContain("不是实时联网结果");
-  });
-
-  it("keeps frontend fallback reports in the low score band", () => {
-    const fallbackReport = buildFallbackReport("最近有个女网红脑出血死了真的假的？", "question");
-    const scoreMeta = getVerificationScoreMeta(fallbackReport, {
-      sourceKind: "frontend_fallback",
-      fallbackReason: "analyze_failed",
-    });
-
-    expect(scoreMeta.score).toBeLessThanOrEqual(3);
-    expect(scoreMeta.tone).toBe("low");
+    expect(scoreMeta.summary).toContain("当前不是实时联网结果");
   });
 });

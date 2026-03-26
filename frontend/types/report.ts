@@ -20,14 +20,11 @@ export type TimelineSourceType = "retrieval" | "input_seed" | "none";
 
 export type ReportSourceType =
   | "backend_live"
-  | "backend_mock"
-  | "backend_replay"
-  | "demo_payload"
-  | "frontend_fallback";
+  | "backend_mock";
 
 export type ReportSourceKind = ReportSourceType | "unknown";
 
-export type ReportFallbackReason = "backend_offline" | "analyze_failed" | "missing_provenance";
+export type ReportFallbackReason = "missing_provenance";
 
 export type PipelineStepStatus = "completed" | "warning" | "skipped" | "error";
 
@@ -302,6 +299,3 @@ export interface DemoCaseSummary {
   mode: OutputMode;
 }
 
-export interface DemoCase extends DemoCaseSummary {
-  report: Report;
-}

@@ -1,3 +1,7 @@
 # Local secrets
 .env
 backend/.env
+
+# Python cache artifacts
+__pycache__/
+*.py[cod]

@@ -1,97 +1,77 @@
-﻿# 当前已核验状态
+# 当前已核验状态
 
-更新时间：2026-03-14 22:11（Asia/Shanghai）
+更新时间：2026-03-26（Asia/Shanghai）
 
-这份文档只保留已经被项目代码核验过的事实，用来处理 README、overview、tasks 之间的状态冲突。
+这份文档只保留已经被当前代码核验过的事实，用来处理 README、overview、tasks 之间的状态冲突。
 
 ## 核验依据
 
 已直接核对以下实现或测试文件：
 
-- `backend/app/api/v1/router.py`
+- `backend/app/api/v1/endpoints/analyze.py`
 - `backend/app/services/analyze_pipeline.py`
-- `backend/app/services/input_normalizer.py`
-- `backend/app/services/url_content_extractor.py`
-- `backend/app/services/retrieval_service.py`
-- `backend/app/services/verdict_engine.py`
-- `backend/app/services/timeline_builder.py`
+- `backend/app/models/schemas.py`
 - `backend/app/services/report_builder.py`
+- `frontend/components/analyze-page.tsx`
 - `frontend/components/status-banner.tsx`
+- `frontend/lib/api-client.ts`
 - `frontend/lib/report-utils.ts`
-- `backend/tests/test_api.py`
+- `contracts/report.schema.json`
 
 ## 已确认事实
 
-### 1. 公开 API 只有 `health` 和 `analyze`
+### 1. 当前公开 API
 
-- 当前公开路由只有：
-  - `GET /api/v1/health`
-  - `POST /api/v1/analyze`
-- 代码中没有公开的 `GET /api/v1/demo-cases` 或 `POST /api/v1/replay` 路由。
+当前公开路由只有：
 
-### 2. `C10` 已完成到“公开 HTML URL 抽取 + 清晰 fallback”这一阶段
+- `GET /api/v1/health`
+- `POST /api/v1/analyze`
+- `POST /api/v1/analyze/stream`
 
-- `InputNormalizer` 会在 URL 输入时调用 `UrlContentExtractor`。
-- `UrlContentExtractor` 已实现公开 HTML 页面抽取，能从 title、meta、JSON-LD、`article/main` 中回填标题、摘要、来源、发布时间和正文片段。
-- 非 HTML、抓取失败、超时、正文缺失都会进入明确的 fallback reason。
-- `backend/tests/test_api.py` 已覆盖 URL 抽取成功、失败、超时三条路径。
+当前没有公开的：
 
-当前仍不该宣称的部分：
+- `GET /api/v1/demo-cases`
+- `POST /api/v1/replay`
 
-- 不支持登录页、强反爬、浏览器渲染页面、PDF 或图片正文。
-- 这不等于“任意 URL 都已稳定可抽取”。
+### 2. provenance 已收敛
 
-### 3. `C11` 可推断已完成第一阶段，但还没有到开放场景稳定完成
+`report.provenance.source_type` 当前 contract 与实现只保留：
 
-这是基于代码的判断，不是单看任务文档得出的结论：
+- `backend_live`
+- `backend_mock`
 
-- `AnalyzePipeline` 已把 `InputNormalizer -> ProviderEnricher -> RetrievalService -> ClaimExtractor -> VerdictEngine -> TimelineBuilder -> ReportBuilder` 串成真实主链。
-- `ReportProvenance` 已在主链中构建并进入最终 `Report`。
-- `RetrievalService` 已支持真实 provider、cache、mock fallback 和 `question_only` 查询改写。
-- `VerdictEngine` 与 `TimelineBuilder` 已消费 retrieval 结果，而不是只返回固定模板。
+前端缺失 provenance 时，会保守落到 `unknown` 展示，但这不是后端返回值枚举的一部分。
 
-当前仍不该宣称的部分：
+### 3. 前端不再消费本地报告 JSON
 
-- `VerdictEngine` 仍以关键词重合、来源等级和启发式规则为主。
-- `TimelineBuilder` 仍以启发式节点选取为主，不是完整传播链求解器。
-- `F8` 已形成正式验收记录，但真实 live 路径当前仍未通过最终验收。
+- demo 卡片当前只负责填充稳定输入样例
+- 前端分析结果来自后端 `analyze` 或 `analyze/stream`
+- `contracts/demo_payloads/*.json` 已移除
+- 当前也不再生成本地 `frontend_fallback` 报告壳
 
-### 4. 前端 provenance 展示已经真实落地
+### 4. 默认基线仍是 mock 路径
 
-- `status-banner.tsx` 会展示 provenance pill、fallback 标签和细节 badges。
-- `report-utils.ts` 已区分：
-  - `backend_live`
-  - `backend_mock`
-  - `backend_replay`
-  - `demo_payload`
-  - `frontend_fallback`
-  - `unknown`
-- 前端当前不是“只能显示 demo payload 的页面壳”，而是在真实消费后端 `report.provenance`。
+默认环境仍是：
 
-### 5. replay 当前是“内部能力 + 文件草案”，不是公开产品能力
+- `ANALYSIS_PROVIDER=off`
+- `RETRIEVAL_PROVIDER=mock`
+- `RETRIEVAL_FALLBACK_TO_MOCK=true`
 
-- retrieval cache 已提供内部控制入口，如 `retrieval_cache_only`。
-- `data/demos/README.md` 已有 replay 文件落点和草案结构。
-- 但当前仍没有公开 replay HTTP 接口，也没有最终冻结的 replay 术语体系。
+因此当前最稳的对外口径仍然是 `mock demo + provenance 边界`，而不是“真实检索已稳定通过”。
+
+### 5. URL 抽取与检索边界
+
+- URL 输入已支持公开 HTML 页面抽取
+- 不支持登录页、强反爬页面、浏览器渲染页面、PDF 或图片正文
+- live retrieval 仍未达到可对外交付的稳定口径
 
 ## 当前仍未完成的事项
 
-- 真实 live retrieval 路径的稳定通过样本。
-- 公开 HTML 之外的 URL 抽取扩展。
-- 某些稳定 demo case 的模式漂移收口。
-- replay 的正式对外操作说明与公开接口是否需要暴露的最终决策。
-
-## 现行阅读顺序
-
-1. [../../README.md](../../README.md)
-2. [../README.md](../README.md)
-3. [document-conflict-register.md](document-conflict-register.md)
-4. [../../backend/README.md](../../backend/README.md)
-5. [../../frontend/README.md](../../frontend/README.md)
-6. [../../overview/09_stage-progress-and-task-audit.md](../../overview/09_stage-progress-and-task-audit.md)
-7. [../../overview/10_unfinished-task-priority-and-parallel-analysis.md](../../overview/10_unfinished-task-priority-and-parallel-analysis.md)
+- 真实 live retrieval 路径的稳定通过样本
+- 公开 HTML 之外的 URL 抽取扩展
+- 若未来确实需要 replay，是否公开接口和如何冻结术语体系
 
 ## 冲突处理规则
 
-- 若 README、overview、tasks 中出现状态冲突，以本文件和对应代码实现为准。
-- 冲突问题统一登记在 [document-conflict-register.md](document-conflict-register.md)，原文件直接更新，不再旁路保存一份“冲突原件”。
+- 若 README、overview、tasks 中出现状态冲突，以本文件和对应代码实现为准
+- 冲突问题统一登记在 [document-conflict-register.md](/home/forwaryan/mianshi/rumor-checking/docs/status/document-conflict-register.md)

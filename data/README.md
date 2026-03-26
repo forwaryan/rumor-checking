@@ -12,7 +12,7 @@
 - 默认 TTL：`RETRIEVAL_CACHE_TTL_SECONDS=43200`（12 小时）
 - 正常路径：优先读 fresh cache，miss 后请求真实 provider，再把 `RetrievalBundle` 回写到缓存
 - 失败回退：当 `RETRIEVAL_CACHE_ALLOW_STALE_ON_ERROR=true` 时，provider 失败可读 stale cache
-- replay 预留入口：`request_context.retrieval_cache_only=true` 可强制只读缓存；如需允许 stale 命中，可同时传 `allow_stale_retrieval_cache=true`
+- 内部 cache-only 诊断入口：`request_context.retrieval_cache_only=true` 可强制只读缓存；如需允许 stale 命中，可同时传 `allow_stale_retrieval_cache=true`
 - 跳过缓存：`request_context.bypass_retrieval_cache=true`
 
 ## 目录边界
@@ -20,12 +20,12 @@
 - `evals/`
   - 运行时消费的测试样例、副本或软链接说明
 - `cache/`
-  - URL 抽取结果、检索缓存、重放缓存
+  - URL 抽取结果和检索缓存等运行时缓存
 - `demos/`
-  - 稳定 demo case、replay 输入和演示辅助数据
+  - 演示输入样例与 replay 草案目录
 
 当前 `demos/` 的第一阶段文档骨架见 [data/demos/README.md](/home/forwaryan/mianshi/rumor-checking/data/demos/README.md)。
-其中已经先固定 `data/demos/replays/` 作为 replay 文件落点；最终字段和读取方式仍待 `C10 / C11 / F8` 收口。
+当前保留 `data/demos/replays/` 仅作为草案目录，不代表仓库已经公开支持 replay 文件输入。
 
 ## 并行协作约束
 

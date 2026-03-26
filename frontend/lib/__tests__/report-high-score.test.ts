@@ -14,71 +14,71 @@ import type { Report } from "@/types/report";
 const baseReport: Report = {
   mode: "partial_mode",
   event: {
-    title: "北城区化工厂异味核查",
-    summary: "居民投诉、官方核查和企业回应同时存在。",
+    title: "Factory odor check",
+    summary: "Residents complained, officials inspected, company replied.",
     source_url: "https://example.org/input/text-news",
-    source_name: "用户提供文本",
+    source_name: "User input",
     published_at: "2026-03-03T00:00:00+08:00",
-    keywords: ["异味", "化工厂"],
+    keywords: ["factory", "odor"],
     mode: "partial_mode",
   },
   timeline: [
     {
       node_type: "origin",
-      title: "居民投诉发酵",
+      title: "Residents posted complaints",
       url: "https://example.org/timeline/1",
-      source_name: "本地论坛",
+      source_name: "Forum",
       published_at: "2026-03-02T20:00:00+08:00",
-      summary: "居民连续投诉夜间异味。",
-      why_selected: "它解释了事件从零散讨论进入公共议题。",
+      summary: "Complaints spread online.",
+      why_selected: "Origin point",
     },
     {
       node_type: "turn",
-      title: "生态环境局进场核查",
+      title: "Officials inspected site",
       url: "https://example.org/timeline/2",
-      source_name: "北城区生态环境局",
+      source_name: "Environment bureau",
       published_at: "2026-03-03T09:00:00+08:00",
-      summary: "官方确认已进场核查。",
-      why_selected: "它把传播从传闻推向正式核查。",
+      summary: "Officials confirmed an inspection.",
+      why_selected: "Formal response",
     },
   ],
   claim_results: [
     {
-      claim: "北城区化工厂已被居民连续投诉夜间异味。",
+      claim: "Residents repeatedly complained about the overnight odor.",
       claim_type: "fact",
       verdict: "supported",
       confidence: "high",
       evidence: [],
-      notes: "投诉线索已有多个来源重复出现。",
+      notes: "Multiple public references align.",
     },
     {
-      claim: "北城区化工厂已经完全停产。",
+      claim: "The factory fully shut down production.",
       claim_type: "fact",
       verdict: "conflicting",
       confidence: "medium",
       evidence: [],
-      notes: "媒体说法和企业回应仍然冲突。",
+      notes: "Media and company statements conflict.",
     },
     {
-      claim: "北城区化工厂一直在隐瞒真实污染情况。",
+      claim: "The factory has been hiding the full pollution story.",
       claim_type: "opinion",
       verdict: "insufficient",
       confidence: "low",
       evidence: [],
-      notes: "这是观点延伸，当前不能直接计入事实判断。",
+      notes: "This is still an opinion extension.",
     },
   ],
-  final_summary: "官方核查已支撑部分事实，但停产范围仍存在冲突。",
-  risks: ["停产范围缺少更高优先级的统一证据。"],
+  final_summary: "Officials support part of the story, but the shutdown scope is still conflicted.",
+  risks: ["Shutdown scope still lacks a higher-priority unified source."],
   sources: [],
   provenance: {
-    source_type: "demo_payload",
+    source_type: "backend_mock",
     event_source: "retrieval_resolved",
     claim_source: "rule",
     evidence_source: "retrieval_mock",
     timeline_source: "retrieval",
-    retrieval_provider: "demo_payload",
-    retrieval_cache_status: "demo_seeded",
+    retrieval_provider: "mock",
+    retrieval_cache_status: "seeded",
     provider_used: false,
     fallback_used: false,
     fallback_reasons: [],
@@ -86,30 +86,30 @@ const baseReport: Report = {
   content_check: {
     likely_true: [
       {
-        claim: "区生态环境局已经进场核查。",
+        claim: "Officials inspected the site.",
         claim_type: "fact",
         verdict: "supported",
         confidence: "high",
-        reason: "官方口径已明确确认核查。",
+        reason: "Confirmed by official response.",
       },
     ],
     likely_false: [],
     controversial: [
       {
-        claim: "北城区化工厂已经完全停产。",
+        claim: "The factory fully shut down production.",
         claim_type: "fact",
         verdict: "conflicting",
         confidence: "medium",
-        reason: "媒体与企业回应不一致。",
+        reason: "Public accounts still conflict.",
       },
     ],
     opinions: [
       {
-        claim: "北城区化工厂一直在隐瞒真实污染情况。",
+        claim: "The factory has been hiding the full pollution story.",
         claim_type: "opinion",
         verdict: "insufficient",
         confidence: "low",
-        reason: "这是观点延伸。",
+        reason: "Opinion extension only.",
       },
     ],
     uncertain: [],
@@ -131,25 +131,25 @@ const scoredReport = Object.assign({}, baseReport, {
       cross_source_agreement: 0.2,
       timeline: 0.1,
     },
-    summary: "官方核查已支撑部分事实，但停产范围存在互相冲突的 A 级来源。",
-    limiting_factors: ["停产范围缺少更高优先级的统一证据。"],
+    summary: "Officials support part of the story, but high-priority sources still conflict on the shutdown scope.",
+    limiting_factors: ["Shutdown scope still lacks a higher-priority unified source."],
   },
   claim_contributions: [
     {
-      claim: "区生态环境局已经进场核查。",
+      claim: "Officials inspected the site.",
       claim_type: "fact",
       verdict: "supported",
       contribution_label: "supports",
       contribution_score: 20,
-      reason: "官方介入显著抬升了事件可验证性。",
+      reason: "Official action improves verifiability.",
     },
     {
-      claim: "北城区化工厂已经完全停产。",
+      claim: "The factory fully shut down production.",
       claim_type: "fact",
       verdict: "conflicting",
       contribution_label: "mixed",
       contribution_score: -18,
-      reason: "关键细节在多个 A 级来源之间冲突。",
+      reason: "High-priority sources still conflict.",
     },
   ],
   timeline_confidence: 61,
@@ -159,8 +159,7 @@ const scoredReport = Object.assign({}, baseReport, {
 describe("report-high-score", () => {
   it("reads score breakdown and overall credibility fields from extended reports", () => {
     const overall = getOverallCredibilityMeta(scoredReport, {
-      sourceKind: "demo_payload",
-      fallbackReason: "backend_offline",
+      sourceKind: "backend_mock",
     });
     const breakdown = getScoreBreakdown(scoredReport);
     const metrics = getScoreBreakdownMetrics(scoredReport);
@@ -174,8 +173,7 @@ describe("report-high-score", () => {
 
   it("separates content checking and propagation completion", () => {
     const completion = getCompletionBreakdown(scoredReport, {
-      sourceKind: "demo_payload",
-      fallbackReason: "backend_offline",
+      sourceKind: "backend_mock",
     });
 
     expect(completion?.content.valueLabel).toBe("5/10");
@@ -198,7 +196,7 @@ describe("report-high-score", () => {
 
     expect(contributions[0]?.contributionScore).toBe(20);
     expect(contributions[1]?.contributionLabel).toBe("mixed");
-    expect(getClaimContributionIntro(scoredReport)).toContain("不同 claim");
+    expect(getClaimContributionIntro(scoredReport)).toContain("claim");
     expect(fallbackContributions[0]?.derived).toBe(true);
     expect(fallbackContributions[1]?.contributionLabel).toBe("mixed");
   });

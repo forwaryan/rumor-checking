@@ -448,24 +448,6 @@ a:hover {
   background: rgba(40, 90, 138, 0.1);
 }
 
-.provenance-pill--replay {
-  color: var(--gold);
-  border-color: rgba(182, 133, 45, 0.26);
-  background: rgba(182, 133, 45, 0.11);
-}
-
-.provenance-pill--demo {
-  color: var(--accent-deep);
-  border-color: rgba(124, 47, 25, 0.22);
-  background: rgba(197, 91, 57, 0.1);
-}
-
-.provenance-pill--fallback {
-  color: var(--danger);
-  border-color: rgba(163, 62, 46, 0.22);
-  background: rgba(163, 62, 46, 0.08);
-}
-
 .provenance-pill--unknown {
   color: var(--ink);
   border-color: rgba(24, 34, 44, 0.14);
