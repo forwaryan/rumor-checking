@@ -1,6 +1,9 @@
-﻿node_modules
+node_modules
 .next
 out
+*.log
+*.tsbuildinfo
+page-shot.png
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

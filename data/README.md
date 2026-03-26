@@ -1,10 +1,10 @@
 ﻿# Data
 
-本目录用于存放开发期需要消费的数据副本、缓存和演示数据。
+本目录只保留运行时缓存和少量本地数据落点。
 
-根目录 `evals/` 仍保留为原始评测资产入口；当后端或前端需要更贴近运行时的目录布局时，再把稳定资产映射到这里。
+根目录 [evals/README.md](/home/forwaryan/mianshi/rumor-checking/evals/README.md) 仍是正式评测资产入口；这里不再承载独立的方案草稿或演示文档。
 
-当前 mock 检索仍以 `evals/minimal_v1/retrieval_cases.json` 作为稳定输入资产；真实检索缓存已经开始落到 `data/cache/retrieval/`，默认格式为 `data/cache/retrieval/<provider>/<cache_key>.json`。
+当前真实检索缓存会写到 `data/cache/retrieval/`，默认格式为 `data/cache/retrieval/<provider>/<cache_key>.json`。
 
 ## 当前缓存约定
 
@@ -15,21 +15,12 @@
 - 内部 cache-only 诊断入口：`request_context.retrieval_cache_only=true` 可强制只读缓存；如需允许 stale 命中，可同时传 `allow_stale_retrieval_cache=true`
 - 跳过缓存：`request_context.bypass_retrieval_cache=true`
 
-## 目录边界
+## 当前目录边界
 
-- `evals/`
-  - 运行时消费的测试样例、副本或软链接说明
 - `cache/`
   - URL 抽取结果和检索缓存等运行时缓存
-- `demos/`
-  - 演示输入样例与 replay 草案目录
 
-当前 `demos/` 的第一阶段文档骨架见 [data/demos/README.md](/home/forwaryan/mianshi/rumor-checking/data/demos/README.md)。
-当前保留 `data/demos/replays/` 仅作为草案目录，不代表仓库已经公开支持 replay 文件输入。
+## 约束
 
-## 并行协作约束
-
-- 原始评测设计与说明继续放在根目录 `evals/` 与 `requirements/guides/`
 - 运行时缓存只放这里，不散落到前后端实现目录
-
-
+- 如果未来要新增演示资产或离线数据，先在根目录 README 和对应实现里确定真实用途，再补目录说明

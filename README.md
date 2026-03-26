@@ -22,14 +22,18 @@
 
 ## 文档入口
 
-- 运行路径与环境变量：[overview/11_runtime-and-env-outline.md](/home/forwaryan/mianshi/rumor-checking/overview/11_runtime-and-env-outline.md)
-- 当前限制与降级边界：[overview/12_limits-and-degradation-outline.md](/home/forwaryan/mianshi/rumor-checking/overview/12_limits-and-degradation-outline.md)
-- 高分路线样例与回归入口：[overview/14_high-score-golden-cases.md](/home/forwaryan/mianshi/rumor-checking/overview/14_high-score-golden-cases.md)
+- 当前已核验状态：[docs/status/current-verified-state.md](/home/forwaryan/mianshi/rumor-checking/docs/status/current-verified-state.md)
+- 提问分析全链路：[docs/question-analysis-end-to-end-flow.md](/home/forwaryan/mianshi/rumor-checking/docs/question-analysis-end-to-end-flow.md)
 - 演示前检查：[SMOKE_CHECKLIST.md](/home/forwaryan/mianshi/rumor-checking/SMOKE_CHECKLIST.md)
 - 演示脚本：[DEMO_SCRIPT.md](/home/forwaryan/mianshi/rumor-checking/DEMO_SCRIPT.md)
 - 后端说明：[backend/README.md](/home/forwaryan/mianshi/rumor-checking/backend/README.md)
 - 前端说明：[frontend/README.md](/home/forwaryan/mianshi/rumor-checking/frontend/README.md)
+- 协议说明：[contracts/README.md](/home/forwaryan/mianshi/rumor-checking/contracts/README.md)
+- 数据与缓存：[data/README.md](/home/forwaryan/mianshi/rumor-checking/data/README.md)
+- 评测与最小回归：[evals/README.md](/home/forwaryan/mianshi/rumor-checking/evals/README.md)
 - 总导航：[docs/README.md](/home/forwaryan/mianshi/rumor-checking/docs/README.md)
+
+历史性的任务拆分、执行提案、Prompt 归档和规则草案已从当前文档面移除；现在仓库只保留和现行代码、运行、演示直接相关的文档。
 
 ## 环境要求
 

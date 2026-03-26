@@ -5,3 +5,7 @@ backend/.env
 # Python cache artifacts
 __pycache__/
 *.py[cod]
+
+# Local runtime artifacts
+data/cache/retrieval/
+tmp-utf8-test.txt

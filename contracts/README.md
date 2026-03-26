@@ -20,5 +20,5 @@
 
 ## 协作说明
 
-- `Cluster-B / Contract Forge` 是本目录默认 owner
-- 其他实现线程可以消费这里的定义，但不要绕过这里在实现文件里直接新增“事实上的新字段”
+- schema 变更后，需要同步检查 [schemas.py](/home/forwaryan/mianshi/rumor-checking/backend/app/models/schemas.py) 和 [report.ts](/home/forwaryan/mianshi/rumor-checking/frontend/types/report.ts)
+- 不要绕过这里在实现文件里直接新增“事实上的新字段”

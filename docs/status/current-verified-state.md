@@ -2,7 +2,7 @@
 
 更新时间：2026-03-26（Asia/Shanghai）
 
-这份文档只保留已经被当前代码核验过的事实，用来处理 README、overview、tasks 之间的状态冲突。
+这份文档只保留已经被当前代码核验过的事实，用来约束 README 和现行运行文档的口径。
 
 ## 核验依据
 
@@ -71,7 +71,7 @@
 - 公开 HTML 之外的 URL 抽取扩展
 - 若未来确实需要 replay，是否公开接口和如何冻结术语体系
 
-## 冲突处理规则
+## 使用规则
 
-- 若 README、overview、tasks 中出现状态冲突，以本文件和对应代码实现为准
-- 冲突问题统一登记在 [document-conflict-register.md](/home/forwaryan/mianshi/rumor-checking/docs/status/document-conflict-register.md)
+- 若其他文档和当前代码实现冲突，以本文件和对应实现为准
+- 这份文档只记录当前仍有效的事实，不再维护历史冲突登记表
