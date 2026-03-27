@@ -13,6 +13,8 @@
 
 - [../README.md](../README.md)
   - 仓库总入口和当前运行基线。
+- [current-code-architecture-guide.md](current-code-architecture-guide.md)
+  - 当前代码结构、项目架构与示例链路总览。
 - [status/current-verified-state.md](status/current-verified-state.md)
   - 已按当前代码核验过的事实边界。
 - [question-analysis-end-to-end-flow.md](question-analysis-end-to-end-flow.md)
