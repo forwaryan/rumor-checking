@@ -275,7 +275,7 @@ flowchart TD
 Planner 可插拔，这是"agent 为主又不破坏基线"的关键取舍：
 
 - `RulePlanner`（默认）：永远取第一个合法动作，复刻固定 pipeline 顺序。在 `off + mock` 上产出与旧链路**逐字节一致**的 `Report`（`backend/tests/test_agent_orchestrator.py` 的 parity 测试保证）。
-- `LlmPlanner`（配置 Kimi 时启用）：只在"继续调查(investigate)还是直接综合(synthesize)"这个真实岔路口调用 LLM；其余强制步骤不浪费 LLM 调用。非法/失败选择一律退回 `RulePlanner`。
+- `LlmPlanner`（配置 Kimi 时启用）：只在真实岔路口调用 LLM；其余强制步骤不浪费 LLM 调用。非法/失败选择一律退回 `RulePlanner`。岔路口的候选动作：`investigate`（补一轮检索）/ `fetch_url`（抓取最权威证据的全文）/ `synthesize`（直接综合）。`fetch_url` 始终排在规则默认动作之后，`RulePlanner`（取第一个）永不选它 → parity 不受影响。
 
 ```mermaid
 flowchart TD
@@ -293,7 +293,7 @@ flowchart TD
     RUN -->|抛错| PIPE
 ```
 
-配合的两个能力开关：`LIGHTWEIGHT_AGENT_ENABLED`（证据弱时让 LLM planner 追加 1 轮定向检索）、以及开 Kimi 时 `agent_reasoner.synthesize` 接管 grounded verdict（判定必须带证据，否则降级 `insufficient`）。
+配合的能力开关：`LIGHTWEIGHT_AGENT_ENABLED`（证据弱时让 LLM planner 追加 1 轮定向检索）、`AGENT_MAX_URL_FETCHES`（允许 planner 抓取几次证据全文，默认 1、0=关）、以及开 Kimi 时 `agent_reasoner.synthesize` 接管 grounded verdict（判定必须带证据，否则降级 `insufficient`）。
 
 ---
 

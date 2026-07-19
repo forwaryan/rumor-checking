@@ -74,7 +74,8 @@
 - 由 `AGENT_ORCHESTRATOR_ENABLED` 控制，**默认 `false`**。开关关闭时走原来的固定 `AnalyzePipeline`。
 - Planner 可插拔：
   - `RulePlanner`（默认）复刻固定 pipeline 的顺序，在 `off + mock` 路径上产出与旧链路**逐字节一致**的 `Report`（由 `backend/tests/test_agent_orchestrator.py` 的 parity 测试保证）。
-  - `LlmPlanner`（配置了 Kimi 时启用）在"继续调查还是直接综合"这个真实岔路口调用 LLM 决策，带非法动作护栏，失败即退回 `RulePlanner`。
+  - `LlmPlanner`（配置了 Kimi 时启用）在真实岔路口调用 LLM 决策，带非法动作护栏，失败即退回 `RulePlanner`。当前岔路口的候选动作：`investigate`（补一轮检索）、`fetch_url`（抓取高价值证据全文）、`synthesize`（直接综合）。
+- `fetch_url` 自主动作：LLM 可选择抓取当前证据里最权威（high-trust/非聚合/高 tier）来源的正文，按**同一 `result_id`** 挂靠喂给 synthesis（grounding 安全，不新增证据源）；由 `AGENT_MAX_URL_FETCHES` 限制（默认 1，0=关），带去重与抓取失败降级。`fetch_url` 在 `legal_actions` 里始终排在规则默认动作之后，所以 `RulePlanner`（取首个）永不选它 → off+mock parity 不受影响。
 - runner 抛错时自动回退固定 pipeline，不影响可交付性。
 - 前端有对应的调查过程面板（`frontend/components/agent-run-panel.tsx`），从现有 `stage`/`log` 事件派生，非 agent 路径自动隐藏。
 
@@ -86,6 +87,7 @@
 ### 8. 真实检索已联调通过（有配置前提，非默认）
 
 - `RETRIEVAL_PROVIDER=kimi` 的 Kimi `$web_search` 联网检索已对真实 Moonshot API 端到端跑通：真实 URL、`source_type=backend_live`、`evidence_source=retrieval_live`、grounded 判定。
+- `fetch_url` 自主动作也已真实联调：LLM planner 会自主选择抓取正文，并挑中官方来源（如中国驻法国大使馆），抓取的正文进入 synthesis。
 - **前提**（真实联调发现，写入 `.env.example`）：检索需用大上下文模型（`KIMI_SEARCH_MODEL=moonshot-v1-32k`，8k 会因 web 内容撑爆而 400），且 `RETRIEVAL_TIMEOUT_SECONDS>=45`（默认 12s 会 ReadTimeout）。
 - 延迟真实：一次完整 agent + 真实检索（首轮 2 条 + 追加 1 轮）可超过 ~120s。不建议作为无缓存的同步对外路径。
 - 默认交付/演示路径仍是 `off + mock`（见第 4 条）。

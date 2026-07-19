@@ -28,8 +28,8 @@
 ### 2. 把现有能力封装成工具
 
 `backend/app/agent_tools/tools.py` 把现成服务薄封装为工具，**不重写业务**：
-`normalize / search_news / resolve_question / follow_up_retrieval / investigate / synthesize / enrich / extract_claims / judge_claims / build_timeline / finalize_report`。
-工具共用同一套 `emit_stage`，所以过程可观测。
+`normalize / search_news / resolve_question / follow_up_retrieval / investigate / fetch_url / synthesize / enrich / extract_claims / judge_claims / build_timeline / finalize_report`。
+工具共用同一套 `emit_stage`，所以过程可观测。其中 `fetch_url` 抓取最权威证据的全文，按同一 `result_id` 挂靠喂给 synthesis（grounding 安全），由 `AGENT_MAX_URL_FETCHES` 限制。
 
 ### 3. 受控 Agent 循环
 
@@ -38,7 +38,7 @@
 `backend/app/agent/planner.py`：
 - `legal_actions(state)` 是排序的**唯一真相源**（编码数据依赖：如不能先判定后抽取）。
 - `RulePlanner`（默认）永远取第一个合法动作，复刻固定 pipeline 顺序 → `off+mock` 上与旧链路**逐字节一致**（parity 测试保证）。
-- `LlmPlanner`（配置 Kimi 时）只在真实岔路口（investigate vs synthesize）调 LLM 决策，非法/失败退回 `RulePlanner`。
+- `LlmPlanner`（配置 Kimi 时）只在真实岔路口调 LLM 决策（候选：investigate / fetch_url / synthesize），非法/失败退回 `RulePlanner`。`fetch_url` 排在规则默认动作之后，故 `RulePlanner` 永不选它 → parity 不破。
 
 ### 4. Grounded verdict
 
