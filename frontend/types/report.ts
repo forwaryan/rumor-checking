@@ -66,6 +66,7 @@ export interface AgentRunView {
   planner: "llm" | "rule" | null;
   actions: AgentRunAction[];
   investigationRounds: number;
+  fetchedPages: number;
 }
 
 export interface ReportProvenance {

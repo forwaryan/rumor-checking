@@ -52,6 +52,7 @@ export function AgentRunPanel({ events }: AgentRunPanelProps) {
       <div className="agent-runbar">
         <span className="agent-meta-pill">动作 {run.actions.length}</span>
         <span className="agent-meta-pill">补检索轮次 {run.investigationRounds}</span>
+        <span className="agent-meta-pill">抓取正文 {run.fetchedPages}</span>
         <span className="agent-meta-pill">Planner {plannerLabel}</span>
       </div>
 

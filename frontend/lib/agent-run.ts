@@ -12,6 +12,7 @@ const STAGE_KIND: Record<string, AgentActionKind> = {
   agent_planner: "plan",
   investigation_plan: "decision",
   investigation_retrieval: "tool_call",
+  investigation_fetch: "tool_call",
   agent_synthesis: "tool_call",
   normalize_input: "tool_call",
   retrieval_initial: "tool_call",
@@ -29,6 +30,7 @@ const AGENT_STAGE_KEYS = new Set([
   "agent_planner",
   "investigation_plan",
   "investigation_retrieval",
+  "investigation_fetch",
   "agent_synthesis",
   "report_build",
 ]);
@@ -96,10 +98,16 @@ export function deriveAgentRun(events: AnalysisLiveEvent[]): AgentRunView {
     (action) => action.status !== "running" || !terminalKeys.has(`${action.stageKey}:${action.title}`),
   );
 
+  // A fetched page = a completed investigation_fetch (skipped/warning = no body).
+  const fetchedPages = collapsed.filter(
+    (action) => action.stageKey === "investigation_fetch" && action.status === "completed",
+  ).length;
+
   return {
     usedAgentOrchestrator,
     planner,
     actions: collapsed,
     investigationRounds,
+    fetchedPages,
   };
 }
