@@ -310,7 +310,7 @@ def test_agent_retrieval_alias_uses_kimi_web_search_provider(monkeypatch):
     assert isinstance(service.provider, KimiWebSearchProvider)
 
 
-def test_kimi_web_search_provider_falls_back_from_k2_5_to_turbo_preview():
+def test_kimi_web_search_provider_uses_configured_search_model_verbatim():
     provider = KimiWebSearchProvider(
         settings=replace(
             get_settings(),
@@ -320,7 +320,8 @@ def test_kimi_web_search_provider_falls_back_from_k2_5_to_turbo_preview():
         )
     )
 
-    assert provider._search_model() == "kimi-k2-turbo-preview"
+    # Config decides the search model; no hard-coded rewrite.
+    assert provider._search_model() == "kimi-k2.5"
 
 
 def test_retrieval_cache_round_trip(tmp_path: Path):

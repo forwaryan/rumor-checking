@@ -340,16 +340,7 @@ class KimiWebSearchProvider:
         return message
 
     def _search_model(self) -> str:
-        model = self.settings.kimi_search_model.strip()
-        if model.lower().startswith("kimi-k2.5"):
-            fallback_model = "kimi-k2-turbo-preview"
-            logger.warning(
-                "kimi_web_search_model_fallback requested_model=%s fallback_model=%s",
-                model,
-                fallback_model,
-            )
-            return fallback_model
-        return model
+        return self.settings.kimi_search_model.strip()
 
     def _request_temperature(self, model: str) -> float:
         model = model.strip().lower()

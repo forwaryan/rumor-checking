@@ -434,10 +434,7 @@ class KimiAgentReasoner:
         return self._coerce_content(message.get("content"))
 
     def _reasoning_model(self) -> str:
-        preferred = self.settings.kimi_search_model.strip() or self.settings.kimi_model.strip()
-        if preferred.lower().startswith("kimi-k2.5"):
-            return "kimi-k2-turbo-preview"
-        return preferred
+        return self.settings.kimi_search_model.strip() or self.settings.kimi_model.strip()
 
     def _request_temperature(self, model: str) -> float:
         model = model.strip().lower()

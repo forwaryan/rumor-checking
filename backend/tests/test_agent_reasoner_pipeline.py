@@ -182,15 +182,16 @@ def test_pipeline_prefers_agent_synthesis_over_rule_judgment(monkeypatch, tmp_pa
     assert len(report.timeline) == 2
 
 
-def test_agent_reasoner_prefers_turbo_preview_when_k2_5_is_configured():
+def test_agent_reasoner_uses_configured_search_model_verbatim():
     reasoner = KimiAgentReasoner(
         settings=replace(
             get_settings(),
             analysis_provider="kimi",
             kimi_api_key="test-kimi-key",
-            kimi_model="kimi-k2.5",
-            kimi_search_model="kimi-k2-turbo-preview",
+            kimi_model="moonshot-v1-8k",
+            kimi_search_model="kimi-k2.5",
         )
     )
 
-    assert reasoner._reasoning_model() == "kimi-k2-turbo-preview"
+    # Config decides the model; no hard-coded rewrite.
+    assert reasoner._reasoning_model() == "kimi-k2.5"
