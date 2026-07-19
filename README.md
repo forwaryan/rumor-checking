@@ -18,7 +18,7 @@
 - 后端已提供 `GET /api/v1/health`、`POST /api/v1/analyze`、`POST /api/v1/analyze/stream`。
 - `report.provenance.source_type` 当前只会出现 `backend_live` 或 `backend_mock`。
 - 默认冻结基线仍是 `off + mock + fallback=true`，适合稳定联调和回归。
-- `live probe` 只用于内部诊断，当前不能对外宣称真实检索链路已完成最终验收。
+- 真实检索路径（`RETRIEVAL_PROVIDER=kimi` + agent 编排）已端到端联调通过，但需按 `real live` 配方配置且延迟较高，不作为默认路径。
 
 ## 文档入口
 
@@ -115,12 +115,19 @@ powershell -ExecutionPolicy Bypass -File .\frontend\run-local-windows-checks.ps1
 
 ## 当前运行路径
 
-| 路径 | 关键环境变量 | 适合做什么 | 当前不能怎么讲 |
+| 路径 | 关键环境变量 | 适合做什么 | 边界口径 |
 | --- | --- | --- | --- |
-| `default dev` | `ANALYSIS_PROVIDER=off`、`RETRIEVAL_PROVIDER=mock`、`RETRIEVAL_FALLBACK_TO_MOCK=true`、`NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000` | 默认开发、联调、回归和新人上手路径 | 不能讲成真实检索已通过最终验收 |
-| `default demo` | 与 `default dev` 保持一致 | 当前推荐的可交付演示路径 | 不能讲成 `real_live` 路径 |
-| `enhanced demo` | 额外加 `ANALYSIS_PROVIDER=kimi` 与 `KIMI_API_KEY` | 在不改变 retrieval 基线的前提下增强标题、摘要和 claim 抽取 | 仍然不是 `real_live` 检索通过口径 |
-| `live probe` | `RETRIEVAL_PROVIDER=gdelt`、`RETRIEVAL_FALLBACK_TO_MOCK=false` | 只用于内部诊断，观察是否真的出现 `backend_live + retrieval_live` | 当前不能作为对外交付路径 |
+| `default dev / demo` | `ANALYSIS_PROVIDER=off`、`RETRIEVAL_PROVIDER=mock`、`RETRIEVAL_FALLBACK_TO_MOCK=true`、`NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000` | 默认开发、联调、回归、演示、新人上手 | 零 key、可复现；结果标 `backend_mock`，不讲成真实检索 |
+| `enhanced demo` | 额外加 `ANALYSIS_PROVIDER=kimi` 与 `KIMI_API_KEY`（放 `backend/.env`） | 在 mock 检索基线上，用 Kimi 增强标题/摘要/claim/grounded 判定 | 检索仍是 mock，不是真实联网 |
+| `agent orchestrator` | 额外加 `AGENT_ORCHESTRATOR_ENABLED=true`（可再加 `LIGHTWEIGHT_AGENT_ENABLED=true`） | 走可插拔 agent 循环；配 Kimi 时 LLM planner 在岔路口决策 | 未配 Kimi 时等价于固定 pipeline（RulePlanner 保 parity） |
+| `real live` | `ANALYSIS_PROVIDER=kimi`、`AGENT_ORCHESTRATOR_ENABLED=true`、`RETRIEVAL_PROVIDER=kimi`、`RETRIEVAL_FALLBACK_TO_MOCK=false`、`KIMI_SEARCH_MODEL=moonshot-v1-32k`、`RETRIEVAL_TIMEOUT_SECONDS=45` | 真实联网调查：Kimi `$web_search` 抓真实网页 → grounded 判定，结果标 `backend_live + retrieval_live` | 已端到端联调通过；延迟高（单次可超 120s），不适合无缓存的同步对外 |
+
+### `real live` 路径注意事项（真实联调发现）
+
+- **检索必须用大上下文模型**：`$web_search` 会把网页正文喂回模型，`moonshot-v1-8k` 会撑爆 8192 上限报 400。用 `moonshot-v1-32k`（或 128k）。
+- **超时要放宽**：默认 `RETRIEVAL_TIMEOUT_SECONDS=12` 跑不完 web-search tool loop，会 ReadTimeout；设 `>=45`。
+- **模型要选 key 能访问的**：用 `GET /v1/models` 确认；旧默认 `kimi-k2-turbo-preview` 在部分 key 上 404。
+- 完整配方也在 [backend/.env.example](/home/forwaryan/mianshi/rumor-checking/backend/.env.example) 注释里。
 
 ## 当前边界
 
@@ -128,4 +135,4 @@ powershell -ExecutionPolicy Bypass -File .\frontend\run-local-windows-checks.ps1
 - `mock` 路径仍会明确展示 provenance，避免误讲成实时联网结果。
 - `unknown` 只用于缺失或不完整 provenance 的保守展示。
 - URL 输入当前只支持公开 HTML 页面，不支持登录页、强反爬、浏览器渲染页面、PDF 和图片正文。
-- 如果今天要上台，当前最稳的口径仍是：`Go / 讲 mock demo + 边界`，`No-Go / 讲真实检索较真`。
+- 演示口径：`mock demo` 稳、可复现、零 key，适合默认展示；`real live` 已联调通过，讲的时候要如实说明"延迟高、非默认、需按配方配置"，别讲成随手就能实时跑。

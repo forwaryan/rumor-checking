@@ -1,7 +1,0 @@
-2026-03-26 21:43:26,001 | INFO | backend.app.main | application_created env=development version=0.1.0
-INFO:     Started server process [622156]
-INFO:     Waiting for application startup.
-INFO:     Application startup complete.
-ERROR:    [Errno 98] error while attempting to bind on address ('127.0.0.1', 8000): address already in use
-INFO:     Waiting for application shutdown.
-INFO:     Application shutdown complete.

@@ -25,15 +25,17 @@
 
 ## 2. 先看当前运行路径
 
-项目现在同时存在两条运行路径：
+项目现在存在三层可叠加的运行选择：
 
-| 路径 | 作用 | 关键开关 |
-| --- | --- | --- |
-| 稳定基线 | 联调、演示、回归测试 | `ANALYSIS_PROVIDER=off`、`RETRIEVAL_PROVIDER=mock`、`RETRIEVAL_FALLBACK_TO_MOCK=true` |
-| 实时增强路径 | 接 Kimi 做联网检索和 agent 综合判断 | `ANALYSIS_PROVIDER=kimi`、`RETRIEVAL_PROVIDER=agent/kimi/gdelt` |
+| 维度 | 稳定基线（默认） | 增强路径 | 关键开关 |
+| --- | --- | --- | --- |
+| 分析 provider | 规则兜底 | Kimi 综合判断 | `ANALYSIS_PROVIDER=off\|kimi` |
+| 检索 provider | mock | Kimi 联网 / gdelt | `RETRIEVAL_PROVIDER=mock\|kimi\|gdelt` |
+| 主编排 | 固定 pipeline | 可插拔 agent 循环 | `AGENT_ORCHESTRATOR_ENABLED=false\|true` |
 
-代码默认基线来自 [backend/.env.example](../backend/.env.example)，当前工作区的 `backend/.env` 又把本地运行切到了 Kimi/agent 路径。  
-所以理解架构时要分两层看：
+三个开关都默认取"稳定基线"一侧，所以**开箱即 `off + mock + 固定 pipeline`**，零 key、可复现、可回归。
+
+`backend/.env.example` 是模板（key 字段留空）；真实运行时把密钥和覆盖项放进 **git 忽略的 `backend/.env`**（该文件不进版本库）。理解架构时分两层看：
 
 - **代码结构层**：始终是“输入标准化 -> 检索 -> 消歧 -> agent/规则判定 -> 报告组装”。
 - **运行配置层**：只是决定“这一步走 mock 还是走真实 provider、agent 是否启用”。
@@ -256,6 +258,42 @@ flowchart TD
 | [backend/app/services/report_builder.py](../backend/app/services/report_builder.py) | 组装最终 `Report`，决定 `safe/partial/complete` | 还负责 investigation 和评分 |
 | [backend/app/services/content_check_builder.py](../backend/app/services/content_check_builder.py) | 生成“哪些更像真/假/争议/观点”视图 | 主要为了前端展示 |
 | [backend/app/services/pipeline_trace_builder.py](../backend/app/services/pipeline_trace_builder.py) | 把流水线压缩成用户可读的步骤摘要 | 给前端结果区复盘用 |
+
+### 6.5 Agent 编排层（默认关闭，可回退）
+
+上面 6.1–6.4 讲的是**固定 pipeline**。在它之上还有一层**可选的 agent 编排**，由 `AGENT_ORCHESTRATOR_ENABLED` 控制（默认 `false`）。开启后，`AnalyzePipeline.analyze()` 顶部把控制权交给 agent 循环；循环抛错则自动回退固定 pipeline。
+
+关键点是：**agent 编排不是重写业务，而是把 6.4 里那些现成服务当成"工具"来调度。**
+
+| 模块 | 职责 |
+| --- | --- |
+| [backend/app/agent/state.py](../backend/app/agent/state.py) | `AgentState` 黑板，贯穿所有工具，字段对应固定 pipeline 里的中间产物 |
+| [backend/app/agent/planner.py](../backend/app/agent/planner.py) | `Planner` 协议 + `RulePlanner` / `LlmPlanner`；`legal_actions(state)` 是排序的唯一真相源 |
+| [backend/app/agent/runner.py](../backend/app/agent/runner.py) | 主循环 `plan -> tool -> observe -> decide -> finalize`，带步数上限与回退 |
+| [backend/app/agent_tools/tools.py](../backend/app/agent_tools/tools.py) | 把 `RetrievalService` / `VerdictEngine` / `ReportBuilder` 等薄封装成工具，复用同样的 `emit_stage` |
+
+Planner 可插拔，这是"agent 为主又不破坏基线"的关键取舍：
+
+- `RulePlanner`（默认）：永远取第一个合法动作，复刻固定 pipeline 顺序。在 `off + mock` 上产出与旧链路**逐字节一致**的 `Report`（`backend/tests/test_agent_orchestrator.py` 的 parity 测试保证）。
+- `LlmPlanner`（配置 Kimi 时启用）：只在"继续调查(investigate)还是直接综合(synthesize)"这个真实岔路口调用 LLM；其余强制步骤不浪费 LLM 调用。非法/失败选择一律退回 `RulePlanner`。
+
+```mermaid
+flowchart TD
+    REQ["AnalyzeRequest"] --> SW{"AGENT_ORCHESTRATOR_ENABLED?"}
+    SW -->|false| PIPE["固定 AnalyzePipeline (6.2)"]
+    SW -->|true| RUN["AgentRunner"]
+    RUN --> PLAN["Planner.next_action(state)"]
+    PLAN --> LEGAL["legal_actions(state)"]
+    LEGAL -->|唯一合法| TOOL["执行该工具"]
+    LEGAL -->|岔路 & 配置 Kimi| LLM["LlmPlanner 调 LLM 决策"]
+    LLM --> TOOL
+    TOOL --> STATE["写回 AgentState"]
+    STATE -->|未完成| PLAN
+    STATE -->|finalize| REPORT["Report"]
+    RUN -->|抛错| PIPE
+```
+
+配合的两个能力开关：`LIGHTWEIGHT_AGENT_ENABLED`（证据弱时让 LLM planner 追加 1 轮定向检索）、以及开 Kimi 时 `agent_reasoner.synthesize` 接管 grounded verdict（判定必须带证据，否则降级 `insufficient`）。
 
 ---
 

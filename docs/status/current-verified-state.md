@@ -1,6 +1,6 @@
 # 当前已核验状态
 
-更新时间：2026-03-26（Asia/Shanghai）
+更新时间：2026-07-19（Asia/Shanghai）
 
 这份文档只保留已经被当前代码核验过的事实，用来约束 README 和现行运行文档的口径。
 
@@ -10,10 +10,14 @@
 
 - `backend/app/api/v1/endpoints/analyze.py`
 - `backend/app/services/analyze_pipeline.py`
+- `backend/app/agent/{state,planner,runner}.py`
+- `backend/app/agent_tools/{base,tools}.py`
+- `backend/app/services/agent_reasoner.py`
 - `backend/app/models/schemas.py`
 - `backend/app/services/report_builder.py`
 - `frontend/components/analyze-page.tsx`
-- `frontend/components/status-banner.tsx`
+- `frontend/components/agent-run-panel.tsx`
+- `frontend/lib/agent-run.ts`
 - `frontend/lib/api-client.ts`
 - `frontend/lib/report-utils.ts`
 - `contracts/report.schema.json`
@@ -63,12 +67,34 @@
 
 - URL 输入已支持公开 HTML 页面抽取
 - 不支持登录页、强反爬页面、浏览器渲染页面、PDF 或图片正文
-- live retrieval 仍未达到可对外交付的稳定口径
+
+### 6. Agent 编排（默认关闭，可回退）
+
+- 存在一层可插拔的 agent 编排：`backend/app/agent`（`state` / `planner` / `runner`）把现有服务包装成工具（`backend/app/agent_tools`），按 `plan -> tool -> observe -> decide -> finalize` 的小循环执行。
+- 由 `AGENT_ORCHESTRATOR_ENABLED` 控制，**默认 `false`**。开关关闭时走原来的固定 `AnalyzePipeline`。
+- Planner 可插拔：
+  - `RulePlanner`（默认）复刻固定 pipeline 的顺序，在 `off + mock` 路径上产出与旧链路**逐字节一致**的 `Report`（由 `backend/tests/test_agent_orchestrator.py` 的 parity 测试保证）。
+  - `LlmPlanner`（配置了 Kimi 时启用）在"继续调查还是直接综合"这个真实岔路口调用 LLM 决策，带非法动作护栏，失败即退回 `RulePlanner`。
+- runner 抛错时自动回退固定 pipeline，不影响可交付性。
+- 前端有对应的调查过程面板（`frontend/components/agent-run-panel.tsx`），从现有 `stage`/`log` 事件派生，非 agent 路径自动隐藏。
+
+### 7. Grounded verdict 与诚实兜底
+
+- 开 Kimi 时，`agent_reasoner.synthesize` 接管 verdict：任何 `supported/refuted/conflicting` 判定必须带有效证据（`evidence_result_id`），否则降级为 `insufficient`（`backend/tests/test_agent_grounded_verdict.py` 锁定）。
+- 当 Kimi 启用但最终落到规则引擎时，provenance 会带显式 `fallback_reason=llm_synthesis_unavailable_rule_fallback`，不伪装成正常 LLM 结论。
+
+### 8. 真实检索已联调通过（有配置前提，非默认）
+
+- `RETRIEVAL_PROVIDER=kimi` 的 Kimi `$web_search` 联网检索已对真实 Moonshot API 端到端跑通：真实 URL、`source_type=backend_live`、`evidence_source=retrieval_live`、grounded 判定。
+- **前提**（真实联调发现，写入 `.env.example`）：检索需用大上下文模型（`KIMI_SEARCH_MODEL=moonshot-v1-32k`，8k 会因 web 内容撑爆而 400），且 `RETRIEVAL_TIMEOUT_SECONDS>=45`（默认 12s 会 ReadTimeout）。
+- 延迟真实：一次完整 agent + 真实检索（首轮 2 条 + 追加 1 轮）可超过 ~120s。不建议作为无缓存的同步对外路径。
+- 默认交付/演示路径仍是 `off + mock`（见第 4 条）。
 
 ## 当前仍未完成的事项
 
-- 真实 live retrieval 路径的稳定通过样本
+- 真实 live retrieval 的缓存/降低延迟策略（当前单次可超 120s，尚不适合无缓存同步对外）
 - 公开 HTML 之外的 URL 抽取扩展
+- agent planner 更强的自主性（当前只在 investigate/synthesize 岔路口决策，尚不能自主决定抓 URL、换角度重搜等）
 - 若未来确实需要 replay，是否公开接口和如何冻结术语体系
 
 ## 使用规则

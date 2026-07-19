@@ -10,7 +10,5 @@
 
 当前记录：
 
-- [2026-03-27-lightweight-agent-plan.md](./2026-03-27-lightweight-agent-plan.md)
-  - 轻量 Agent 化实施任务报告，包含目标、效果、对比分析、实施步骤和任务状态表。
-- [2026-03-27-lightweight-agent-multi-agent-task-board.md](./2026-03-27-lightweight-agent-multi-agent-task-board.md)
-  - 面向多 Agent 协作的任务记录规范与执行看板，包含认领规则、状态流转、并行波次和详细任务表。
+- [2026-03-27-lightweight-agent-design.md](./2026-03-27-lightweight-agent-design.md)
+  - 轻量 Agent 化技术方案与决策记录（**已实现并联调通过，归档**）。含 Agent 边界、状态模型、工具封装、受控循环、grounded verdict 与前端展示；当前事实以 `docs/` 为准。

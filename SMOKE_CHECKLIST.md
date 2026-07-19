@@ -2,22 +2,22 @@
 
 适用对象：主控、演示者、临时接手机器的同学
 
-更新时间：2026-03-26（Asia/Shanghai）
+更新时间：2026-07-19（Asia/Shanghai）
 
 ## Go / No-Go
 
 - `Go / 讲 mock demo + 边界`：页面能打开，后端可用，`expired-yogurt` 可跑，来源标签正常
-- `Go / 讲内部 live probe`：仅限排障，不对外承诺真实检索通过
+- `Go / 讲 real live`：真实 Kimi 检索已联调通过，但需按 real-live 配方配置且时延高，讲的时候要如实标注"非默认、需配置、慢"
 - `No-Go / 讲交互式演示`：后端起不来，或页面无法跑出真实 `Report`
 
 ## 1. 先决定今天走哪条路径
 
-[ ] 明确今天是 `mock demo` 还是 `internal live probe`
+[ ] 明确今天是 `mock demo`（默认、稳、零 key）还是 `real live`（真实联网、需配方、慢）
 
 检查：
 
 - 对外演示默认走 `mock demo`
-- 只有内部排障才尝试 `live probe`
+- 走 `real live` 前先确认已按第 7 节配好（模型、超时、key），并接受单次可能超 120s 的时延
 
 ## 2. 环境与启动
 
@@ -106,14 +106,17 @@ Invoke-WebRequest -Method Post -Uri http://127.0.0.1:8000/api/v1/analyze/stream 
 
 [ ] 不把 `chemical-odor`、`morningstar-layoff` 排进默认主线
 
-## 7. live probe 只用于内部诊断
+## 7. real live 路径（真实联网，非默认）
 
-[ ] 如果要做 live probe，必须显式切到：
+[ ] 如果要走真实检索，把 `backend/.env` 显式切到已联调通过的配方：
 
-- `RETRIEVAL_PROVIDER=gdelt`
-- `RETRIEVAL_FALLBACK_TO_MOCK=false`
+- `ANALYSIS_PROVIDER=kimi` 且填好 `KIMI_API_KEY`
+- `AGENT_ORCHESTRATOR_ENABLED=true`
+- `RETRIEVAL_PROVIDER=kimi`、`RETRIEVAL_FALLBACK_TO_MOCK=false`
+- `KIMI_SEARCH_MODEL=moonshot-v1-32k`（8k 会因 web 正文超 token 报 400）
+- `RETRIEVAL_TIMEOUT_SECONDS=45`（默认 12s 会 ReadTimeout）
 
-[ ] 演示者知道这不是对外交付路径
+[ ] 演示者知道：这条路已联调通过并会标 `backend_live + retrieval_live`，但时延高（单次可超 120s），不适合无缓存的快速演示
 
 ## 8. 当前不再保留的保底链路
 
