@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { parseReport } from "@/lib/api-client";
-import type { Report } from "@/types/report";
+import { describe, expect, it, vi } from "vitest";
+import { analyzeReportStream, parseReport } from "@/lib/api-client";
+import type { AnalysisLiveEvent, Report } from "@/types/report";
 
 describe("parseReport", () => {
   it("parses a full backend report payload with provenance", () => {
@@ -127,5 +127,62 @@ describe("parseReport", () => {
 
   it("throws on non-object payloads", () => {
     expect(() => parseReport(null)).toThrow("无法解析后端返回的 Report。");
+  });
+});
+
+function ndjsonResponse(lines: string[]): Response {
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const encoder = new TextEncoder();
+      for (const line of lines) {
+        controller.enqueue(encoder.encode(line + "\n"));
+      }
+      controller.close();
+    },
+  });
+  return new Response(body, { status: 200, headers: { "Content-Type": "application/x-ndjson" } });
+}
+
+describe("analyzeReportStream heartbeat handling", () => {
+  it("skips heartbeat lines without throwing and still returns the report", async () => {
+    const lines = [
+      JSON.stringify({ type: "heartbeat", run_id: "r", emitted_at: "2026-03-20T00:00:00Z" }),
+      JSON.stringify({
+        type: "stage",
+        stage_key: "normalize_input",
+        title: "标准化输入",
+        status: "completed",
+        summary: "done",
+        details: [],
+        emitted_at: "2026-03-20T00:00:01Z",
+      }),
+      JSON.stringify({ type: "heartbeat", run_id: "r", emitted_at: "2026-03-20T00:00:11Z" }),
+      JSON.stringify({
+        type: "report",
+        run_id: "r",
+        summary: "分析完成",
+        report: { mode: "safe_mode" },
+        emitted_at: "2026-03-20T00:00:12Z",
+      }),
+      JSON.stringify({ type: "complete", run_id: "r", success: true, summary: "结束", emitted_at: "2026-03-20T00:00:13Z" }),
+    ];
+    const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse(lines));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const seen: AnalysisLiveEvent[] = [];
+    try {
+      const report = await analyzeReportStream(
+        { raw_input: "x", input_type: "auto" },
+        (event) => seen.push(event),
+      );
+      expect(report.mode).toBe("safe_mode");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    // Heartbeats never reach onEvent; real events do.
+    expect(seen.some((event) => (event as { type: string }).type === "heartbeat")).toBe(false);
+    expect(seen.some((event) => event.type === "stage")).toBe(true);
+    expect(seen.some((event) => event.type === "report")).toBe(true);
   });
 });

@@ -539,6 +539,27 @@ export async function analyzeReportStream(
   let finalReport: Report | null = null;
   let streamError: ApiClientError | null = null;
 
+  const handleLine = (line: string) => {
+    if (!line) {
+      return;
+    }
+    const rawEvent = JSON.parse(line) as unknown;
+    // Transport-level keepalive emitted during slow backend work; not an
+    // analysis event, so skip it before strict parsing.
+    if (rawEvent && typeof rawEvent === "object" && (rawEvent as { type?: unknown }).type === "heartbeat") {
+      return;
+    }
+    const event = parseLiveEvent(rawEvent);
+    onEvent(event);
+    if (event.type === "report") {
+      finalReport = event.report;
+    }
+    if (event.type === "error") {
+      const message = [event.message, ...event.details].filter(Boolean).join(" ");
+      streamError = new ApiClientError(message || event.code, event.status_code);
+    }
+  };
+
   while (true) {
     const { value, done } = await reader.read();
     buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
@@ -547,35 +568,12 @@ export async function analyzeReportStream(
     while (newlineIndex !== -1) {
       const line = buffer.slice(0, newlineIndex).trim();
       buffer = buffer.slice(newlineIndex + 1);
-      if (line) {
-        const rawEvent = JSON.parse(line) as unknown;
-        const event = parseLiveEvent(rawEvent);
-        onEvent(event);
-        if (event.type === "report") {
-          finalReport = event.report;
-        }
-        if (event.type === "error") {
-          const message = [event.message, ...event.details].filter(Boolean).join(" ");
-          streamError = new ApiClientError(message || event.code, event.status_code);
-        }
-      }
+      handleLine(line);
       newlineIndex = buffer.indexOf("\n");
     }
 
     if (done) {
-      const line = buffer.trim();
-      if (line) {
-        const rawEvent = JSON.parse(line) as unknown;
-        const event = parseLiveEvent(rawEvent);
-        onEvent(event);
-        if (event.type === "report") {
-          finalReport = event.report;
-        }
-        if (event.type === "error") {
-          const message = [event.message, ...event.details].filter(Boolean).join(" ");
-          streamError = new ApiClientError(message || event.code, event.status_code);
-        }
-      }
+      handleLine(buffer.trim());
       break;
     }
   }

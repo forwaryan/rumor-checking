@@ -17,6 +17,11 @@ from backend.app.services.progress import reset_progress_callback, set_progress_
 
 router = APIRouter()
 _STREAM_DONE = object()
+# Longest allowed silence on the stream. A single Kimi $web_search round can
+# block ~45s with no pipeline event; without a keepalive, proxies/browsers may
+# idle-timeout and drop the connection. Emit a heartbeat if the queue is quiet
+# this long so the NDJSON stream never goes silent.
+_HEARTBEAT_INTERVAL_SECONDS = 10.0
 
 
 @router.post("/analyze", response_model=Report)
@@ -119,7 +124,20 @@ def analyze_stream(payload: AnalyzeRequest, request: Request) -> StreamingRespon
         worker_thread = Thread(target=worker, name=f"analyze-stream-{run_id}", daemon=True)
         worker_thread.start()
         while True:
-            item = event_queue.get()
+            try:
+                item = event_queue.get(timeout=_HEARTBEAT_INTERVAL_SECONDS)
+            except queue.Empty:
+                # Worker is busy (e.g. a slow web-search round) but alive; emit a
+                # keepalive so the connection is not idle-timed-out mid-analysis.
+                yield json.dumps(
+                    {
+                        "type": "heartbeat",
+                        "run_id": run_id,
+                        "emitted_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                    ensure_ascii=False,
+                ) + "\n"
+                continue
             if item is _STREAM_DONE:
                 break
             yield json.dumps(item, ensure_ascii=False) + "\n"
