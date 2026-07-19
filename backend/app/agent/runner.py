@@ -14,6 +14,7 @@ _SIMPLE_TOOLS = {
     planner_mod.RESOLVE: tools.resolve_question,
     planner_mod.FOLLOW_UP: tools.follow_up_retrieval,
     planner_mod.INVESTIGATE: tools.investigate,
+    planner_mod.FETCH_URL: tools.fetch_url,
     planner_mod.ENRICH: tools.enrich,
     planner_mod.EXTRACT: tools.extract_claims,
     planner_mod.JUDGE: tools.judge_claims,
@@ -40,6 +41,7 @@ class AgentRunner:
 
     def run(self, request: AnalyzeRequest) -> Report:
         state = AgentState(request=request)
+        state.max_url_fetches = int(getattr(self.ctx.settings, "agent_max_url_fetches", 0) or 0)
         for _ in range(_MAX_STEPS):
             action = self.planner.next_action(state)
             if action == planner_mod.DONE:

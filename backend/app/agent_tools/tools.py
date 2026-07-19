@@ -16,6 +16,9 @@ from backend.app.services.progress import emit_log, emit_stage
 # not produce a grounded result, so the rule engine answered instead.
 LLM_SYNTHESIS_FALLBACK_REASON = "llm_synthesis_unavailable_rule_fallback"
 
+# Hard cap on a fetched page body fed into synthesis (keeps prompt/token bounded).
+_FETCH_BODY_MAX_CHARS = 4000
+
 
 def normalize(ctx: ToolContext, state: AgentState) -> None:
     request = state.request
@@ -214,6 +217,99 @@ def investigate(ctx: ToolContext, state: AgentState) -> None:
     state.retrieval_bundle = current_bundle
 
 
+def _pick_fetch_target(state: AgentState):
+    """Highest-value canonical result whose body has not been fetched yet.
+
+    Prefers high-trust, non-aggregator, higher-tier sources (a full-body read is
+    most useful on an authoritative page), then falls back to existing order.
+    """
+    bundle = state.retrieval_bundle
+    if bundle is None:
+        return None
+    candidates = [
+        r
+        for r in bundle.canonical_results
+        if r.result_id not in state.fetched_bodies and r.url and r.url not in state.fetched_urls
+    ]
+    if not candidates:
+        return None
+
+    def score(result):
+        return (
+            1 if result.is_high_trust else 0,
+            0 if result.is_aggregator_source else 1,
+            result.tier_weight,
+        )
+
+    return max(candidates, key=score)
+
+
+def fetch_url(ctx: ToolContext, state: AgentState) -> None:
+    """Fetch the full body of a high-value evidence page to strengthen grounding.
+
+    Retrieval only returns short snippets; this reads one full page and stores it
+    against the existing SearchResult.result_id so synthesis can ground on it
+    without introducing a new evidence source.
+    """
+    target = _pick_fetch_target(state)
+    if target is None:
+        emit_stage(
+            stage_key="investigation_fetch",
+            title="抓取正文",
+            status="skipped",
+            summary="没有可抓取的新证据页面。",
+            details=[],
+        )
+        return
+
+    emit_stage(
+        stage_key="investigation_fetch",
+        title="抓取正文",
+        status="running",
+        summary="正在抓取高价值证据页面的正文以加强判定依据。",
+        details=[f"url={target.url}", f"source={target.source_name}", f"tier={target.source_tier}"],
+    )
+    try:
+        fetch = ctx.url_content_extractor.extract(target.url)
+    except Exception as exc:
+        emit_stage(
+            stage_key="investigation_fetch",
+            title="抓取正文",
+            status="warning",
+            summary="正文抓取失败，沿用检索摘要继续。",
+            details=[f"url={target.url}", f"error_type={exc.__class__.__name__}"],
+        )
+        state.fetched_urls.add(target.url)
+        return
+
+    body = (fetch.body or "").strip()
+    state.fetched_urls.add(target.url)
+    if fetch.status != "ok" or not body:
+        emit_stage(
+            stage_key="investigation_fetch",
+            title="抓取正文",
+            status="warning",
+            summary="页面未返回可用正文，沿用检索摘要继续。",
+            details=[f"url={target.url}", f"status={fetch.status}"],
+        )
+        return
+
+    body = body[:_FETCH_BODY_MAX_CHARS]
+    state.fetched_bodies[target.result_id] = body
+    emit_stage(
+        stage_key="investigation_fetch",
+        title="抓取正文",
+        status="completed",
+        summary="已抓到正文，将作为额外依据喂给综合判定。",
+        details=[
+            f"url={target.url}",
+            f"result_id={target.result_id}",
+            f"body_chars={len(body)}",
+        ],
+    )
+    state.record("fetch_url", "抓取证据正文", [f"result_id={target.result_id}"])
+
+
 def synthesize(ctx: ToolContext, state: AgentState) -> bool:
     """Try the agent synthesis path. Returns True if it produced a result."""
     # "Attempted" only when the LLM reasoner is actually enabled — on the
@@ -231,6 +327,7 @@ def synthesize(ctx: ToolContext, state: AgentState) -> bool:
         request=state.request,
         event=state.resolved_event,
         retrieval_bundle=state.retrieval_bundle,
+        fetched_bodies=state.fetched_bodies or None,
     )
     if agent_synthesis is None:
         emit_stage(
@@ -476,12 +573,13 @@ def _resolve_question(ctx: ToolContext, *, event, retrieval_bundle):
     return ctx.question_resolver.resolve(event=event, retrieval_bundle=retrieval_bundle)
 
 
-def _synthesize_with_agent(ctx: ToolContext, *, request, event, retrieval_bundle):
+def _synthesize_with_agent(ctx: ToolContext, *, request, event, retrieval_bundle, fetched_bodies=None):
     try:
         return ctx.agent_reasoner.synthesize(
             request=request,
             event=event,
             retrieval_bundle=retrieval_bundle,
+            fetched_bodies=fetched_bodies,
         )
     except Exception as exc:
         emit_log(

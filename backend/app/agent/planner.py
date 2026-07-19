@@ -11,6 +11,7 @@ SEARCH = "search_news"
 RESOLVE = "resolve_question"
 FOLLOW_UP = "follow_up_retrieval"
 INVESTIGATE = "investigate"
+FETCH_URL = "fetch_url"
 SYNTHESIZE = "synthesize"
 ENRICH = "enrich"
 EXTRACT = "extract_claims"
@@ -22,7 +23,7 @@ DONE = "done"
 # Actions the LLM planner is allowed to arbitrate between. Everything else is a
 # forced data-dependency step (e.g. cannot judge before extracting), so we never
 # spend an LLM call on it — only genuine branch points are delegated.
-_LLM_DECIDABLE = {INVESTIGATE, SYNTHESIZE}
+_LLM_DECIDABLE = {INVESTIGATE, FETCH_URL, SYNTHESIZE}
 
 
 def legal_actions(state: AgentState) -> List[str]:
@@ -44,9 +45,17 @@ def legal_actions(state: AgentState) -> List[str]:
         return [FOLLOW_UP]
 
     # Branch point: gather more evidence, or commit to synthesis. Both legal.
+    # fetch_url is offered as an extra option but always AFTER the rule-path
+    # default, so RulePlanner (takes index 0) never picks it -> parity holds.
     if INVESTIGATE not in done and SYNTHESIZE not in done:
+        if _can_fetch(state):
+            return [INVESTIGATE, FETCH_URL, SYNTHESIZE]
         return [INVESTIGATE, SYNTHESIZE]
     if SYNTHESIZE not in done:
+        # After investigate: rule path goes straight to synthesize; the LLM may
+        # instead fetch a page first (FETCH_URL after SYNTHESIZE keeps parity).
+        if _can_fetch(state):
+            return [SYNTHESIZE, FETCH_URL]
         return [SYNTHESIZE]
 
     # After synthesize: structured result short-circuits to finalize; otherwise
@@ -70,6 +79,20 @@ def legal_actions(state: AgentState) -> List[str]:
 class Planner(Protocol):
     def next_action(self, state: AgentState) -> str:
         ...
+
+
+def _can_fetch(state: AgentState) -> bool:
+    """True when the fetch_url action is available: budget remains AND the
+    current bundle has a canonical result whose body hasn't been fetched yet."""
+    if len(state.fetched_bodies) >= state.max_url_fetches:
+        return False
+    bundle = state.retrieval_bundle
+    if bundle is None:
+        return False
+    return any(
+        r.url and r.result_id not in state.fetched_bodies and r.url not in state.fetched_urls
+        for r in bundle.canonical_results
+    )
 
 
 class RulePlanner:

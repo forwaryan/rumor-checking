@@ -15,6 +15,7 @@ class ToolContext:
     settings: object
     input_normalizer: object
     retriever: object
+    url_content_extractor: object
     question_resolver: object
     agent_reasoner: object
     provider_enricher: object

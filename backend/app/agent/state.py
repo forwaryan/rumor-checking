@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from backend.app.models.schemas import (
     AnalyzeRequest,
@@ -56,6 +56,14 @@ class AgentState:
     agent_synthesized: bool = False
     synthesis_attempted: bool = False
     investigation_rounds: int = 0
+
+    # Full-body pages fetched by the fetch_url tool, keyed by the canonical
+    # SearchResult.result_id they enrich (grounding-safe: no new evidence ids).
+    fetched_bodies: Dict[str, str] = field(default_factory=dict)
+    fetched_urls: Set[str] = field(default_factory=set)
+    # Upper bound on fetch_url actions; the runner sets it from settings so the
+    # planner stays a pure function of state.
+    max_url_fetches: int = 0
 
     report: Optional[Report] = None
     steps: List[AgentStep] = field(default_factory=list)

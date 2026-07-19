@@ -86,6 +86,7 @@ class Settings:
     lightweight_agent_enabled: bool
     agent_max_extra_rounds: int
     agent_orchestrator_enabled: bool
+    agent_max_url_fetches: int
     kimi_api_key: str | None
     kimi_base_url: str
     kimi_model: str
@@ -144,6 +145,7 @@ def get_settings() -> Settings:
         lightweight_agent_enabled=_as_bool(os.getenv("LIGHTWEIGHT_AGENT_ENABLED"), default=False),
         agent_max_extra_rounds=max(_as_int(os.getenv("AGENT_MAX_EXTRA_ROUNDS"), 1), 0),
         agent_orchestrator_enabled=_as_bool(os.getenv("AGENT_ORCHESTRATOR_ENABLED"), default=False),
+        agent_max_url_fetches=max(_as_int(os.getenv("AGENT_MAX_URL_FETCHES"), 1), 0),
         kimi_api_key=os.getenv("KIMI_API_KEY"),
         kimi_base_url=os.getenv("KIMI_BASE_URL", "https://api.moonshot.cn/v1").rstrip("/"),
         kimi_model=os.getenv("KIMI_MODEL", "moonshot-v1-8k").strip(),

@@ -130,12 +130,17 @@ Return one JSON object with this schema:
 
 Action meanings:
 - "investigate": run one more targeted retrieval round to strengthen weak/one-sided evidence.
+- "fetch_url": fetch the FULL body of the single most authoritative evidence page (retrieval only
+  gives short snippets); choose this when one high-trust source likely has decisive detail its
+  snippet does not show.
 - "synthesize": stop gathering and produce the grounded event, claims, verdicts, and timeline.
 
 Rules:
 - Choose "next_action" ONLY from the supplied allowed_actions list. Never invent an action.
 - Prefer "investigate" when evidence is weak (low grade, few independent high-trust sources,
   conflicting signals) AND another round could plausibly help.
+- Prefer "fetch_url" when there is a strong source whose snippet is too thin to decide, and reading
+  its full text would likely settle the claim. Use sparingly (each fetch is a live HTTP round).
 - Prefer "synthesize" when evidence is already strong and independently corroborated, or when
   further searching is unlikely to help.
 - Output JSON only.
@@ -232,6 +237,7 @@ class KimiAgentReasoner:
         request: AnalyzeRequest,
         event: NormalizedEvent,
         retrieval_bundle: RetrievalBundle | None,
+        fetched_bodies: Optional[dict[str, str]] = None,
     ) -> Optional[AgentSynthesis]:
         if not self.enabled:
             return None
@@ -246,6 +252,7 @@ class KimiAgentReasoner:
                 request=request,
                 event=event,
                 retrieval_bundle=retrieval_bundle,
+                fetched_bodies=fetched_bodies,
             ),
         )
         payload = self._extract_json_payload(content)
@@ -465,6 +472,7 @@ class KimiAgentReasoner:
         request: AnalyzeRequest,
         event: NormalizedEvent,
         retrieval_bundle: RetrievalBundle,
+        fetched_bodies: Optional[dict[str, str]] = None,
     ) -> str:
         context = {
             "raw_input": request.raw_input,
@@ -482,9 +490,23 @@ class KimiAgentReasoner:
             "evidence_grade_hint": retrieval_bundle.evidence_grade,
             "retrieval_hits": [self._serialize_result(item) for item in retrieval_bundle.canonical_results[:8]],
         }
+        if fetched_bodies:
+            # Full-body text for some hits, keyed by the SAME result_id the model
+            # must cite in evidence_result_ids — richer grounding, same ids.
+            context["fetched_full_text"] = [
+                {"result_id": rid, "full_text": body}
+                for rid, body in fetched_bodies.items()
+            ]
+        note = (
+            "Some hits include fetched_full_text (full page body). Use it as stronger grounding, "
+            "but still cite that hit by its existing result_id in evidence_result_ids.\n"
+            if fetched_bodies
+            else ""
+        )
         return (
             "Produce an evidence-grounded event summary, atomic claims, verdicts, and timeline nodes.\n"
             "Do not force a single person if the supplied hits only support a broader recent pattern.\n"
+            f"{note}"
             "Context JSON:\n"
             f"{json.dumps(context, ensure_ascii=False, indent=2)}"
         )

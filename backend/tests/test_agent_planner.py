@@ -149,6 +149,7 @@ def test_full_run_with_llm_planner_produces_report(monkeypatch):
         settings=get_settings(),
         input_normalizer=pipeline.input_normalizer,
         retriever=pipeline.retriever,
+        url_content_extractor=pipeline.input_normalizer.url_content_extractor,
         question_resolver=pipeline.question_resolver,
         agent_reasoner=pipeline.agent_reasoner,
         provider_enricher=pipeline.provider_enricher,

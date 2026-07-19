@@ -365,6 +365,7 @@ class AnalyzePipeline:
             settings=self.settings,
             input_normalizer=self.input_normalizer,
             retriever=self.retriever,
+            url_content_extractor=self.input_normalizer.url_content_extractor,
             question_resolver=self.question_resolver,
             agent_reasoner=self.agent_reasoner,
             provider_enricher=self.provider_enricher,
