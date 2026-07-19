@@ -35,6 +35,11 @@ class AnalyzePipeline:
         if request.request_context.get("force_error"):
             raise RuntimeError("forced_error_for_testing")
 
+        if self.settings.agent_orchestrator_enabled:
+            report = self._run_agent_orchestrator(request)
+            if report is not None:
+                return report
+
         emit_stage(
             stage_key="normalize_input",
             title="标准化输入",
@@ -121,6 +126,12 @@ class AnalyzePipeline:
                 summary="当前输入不需要 follow-up query。",
                 details=[],
             )
+
+        retrieval_bundle = self._run_investigation(
+            request=request,
+            event=resolved_event,
+            retrieval_bundle=retrieval_bundle,
+        )
 
         emit_stage(
             stage_key="agent_synthesis",
@@ -345,6 +356,126 @@ class AnalyzePipeline:
             )
             return None
 
+    def _run_agent_orchestrator(self, request: AnalyzeRequest):
+        from backend.app.agent.planner import LlmPlanner, RulePlanner
+        from backend.app.agent.runner import AgentRunner
+        from backend.app.agent_tools.base import ToolContext
+
+        ctx = ToolContext(
+            settings=self.settings,
+            input_normalizer=self.input_normalizer,
+            retriever=self.retriever,
+            question_resolver=self.question_resolver,
+            agent_reasoner=self.agent_reasoner,
+            provider_enricher=self.provider_enricher,
+            claim_extractor=self.claim_extractor,
+            verdict_engine=self.verdict_engine,
+            timeline_builder=self.timeline_builder,
+            report_builder=self.report_builder,
+            content_check_builder=self.content_check_builder,
+            pipeline_trace_builder=self.pipeline_trace_builder,
+        )
+        use_llm_planner = self.settings.kimi_enabled and self.agent_reasoner.enabled
+        planner = LlmPlanner(self.agent_reasoner) if use_llm_planner else RulePlanner()
+        emit_log(
+            stage_key="agent_orchestrator",
+            title="Agent 编排启动",
+            summary="Agent orchestrator 接管本次分析。",
+            details=[f"planner={'llm' if use_llm_planner else 'rule'}"],
+        )
+        try:
+            return AgentRunner(ctx, planner=planner).run(request)
+        except Exception as exc:
+            emit_log(
+                stage_key="agent_orchestrator",
+                level="warning",
+                title="Agent 编排失败",
+                summary="Agent orchestrator 抛错，退回固定 pipeline。",
+                details=[f"error_type={exc.__class__.__name__}"],
+            )
+            return None
+
+    def _run_investigation(self, *, request, event, retrieval_bundle):
+        if not self.settings.lightweight_agent_ready or not self.agent_reasoner.enabled:
+            return retrieval_bundle
+        if retrieval_bundle is None:
+            return retrieval_bundle
+
+        max_rounds = self.settings.agent_max_extra_rounds
+        current_bundle = retrieval_bundle
+        for round_index in range(1, max_rounds + 1):
+            emit_stage(
+                stage_key="investigation_plan",
+                title="调查决策",
+                status="running",
+                summary=f"第 {round_index} 轮：正在评估当前证据是否足够，决定要不要再补一轮检索。",
+                details=[
+                    f"round={round_index}/{max_rounds}",
+                    f"evidence_grade={current_bundle.evidence_grade}",
+                    f"independent_high_trust={current_bundle.independent_high_trust_source_count}",
+                ],
+            )
+            try:
+                plan = self.agent_reasoner.plan_investigation(
+                    event=event,
+                    retrieval_bundle=current_bundle,
+                    round_index=round_index,
+                )
+            except Exception as exc:
+                emit_log(
+                    stage_key="investigation_plan",
+                    level="warning",
+                    title="调查决策失败",
+                    summary="investigation planner 抛错，停止补检索并沿用当前证据。",
+                    details=[f"error_type={exc.__class__.__name__}"],
+                )
+                break
+
+            if plan is None or not plan.should_continue or not plan.follow_up_query:
+                emit_stage(
+                    stage_key="investigation_plan",
+                    title="调查决策",
+                    status="completed",
+                    summary="决策：当前证据已足够或无法收紧，停止补检索。",
+                    details=[f"reason={plan.reason}" if plan is not None else "reason=planner_unavailable"],
+                )
+                break
+
+            emit_stage(
+                stage_key="investigation_plan",
+                title="调查决策",
+                status="completed",
+                summary="决策：证据仍偏弱，追加一轮定向检索。",
+                details=[f"reason={plan.reason}", f"follow_up_query={plan.follow_up_query}"],
+            )
+
+            follow_up_context = dict(request.request_context)
+            follow_up_context["force_retrieval_query"] = plan.follow_up_query
+            emit_stage(
+                stage_key="investigation_retrieval",
+                title="调查补检索",
+                status="running",
+                summary="正在按调查决策补抓更权威的结果。",
+                details=[f"follow_up_query={plan.follow_up_query}"],
+            )
+            candidate_bundle = self.retriever.retrieve_for_event(event, request_context=follow_up_context)
+            adopted = _bundle_quality(candidate_bundle) > _bundle_quality(current_bundle)
+            emit_stage(
+                stage_key="investigation_retrieval",
+                title="调查补检索",
+                status="completed" if adopted else "warning",
+                summary="补检索获得更强证据，已采用。" if adopted else "补检索未带来更强证据，沿用原结果。",
+                details=[
+                    f"adopted={adopted}",
+                    f"grade={current_bundle.evidence_grade}->{candidate_bundle.evidence_grade}",
+                    f"independent_high_trust={current_bundle.independent_high_trust_source_count}"
+                    f"->{candidate_bundle.independent_high_trust_source_count}",
+                ],
+            )
+            if adopted:
+                current_bundle = candidate_bundle
+        return current_bundle
+
     def _build_retrieval_diagnostics(self, retrieval_bundle) -> RetrievalDiagnostics | None:
         if retrieval_bundle is None:
             return None
@@ -388,6 +519,19 @@ class AnalyzePipeline:
             fallback_used=event.fallback_used or bool(retrieval_bundle and retrieval_bundle.fallback_used) or bool(fallback_reasons),
             fallback_reasons=fallback_reasons,
         )
+
+
+_GRADE_RANK = {"A": 3, "B": 2, "C": 1, "D": 0}
+
+
+def _bundle_quality(bundle) -> tuple[int, int, int]:
+    if bundle is None:
+        return (-1, -1, -1)
+    return (
+        _GRADE_RANK.get(bundle.evidence_grade, 0),
+        bundle.independent_high_trust_source_count,
+        len(bundle.canonical_results),
+    )
 
 
 def _event_details(event) -> list[str]:

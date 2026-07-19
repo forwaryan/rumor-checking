@@ -96,6 +96,50 @@ Rules:
 - Timeline nodes must reference supplied result ids and should be chronological when possible.
 - Output JSON only.
 """.strip()
+INVESTIGATION_PLAN_SYSTEM_PROMPT = """
+You are the investigation-planning stage for a rumor-checking backend.
+You see the current event context and a compact snapshot of the evidence gathered so far.
+Your only job is to decide whether one more targeted retrieval round is worth running.
+
+Return one JSON object with this schema:
+{
+  "should_continue": true or false,
+  "follow_up_query": "string or null",
+  "reason": "short string"
+}
+
+Rules:
+- Continue only when the current evidence is weak, one-sided, or missing an authoritative source,
+  AND a sharper query could plausibly close that gap.
+- Prefer follow-up queries that target official notices, primary sources, or authoritative media.
+- `follow_up_query` should be 4 to 10 concise search terms. If you would not continue, return null.
+- If the evidence is already strong and independently corroborated, set should_continue to false.
+- Never invent facts. Base the decision only on the supplied snapshot.
+- Output JSON only.
+""".strip()
+NEXT_ACTION_SYSTEM_PROMPT = """
+You are the planner for a rumor-checking investigation agent.
+At each step you choose the single next action from a fixed list of allowed actions.
+You see what has already been done and a compact snapshot of the evidence so far.
+
+Return one JSON object with this schema:
+{
+  "next_action": "one of the allowed action names",
+  "reason": "short string"
+}
+
+Action meanings:
+- "investigate": run one more targeted retrieval round to strengthen weak/one-sided evidence.
+- "synthesize": stop gathering and produce the grounded event, claims, verdicts, and timeline.
+
+Rules:
+- Choose "next_action" ONLY from the supplied allowed_actions list. Never invent an action.
+- Prefer "investigate" when evidence is weak (low grade, few independent high-trust sources,
+  conflicting signals) AND another round could plausibly help.
+- Prefer "synthesize" when evidence is already strong and independently corroborated, or when
+  further searching is unlikely to help.
+- Output JSON only.
+""".strip()
 
 
 @dataclass(frozen=True)
@@ -104,6 +148,19 @@ class AgentSynthesis:
     claim_extraction: ClaimExtraction
     verdict: VerdictEvaluation
     timeline: TimelineBuild
+
+
+@dataclass(frozen=True)
+class InvestigationPlan:
+    should_continue: bool
+    follow_up_query: Optional[str]
+    reason: str
+
+
+@dataclass(frozen=True)
+class NextActionPlan:
+    next_action: str
+    reason: str
 
 
 class KimiAgentReasoner:
@@ -246,6 +303,89 @@ class KimiAgentReasoner:
             ),
         )
 
+    def plan_investigation(
+        self,
+        *,
+        event: NormalizedEvent,
+        retrieval_bundle: RetrievalBundle | None,
+        round_index: int,
+    ) -> Optional[InvestigationPlan]:
+        if not self.enabled or retrieval_bundle is None:
+            return None
+
+        content = self._request_completion(
+            stage_key="investigation_plan",
+            title="调用 Agent investigation planner",
+            system_prompt=INVESTIGATION_PLAN_SYSTEM_PROMPT,
+            user_prompt=self._build_investigation_prompt(
+                event=event,
+                retrieval_bundle=retrieval_bundle,
+                round_index=round_index,
+            ),
+        )
+        payload = self._extract_json_payload(content)
+        if payload is None:
+            emit_log(
+                stage_key="investigation_plan",
+                level="warning",
+                title="Agent investigation planner 无法解析",
+                summary="Kimi 返回内容不是可解析的 JSON。",
+                details=[],
+            )
+            return None
+
+        follow_up_query = self._normalize_follow_up_query(payload.get("follow_up_query"))
+        should_continue = bool(payload.get("should_continue")) and follow_up_query is not None
+        reason = self._clean_optional_string(payload.get("reason")) or "planner 未给出理由。"
+        return InvestigationPlan(
+            should_continue=should_continue,
+            follow_up_query=follow_up_query if should_continue else None,
+            reason=reason,
+        )
+
+    def plan_next_action(
+        self,
+        *,
+        evidence_snapshot: dict[str, Any],
+        allowed_actions: list[str],
+    ) -> Optional[NextActionPlan]:
+        if not self.enabled or not allowed_actions:
+            return None
+
+        content = self._request_completion(
+            stage_key="agent_planner",
+            title="调用 Agent action planner",
+            system_prompt=NEXT_ACTION_SYSTEM_PROMPT,
+            user_prompt=(
+                "Choose the single best next action from allowed_actions.\n"
+                "Context JSON:\n"
+                f"{json.dumps({'allowed_actions': allowed_actions, 'evidence_snapshot': evidence_snapshot}, ensure_ascii=False, indent=2)}"
+            ),
+        )
+        payload = self._extract_json_payload(content)
+        if payload is None:
+            emit_log(
+                stage_key="agent_planner",
+                level="warning",
+                title="Agent action planner 无法解析",
+                summary="Kimi 返回内容不是可解析的 JSON。",
+                details=[],
+            )
+            return None
+
+        next_action = self._clean_optional_string(payload.get("next_action"))
+        if next_action not in allowed_actions:
+            emit_log(
+                stage_key="agent_planner",
+                level="warning",
+                title="Agent action planner 返回非法动作",
+                summary="planner 选择的动作不在允许列表内，退回规则 planner。",
+                details=[f"next_action={next_action}", f"allowed={','.join(allowed_actions)}"],
+            )
+            return None
+        reason = self._clean_optional_string(payload.get("reason")) or "planner 未给出理由。"
+        return NextActionPlan(next_action=next_action, reason=reason)
+
     def _request_completion(self, *, stage_key: str, title: str, system_prompt: str, user_prompt: str) -> str:
         model = self._reasoning_model()
         emit_api_call(
@@ -364,6 +504,39 @@ class KimiAgentReasoner:
             "source_category": result.effective_source_category,
             "query_label": result.query_label,
         }
+
+    def _build_investigation_prompt(
+        self,
+        *,
+        event: NormalizedEvent,
+        retrieval_bundle: RetrievalBundle,
+        round_index: int,
+    ) -> str:
+        context = {
+            "round_index": round_index,
+            "event_hint": {
+                "title": event.title,
+                "summary": event.summary,
+                "input_type": event.input_type,
+            },
+            "current_query": retrieval_bundle.query,
+            "evidence_snapshot": {
+                "evidence_grade": retrieval_bundle.evidence_grade,
+                "canonical_result_count": len(retrieval_bundle.canonical_results),
+                "high_trust_result_count": retrieval_bundle.high_trust_result_count,
+                "independent_source_count": retrieval_bundle.independent_source_count,
+                "independent_high_trust_source_count": retrieval_bundle.independent_high_trust_source_count,
+                "official_result_count": retrieval_bundle.official_result_count,
+                "conflict_signals": list(retrieval_bundle.conflict_signals),
+            },
+            "top_hits": [self._serialize_result(item) for item in retrieval_bundle.canonical_results[:5]],
+        }
+        return (
+            "Decide whether one more targeted retrieval round is worth running to strengthen this evidence base.\n"
+            "Only continue when a sharper query could plausibly close a real gap.\n"
+            "Context JSON:\n"
+            f"{json.dumps(context, ensure_ascii=False, indent=2)}"
+        )
 
     def _build_event(
         self,

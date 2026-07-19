@@ -14,6 +14,7 @@ from backend.tests.conftest import load_eval_fixture
 class _DummyResponse:
     def __init__(self, content: str) -> None:
         self._content = content
+        self.status_code = 200
 
     def raise_for_status(self) -> None:
         return None

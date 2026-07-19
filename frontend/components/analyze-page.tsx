@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { AgentRunPanel } from "@/components/agent-run-panel";
 import { AnalysisLivePanel } from "@/components/analysis-live-panel";
 import { ClaimTable } from "@/components/claim-table";
 import { ContentCheckPanel } from "@/components/content-check-panel";
@@ -241,6 +242,7 @@ export function AnalyzePage() {
               onReset={resetDraft}
             />
             <AnalysisLivePanel status={status} isStreaming={isStreaming} startedAt={analysisStartedAt} events={liveEvents} />
+            <AgentRunPanel events={liveEvents} />
           </div>
         </section>
 

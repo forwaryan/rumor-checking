@@ -83,6 +83,9 @@ class Settings:
     project_root: Path
     evals_root: Path
     analysis_provider: str
+    lightweight_agent_enabled: bool
+    agent_max_extra_rounds: int
+    agent_orchestrator_enabled: bool
     kimi_api_key: str | None
     kimi_base_url: str
     kimi_model: str
@@ -106,6 +109,10 @@ class Settings:
     @property
     def kimi_enabled(self) -> bool:
         return self.analysis_provider == "kimi" and bool(self.kimi_api_key)
+
+    @property
+    def lightweight_agent_ready(self) -> bool:
+        return self.lightweight_agent_enabled and self.agent_max_extra_rounds > 0 and self.kimi_enabled
 
     @property
     def uses_agent_retrieval(self) -> bool:
@@ -134,6 +141,9 @@ def get_settings() -> Settings:
         project_root=project_root,
         evals_root=project_root / "evals" / "minimal_v1",
         analysis_provider=os.getenv("ANALYSIS_PROVIDER", "off").strip().lower(),
+        lightweight_agent_enabled=_as_bool(os.getenv("LIGHTWEIGHT_AGENT_ENABLED"), default=False),
+        agent_max_extra_rounds=max(_as_int(os.getenv("AGENT_MAX_EXTRA_ROUNDS"), 1), 0),
+        agent_orchestrator_enabled=_as_bool(os.getenv("AGENT_ORCHESTRATOR_ENABLED"), default=False),
         kimi_api_key=os.getenv("KIMI_API_KEY"),
         kimi_base_url=os.getenv("KIMI_BASE_URL", "https://api.moonshot.cn/v1").rstrip("/"),
         kimi_model=os.getenv("KIMI_MODEL", "moonshot-v1-8k").strip(),

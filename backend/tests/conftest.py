@@ -18,13 +18,16 @@ def load_eval_fixture(filename: str):
 
 
 @pytest.fixture(autouse=True)
-def stable_test_env(monkeypatch):
+def stable_test_env(monkeypatch, tmp_path):
     monkeypatch.setenv("ANALYSIS_PROVIDER", "off")
     monkeypatch.delenv("KIMI_API_KEY", raising=False)
     monkeypatch.setenv("RETRIEVAL_PROVIDER", "mock")
     monkeypatch.setenv("RETRIEVAL_FALLBACK_TO_MOCK", "true")
     monkeypatch.setenv("RETRIEVAL_CACHE_ENABLED", "true")
     monkeypatch.setenv("RETRIEVAL_CACHE_ALLOW_STALE_ON_ERROR", "false")
+    # Isolate the retrieval cache per test so runs never read or clobber the
+    # shared data/cache/retrieval directory (order-dependent contamination).
+    monkeypatch.setenv("RETRIEVAL_CACHE_DIR", str(tmp_path / "retrieval-cache"))
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()

@@ -40,6 +40,34 @@ export type AnalysisLiveEventType =
 
 export type AnalysisLiveStatus = "running" | "completed" | "warning" | "skipped" | "error";
 
+// Stage keys emitted by the agent orchestrator path (all arrive as `stage`/`log`
+// events). The AgentRunPanel derives its investigation view from these.
+export type AgentStageKey =
+  | "agent_orchestrator"
+  | "agent_planner"
+  | "investigation_plan"
+  | "investigation_retrieval"
+  | "agent_synthesis";
+
+export type AgentActionKind = "plan" | "tool_call" | "observation" | "decision" | "finalize";
+
+export interface AgentRunAction {
+  kind: AgentActionKind;
+  stageKey: string;
+  title: string;
+  status: AnalysisLiveStatus;
+  summary: string;
+  details: string[];
+  emittedAt: string;
+}
+
+export interface AgentRunView {
+  usedAgentOrchestrator: boolean;
+  planner: "llm" | "rule" | null;
+  actions: AgentRunAction[];
+  investigationRounds: number;
+}
+
 export interface ReportProvenance {
   source_type: ReportSourceType;
   event_source: EventSourceType;

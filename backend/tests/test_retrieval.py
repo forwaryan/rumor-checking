@@ -77,6 +77,7 @@ class FakeProvider:
 class _FakeResponse:
     def __init__(self, payload):
         self._payload = payload
+        self.status_code = 200
 
     def raise_for_status(self):
         return None
@@ -192,6 +193,7 @@ def test_kimi_web_search_provider_runs_tool_loop_and_parses_results(monkeypatch)
     class _FakeResponse:
         def __init__(self, payload):
             self._payload = payload
+            self.status_code = 200
 
         def raise_for_status(self):
             return None

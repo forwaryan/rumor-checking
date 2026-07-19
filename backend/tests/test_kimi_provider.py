@@ -7,6 +7,8 @@ from backend.app.services.kimi_provider import KimiProvider
 
 
 class _DummyResponse:
+    status_code = 200
+
     def raise_for_status(self) -> None:
         return None
 
