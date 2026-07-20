@@ -13,6 +13,7 @@ from backend.app.services.question_resolver import QuestionResolver
 from backend.app.services.report_builder import ReportBuilder
 from backend.app.services.retrieval_service import RetrievalService
 from backend.app.services.timeline_builder import TimelineBuilder
+from backend.app.services.url_fetch_cache import UrlFetchCache
 from backend.app.services.verdict_engine import VerdictEngine
 
 
@@ -20,6 +21,10 @@ class AnalyzePipeline:
     def __init__(self) -> None:
         self.settings = get_settings()
         self.input_normalizer = InputNormalizer()
+        self.url_fetch_cache = UrlFetchCache(
+            cache_root=self.settings.url_fetch_cache_dir,
+            ttl_seconds=self.settings.url_fetch_cache_ttl_seconds,
+        )
         self.agent_reasoner = KimiAgentReasoner()
         self.provider_enricher = ProviderEnricher()
         self.retriever = RetrievalService()
@@ -366,6 +371,7 @@ class AnalyzePipeline:
             input_normalizer=self.input_normalizer,
             retriever=self.retriever,
             url_content_extractor=self.input_normalizer.url_content_extractor,
+            url_fetch_cache=self.url_fetch_cache,
             question_resolver=self.question_resolver,
             agent_reasoner=self.agent_reasoner,
             provider_enricher=self.provider_enricher,

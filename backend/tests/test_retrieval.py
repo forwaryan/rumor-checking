@@ -487,6 +487,49 @@ def test_retrieval_service_caches_each_query_group_separately(tmp_path: Path):
     assert cached.cache_status in {"partial_hit", "hit", "mixed"}
 
 
+def test_retrieval_service_filters_obviously_off_topic_canonical_hits(tmp_path: Path):
+    event = NormalizedEvent(
+        title="拼多多雄安新区招聘信息",
+        summary="拼多多雄安新区招聘信息",
+        keywords=[],
+        input_type="text_news",
+        raw_input="拼多多雄安新区招聘信息",
+    )
+    provider = FakeProvider(
+        results=[
+            _make_result(
+                result_id="relevant-1",
+                title="拼多多雄安公司员工数量超过600人",
+                snippet="报道提到拼多多在雄安新区购置办公楼并持续招聘岗位。",
+                published_at="2026-06-30T09:00:00+08:00",
+                source_name="新浪财经",
+                source_tier="B",
+                url="https://finance.example.com/pdd-xiongan",
+            ),
+            _make_result(
+                result_id="off-topic-1",
+                title="河北赵县梨品类专项培训会现场",
+                snippet="当地举行梨产业培训会，未提及雄安新区招聘。",
+                published_at="2026-06-15T09:00:00+08:00",
+                source_name="新民晚报新民网",
+                source_tier="C",
+                url="https://example.com/zhaoxian-pear",
+            ),
+        ]
+    )
+    service = RetrievalService(
+        settings=replace(get_settings(), retrieval_provider="gdelt", retrieval_max_results=5),
+        provider=provider,
+        cache=RetrievalCache(cache_root=tmp_path, ttl_seconds=3600),
+    )
+
+    bundle = service.retrieve_for_event(event, request_context={"force_retrieval_query": "拼多多雄安新区招聘信息"})
+
+    canonical_ids = {item.result_id for item in bundle.canonical_results}
+    assert "relevant-1" in canonical_ids
+    assert "off-topic-1" not in canonical_ids
+
+
 def test_question_only_pipeline_uses_real_retrieval_bundle(tmp_path: Path):
     provider = FakeProvider(
         results=[

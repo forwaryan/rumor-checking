@@ -3,6 +3,7 @@ import {
   collectEvidence,
   getReportProvenanceMeta,
   getStatusFromMode,
+  getTopLineAssessment,
   getVerificationScoreMeta,
   validateInput,
 } from "@/lib/report-utils";
@@ -131,6 +132,18 @@ describe("report-utils", () => {
 
     expect(meta?.tone).toBe("mock");
     expect(meta?.caution).toContain("mock");
+  });
+
+  it("keeps top-line cautious when supported claims still have insufficient overall evidence", () => {
+    const topLine = getTopLineAssessment(
+      Object.assign({}, sampleReport, {
+        overall_credibility_score: 49,
+        overall_credibility_label: "insufficient_evidence",
+      }) as Report,
+    );
+
+    expect(topLine.title).toBe("当前只能边界化支持");
+    expect(topLine.summary).toContain("不能把整句话包装成属实");
   });
 
   it("defaults to an unknown provenance label when metadata is missing", () => {

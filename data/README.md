@@ -5,12 +5,16 @@
 根目录 [evals/README.md](/home/forwaryan/mianshi/rumor-checking/evals/README.md) 仍是正式评测资产入口；这里不再承载独立的方案草稿或演示文档。
 
 当前真实检索缓存会写到 `data/cache/retrieval/`，默认格式为 `data/cache/retrieval/<provider>/<cache_key>.json`。
+Agent `fetch_url` 抓到的正文缓存会写到 `data/cache/url_fetch/`，默认格式为 `data/cache/url_fetch/<cache_key>.json`。
 
 ## 当前缓存约定
 
 - 检索缓存 key：`sha256(v1|provider|compact_query)` 的前 24 位
+- URL 正文缓存 key：`sha256(v1|url)` 的前 24 位
 - 默认 TTL：`RETRIEVAL_CACHE_TTL_SECONDS=43200`（12 小时）
+- URL 正文默认 TTL：`URL_FETCH_CACHE_TTL_SECONDS=43200`（12 小时）
 - 正常路径：优先读 fresh cache，miss 后请求真实 provider，再把 `RetrievalBundle` 回写到缓存
+- Agent 正文抓取：优先读 fresh URL cache，miss 后抓取公开 HTML 正文，再把 `MockFetchResult` 回写到缓存
 - 失败回退：当 `RETRIEVAL_CACHE_ALLOW_STALE_ON_ERROR=true` 时，provider 失败可读 stale cache
 - 内部 cache-only 诊断入口：`request_context.retrieval_cache_only=true` 可强制只读缓存；如需允许 stale 命中，可同时传 `allow_stale_retrieval_cache=true`
 - 跳过缓存：`request_context.bypass_retrieval_cache=true`

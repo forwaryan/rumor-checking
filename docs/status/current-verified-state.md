@@ -94,9 +94,9 @@
 
 ## 当前仍未完成的事项
 
-- 真实 live retrieval 的缓存/降低延迟策略（当前单次可超 120s，尚不适合无缓存同步对外）
+- 真实 live retrieval 的进一步降延迟策略（当前已有检索缓存和 `fetch_url` 正文缓存，但首次冷启动单次仍可超 120s）
 - 公开 HTML 之外的 URL 抽取扩展
-- agent planner 更强的自主性（当前只在 investigate/synthesize 岔路口决策，尚不能自主决定抓 URL、换角度重搜等）
+- agent planner 更强的自主性（当前可在 investigate/fetch_url/synthesize 岔路口决策，但还不能自主换角度重搜或动态扩大工具集合）
 - 若未来确实需要 replay，是否公开接口和如何冻结术语体系
 
 ## 使用规则

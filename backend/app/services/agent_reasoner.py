@@ -90,6 +90,7 @@ Return one JSON object with this schema:
 Rules:
 - Use only supplied retrieval hits. Never invent result ids, evidence, or URLs.
 - Claims must be atomic and directly checkable. Prefer 1 to 4 claims.
+- Scope/quantifier discipline: if a claim uses an absolute scope ("all / only / every / none / 都是/全部/仅/无一例外/清一色"), it is `supported` ONLY when the evidence explicitly covers the ENTIRE scope. If the evidence supports just part of it (e.g. the claim says "all roles are R&D" but the evidence lists R&D AND non-R&D roles such as management/operations/QA), you MUST NOT mark it `supported` — use `insufficient` (or `refuted` if the evidence directly contradicts the absolute), and state in `notes` that the evidence only covers part of the claimed scope.
 - If the question is about a broad pattern and the hits support that pattern across multiple incidents, you may answer at the pattern level instead of forcing one person.
 - If evidence is weak or mismatched, keep verdict as `insufficient`.
 - Do not emit `supported`, `refuted`, or `conflicting` without at least one valid `evidence_result_id`.
@@ -631,6 +632,13 @@ class KimiAgentReasoner:
                 verdict = "insufficient"
                 confidence = "low"
                 notes = "Agent did not provide grounded evidence ids for a decisive verdict."
+            verdict, confidence, notes = self._guard_overbroad_claim_verdict(
+                claim_text=claim_text,
+                verdict=verdict,
+                confidence=confidence,
+                notes=notes,
+                evidence=selected_evidence,
+            )
 
             claim_results.append(
                 ClaimResult(
@@ -658,6 +666,39 @@ class KimiAgentReasoner:
                 )
             )
         return claim_results
+
+    def _guard_overbroad_claim_verdict(
+        self,
+        *,
+        claim_text: str,        verdict: str,
+        confidence: str,
+        notes: str,
+        evidence: list[SearchResult],
+    ) -> tuple[str, str, str]:
+        # Backstop only. The SYNTHESIS prompt's scope/quantifier rule is the
+        # primary defense (the LLM has the semantics to judge "all X are Y");
+        # this catches the case where the model ignores that rule and marks an
+        # absolute-scope claim `supported` without full-scope evidence.
+        if verdict != "supported" or not self._looks_absolute_claim(claim_text):
+            return verdict, confidence, notes
+        evidence_text = " ".join(
+            item for item in [*(result.title for result in evidence), *(result.snippet for result in evidence)] if item
+        )
+        if self._evidence_covers_absolute_scope(evidence_text):
+            return verdict, confidence, notes
+        guarded_note = (
+            notes.rstrip("。")
+            + "。但该 claim 使用了‘都是/全部/仅’等绝对化范围，当前证据只支持部分相关岗位或事实，不能支持绝对化表述。"
+        )
+        return "insufficient", "low", guarded_note
+
+    def _looks_absolute_claim(self, claim_text: str) -> bool:
+        return any(token in claim_text for token in ("都是", "全是", "全部", "全都", "仅", "只招", "清一色"))
+
+    def _evidence_covers_absolute_scope(self, evidence_text: str) -> bool:
+        if not evidence_text:
+            return False
+        return any(token in evidence_text for token in ("均为", "全部为", "全为", "都是", "仅招聘", "只招聘"))
 
     def _build_timeline_nodes(
         self,

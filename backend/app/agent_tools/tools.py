@@ -269,15 +269,41 @@ def fetch_url(ctx: ToolContext, state: AgentState) -> None:
         summary="正在抓取高价值证据页面的正文以加强判定依据。",
         details=[f"url={target.url}", f"source={target.source_name}", f"tier={target.source_tier}"],
     )
-    try:
-        fetch = ctx.url_content_extractor.extract(target.url)
-    except Exception as exc:
+    fetch = None
+    if ctx.settings.url_fetch_cache_enabled and ctx.url_fetch_cache is not None:
+        try:
+            fetch = ctx.url_fetch_cache.read(url=target.url)
+        except Exception:
+            fetch = None
+
+    cache_hit = fetch is not None
+    if fetch is None:
+        try:
+            fetch = ctx.url_content_extractor.extract(target.url)
+        except Exception as exc:
+            emit_stage(
+                stage_key="investigation_fetch",
+                title="抓取正文",
+                status="warning",
+                summary="正文抓取失败，沿用检索摘要继续。",
+                details=[f"url={target.url}", f"error_type={exc.__class__.__name__}"],
+            )
+            state.fetched_urls.add(target.url)
+            return
+
+        if ctx.settings.url_fetch_cache_enabled and ctx.url_fetch_cache is not None:
+            try:
+                ctx.url_fetch_cache.write(url=target.url, result=fetch)
+            except Exception:
+                pass
+
+    if fetch is None:
         emit_stage(
             stage_key="investigation_fetch",
             title="抓取正文",
             status="warning",
             summary="正文抓取失败，沿用检索摘要继续。",
-            details=[f"url={target.url}", f"error_type={exc.__class__.__name__}"],
+            details=[f"url={target.url}"],
         )
         state.fetched_urls.add(target.url)
         return
@@ -305,6 +331,7 @@ def fetch_url(ctx: ToolContext, state: AgentState) -> None:
             f"url={target.url}",
             f"result_id={target.result_id}",
             f"body_chars={len(body)}",
+            f"cache={'hit' if cache_hit else 'miss'}",
         ],
     )
     state.record("fetch_url", "抓取证据正文", [f"result_id={target.result_id}"])

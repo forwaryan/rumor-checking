@@ -105,6 +105,9 @@ class Settings:
     retrieval_google_news_endpoint: str
     url_fetch_timeout_seconds: float
     url_fetch_max_chars: int
+    url_fetch_cache_enabled: bool
+    url_fetch_cache_dir: Path
+    url_fetch_cache_ttl_seconds: float
     cors_allow_origin_regex: str
 
     @property
@@ -170,6 +173,9 @@ def get_settings() -> Settings:
         ),
         url_fetch_timeout_seconds=_as_float(os.getenv("URL_FETCH_TIMEOUT_SECONDS"), 8.0),
         url_fetch_max_chars=max(_as_int(os.getenv("URL_FETCH_MAX_CHARS"), 12000), 1000),
+        url_fetch_cache_enabled=_as_bool(os.getenv("URL_FETCH_CACHE_ENABLED"), default=True),
+        url_fetch_cache_dir=Path(os.getenv("URL_FETCH_CACHE_DIR", str(project_root / "data" / "cache" / "url_fetch"))),
+        url_fetch_cache_ttl_seconds=_as_float(os.getenv("URL_FETCH_CACHE_TTL_SECONDS"), 43200.0),
         cors_allow_origin_regex=os.getenv(
             "CORS_ALLOW_ORIGIN_REGEX",
             r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",

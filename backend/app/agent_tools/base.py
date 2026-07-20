@@ -25,3 +25,4 @@ class ToolContext:
     report_builder: object
     content_check_builder: object
     pipeline_trace_builder: object
+    url_fetch_cache: object | None = None

@@ -539,12 +539,18 @@ export function getTopLineAssessment(report: Report): TopLineAssessment {
     });
   const leadClaim = sortedClaims[0] ?? null;
   const evidence = collectEvidence(report);
+  const credibilityLabel = (report as Report & Record<string, unknown>).overall_credibility_label;
+  const hasInsufficientEvidenceLabel = credibilityLabel === "insufficient_evidence";
 
   let title = "当前仍需补证";
   let summary = "现有公开来源还不足以给出稳定结论，建议先看关键证据和时间线边界。";
   let tone: TopLineAssessment["tone"] = "neutral";
 
-  if (conflictingCount > 0 || (supportedCount > 0 && refutedCount > 0)) {
+  if (hasInsufficientEvidenceLabel && supportedCount > 0) {
+    title = "当前只能边界化支持";
+    summary = "部分 claim 找到支持线索，但整体来源等级或传播链仍不足，不能把整句话包装成属实。";
+    tone = "neutral";
+  } else if (conflictingCount > 0 || (supportedCount > 0 && refutedCount > 0)) {
     title = "当前存在冲突信号";
     summary = "公开来源里同时出现了支持和反向线索，暂时不能讲成单向确定结论。";
     tone = "conflicting";
@@ -564,7 +570,7 @@ export function getTopLineAssessment(report: Report): TopLineAssessment {
     summary = "当前事件、claim 和证据都已建立，可以继续看细节和来源。";
   }
 
-  if (leadClaim?.notes) {
+  if (leadClaim?.notes && !hasInsufficientEvidenceLabel) {
     summary = leadClaim.notes;
   }
 

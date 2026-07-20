@@ -69,6 +69,39 @@ def test_decisive_verdict_without_evidence_is_downgraded_to_insufficient(monkeyp
     assert claim.evidence == []
 
 
+def test_absolute_scope_claim_is_downgraded_when_evidence_only_partially_supports(monkeypatch):
+    monkeypatch.setenv("RETRIEVAL_CACHE_DIR", tempfile.mkdtemp())
+    get_settings.cache_clear()
+    bundle, event = _mock_bundle()
+    response = {
+        "event": {"title": "拼多多雄安招聘", "summary": "岗位信息", "anchor_result_id": "R01-1"},
+        "claims": [
+            {
+                "claim": "拼多多在雄安新区招聘的都是研发技术相关的岗位。",
+                "claim_type": "fact",
+                "verdict": "supported",
+                "confidence": "high",
+                "evidence_result_ids": ["R01-1"],
+                "notes": "证据提到新增了中台运营、数据分析、质检专家等岗位。",
+            }
+        ],
+        "timeline": [],
+    }
+    reasoner = _enabled_reasoner(monkeypatch, response)
+
+    result = reasoner.synthesize(
+        request=AnalyzeRequest(raw_input="拼多多雄安新区已经入住了，而且招的都是研发技术相关的", input_type="text"),
+        event=event,
+        retrieval_bundle=bundle,
+    )
+
+    assert result is not None
+    claim = result.verdict.claim_results[0]
+    assert claim.verdict == "insufficient"
+    assert claim.confidence == "low"
+    assert "绝对化" in claim.notes
+
+
 def test_every_decisive_verdict_carries_evidence(monkeypatch):
     monkeypatch.setenv("RETRIEVAL_CACHE_DIR", tempfile.mkdtemp())
     get_settings.cache_clear()

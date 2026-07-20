@@ -84,24 +84,59 @@ def test_branch_omits_fetch_url_when_all_urls_fetched():
 @dataclass
 class _FakeExtractor:
     result: object
+    calls: int = 0
 
     def extract(self, url):
+        self.calls += 1
         return self.result
 
 
+class _FakeCache:
+    def __init__(self, result=None):
+        self.result = result
+        self.read_urls = []
+        self.writes = []
+
+    def read(self, *, url):
+        self.read_urls.append(url)
+        return self.result
+
+    def write(self, *, url, result):
+        self.writes.append((url, result))
+
+
+class _Settings:
+    url_fetch_cache_enabled = True
+
+
 class _Ctx:
-    def __init__(self, extractor):
+    def __init__(self, extractor, cache=None, settings=None):
+        self.settings = settings or _Settings()
         self.url_content_extractor = extractor
+        self.url_fetch_cache = cache or _FakeCache()
 
 
 def test_fetch_url_picks_highest_trust_and_stores_by_result_id():
     state = _branch_state(max_fetches=1)
-    ctx = _Ctx(_FakeExtractor(MockFetchResult(status="ok", body="full authoritative body text")))
+    extractor = _FakeExtractor(MockFetchResult(status="ok", body="full authoritative body text"))
+    cache = _FakeCache()
+    ctx = _Ctx(extractor, cache=cache)
     tools.fetch_url(ctx, state)
     # r2 is tier S (high trust) -> chosen over r1 tier C.
     assert "r2" in state.fetched_bodies
     assert state.fetched_bodies["r2"] == "full authoritative body text"
     assert "https://gov.example.com/notice" in state.fetched_urls
+    assert extractor.calls == 1
+    assert cache.writes[0][0] == "https://gov.example.com/notice"
+
+
+def test_fetch_url_reuses_cached_body_without_refetching():
+    state = _branch_state(max_fetches=1)
+    extractor = _FakeExtractor(MockFetchResult(status="ok", body="network body"))
+    cache = _FakeCache(MockFetchResult(status="ok", body="cached authoritative body"))
+    tools.fetch_url(_Ctx(extractor, cache=cache), state)
+    assert state.fetched_bodies["r2"] == "cached authoritative body"
+    assert extractor.calls == 0
 
 
 def test_fetch_url_dedups_already_fetched():

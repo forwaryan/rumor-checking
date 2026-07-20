@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -432,7 +433,8 @@ class RetrievalService:
                 retrieved_at = bundle.retrieved_at
             child_failures.extend(bundle.query_failures)
 
-        canonical_results = merge_search_results(raw_results)
+        relevant_raw_results = self._filter_relevant_results(raw_results)
+        canonical_results = merge_search_results(relevant_raw_results)
         all_failures = list(dict.fromkeys([*query_failures, *child_failures]))
         combined = RetrievalBundle(
             query=primary_query,
@@ -453,6 +455,62 @@ class RetrievalService:
             query_failures=tuple(all_failures),
         )
         return combined
+
+    def _filter_relevant_results(self, results: list[SearchResult]) -> list[SearchResult]:
+        if len(results) <= 1:
+            return results
+        filtered = [item for item in results if self._result_matches_query(item)]
+        return filtered or results
+
+    def _result_matches_query(self, result: SearchResult) -> bool:
+        query_terms = self._relevance_terms(result.query)
+        if not query_terms:
+            return True
+        raw_text = " ".join([result.title, result.snippet, result.source_name])
+        text = self._normalize_query(raw_text)
+        if any(marker in text for marker in ("未提及", "未涉及", "不涉及", "无关", "another", "unrelated")):
+            return False
+        matched = [term for term in query_terms if term in text]
+        if matched and result.has_response_signal:
+            return True
+        if len(query_terms) <= 2:
+            return bool(matched)
+        return len(matched) >= 2
+
+    def _relevance_terms(self, text: str) -> list[str]:
+        stopwords = {
+            "官方",
+            "回应",
+            "通报",
+            "说明",
+            "辟谣",
+            "用户提供文本",
+            "传闻",
+            "网传",
+            "热议",
+            "发酵",
+            "转发",
+            "相关",
+            "信息",
+        }
+        terms: list[str] = []
+        for term in re.findall(r"[A-Za-z0-9%]{2,}|[\u4e00-\u9fff]{2,12}", text):
+            cleaned = term.strip()
+            if not cleaned or cleaned in stopwords or cleaned in terms:
+                continue
+            if re.fullmatch(r"[\u4e00-\u9fff]{5,12}", cleaned):
+                for marker in ("拼多多", "雄安", "新区", "招聘", "入住", "研发", "技术", "裁员", "脑出血", "死亡"):
+                    if marker in cleaned and marker not in terms:
+                        terms.append(marker)
+                if "死了" in cleaned and "死亡" not in terms:
+                    terms.append("死亡")
+                if "女网红" in cleaned and "女网红" not in terms:
+                    terms.append("女网红")
+                if cleaned not in terms:
+                    terms.append(cleaned)
+            else:
+                terms.append(cleaned)
+        return terms[:5]
 
     def _build_query_plan(self, event: NormalizedEvent, *, request_context: dict[str, Any]) -> list[RetrievalQuerySpec]:
         forced_query = request_context.get("force_retrieval_query")
@@ -662,7 +720,8 @@ class RetrievalService:
         if relation_type is None and (result.duplicate_of or looks_like_repost(result.title, result.source_name)):
             relation_type = "repost"
         return (
-            result.with_runtime_metadata(provider_name=provider_name, retrieved_at=retrieved_at)
+            replace(result, query=spec.query)
+            .with_runtime_metadata(provider_name=provider_name, retrieved_at=retrieved_at)
             .with_enrichment_metadata(
                 source_category=infer_source_category(result.url, result.source_name),
                 independence_key=build_independence_key(result.url, result.source_name),
