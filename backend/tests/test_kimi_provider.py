@@ -36,7 +36,7 @@ def test_settings_trim_kimi_model(monkeypatch):
     monkeypatch.setenv("KIMI_MODEL", "  kimi-k2.5  ")
     get_settings.cache_clear()
     try:
-        assert get_settings().kimi_model == "kimi-k2.5"
+        assert get_settings().llm_model == "kimi-k2.5"
     finally:
         get_settings.cache_clear()
 

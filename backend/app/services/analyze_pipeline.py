@@ -27,7 +27,7 @@ class AnalyzePipeline:
         )
         self.agent_reasoner = KimiAgentReasoner()
         self.provider_enricher = ProviderEnricher()
-        self.retriever = RetrievalService()
+        self.retriever = RetrievalService(agent_reasoner=self.agent_reasoner)
         self.question_resolver = QuestionResolver()
         self.claim_extractor = ClaimExtractor()
         self.verdict_engine = VerdictEngine()

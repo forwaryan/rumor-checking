@@ -187,9 +187,9 @@ def test_agent_reasoner_uses_configured_search_model_verbatim():
         settings=replace(
             get_settings(),
             analysis_provider="kimi",
-            kimi_api_key="test-kimi-key",
-            kimi_model="moonshot-v1-8k",
-            kimi_search_model="kimi-k2.5",
+            llm_api_key="test-kimi-key",
+            llm_model="moonshot-v1-8k",
+            llm_search_model="kimi-k2.5",
         )
     )
 

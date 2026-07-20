@@ -240,7 +240,7 @@ class KimiWebSearchProvider:
 
     @property
     def enabled(self) -> bool:
-        return self.settings.uses_agent_retrieval and bool(self.settings.kimi_api_key)
+        return self.settings.uses_agent_retrieval and bool(self.settings.llm_api_key)
 
     def search(self, query_text: str) -> List[SearchResult]:
         if not self.enabled:
@@ -296,14 +296,14 @@ class KimiWebSearchProvider:
             title="调用 Kimi web search",
             summary="正在请求 Moonshot chat/completions，并要求先执行 $web_search。",
             details=[
-                f"endpoint={self.settings.kimi_base_url}/chat/completions",
+                f"endpoint={self.settings.llm_base_url}/chat/completions",
                 f"model={model}",
             ],
         )
         response = httpx.post(
-            f"{self.settings.kimi_base_url}/chat/completions",
+            f"{self.settings.llm_base_url}/chat/completions",
             headers={
-                "Authorization": f"Bearer {self.settings.kimi_api_key}",
+                "Authorization": f"Bearer {self.settings.llm_api_key}",
                 "Content-Type": "application/json",
             },
             json={
@@ -340,7 +340,7 @@ class KimiWebSearchProvider:
         return message
 
     def _search_model(self) -> str:
-        return self.settings.kimi_search_model.strip()
+        return self.settings.llm_search_model.strip()
 
     def _request_temperature(self, model: str) -> float:
         model = model.strip().lower()
@@ -348,7 +348,7 @@ class KimiWebSearchProvider:
             return 1.0
         if model.startswith("kimi-k2-turbo-preview"):
             return 0.6
-        return self.settings.kimi_temperature
+        return self.settings.llm_temperature
 
     def _build_user_prompt(self, query_text: str) -> str:
         return (

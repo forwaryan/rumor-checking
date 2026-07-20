@@ -83,10 +83,12 @@ class RetrievalService:
         settings: Optional[Settings] = None,
         provider: Optional[RetrievalProvider] = None,
         cache: Optional[RetrievalCache] = None,
+        agent_reasoner: Optional[Any] = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.provider = provider or self._build_provider()
         self.mock_retriever = MockRetriever(settings=self.settings)
+        self.agent_reasoner = agent_reasoner
         self.cache = cache or RetrievalCache(
             cache_root=self.settings.retrieval_cache_dir,
             ttl_seconds=self.settings.retrieval_cache_ttl_seconds,
@@ -512,6 +514,27 @@ class RetrievalService:
                 terms.append(cleaned)
         return terms[:5]
 
+    def _llm_query_terms(self, event: NormalizedEvent):
+        """Entity-focused search terms from the reasoner, or None to fall back.
+
+        Only fires on the agent+Kimi path; any failure degrades silently to the
+        rule-based query builder so the off+mock path is unchanged.
+        """
+        reasoner = self.agent_reasoner
+        if reasoner is None or not getattr(reasoner, "enabled", False):
+            return None
+        try:
+            return reasoner.extract_query_terms(event=event)
+        except Exception as exc:
+            emit_log(
+                stage_key="retrieval_initial",
+                level="warning",
+                title="query 抽取失败",
+                summary="LLM query 抽取抛错，沿用规则构造的 query。",
+                details=[f"error_type={exc.__class__.__name__}"],
+            )
+            return None
+
     def _build_query_plan(self, event: NormalizedEvent, *, request_context: dict[str, Any]) -> list[RetrievalQuerySpec]:
         forced_query = request_context.get("force_retrieval_query")
         if isinstance(forced_query, str) and forced_query.strip():
@@ -545,6 +568,16 @@ class RetrievalService:
 
         keyword_query = self._build_term_query(event.title, event.summary, " ".join(event.keywords[:5]), event.source_name)
         first_clause_query = self._build_term_query(*self._extract_claim_clauses(event.title, event.summary))
+
+        # LLM-driven query construction: the raw sentence is a poor search query
+        # ("京东开始造游轮了，而且..."), so when the reasoner is available, replace
+        # the primary/keyword query with entity-focused terms it extracts. Falls
+        # back to the rule-based queries above when disabled/unparseable.
+        llm_terms = self._llm_query_terms(event)
+        if llm_terms is not None:
+            primary_query = llm_terms.primary_query
+            keyword_query = llm_terms.primary_query
+
         official_query = self._extend_query(keyword_query or primary_query, *OFFICIAL_QUERY_TERMS, event.source_name)
         propagation_query = self._extend_query(keyword_query or primary_query, *PROPAGATION_QUERY_TERMS)
 

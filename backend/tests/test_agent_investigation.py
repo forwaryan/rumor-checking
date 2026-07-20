@@ -89,7 +89,7 @@ def _enabled_pipeline(monkeypatch, *, max_rounds: int = 1) -> AnalyzePipeline:
 
 def test_plan_investigation_returns_none_when_disabled():
     reasoner = KimiAgentReasoner(
-        settings=replace(get_settings(), analysis_provider="off", kimi_api_key=None)
+        settings=replace(get_settings(), analysis_provider="off", llm_api_key=None)
     )
     plan = reasoner.plan_investigation(event=_event(), retrieval_bundle=_weak_bundle(), round_index=1)
     assert plan is None
@@ -97,7 +97,7 @@ def test_plan_investigation_returns_none_when_disabled():
 
 def test_plan_investigation_parses_continue(monkeypatch):
     reasoner = KimiAgentReasoner(
-        settings=replace(get_settings(), analysis_provider="kimi", kimi_api_key="k")
+        settings=replace(get_settings(), analysis_provider="kimi", llm_api_key="k")
     )
     monkeypatch.setattr(
         reasoner,
@@ -113,7 +113,7 @@ def test_plan_investigation_parses_continue(monkeypatch):
 
 def test_plan_investigation_parses_stop(monkeypatch):
     reasoner = KimiAgentReasoner(
-        settings=replace(get_settings(), analysis_provider="kimi", kimi_api_key="k")
+        settings=replace(get_settings(), analysis_provider="kimi", llm_api_key="k")
     )
     monkeypatch.setattr(
         reasoner,
@@ -128,7 +128,7 @@ def test_plan_investigation_parses_stop(monkeypatch):
 
 def test_plan_investigation_continue_without_query_is_downgraded(monkeypatch):
     reasoner = KimiAgentReasoner(
-        settings=replace(get_settings(), analysis_provider="kimi", kimi_api_key="k")
+        settings=replace(get_settings(), analysis_provider="kimi", llm_api_key="k")
     )
     monkeypatch.setattr(
         reasoner,

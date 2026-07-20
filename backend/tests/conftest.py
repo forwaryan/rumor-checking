@@ -21,6 +21,17 @@ def load_eval_fixture(filename: str):
 def stable_test_env(monkeypatch, tmp_path):
     monkeypatch.setenv("ANALYSIS_PROVIDER", "off")
     monkeypatch.delenv("KIMI_API_KEY", raising=False)
+    # Neutralize any real LLM gateway from backend/.env so tests never reach a
+    # real/internal endpoint and so a test's own KIMI_*/LLM_* setenv wins. We
+    # setenv "" (not delenv) because _load_env_defaults() re-reads backend/.env
+    # via os.environ.setdefault, which would otherwise restore the real values.
+    monkeypatch.setenv("LLM_API_KEY", "")
+    monkeypatch.setenv("LLM_BASE_URL", "http://127.0.0.1:0/v1")
+    monkeypatch.setenv("LLM_MODEL", "")
+    monkeypatch.setenv("LLM_SEARCH_MODEL", "")
+    monkeypatch.setenv("KIMI_BASE_URL", "http://127.0.0.1:0/v1")
+    monkeypatch.setenv("KIMI_MODEL", "")
+    monkeypatch.setenv("KIMI_SEARCH_MODEL", "")
     # Pin agent-orchestrator flags to defaults so a developer's local backend/.env
     # (which may enable the live agent path) never leaks into the test process.
     monkeypatch.setenv("AGENT_ORCHESTRATOR_ENABLED", "false")

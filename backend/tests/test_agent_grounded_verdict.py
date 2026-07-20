@@ -26,7 +26,7 @@ def _mock_bundle():
 
 def _enabled_reasoner(monkeypatch, response_json: dict) -> KimiAgentReasoner:
     reasoner = KimiAgentReasoner(
-        settings=replace(get_settings(), analysis_provider="kimi", kimi_api_key="test-key")
+        settings=replace(get_settings(), analysis_provider="kimi", llm_api_key="test-key")
     )
     monkeypatch.setattr(
         reasoner, "_request_completion", lambda **kwargs: json.dumps(response_json, ensure_ascii=False)
@@ -140,6 +140,76 @@ def test_every_decisive_verdict_carries_evidence(monkeypatch):
     assert decisive, "expected at least one decisive verdict"
     for claim in decisive:
         assert claim.evidence, f"decisive verdict without evidence: {claim.claim}"
+
+
+def test_absence_of_evidence_stays_insufficient_not_refuted(monkeypatch):
+    # The LLM, guided by the prompt rule, returns insufficient when the evidence
+    # is about a different subject; the pipeline must preserve that (not silently
+    # upgrade/downgrade). Guards the 京东造游轮-class error (real event judged false).
+    monkeypatch.setenv("RETRIEVAL_CACHE_DIR", tempfile.mkdtemp())
+    get_settings.cache_clear()
+    bundle, event = _mock_bundle()
+    response = {
+        "event": {"title": "京东游轮", "summary": "主体不匹配", "anchor_result_id": "R01-1"},
+        "claims": [
+            {
+                "claim": "京东开始造游轮了。",
+                "claim_type": "fact",
+                "verdict": "insufficient",
+                "confidence": "low",
+                "evidence_result_ids": ["R01-1"],
+                "notes": "检索结果未覆盖该主体，证据不足以判断。",
+            }
+        ],
+        "timeline": [],
+    }
+    reasoner = _enabled_reasoner(monkeypatch, response)
+    result = reasoner.synthesize(
+        request=AnalyzeRequest(raw_input="京东开始造游轮了", input_type="text"),
+        event=event,
+        retrieval_bundle=bundle,
+    )
+    assert result is not None
+    claim = result.verdict.claim_results[0]
+    assert claim.verdict == "insufficient"
+    assert claim.verdict != "refuted"
+
+
+def test_extract_query_terms_returns_entity_focused_query(monkeypatch):
+    from backend.app.models.schemas import NormalizedEvent
+
+    reasoner = _enabled_reasoner(
+        monkeypatch,
+        {
+            "entities": ["京东", "刘强东", "探海游艇"],
+            "keywords": ["造", "游轮", "布局"],
+            "primary_query": "京东 刘强东 探海游艇 游轮 布局",
+            "aliases": ["Sea Expandary"],
+        },
+    )
+    event = NormalizedEvent(
+        title="京东开始造游轮了",
+        summary="京东开始造游轮了，而且他早在两年前就打算造游轮",
+        input_type="text_news",
+        raw_input="京东开始造游轮了，而且他早在两年前就打算造游轮",
+    )
+    terms = reasoner.extract_query_terms(event=event)
+    assert terms is not None
+    assert "京东" in terms.entities
+    assert "京东" in terms.primary_query
+    # The colloquial filler must not survive into the search query.
+    assert "而且" not in terms.primary_query
+    assert "Sea Expandary" in terms.aliases
+
+
+def test_extract_query_terms_disabled_returns_none():
+    reasoner = KimiAgentReasoner(
+        settings=replace(get_settings(), analysis_provider="off", llm_api_key=None)
+    )
+    from backend.app.models.schemas import NormalizedEvent
+
+    event = NormalizedEvent(summary="x", input_type="text_news", raw_input="x")
+    assert reasoner.extract_query_terms(event=event) is None
 
 
 # --- honest fallback provenance ----------------------------------------------

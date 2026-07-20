@@ -87,11 +87,11 @@ class Settings:
     agent_max_extra_rounds: int
     agent_orchestrator_enabled: bool
     agent_max_url_fetches: int
-    kimi_api_key: str | None
-    kimi_base_url: str
-    kimi_model: str
-    kimi_search_model: str
-    kimi_temperature: float
+    llm_api_key: str | None
+    llm_base_url: str
+    llm_model: str
+    llm_search_model: str
+    llm_temperature: float
     provider_timeout_seconds: float
     retrieval_provider: str
     retrieval_timeout_seconds: float
@@ -111,23 +111,32 @@ class Settings:
     cors_allow_origin_regex: str
 
     @property
+    def llm_enabled(self) -> bool:
+        return self.analysis_provider == "kimi" and bool(self.llm_api_key)
+
+    # Back-compat alias (call sites are migrating to llm_enabled).
+    @property
     def kimi_enabled(self) -> bool:
-        return self.analysis_provider == "kimi" and bool(self.kimi_api_key)
+        return self.llm_enabled
 
     @property
     def lightweight_agent_ready(self) -> bool:
-        return self.lightweight_agent_enabled and self.agent_max_extra_rounds > 0 and self.kimi_enabled
+        return self.lightweight_agent_enabled and self.agent_max_extra_rounds > 0 and self.llm_enabled
 
     @property
     def uses_agent_retrieval(self) -> bool:
         return self.retrieval_provider == "kimi"
 
     @property
-    def kimi_ready(self) -> bool:
-        return not self.kimi_required or bool(self.kimi_api_key)
+    def llm_ready(self) -> bool:
+        return not self.llm_required or bool(self.llm_api_key)
 
     @property
-    def kimi_required(self) -> bool:
+    def kimi_ready(self) -> bool:
+        return self.llm_ready
+
+    @property
+    def llm_required(self) -> bool:
         return self.analysis_provider == "kimi" or self.uses_agent_retrieval
 
 
@@ -149,11 +158,11 @@ def get_settings() -> Settings:
         agent_max_extra_rounds=max(_as_int(os.getenv("AGENT_MAX_EXTRA_ROUNDS"), 1), 0),
         agent_orchestrator_enabled=_as_bool(os.getenv("AGENT_ORCHESTRATOR_ENABLED"), default=False),
         agent_max_url_fetches=max(_as_int(os.getenv("AGENT_MAX_URL_FETCHES"), 1), 0),
-        kimi_api_key=os.getenv("KIMI_API_KEY"),
-        kimi_base_url=os.getenv("KIMI_BASE_URL", "https://api.moonshot.cn/v1").rstrip("/"),
-        kimi_model=os.getenv("KIMI_MODEL", "moonshot-v1-8k").strip(),
-        kimi_search_model=os.getenv("KIMI_SEARCH_MODEL", "moonshot-v1-8k").strip(),
-        kimi_temperature=_as_float(os.getenv("KIMI_TEMPERATURE"), 0.1),
+        llm_api_key=os.getenv("LLM_API_KEY") or os.getenv("KIMI_API_KEY"),
+        llm_base_url=(os.getenv("LLM_BASE_URL") or os.getenv("KIMI_BASE_URL") or "https://api.openai.com/v1").rstrip("/"),
+        llm_model=(os.getenv("LLM_MODEL") or os.getenv("KIMI_MODEL") or "").strip(),
+        llm_search_model=(os.getenv("LLM_SEARCH_MODEL") or os.getenv("KIMI_SEARCH_MODEL") or "").strip(),
+        llm_temperature=_as_float(os.getenv("LLM_TEMPERATURE") or os.getenv("KIMI_TEMPERATURE"), 0.1),
         provider_timeout_seconds=_as_float(os.getenv("PROVIDER_TIMEOUT_SECONDS"), 20.0),
         retrieval_provider=_normalize_retrieval_provider(os.getenv("RETRIEVAL_PROVIDER"), default="mock"),
         retrieval_timeout_seconds=_as_float(os.getenv("RETRIEVAL_TIMEOUT_SECONDS"), 12.0),

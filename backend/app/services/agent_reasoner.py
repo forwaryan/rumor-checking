@@ -90,9 +90,20 @@ Return one JSON object with this schema:
 Rules:
 - Use only supplied retrieval hits. Never invent result ids, evidence, or URLs.
 - Claims must be atomic and directly checkable. Prefer 1 to 4 claims.
+- CRITICAL — how to pick each verdict (follow this decision procedure exactly):
+  1. Find hits that are about the SAME subject AND the SAME action/topic as the claim.
+  2. If there are NONE (the hits are about other topics, other companies, or you find yourself
+     writing "没提到/未找到/没有相关信息/not mentioned" in notes) → verdict = `insufficient`.
+     Never write `refuted` to mean "I could not find supporting evidence". Not finding proof is
+     NOT the same as finding disproof.
+  3. Use `refuted` ONLY when a hit EXPLICITLY denies/debunks/contradicts THIS claim's action for
+     THIS subject (e.g. an official statement "我们没有造游轮" / a debunk of this exact event).
+     A denial about a different topic by the same entity (e.g. "京东辟谣稳定币传闻" for a claim
+     about 京东造游轮) is NOT a refutation → `insufficient`.
+  4. Use `supported` only with evidence that directly affirms the claim (respect scope, see below).
+  5. Use `conflicting` when reputable hits both affirm and deny the SAME claim.
 - Scope/quantifier discipline: if a claim uses an absolute scope ("all / only / every / none / 都是/全部/仅/无一例外/清一色"), it is `supported` ONLY when the evidence explicitly covers the ENTIRE scope. If the evidence supports just part of it (e.g. the claim says "all roles are R&D" but the evidence lists R&D AND non-R&D roles such as management/operations/QA), you MUST NOT mark it `supported` — use `insufficient` (or `refuted` if the evidence directly contradicts the absolute), and state in `notes` that the evidence only covers part of the claimed scope.
 - If the question is about a broad pattern and the hits support that pattern across multiple incidents, you may answer at the pattern level instead of forcing one person.
-- If evidence is weak or mismatched, keep verdict as `insufficient`.
 - Do not emit `supported`, `refuted`, or `conflicting` without at least one valid `evidence_result_id`.
 - Timeline nodes must reference supplied result ids and should be chronological when possible.
 - Output JSON only.
@@ -146,6 +157,33 @@ Rules:
   further searching is unlikely to help.
 - Output JSON only.
 """.strip()
+QUERY_TERMS_SYSTEM_PROMPT = """
+You turn a rumor/claim into effective web-search queries for a rumor-checking backend.
+The raw user text is often a colloquial assertion, not good search input.
+
+Return one JSON object with this schema:
+{
+  "entities": ["core subject entities: people, companies, orgs, places, products"],
+  "keywords": ["the key actions/attributes being claimed"],
+  "primary_query": "the single best search query string (entities + key action, 4-12 concise terms)",
+  "aliases": ["alternate names / related terms that would surface the same event, if any"]
+}
+
+Rules:
+- Identify the REAL subject. If the text says "京东开始造游轮", the subject is 京东/刘强东 and the
+  action is 造/布局 游轮/邮轮 — the query must center on that subject, not generic "游轮".
+- primary_query must be search terms, NOT the original sentence. Drop filler like 而且/早在/就打算.
+- Include obvious aliases that help retrieval (brand names, parent company, person behind it).
+- Output JSON only.
+""".strip()
+
+
+@dataclass(frozen=True)
+class QueryTerms:
+    entities: list[str]
+    keywords: list[str]
+    primary_query: str
+    aliases: list[str]
 
 
 @dataclass(frozen=True)
@@ -175,7 +213,7 @@ class KimiAgentReasoner:
 
     @property
     def enabled(self) -> bool:
-        return self.settings.analysis_provider == "kimi" and bool(self.settings.kimi_api_key)
+        return self.settings.analysis_provider == "kimi" and bool(self.settings.llm_api_key)
 
     def resolve_question(
         self,
@@ -394,63 +432,130 @@ class KimiAgentReasoner:
         reason = self._clean_optional_string(payload.get("reason")) or "planner 未给出理由。"
         return NextActionPlan(next_action=next_action, reason=reason)
 
+    def extract_query_terms(self, *, event: NormalizedEvent) -> Optional[QueryTerms]:
+        """Turn a colloquial claim into entity-focused search terms.
+
+        Returns None when disabled or unparseable, so callers fall back to the
+        rule-based query builder (off+mock path is unaffected).
+        """
+        if not self.enabled:
+            return None
+
+        raw = " ".join(filter(None, [event.title, event.summary, event.raw_input])).strip()
+        if not raw:
+            return None
+
+        content = self._request_completion(
+            stage_key="retrieval_initial",
+            title="调用 Agent query 抽取",
+            system_prompt=QUERY_TERMS_SYSTEM_PROMPT,
+            user_prompt=(
+                "Extract search entities/keywords and the best query for this claim.\n"
+                "Context JSON:\n"
+                f"{json.dumps({'raw_input': event.raw_input, 'title': event.title, 'summary': event.summary}, ensure_ascii=False, indent=2)}"
+            ),
+        )
+        payload = self._extract_json_payload(content)
+        if payload is None:
+            return None
+
+        entities = self._normalize_string_list(payload.get("entities"))
+        keywords = self._normalize_string_list(payload.get("keywords"))
+        aliases = self._normalize_string_list(payload.get("aliases"))
+        primary_query = self._clean_optional_string(payload.get("primary_query")) or " ".join(
+            [*entities, *keywords][:8]
+        )
+        if not primary_query:
+            return None
+        return QueryTerms(entities=entities, keywords=keywords, primary_query=primary_query, aliases=aliases)
+
     def _request_completion(self, *, stage_key: str, title: str, system_prompt: str, user_prompt: str) -> str:
         model = self._reasoning_model()
+        endpoint = f"{self.settings.llm_base_url}/chat/completions"
         emit_api_call(
             stage_key=stage_key,
             call_type="llm",
             status="running",
             title=title,
-            summary="正在调用 Moonshot chat/completions。",
+            summary="正在调用 LLM chat/completions（streaming）。",
             details=[
-                f"endpoint={self.settings.kimi_base_url}/chat/completions",
+                f"endpoint={endpoint}",
                 f"model={model}",
             ],
         )
-        response = httpx.post(
-            f"{self.settings.kimi_base_url}/chat/completions",
+        content = self._stream_completion(
+            endpoint=endpoint,
+            model=model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+        emit_api_call(
+            stage_key=stage_key,
+            call_type="llm",
+            status="completed",
+            title=f"{title} 返回",
+            summary="LLM 已返回流式响应。",
+            details=[
+                f"model={model}",
+                f"content_chars={len(content)}",
+            ],
+        )
+        return content
+
+    def _stream_completion(self, *, endpoint: str, model: str, system_prompt: str, user_prompt: str) -> str:
+        """Read an OpenAI-compatible SSE stream and return the concatenated content.
+
+        Streaming (not one-shot) so models that only behave under stream=true on
+        the gateway (e.g. GLM/Oxygen) work; DeepSeek streams fine too.
+        """
+        parts: list[str] = []
+        with httpx.stream(
+            "POST",
+            endpoint,
             headers={
-                "Authorization": f"Bearer {self.settings.kimi_api_key}",
+                "Authorization": f"Bearer {self.settings.llm_api_key}",
                 "Content-Type": "application/json",
             },
             json={
                 "model": model,
                 "temperature": self._request_temperature(model),
                 "response_format": {"type": "json_object"},
+                "stream": True,
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
             },
             timeout=self.settings.provider_timeout_seconds,
-        )
-        response.raise_for_status()
-        payload = response.json()
-        emit_api_call(
-            stage_key=stage_key,
-            call_type="llm",
-            status="completed",
-            title=f"{title} 返回",
-            summary="Moonshot 已返回 JSON 响应。",
-            details=[
-                f"status_code={response.status_code}",
-                f"model={model}",
-            ],
-        )
-        choice = payload.get("choices", [{}])[0]
-        message = choice.get("message", {})
-        return self._coerce_content(message.get("content"))
+        ) as response:
+            response.raise_for_status()
+            for raw_line in response.iter_lines():
+                if not raw_line:
+                    continue
+                line = raw_line.strip()
+                if not line.startswith("data:"):
+                    continue
+                data = line[len("data:") :].strip()
+                if not data or data == "[DONE]":
+                    if data == "[DONE]":
+                        break
+                    continue
+                try:
+                    chunk = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
+                choices = chunk.get("choices") or [{}]
+                delta = choices[0].get("delta") or {}
+                piece = delta.get("content")
+                if isinstance(piece, str):
+                    parts.append(piece)
+        return "".join(parts).strip()
 
     def _reasoning_model(self) -> str:
-        return self.settings.kimi_search_model.strip() or self.settings.kimi_model.strip()
+        return self.settings.llm_search_model.strip() or self.settings.llm_model.strip()
 
     def _request_temperature(self, model: str) -> float:
-        model = model.strip().lower()
-        if model.startswith("kimi-k2.5"):
-            return 1.0
-        if model.startswith("kimi-k2-turbo-preview"):
-            return 0.6
-        return min(self.settings.kimi_temperature, 0.3)
+        return self.settings.llm_temperature
 
     def _build_resolution_prompt(self, *, event: NormalizedEvent, retrieval_bundle: RetrievalBundle) -> str:
         context = {

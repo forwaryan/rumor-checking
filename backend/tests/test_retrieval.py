@@ -277,8 +277,8 @@ def test_kimi_web_search_provider_runs_tool_loop_and_parses_results(monkeypatch)
         settings=replace(
             get_settings(),
             retrieval_provider="kimi",
-            kimi_api_key="test-kimi-key",
-            kimi_search_model="kimi-k2-turbo-preview",
+            llm_api_key="test-kimi-key",
+            llm_search_model="kimi-k2-turbo-preview",
             retrieval_max_results=5,
         )
     )
@@ -306,7 +306,7 @@ def test_agent_retrieval_alias_uses_kimi_web_search_provider(monkeypatch):
 
     assert settings.retrieval_provider == "kimi"
     assert settings.uses_agent_retrieval is True
-    assert settings.kimi_required is True
+    assert settings.llm_required is True
     assert isinstance(service.provider, KimiWebSearchProvider)
 
 
@@ -315,8 +315,8 @@ def test_kimi_web_search_provider_uses_configured_search_model_verbatim():
         settings=replace(
             get_settings(),
             retrieval_provider="kimi",
-            kimi_api_key="test-kimi-key",
-            kimi_search_model="kimi-k2.5",
+            llm_api_key="test-kimi-key",
+            llm_search_model="kimi-k2.5",
         )
     )
 

@@ -99,7 +99,7 @@ class KimiProvider:
 
     @property
     def enabled(self) -> bool:
-        return self.settings.analysis_provider == "kimi" and bool(self.settings.kimi_api_key)
+        return self.settings.analysis_provider == "kimi" and bool(self.settings.llm_api_key)
 
     def analyze(self, event: NormalizedEvent) -> Optional[ProviderAnalysis]:
         if not self.enabled:
@@ -128,18 +128,18 @@ class KimiProvider:
             title="调用 Kimi structured analysis",
             summary="正在请求 Moonshot 结构化抽取事件和 claims。",
             details=[
-                f"endpoint={self.settings.kimi_base_url}/chat/completions",
-                f"model={self.settings.kimi_model}",
+                f"endpoint={self.settings.llm_base_url}/chat/completions",
+                f"model={self.settings.llm_model}",
             ],
         )
         response = httpx.post(
-            f"{self.settings.kimi_base_url}/chat/completions",
+            f"{self.settings.llm_base_url}/chat/completions",
             headers={
-                "Authorization": f"Bearer {self.settings.kimi_api_key}",
+                "Authorization": f"Bearer {self.settings.llm_api_key}",
                 "Content-Type": "application/json",
             },
             json={
-                "model": self.settings.kimi_model,
+                "model": self.settings.llm_model,
                 "temperature": self._request_temperature(),
                 "response_format": {"type": "json_object"},
                 "messages": [
@@ -159,7 +159,7 @@ class KimiProvider:
             summary="Moonshot 已返回结构化抽取结果。",
             details=[
                 f"status_code={response.status_code}",
-                f"model={self.settings.kimi_model}",
+                f"model={self.settings.llm_model}",
             ],
         )
         choice = payload.get("choices", [{}])[0]
@@ -167,10 +167,10 @@ class KimiProvider:
         return self._coerce_content(message.get("content"))
 
     def _request_temperature(self) -> float:
-        model = self.settings.kimi_model.strip().lower()
+        model = self.settings.llm_model.strip().lower()
         if model.startswith("kimi-k2.5"):
             return 1.0
-        return self.settings.kimi_temperature
+        return self.settings.llm_temperature
 
     def _build_user_prompt(self, event: NormalizedEvent) -> str:
         title_hint = event.title or "null"
