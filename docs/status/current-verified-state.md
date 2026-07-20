@@ -74,22 +74,22 @@
 - 由 `AGENT_ORCHESTRATOR_ENABLED` 控制，**默认 `false`**。开关关闭时走原来的固定 `AnalyzePipeline`。
 - Planner 可插拔：
   - `RulePlanner`（默认）复刻固定 pipeline 的顺序，在 `off + mock` 路径上产出与旧链路**逐字节一致**的 `Report`（由 `backend/tests/test_agent_orchestrator.py` 的 parity 测试保证）。
-  - `LlmPlanner`（配置了 Kimi 时启用）在真实岔路口调用 LLM 决策，带非法动作护栏，失败即退回 `RulePlanner`。当前岔路口的候选动作：`investigate`（补一轮检索）、`fetch_url`（抓取高价值证据全文）、`synthesize`（直接综合）。
+  - `LlmPlanner`（配置了 LLM 时启用）在真实岔路口调用 LLM 决策，带非法动作护栏，失败即退回 `RulePlanner`。当前岔路口的候选动作：`investigate`（补一轮检索）、`fetch_url`（抓取高价值证据全文）、`synthesize`（直接综合）。
 - `fetch_url` 自主动作：LLM 可选择抓取当前证据里最权威（high-trust/非聚合/高 tier）来源的正文，按**同一 `result_id`** 挂靠喂给 synthesis（grounding 安全，不新增证据源）；由 `AGENT_MAX_URL_FETCHES` 限制（默认 1，0=关），带去重与抓取失败降级。`fetch_url` 在 `legal_actions` 里始终排在规则默认动作之后，所以 `RulePlanner`（取首个）永不选它 → off+mock parity 不受影响。
 - runner 抛错时自动回退固定 pipeline，不影响可交付性。
 - 前端有对应的调查过程面板（`frontend/components/agent-run-panel.tsx`），从现有 `stage`/`log` 事件派生，非 agent 路径自动隐藏。
 
 ### 7. Grounded verdict 与诚实兜底
 
-- 开 Kimi 时，`agent_reasoner.synthesize` 接管 verdict：任何 `supported/refuted/conflicting` 判定必须带有效证据（`evidence_result_id`），否则降级为 `insufficient`（`backend/tests/test_agent_grounded_verdict.py` 锁定）。
-- 当 Kimi 启用但最终落到规则引擎时，provenance 会带显式 `fallback_reason=llm_synthesis_unavailable_rule_fallback`，不伪装成正常 LLM 结论。
+- 开 LLM 时，`agent_reasoner.synthesize` 接管 verdict：任何 `supported/refuted/conflicting` 判定必须带有效证据（`evidence_result_id`），否则降级为 `insufficient`（`backend/tests/test_agent_grounded_verdict.py` 锁定）。
+- 当 LLM 启用但最终落到规则引擎时，provenance 会带显式 `fallback_reason=llm_synthesis_unavailable_rule_fallback`，不伪装成正常 LLM 结论。
 
-### 8. 真实检索已联调通过（有配置前提，非默认）
+### 8. LLM 供应商可配置（已切到新模型），联网检索现状
 
-- `RETRIEVAL_PROVIDER=kimi` 的 Kimi `$web_search` 联网检索已对真实 Moonshot API 端到端跑通：真实 URL、`source_type=backend_live`、`evidence_source=retrieval_live`、grounded 判定。
-- `fetch_url` 自主动作也已真实联调：LLM planner 会自主选择抓取正文，并挑中官方来源（如中国驻法国大使馆），抓取的正文进入 synthesis。
-- **前提**（真实联调发现，写入 `.env.example`）：检索需用大上下文模型（`KIMI_SEARCH_MODEL=moonshot-v1-32k`，8k 会因 web 内容撑爆而 400），且 `RETRIEVAL_TIMEOUT_SECONDS>=45`（默认 12s 会 ReadTimeout）。
-- 延迟真实：一次完整 agent + 真实检索（首轮 2 条 + 追加 1 轮）可超过 ~120s。不建议作为无缓存的同步对外路径。
+- LLM 调用层已做成**供应商中立**：走标准 OpenAI 兼容 `chat/completions`、流式读取，模型/端点/密钥全部由配置（`LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` / `LLM_SEARCH_MODEL`）决定。当前已从早期供应商切换到一批**新的可配置模型**（通过内部网关），判定/planner/synthesis 均走该路径并端到端联调通过。
+- 具体端点、模型名和密钥只存在于 git 忽略的 `backend/.env`，不写入代码或 `.env.example`（保持对外中立）。
+- **联网检索现状**：真实 `$web_search` 联网检索曾在早期供应商上端到端跑通（真实 URL、`source_type=backend_live`、`evidence_source=retrieval_live`、grounded 判定，含 `fetch_url` 自主抓正文）。但当前所用的新模型/网关**没有等价的内建联网搜索工具**，因此 `RETRIEVAL_PROVIDER` 默认回落到 `mock`；联网检索代码保留但默认关闭。要恢复真实联网需另接独立搜索源。
+- 判定层（新模型）与检索层是解耦的：换判定模型不影响检索策略，反之亦然。
 - 默认交付/演示路径仍是 `off + mock`（见第 4 条）。
 
 ## 当前仍未完成的事项
