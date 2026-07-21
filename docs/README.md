@@ -17,6 +17,8 @@
   - 当前代码结构、项目架构与示例链路总览。
 - [status/current-verified-state.md](status/current-verified-state.md)
   - 已按当前代码核验过的事实边界。
+- [status/web-search-options.md](status/web-search-options.md)
+  - 联网检索方案调查、各入口能力对比与推荐方向。
 - [question-analysis-end-to-end-flow.md](question-analysis-end-to-end-flow.md)
   - 从用户输入到最终 `Report` 的主链路讲解。
 
