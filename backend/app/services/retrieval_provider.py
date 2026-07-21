@@ -43,8 +43,8 @@ TOP_TIER_DOMAINS = {
 }
 PORTAL_MARKERS = ("news", "ifeng", "sohu", "163.com", "qq.com", "sina", "msn", "yicai")
 PLACEHOLDER_HOSTS = {"example.com", "example.org", "example.net", "localhost"}
-KIMI_WEB_SEARCH_TOOL = {"type": "builtin_function", "function": {"name": "$web_search"}}
-KIMI_WEB_SEARCH_SYSTEM_PROMPT = """
+LLM_WEB_SEARCH_TOOL = {"type": "builtin_function", "function": {"name": "$web_search"}}
+LLM_WEB_SEARCH_SYSTEM_PROMPT = """
 You are the web retrieval stage for a rumor-checking backend.
 You must call $web_search before answering and then return one JSON object with this schema:
 {
@@ -232,7 +232,7 @@ class GdeltNewsProvider:
         return _source_name_from_url(url)
 
 
-class KimiWebSearchProvider:
+class LlmWebSearchProvider:
     name = "kimi"
 
     def __init__(self, settings: Optional[Settings] = None) -> None:
@@ -244,18 +244,18 @@ class KimiWebSearchProvider:
 
     def search(self, query_text: str) -> List[SearchResult]:
         if not self.enabled:
-            raise RuntimeError("Kimi web search is not configured.")
+            raise RuntimeError("LLM web search is not configured.")
 
         content = self._run_search_loop(query_text)
         results = self._parse_results(query_text, content)
         if content and not results:
-            raise RuntimeError("Kimi web search returned no usable search results payload.")
-        logger.info("kimi_web_search_results query=%s count=%s", query_text, len(results))
+            raise RuntimeError("LLM web search returned no usable search results payload.")
+        logger.info("llm_web_search_results query=%s count=%s", query_text, len(results))
         return results
 
     def _run_search_loop(self, query_text: str) -> str:
         messages: list[dict[str, Any]] = [
-            {"role": "system", "content": KIMI_WEB_SEARCH_SYSTEM_PROMPT},
+            {"role": "system", "content": LLM_WEB_SEARCH_SYSTEM_PROMPT},
             {"role": "user", "content": self._build_user_prompt(query_text)},
         ]
         tool_used = False
@@ -281,11 +281,11 @@ class KimiWebSearchProvider:
 
             content = self._coerce_content(message.get("content"))
             if not tool_used:
-                logger.warning("kimi_web_search_skipped_tool query=%s", query_text)
-                raise RuntimeError("Kimi web search skipped the required web_search tool.")
+                logger.warning("llm_web_search_skipped_tool query=%s", query_text)
+                raise RuntimeError("LLM web search skipped the required web_search tool.")
             return content
 
-        raise RuntimeError("Kimi web search exceeded tool rounds")
+        raise RuntimeError("LLM web search exceeded tool rounds")
 
     def _request_completion(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
         model = self._search_model()
@@ -293,8 +293,8 @@ class KimiWebSearchProvider:
             stage_key="retrieval_initial",
             call_type="llm",
             status="running",
-            title="调用 Kimi web search",
-            summary="正在请求 Moonshot chat/completions，并要求先执行 $web_search。",
+            title="调用 LLM web search",
+            summary="正在请求 LLM chat/completions，并要求先执行 $web_search。",
             details=[
                 f"endpoint={self.settings.llm_base_url}/chat/completions",
                 f"model={model}",
@@ -308,10 +308,10 @@ class KimiWebSearchProvider:
             },
             json={
                 "model": model,
-                "temperature": self._request_temperature(model),
+                "temperature": self._request_temperature(),
                 "response_format": {"type": "json_object"},
                 "messages": messages,
-                "tools": [KIMI_WEB_SEARCH_TOOL],
+                "tools": [LLM_WEB_SEARCH_TOOL],
                 "max_tokens": 2048,
             },
             timeout=self.settings.retrieval_timeout_seconds,
@@ -327,8 +327,8 @@ class KimiWebSearchProvider:
             stage_key="retrieval_initial",
             call_type="llm",
             status="completed",
-            title="Kimi web search 返回",
-            summary="Moonshot 已返回一轮 tool-calling / JSON 响应。",
+            title="LLM web search 返回",
+            summary="LLM 已返回一轮 tool-calling / JSON 响应。",
             details=[
                 f"status_code={response.status_code}",
                 f"model={model}",
@@ -336,18 +336,13 @@ class KimiWebSearchProvider:
             ],
         )
         if not isinstance(message, dict):
-            raise ValueError("Kimi web search returned an invalid message payload")
+            raise ValueError("LLM web search returned an invalid message payload")
         return message
 
     def _search_model(self) -> str:
         return self.settings.llm_search_model.strip()
 
-    def _request_temperature(self, model: str) -> float:
-        model = model.strip().lower()
-        if model.startswith("kimi-k2.5"):
-            return 1.0
-        if model.startswith("kimi-k2-turbo-preview"):
-            return 0.6
+    def _request_temperature(self) -> float:
         return self.settings.llm_temperature
 
     def _build_user_prompt(self, query_text: str) -> str:
@@ -426,7 +421,7 @@ class KimiWebSearchProvider:
                 SearchResult(
                     case_id="real_search",
                     query=query_text,
-                    result_id=f"kimi-{index}",
+                    result_id=f"web-{index}",
                     title=title,
                     url=url,
                     source_name=source_name,

@@ -10,12 +10,12 @@ router = APIRouter()
 @router.get("/health")
 def health_check() -> dict:
     settings = get_settings()
-    if not settings.kimi_ready:
+    if not settings.llm_ready:
         return {
             "status": "degraded",
             "detail": (
-                "Kimi-backed analysis or retrieval is selected, "
-                "but KIMI_API_KEY is not configured."
+                "LLM-backed analysis or retrieval is selected, "
+                "but LLM_API_KEY is not configured."
             ),
             "service": settings.app_name,
             "environment": settings.environment,

@@ -5,12 +5,12 @@ from fastapi.testclient import TestClient
 from backend.app.core.config import get_settings
 from backend.app.main import create_app
 from backend.app.models.schemas import ClaimItem, ProviderAnalysis, ProviderEventDraft
-from backend.app.services.kimi_provider import KimiProvider
+from backend.app.services.llm_provider import LlmStructuredProvider
 from backend.app.services.retrieval_models import SearchResult
-from backend.app.services.retrieval_provider import KimiWebSearchProvider
+from backend.app.services.retrieval_provider import LlmWebSearchProvider
 
 
-def test_health_reports_degraded_when_kimi_is_not_configured(monkeypatch):
+def test_health_reports_degraded_when_llm_is_not_configured(monkeypatch):
     monkeypatch.setenv("ANALYSIS_PROVIDER", "kimi")
     monkeypatch.setenv("KIMI_API_KEY", "")
     get_settings.cache_clear()
@@ -23,17 +23,17 @@ def test_health_reports_degraded_when_kimi_is_not_configured(monkeypatch):
     assert response.json()["status"] == "degraded"
 
 
-def test_analyze_request_falls_back_to_rule_claims_when_kimi_returns_no_claims(monkeypatch):
+def test_analyze_request_falls_back_to_rule_claims_when_llm_returns_no_claims(monkeypatch):
     monkeypatch.setenv("ANALYSIS_PROVIDER", "kimi")
     monkeypatch.setenv("RETRIEVAL_PROVIDER", "kimi")
-    monkeypatch.setenv("KIMI_API_KEY", "test-kimi-key")
+    monkeypatch.setenv("LLM_API_KEY", "test-llm-key")
 
     def fake_search(self, query_text: str):
         return [
             SearchResult(
                 case_id="real_search",
                 query=query_text,
-                result_id="kimi-1",
+                result_id="web-1",
                 title="平台回应相关传闻",
                 url="https://example-news.test/story-1",
                 source_name="example-news.test",
@@ -53,8 +53,8 @@ def test_analyze_request_falls_back_to_rule_claims_when_kimi_returns_no_claims(m
             claims=[],
         )
 
-    monkeypatch.setattr(KimiWebSearchProvider, "search", fake_search)
-    monkeypatch.setattr(KimiProvider, "analyze", fake_analyze)
+    monkeypatch.setattr(LlmWebSearchProvider, "search", fake_search)
+    monkeypatch.setattr(LlmStructuredProvider, "analyze", fake_analyze)
     get_settings.cache_clear()
 
     app = create_app()
@@ -71,17 +71,17 @@ def test_analyze_request_falls_back_to_rule_claims_when_kimi_returns_no_claims(m
     assert report["claim_results"]
 
 
-def test_analyze_request_uses_kimi_only_path(monkeypatch):
+def test_analyze_request_uses_llm_only_path(monkeypatch):
     monkeypatch.setenv("ANALYSIS_PROVIDER", "kimi")
     monkeypatch.setenv("RETRIEVAL_PROVIDER", "kimi")
-    monkeypatch.setenv("KIMI_API_KEY", "test-kimi-key")
+    monkeypatch.setenv("LLM_API_KEY", "test-llm-key")
 
     def fake_search(self, query_text: str):
         return [
             SearchResult(
                 case_id="real_search",
                 query=query_text,
-                result_id="kimi-1",
+                result_id="web-1",
                 title="医院回应脑出血救治情况",
                 url="https://hospital.example.com/notice-1",
                 source_name="hospital.example.com",
@@ -92,7 +92,7 @@ def test_analyze_request_uses_kimi_only_path(monkeypatch):
             SearchResult(
                 case_id="real_search",
                 query=query_text,
-                result_id="kimi-2",
+                result_id="web-2",
                 title="平台发布辟谣说明",
                 url="https://platform.example.com/statement-1",
                 source_name="platform.example.com",
@@ -118,8 +118,8 @@ def test_analyze_request_uses_kimi_only_path(monkeypatch):
             ],
         )
 
-    monkeypatch.setattr(KimiWebSearchProvider, "search", fake_search)
-    monkeypatch.setattr(KimiProvider, "analyze", fake_analyze)
+    monkeypatch.setattr(LlmWebSearchProvider, "search", fake_search)
+    monkeypatch.setattr(LlmStructuredProvider, "analyze", fake_analyze)
     get_settings.cache_clear()
 
     app = create_app()

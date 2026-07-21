@@ -4,7 +4,7 @@ from dataclasses import replace
 
 from backend.app.core.config import get_settings
 from backend.app.models.schemas import AnalyzeRequest, NormalizedEvent
-from backend.app.services.agent_reasoner import InvestigationPlan, KimiAgentReasoner
+from backend.app.services.agent_reasoner import InvestigationPlan, LlmAgentReasoner
 from backend.app.services.analyze_pipeline import AnalyzePipeline
 from backend.app.services.retrieval_models import RetrievalBundle, SearchResult
 
@@ -88,7 +88,7 @@ def _enabled_pipeline(monkeypatch, *, max_rounds: int = 1) -> AnalyzePipeline:
 
 
 def test_plan_investigation_returns_none_when_disabled():
-    reasoner = KimiAgentReasoner(
+    reasoner = LlmAgentReasoner(
         settings=replace(get_settings(), analysis_provider="off", llm_api_key=None)
     )
     plan = reasoner.plan_investigation(event=_event(), retrieval_bundle=_weak_bundle(), round_index=1)
@@ -96,7 +96,7 @@ def test_plan_investigation_returns_none_when_disabled():
 
 
 def test_plan_investigation_parses_continue(monkeypatch):
-    reasoner = KimiAgentReasoner(
+    reasoner = LlmAgentReasoner(
         settings=replace(get_settings(), analysis_provider="kimi", llm_api_key="k")
     )
     monkeypatch.setattr(
@@ -112,7 +112,7 @@ def test_plan_investigation_parses_continue(monkeypatch):
 
 
 def test_plan_investigation_parses_stop(monkeypatch):
-    reasoner = KimiAgentReasoner(
+    reasoner = LlmAgentReasoner(
         settings=replace(get_settings(), analysis_provider="kimi", llm_api_key="k")
     )
     monkeypatch.setattr(
@@ -127,7 +127,7 @@ def test_plan_investigation_parses_stop(monkeypatch):
 
 
 def test_plan_investigation_continue_without_query_is_downgraded(monkeypatch):
-    reasoner = KimiAgentReasoner(
+    reasoner = LlmAgentReasoner(
         settings=replace(get_settings(), analysis_provider="kimi", llm_api_key="k")
     )
     monkeypatch.setattr(

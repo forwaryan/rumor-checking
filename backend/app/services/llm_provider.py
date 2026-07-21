@@ -93,7 +93,7 @@ JSON 结构如下：
 """.strip()
 
 
-class KimiProvider:
+class LlmStructuredProvider:
     def __init__(self, settings: Optional[Settings] = None) -> None:
         self.settings = settings or get_settings()
 
@@ -103,7 +103,7 @@ class KimiProvider:
 
     def analyze(self, event: NormalizedEvent) -> Optional[ProviderAnalysis]:
         if not self.enabled:
-            raise RuntimeError("Kimi structured analysis is not configured.")
+            raise RuntimeError("LLM structured analysis is not configured.")
         if event.input_type == "question_only" and is_broad_trend_question(event.raw_input):
             emit_log(
                 stage_key="provider_enrichment",
@@ -116,8 +116,8 @@ class KimiProvider:
         content = self._request_completion(event)
         analysis = self._parse_content(content)
         if analysis is None:
-            logger.warning("kimi_provider_empty_result input_type=%s", event.input_type)
-            raise RuntimeError("Kimi returned no structured claims.")
+            logger.warning("llm_provider_empty_result input_type=%s", event.input_type)
+            raise RuntimeError("LLM returned no structured claims.")
         return analysis
 
     def _request_completion(self, event: NormalizedEvent) -> str:
@@ -125,8 +125,8 @@ class KimiProvider:
             stage_key="provider_enrichment",
             call_type="llm",
             status="running",
-            title="调用 Kimi structured analysis",
-            summary="正在请求 Moonshot 结构化抽取事件和 claims。",
+            title="调用 LLM structured analysis",
+            summary="正在请求 LLM 结构化抽取事件和 claims。",
             details=[
                 f"endpoint={self.settings.llm_base_url}/chat/completions",
                 f"model={self.settings.llm_model}",
@@ -155,8 +155,8 @@ class KimiProvider:
             stage_key="provider_enrichment",
             call_type="llm",
             status="completed",
-            title="Kimi structured analysis 返回",
-            summary="Moonshot 已返回结构化抽取结果。",
+            title="LLM structured analysis 返回",
+            summary="LLM 已返回结构化抽取结果。",
             details=[
                 f"status_code={response.status_code}",
                 f"model={self.settings.llm_model}",
@@ -167,9 +167,6 @@ class KimiProvider:
         return self._coerce_content(message.get("content"))
 
     def _request_temperature(self) -> float:
-        model = self.settings.llm_model.strip().lower()
-        if model.startswith("kimi-k2.5"):
-            return 1.0
         return self.settings.llm_temperature
 
     def _build_user_prompt(self, event: NormalizedEvent) -> str:
@@ -206,7 +203,7 @@ class KimiProvider:
                     if isinstance(text, str) and text.strip():
                         parts.append(text.strip())
             return "\n".join(parts)
-        raise ValueError("Unsupported Kimi content format")
+        raise ValueError("Unsupported LLM content format")
 
     def _parse_content(self, content: str) -> Optional[ProviderAnalysis]:
         payload = self._extract_json_payload(content)

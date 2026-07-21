@@ -1,9 +1,9 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
-import backend.app.services.kimi_provider as kimi_provider_module
+import backend.app.services.llm_provider as llm_provider_module
 from backend.app.core.config import get_settings
 from backend.app.models.schemas import NormalizedEvent
-from backend.app.services.kimi_provider import KimiProvider
+from backend.app.services.llm_provider import LlmStructuredProvider
 
 
 class _DummyResponse:
@@ -32,16 +32,16 @@ def _question_event() -> NormalizedEvent:
     )
 
 
-def test_settings_trim_kimi_model(monkeypatch):
-    monkeypatch.setenv("KIMI_MODEL", "  kimi-k2.5  ")
+def test_settings_trim_llm_model(monkeypatch):
+    monkeypatch.setenv("LLM_MODEL", "  demo-model  ")
     get_settings.cache_clear()
     try:
-        assert get_settings().llm_model == "kimi-k2.5"
+        assert get_settings().llm_model == "demo-model"
     finally:
         get_settings.cache_clear()
 
 
-def test_kimi_provider_uses_k2_5_temperature_requirement(monkeypatch):
+def test_llm_provider_passes_configured_temperature(monkeypatch):
     captured = {}
 
     def fake_post(url, headers, json, timeout):
@@ -50,31 +50,32 @@ def test_kimi_provider_uses_k2_5_temperature_requirement(monkeypatch):
         return _DummyResponse()
 
     monkeypatch.setenv("ANALYSIS_PROVIDER", "kimi")
-    monkeypatch.setenv("KIMI_API_KEY", "test-kimi-key")
-    monkeypatch.setenv("KIMI_MODEL", "kimi-k2.5")
+    monkeypatch.setenv("LLM_API_KEY", "test-llm-key")
+    monkeypatch.setenv("LLM_MODEL", "demo-model")
+    monkeypatch.setenv("LLM_TEMPERATURE", "0.3")
     get_settings.cache_clear()
-    monkeypatch.setattr(kimi_provider_module.httpx, "post", fake_post)
+    monkeypatch.setattr(llm_provider_module.httpx, "post", fake_post)
     try:
-        provider = KimiProvider()
+        provider = LlmStructuredProvider()
         analysis = provider.analyze(_question_event())
     finally:
         get_settings.cache_clear()
 
     assert analysis is not None
-    assert captured["json"]["model"] == "kimi-k2.5"
-    assert captured["json"]["temperature"] == 1.0
+    assert captured["json"]["model"] == "demo-model"
+    assert captured["json"]["temperature"] == 0.3
 
 
-def test_kimi_provider_skips_broad_trend_questions(monkeypatch):
+def test_llm_provider_skips_broad_trend_questions(monkeypatch):
     def fail_post(*args, **kwargs):
         raise AssertionError("broad trend questions should not call analysis provider")
 
     monkeypatch.setenv("ANALYSIS_PROVIDER", "kimi")
-    monkeypatch.setenv("KIMI_API_KEY", "test-kimi-key")
+    monkeypatch.setenv("LLM_API_KEY", "test-llm-key")
     get_settings.cache_clear()
-    monkeypatch.setattr(kimi_provider_module.httpx, "post", fail_post)
+    monkeypatch.setattr(llm_provider_module.httpx, "post", fail_post)
     try:
-        provider = KimiProvider()
+        provider = LlmStructuredProvider()
         analysis = provider.analyze(
             NormalizedEvent(
                 summary="最近是不是有裁员",

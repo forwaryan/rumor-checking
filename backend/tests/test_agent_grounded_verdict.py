@@ -7,7 +7,7 @@ from dataclasses import replace
 from backend.app.agent_tools.tools import LLM_SYNTHESIS_FALLBACK_REASON
 from backend.app.core.config import get_settings
 from backend.app.models.schemas import AnalyzeRequest, NormalizedEvent
-from backend.app.services.agent_reasoner import KimiAgentReasoner
+from backend.app.services.agent_reasoner import LlmAgentReasoner
 from backend.app.services.analyze_pipeline import AnalyzePipeline
 from backend.app.services.retrieval_service import RetrievalService
 
@@ -24,8 +24,8 @@ def _mock_bundle():
     return RetrievalService().retrieve_for_event(event, request_context={}), event
 
 
-def _enabled_reasoner(monkeypatch, response_json: dict) -> KimiAgentReasoner:
-    reasoner = KimiAgentReasoner(
+def _enabled_reasoner(monkeypatch, response_json: dict) -> LlmAgentReasoner:
+    reasoner = LlmAgentReasoner(
         settings=replace(get_settings(), analysis_provider="kimi", llm_api_key="test-key")
     )
     monkeypatch.setattr(
@@ -42,7 +42,7 @@ def test_decisive_verdict_without_evidence_is_downgraded_to_insufficient(monkeyp
     get_settings.cache_clear()
     bundle, event = _mock_bundle()
 
-    # Kimi claims a decisive "supported" verdict but supplies NO evidence ids.
+    # The LLM claims a decisive "supported" verdict but supplies NO evidence ids.
     response = {
         "event": {"title": "海州酸奶", "summary": "抽检超期", "anchor_result_id": "R01-1"},
         "claims": [
@@ -203,7 +203,7 @@ def test_extract_query_terms_returns_entity_focused_query(monkeypatch):
 
 
 def test_extract_query_terms_disabled_returns_none():
-    reasoner = KimiAgentReasoner(
+    reasoner = LlmAgentReasoner(
         settings=replace(get_settings(), analysis_provider="off", llm_api_key=None)
     )
     from backend.app.models.schemas import NormalizedEvent
@@ -216,7 +216,7 @@ def test_extract_query_terms_disabled_returns_none():
 
 
 class _FailingReasoner:
-    """Kimi is 'enabled' but synthesis never produces a result (parse fail etc.)."""
+    """LLM is 'enabled' but synthesis never produces a result (parse fail etc.)."""
 
     enabled = True
 
@@ -227,7 +227,7 @@ class _FailingReasoner:
         return None
 
 
-def test_kimi_enabled_synthesis_fallback_is_flagged_in_provenance(monkeypatch):
+def test_llm_enabled_synthesis_fallback_is_flagged_in_provenance(monkeypatch):
     monkeypatch.setenv("AGENT_ORCHESTRATOR_ENABLED", "true")
     monkeypatch.setenv("RETRIEVAL_CACHE_DIR", tempfile.mkdtemp())
     get_settings.cache_clear()

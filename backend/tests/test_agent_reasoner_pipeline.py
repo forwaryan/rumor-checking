@@ -4,7 +4,7 @@ from dataclasses import replace
 
 from backend.app.core.config import get_settings
 from backend.app.models.schemas import AnalyzeRequest, ClaimItem, ClaimResult, TimelineNode
-from backend.app.services.agent_reasoner import AgentSynthesis, KimiAgentReasoner
+from backend.app.services.agent_reasoner import AgentSynthesis, LlmAgentReasoner
 from backend.app.services.analyze_pipeline import AnalyzePipeline
 from backend.app.services.claim_extractor import ClaimExtraction
 from backend.app.services.question_resolver import QuestionResolution
@@ -15,7 +15,7 @@ from backend.app.services.timeline_builder import TimelineBuild
 from backend.app.services.verdict_engine import VerdictEvaluation
 
 
-class FakeKimiProvider:
+class FakeLlmProvider:
     name = "kimi"
     enabled = True
 
@@ -127,7 +127,7 @@ class FakeAgentReasoner:
 def test_pipeline_prefers_agent_synthesis_over_rule_judgment(monkeypatch, tmp_path):
     monkeypatch.setenv("ANALYSIS_PROVIDER", "kimi")
     monkeypatch.setenv("RETRIEVAL_PROVIDER", "kimi")
-    monkeypatch.setenv("KIMI_API_KEY", "test-kimi-key")
+    monkeypatch.setenv("LLM_API_KEY", "test-llm-key")
     get_settings.cache_clear()
 
     pipeline = AnalyzePipeline()
@@ -135,12 +135,12 @@ def test_pipeline_prefers_agent_synthesis_over_rule_judgment(monkeypatch, tmp_pa
     pipeline.provider_enricher.enrich = lambda event: (event, None)
     pipeline.retriever = RetrievalService(
         settings=replace(get_settings(), retrieval_provider="kimi"),
-        provider=FakeKimiProvider(
+        provider=FakeLlmProvider(
             results=[
                 SearchResult(
                     case_id="real_search",
                     query="最近有个女网红脑出血死了真的假的",
-                    result_id="kimi-1",
+                    result_id="web-1",
                     title="医院回应女主播脑出血：仍在救治",
                     url="https://hospital.example.com/notice-1",
                     source_name="hospital.example.com",
@@ -151,7 +151,7 @@ def test_pipeline_prefers_agent_synthesis_over_rule_judgment(monkeypatch, tmp_pa
                 SearchResult(
                     case_id="real_search",
                     query="最近有个女网红脑出血死了真的假的",
-                    result_id="kimi-2",
+                    result_id="web-2",
                     title="平台发布辟谣说明",
                     url="https://platform.example.com/statement-1",
                     source_name="platform.example.com",
@@ -183,15 +183,15 @@ def test_pipeline_prefers_agent_synthesis_over_rule_judgment(monkeypatch, tmp_pa
 
 
 def test_agent_reasoner_uses_configured_search_model_verbatim():
-    reasoner = KimiAgentReasoner(
+    reasoner = LlmAgentReasoner(
         settings=replace(
             get_settings(),
             analysis_provider="kimi",
-            llm_api_key="test-kimi-key",
-            llm_model="moonshot-v1-8k",
-            llm_search_model="kimi-k2.5",
+            llm_api_key="test-llm-key",
+            llm_model="demo-model",
+            llm_search_model="demo-search-model",
         )
     )
 
     # Config decides the model; no hard-coded rewrite.
-    assert reasoner._reasoning_model() == "kimi-k2.5"
+    assert reasoner._reasoning_model() == "demo-search-model"

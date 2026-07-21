@@ -108,7 +108,7 @@ export interface ReportProvenanceMeta {
   tone: "live" | "mock" | "unknown";
 }
 
-export interface KimiUsageMeta {
+export interface LlmUsageMeta {
   label: string;
   tone: "live" | "fallback" | "unknown";
 }
@@ -263,10 +263,10 @@ export function getReportProvenanceMeta(
   }
 }
 
-export function getKimiUsageMeta(
+export function getLlmUsageMeta(
   report: Report | null,
   provenance: ReportProvenanceState | null,
-): KimiUsageMeta | null {
+): LlmUsageMeta | null {
   if (!report) {
     return null;
   }
@@ -275,34 +275,34 @@ export function getKimiUsageMeta(
   const backendProvenance = effectiveProvenance.reportProvenance ?? report.provenance ?? null;
   if (!backendProvenance) {
     return {
-      label: "Kimi：状态未知",
+      label: "LLM 检索：状态未知",
       tone: "unknown",
     };
   }
 
   if (backendProvenance.retrieval_provider !== "kimi") {
     return {
-      label: `Kimi：未走${backendProvenance.retrieval_provider ? `（当前是 ${backendProvenance.retrieval_provider}）` : ""}`,
+      label: `LLM 检索：未走${backendProvenance.retrieval_provider ? `（当前是 ${backendProvenance.retrieval_provider}）` : ""}`,
       tone: "fallback",
     };
   }
 
   if (backendProvenance.provider_used && !backendProvenance.fallback_used) {
     return {
-      label: "Kimi：检索 + 结构化",
+      label: "LLM 检索：检索 + 结构化",
       tone: "live",
     };
   }
 
   if (backendProvenance.provider_used) {
     return {
-      label: "Kimi：已走但发生降级",
+      label: "LLM 检索：已走但发生降级",
       tone: "fallback",
     };
   }
 
   return {
-    label: "Kimi：仅检索 / 结构化未命中",
+    label: "LLM 检索：仅检索 / 结构化未命中",
     tone: "fallback",
   };
 }

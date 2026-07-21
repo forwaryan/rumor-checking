@@ -87,7 +87,7 @@ describe("deriveAgentRun", () => {
       stage("investigation_fetch", "running", "抓取正文", "抓取中", ["url=https://gov.example.com/x"]),
       stage("investigation_fetch", "completed", "抓取正文", "已抓到正文", [
         "url=https://gov.example.com/x",
-        "result_id=kimi-4",
+        "result_id=web-4",
         "body_chars=3200",
       ]),
       stage("agent_synthesis", "completed", "Agent 综合判断", "产出结论"),
@@ -98,7 +98,7 @@ describe("deriveAgentRun", () => {
     expect(fetchActions).toHaveLength(1); // running/completed collapse to one
     expect(fetchActions[0].kind).toBe("tool_call");
     expect(fetchActions[0].status).toBe("completed");
-    expect(fetchActions[0].details).toContain("result_id=kimi-4");
+    expect(fetchActions[0].details).toContain("result_id=web-4");
     expect(view.fetchedPages).toBe(1);
   });
 

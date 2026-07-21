@@ -114,11 +114,6 @@ class Settings:
     def llm_enabled(self) -> bool:
         return self.analysis_provider == "kimi" and bool(self.llm_api_key)
 
-    # Back-compat alias (call sites are migrating to llm_enabled).
-    @property
-    def kimi_enabled(self) -> bool:
-        return self.llm_enabled
-
     @property
     def lightweight_agent_ready(self) -> bool:
         return self.lightweight_agent_enabled and self.agent_max_extra_rounds > 0 and self.llm_enabled
@@ -130,10 +125,6 @@ class Settings:
     @property
     def llm_ready(self) -> bool:
         return not self.llm_required or bool(self.llm_api_key)
-
-    @property
-    def kimi_ready(self) -> bool:
-        return self.llm_ready
 
     @property
     def llm_required(self) -> bool:

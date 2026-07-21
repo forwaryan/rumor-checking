@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from backend.app.core.config import get_settings
 from backend.app.models.schemas import AnalyzeRequest, Report, ReportProvenance, RetrievalDiagnostics
-from backend.app.services.agent_reasoner import KimiAgentReasoner
+from backend.app.services.agent_reasoner import LlmAgentReasoner
 from backend.app.services.claim_extractor import ClaimExtractor
 from backend.app.services.content_check_builder import ContentCheckBuilder
 from backend.app.services.input_normalizer import InputNormalizer
@@ -25,7 +25,7 @@ class AnalyzePipeline:
             cache_root=self.settings.url_fetch_cache_dir,
             ttl_seconds=self.settings.url_fetch_cache_ttl_seconds,
         )
-        self.agent_reasoner = KimiAgentReasoner()
+        self.agent_reasoner = LlmAgentReasoner()
         self.provider_enricher = ProviderEnricher()
         self.retriever = RetrievalService(agent_reasoner=self.agent_reasoner)
         self.question_resolver = QuestionResolver()
@@ -142,7 +142,7 @@ class AnalyzePipeline:
             stage_key="agent_synthesis",
             title="Agent 综合判断",
             status="running",
-            summary="正在让 Kimi 基于检索结果生成事件、claims、verdict 和 timeline。",
+            summary="正在让 LLM 基于检索结果生成事件、claims、verdict 和 timeline。",
             details=[f"enabled={self.agent_reasoner.enabled}"],
         )
         agent_synthesis = self._synthesize_with_agent(
@@ -382,7 +382,7 @@ class AnalyzePipeline:
             content_check_builder=self.content_check_builder,
             pipeline_trace_builder=self.pipeline_trace_builder,
         )
-        use_llm_planner = self.settings.kimi_enabled and self.agent_reasoner.enabled
+        use_llm_planner = self.settings.llm_enabled and self.agent_reasoner.enabled
         planner = LlmPlanner(self.agent_reasoner) if use_llm_planner else RulePlanner()
         emit_log(
             stage_key="agent_orchestrator",

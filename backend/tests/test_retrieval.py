@@ -11,7 +11,7 @@ from backend.app.services.analyze_pipeline import AnalyzePipeline
 from backend.app.services.mock_retriever import MockRetriever
 from backend.app.services.retrieval_cache import RetrievalCache
 from backend.app.services.retrieval_models import RetrievalBundle, SearchResult
-from backend.app.services.retrieval_provider import GdeltNewsProvider, KimiWebSearchProvider
+from backend.app.services.retrieval_provider import GdeltNewsProvider, LlmWebSearchProvider
 from backend.app.services.retrieval_service import RetrievalService
 from backend.app.services.timeline_builder import TimelineBuilder
 from backend.tests.conftest import load_eval_fixture
@@ -187,7 +187,7 @@ def test_gdelt_provider_search_uses_aligned_config(monkeypatch):
     assert captured["timeout"] == 7.5
 
 
-def test_kimi_web_search_provider_runs_tool_loop_and_parses_results(monkeypatch):
+def test_llm_web_search_provider_runs_tool_loop_and_parses_results(monkeypatch):
     calls = []
 
     class _FakeResponse:
@@ -273,12 +273,12 @@ def test_kimi_web_search_provider_runs_tool_loop_and_parses_results(monkeypatch)
         return next(responses)
 
     monkeypatch.setattr("backend.app.services.retrieval_provider.httpx.post", fake_post)
-    provider = KimiWebSearchProvider(
+    provider = LlmWebSearchProvider(
         settings=replace(
             get_settings(),
             retrieval_provider="kimi",
-            llm_api_key="test-kimi-key",
-            llm_search_model="kimi-k2-turbo-preview",
+            llm_api_key="test-llm-key",
+            llm_search_model="demo-search-model",
             retrieval_max_results=5,
         )
     )
@@ -296,9 +296,9 @@ def test_kimi_web_search_provider_runs_tool_loop_and_parses_results(monkeypatch)
     assert all("example.com" not in item.url for item in results)
 
 
-def test_agent_retrieval_alias_uses_kimi_web_search_provider(monkeypatch):
+def test_agent_retrieval_alias_uses_llm_web_search_provider(monkeypatch):
     monkeypatch.setenv("RETRIEVAL_PROVIDER", "agent")
-    monkeypatch.setenv("KIMI_API_KEY", "test-kimi-key")
+    monkeypatch.setenv("LLM_API_KEY", "test-llm-key")
     get_settings.cache_clear()
 
     settings = get_settings()
@@ -307,21 +307,21 @@ def test_agent_retrieval_alias_uses_kimi_web_search_provider(monkeypatch):
     assert settings.retrieval_provider == "kimi"
     assert settings.uses_agent_retrieval is True
     assert settings.llm_required is True
-    assert isinstance(service.provider, KimiWebSearchProvider)
+    assert isinstance(service.provider, LlmWebSearchProvider)
 
 
-def test_kimi_web_search_provider_uses_configured_search_model_verbatim():
-    provider = KimiWebSearchProvider(
+def test_llm_web_search_provider_uses_configured_search_model_verbatim():
+    provider = LlmWebSearchProvider(
         settings=replace(
             get_settings(),
             retrieval_provider="kimi",
-            llm_api_key="test-kimi-key",
-            llm_search_model="kimi-k2.5",
+            llm_api_key="test-llm-key",
+            llm_search_model="demo-search-model",
         )
     )
 
     # Config decides the search model; no hard-coded rewrite.
-    assert provider._search_model() == "kimi-k2.5"
+    assert provider._search_model() == "demo-search-model"
 
 
 def test_retrieval_cache_round_trip(tmp_path: Path):
@@ -582,11 +582,11 @@ def test_question_only_pipeline_uses_real_retrieval_bundle(tmp_path: Path):
     assert report.provenance.fallback_used is False
 
 
-def test_kimi_question_retrieval_keeps_raw_rumor_phrasing(tmp_path: Path):
-    class KimiLikeProvider(FakeProvider):
+def test_llm_question_retrieval_keeps_raw_rumor_phrasing(tmp_path: Path):
+    class LlmLikeProvider(FakeProvider):
         name = "kimi"
 
-    provider = KimiLikeProvider(
+    provider = LlmLikeProvider(
         results=[
             _make_result(
                 result_id="real-1",

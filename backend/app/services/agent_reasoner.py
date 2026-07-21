@@ -207,7 +207,7 @@ class NextActionPlan:
     reason: str
 
 
-class KimiAgentReasoner:
+class LlmAgentReasoner:
     def __init__(self, settings: Optional[Settings] = None) -> None:
         self.settings = settings or get_settings()
 
@@ -240,7 +240,7 @@ class KimiAgentReasoner:
                 stage_key="question_resolution",
                 level="warning",
                 title="Agent question resolution 无法解析",
-                summary="Kimi 返回内容不是可解析的 JSON。",
+                summary="LLM 返回内容不是可解析的 JSON。",
                 details=[],
             )
             return None
@@ -300,7 +300,7 @@ class KimiAgentReasoner:
                 stage_key="agent_synthesis",
                 level="warning",
                 title="Agent synthesis 无法解析",
-                summary="Kimi 返回内容不是可解析的 JSON。",
+                summary="LLM 返回内容不是可解析的 JSON。",
                 details=[],
             )
             return None
@@ -375,7 +375,7 @@ class KimiAgentReasoner:
                 stage_key="investigation_plan",
                 level="warning",
                 title="Agent investigation planner 无法解析",
-                summary="Kimi 返回内容不是可解析的 JSON。",
+                summary="LLM 返回内容不是可解析的 JSON。",
                 details=[],
             )
             return None
@@ -414,7 +414,7 @@ class KimiAgentReasoner:
                 stage_key="agent_planner",
                 level="warning",
                 title="Agent action planner 无法解析",
-                summary="Kimi 返回内容不是可解析的 JSON。",
+                summary="LLM 返回内容不是可解析的 JSON。",
                 details=[],
             )
             return None
@@ -1008,7 +1008,7 @@ class KimiAgentReasoner:
                     if isinstance(text, str) and text.strip():
                         parts.append(text.strip())
             return "\n".join(parts)
-        raise ValueError("Unsupported Kimi agent content format")
+        raise ValueError("Unsupported LLM agent content format")
 
     def _clean_optional_string(self, value: Any) -> Optional[str]:
         if not isinstance(value, str):

@@ -1,12 +1,12 @@
 ﻿from __future__ import annotations
 
-import backend.app.services.kimi_provider as kimi_provider_module
+import backend.app.services.llm_provider as llm_provider_module
 
 from backend.app.api.v1.endpoints import analyze as analyze_endpoint
 from backend.app.core.config import get_settings
 from backend.app.models.schemas import ClaimItem, NormalizedEvent, ProviderAnalysis, ProviderEventDraft
 from backend.app.services.analyze_pipeline import AnalyzePipeline
-from backend.app.services.kimi_provider import KimiProvider
+from backend.app.services.llm_provider import LlmStructuredProvider
 from backend.app.services.provider_enricher import ProviderEnricher
 from backend.tests.conftest import load_eval_fixture
 
@@ -42,7 +42,7 @@ def test_provider_text_news_acceptance_fixture_has_expected_coverage():
         assert case["expected"]["claims_should_include"]
 
 
-def test_kimi_provider_parses_non_strict_schema_and_filters_generic_claims(monkeypatch):
+def test_llm_provider_parses_non_strict_schema_and_filters_generic_claims(monkeypatch):
     payload = """
     {
       "event": {
@@ -64,11 +64,11 @@ def test_kimi_provider_parses_non_strict_schema_and_filters_generic_claims(monke
         return _DummyResponse(payload)
 
     monkeypatch.setenv("ANALYSIS_PROVIDER", "kimi")
-    monkeypatch.setenv("KIMI_API_KEY", "test-kimi-key")
+    monkeypatch.setenv("LLM_API_KEY", "test-llm-key")
     get_settings.cache_clear()
-    monkeypatch.setattr(kimi_provider_module.httpx, "post", fake_post)
+    monkeypatch.setattr(llm_provider_module.httpx, "post", fake_post)
     try:
-        provider = KimiProvider()
+        provider = LlmStructuredProvider()
         analysis = provider.analyze(
             NormalizedEvent(
                 title="热搜截图",

@@ -25,7 +25,7 @@ from backend.app.services.retrieval_models import (
     looks_like_repost,
 )
 from backend.app.services.progress import emit_log, emit_retrieval
-from backend.app.services.retrieval_provider import GdeltNewsProvider, KimiWebSearchProvider, RetrievalProvider
+from backend.app.services.retrieval_provider import GdeltNewsProvider, LlmWebSearchProvider, RetrievalProvider
 
 logger = logging.getLogger(__name__)
 UTC = timezone.utc
@@ -98,7 +98,7 @@ class RetrievalService:
         if self.settings.retrieval_provider == "gdelt":
             return GdeltNewsProvider(settings=self.settings)
         if self.settings.uses_agent_retrieval:
-            return KimiWebSearchProvider(settings=self.settings)
+            return LlmWebSearchProvider(settings=self.settings)
         return None
 
     def retrieve_for_event(
@@ -517,7 +517,7 @@ class RetrievalService:
     def _llm_query_terms(self, event: NormalizedEvent):
         """Entity-focused search terms from the reasoner, or None to fall back.
 
-        Only fires on the agent+Kimi path; any failure degrades silently to the
+        Only fires on the agent+LLM retrieval path; any failure degrades silently to the
         rule-based query builder so the off+mock path is unchanged.
         """
         reasoner = self.agent_reasoner

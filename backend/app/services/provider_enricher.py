@@ -4,7 +4,7 @@ import re
 from typing import List, Optional, Tuple
 
 from backend.app.models.schemas import ClaimItem, NormalizedEvent
-from backend.app.services.kimi_provider import KimiProvider
+from backend.app.services.llm_provider import LlmStructuredProvider
 
 GENERIC_TITLE_MARKERS = ("待核实", "相关情况", "截图", "热搜", "网友热议")
 GENERIC_SUMMARY_MARKERS = ("引发关注", "有待核实", "仍待核实", "请以官方通报为准", "详情以官方通报为准")
@@ -112,8 +112,8 @@ def _choose_source_name(preferred: Optional[str], fallback: Optional[str]) -> Op
 
 
 class ProviderEnricher:
-    def __init__(self, provider: Optional[KimiProvider] = None) -> None:
-        self.provider = provider or KimiProvider()
+    def __init__(self, provider: Optional[LlmStructuredProvider] = None) -> None:
+        self.provider = provider or LlmStructuredProvider()
 
     def enrich(self, event: NormalizedEvent) -> Tuple[NormalizedEvent, Optional[List[ClaimItem]]]:
         if getattr(self.provider, "enabled", True) is False:

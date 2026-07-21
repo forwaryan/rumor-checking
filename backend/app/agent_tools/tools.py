@@ -12,7 +12,7 @@ from backend.app.services.analyze_pipeline import (
 )
 from backend.app.services.progress import emit_log, emit_stage
 
-# Provenance fallback reason: LLM synthesis was expected (Kimi enabled) but did
+# Provenance fallback reason: LLM synthesis was expected (LLM enabled) but did
 # not produce a grounded result, so the rule engine answered instead.
 LLM_SYNTHESIS_FALLBACK_REASON = "llm_synthesis_unavailable_rule_fallback"
 
@@ -346,7 +346,7 @@ def synthesize(ctx: ToolContext, state: AgentState) -> bool:
         stage_key="agent_synthesis",
         title="Agent 综合判断",
         status="running",
-        summary="正在让 Kimi 基于检索结果生成事件、claims、verdict 和 timeline。",
+        summary="正在让 LLM 基于检索结果生成事件、claims、verdict 和 timeline。",
         details=[f"enabled={ctx.agent_reasoner.enabled}"],
     )
     agent_synthesis = _synthesize_with_agent(

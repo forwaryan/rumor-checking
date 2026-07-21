@@ -22,7 +22,7 @@ const demoCases: DemoCaseSummary[] = [
   {
     id: "morningstar-layoff",
     title: "示例输入 / 裁员传闻追问",
-    description: "适合测试问题型输入是否能被 Kimi 正常收束。",
+    description: "适合测试问题型输入是否能被 LLM 正常收束。",
     input_type: "question",
     sample_input: "晨星生物已经宣布裁员40%了吗？",
     mode: "safe_mode",

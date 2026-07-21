@@ -17,7 +17,7 @@ from backend.app.services.progress import reset_progress_callback, set_progress_
 
 router = APIRouter()
 _STREAM_DONE = object()
-# Longest allowed silence on the stream. A single Kimi $web_search round can
+# Longest allowed silence on the stream. A single LLM web-search round can
 # block ~45s with no pipeline event; without a keepalive, proxies/browsers may
 # idle-timeout and drop the connection. Emit a heartbeat if the queue is quiet
 # this long so the NDJSON stream never goes silent.

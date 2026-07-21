@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from backend.app.core.config import get_settings
 from backend.app.main import create_app
 from backend.app.models.schemas import ClaimItem, EvidenceItem, ProviderAnalysis, ProviderEventDraft
-from backend.app.services.kimi_provider import KimiProvider
+from backend.app.services.llm_provider import LlmStructuredProvider
 from backend.app.services.url_content_extractor import UrlContentExtractor
 from backend.tests.conftest import load_eval_fixture
 
@@ -51,7 +51,7 @@ def _case_by_id(filename: str, case_id: str):
 @contextmanager
 def _provider_enabled_client(monkeypatch):
     monkeypatch.setenv("ANALYSIS_PROVIDER", "kimi")
-    monkeypatch.setenv("KIMI_API_KEY", "test-kimi-key")
+    monkeypatch.setenv("LLM_API_KEY", "test-llm-key")
     get_settings.cache_clear()
     try:
         app = create_app()
@@ -486,7 +486,7 @@ def test_provider_enrichment_updates_event_and_claims(monkeypatch):
             ],
         )
 
-    monkeypatch.setattr(KimiProvider, "analyze", fake_analyze)
+    monkeypatch.setattr(LlmStructuredProvider, "analyze", fake_analyze)
 
     with _provider_enabled_client(monkeypatch) as provider_client:
         response = provider_client.post(
@@ -528,7 +528,7 @@ def test_provider_mixed_claims_surface_true_false_split_and_answer_suggestions(m
             ],
         )
 
-    monkeypatch.setattr(KimiProvider, "analyze", fake_analyze)
+    monkeypatch.setattr(LlmStructuredProvider, "analyze", fake_analyze)
 
     mock_evidence = [
         EvidenceItem(
@@ -575,7 +575,7 @@ def test_provider_failures_fall_back_to_rule_pipeline(monkeypatch):
     def fake_request_completion(self, event):
         raise httpx.ReadTimeout("provider timeout")
 
-    monkeypatch.setattr(KimiProvider, "_request_completion", fake_request_completion)
+    monkeypatch.setattr(LlmStructuredProvider, "_request_completion", fake_request_completion)
     case = _case_by_id("input_cases.json", "I01")
 
     with _provider_enabled_client(monkeypatch) as provider_client:

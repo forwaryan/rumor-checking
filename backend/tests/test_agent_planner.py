@@ -121,7 +121,7 @@ def test_llm_planner_that_always_defers_matches_rule_planner():
 
 class _SynthesizeNowReasoner:
     """Enabled reasoner whose planner always picks synthesize; synthesize itself
-    returns None (no real Kimi), so the runner takes the rule fallback chain."""
+    returns None (no real LLM), so the runner takes the rule fallback chain."""
 
     enabled = True
 
