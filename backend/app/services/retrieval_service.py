@@ -386,7 +386,8 @@ class RetrievalService:
             self._enrich_result(item, spec=spec, provider_name=provider_name, retrieved_at=retrieved_at)
             for item in raw_results
         ]
-        canonical_results = merge_search_results(runtime_results)
+        relevant_results = self._filter_relevant_results(runtime_results)
+        canonical_results = merge_search_results(relevant_results)
         return RetrievalBundle(
             query=spec.query,
             matched_case_id="real_search",
@@ -464,58 +465,66 @@ class RetrievalService:
     def _filter_relevant_results(self, results: list[SearchResult]) -> list[SearchResult]:
         if len(results) <= 1:
             return results
-        filtered = [item for item in results if self._result_matches_query(item)]
+        filtered = [item for item in results if not self._is_noise_result(item)]
+        filtered = [item for item in filtered if self._result_matches_query(item)]
         return filtered or results
 
-    def _result_matches_query(self, result: SearchResult) -> bool:
-        query_terms = self._relevance_terms(result.query)
-        if not query_terms:
+    def _is_noise_result(self, result: SearchResult) -> bool:
+        title = result.title
+        title_lower = title.lower()
+        url = result.url.lower()
+        noise_title_patterns = (
+            "百度百科", "汉语", "拼音", "笔顺", "部首", "笔画",
+            "字典", "词典", "汉字", "解释", "组词", "地名",
+            "怎么读", "的意思", "的读音",
+        )
+        if any(p in title_lower for p in noise_title_patterns):
             return True
+        noise_domains = ("baike.baidu.com", "dict.", "zidian.", "hanyu.", "zdic.net", "guoxuedashi")
+        if any(d in url for d in noise_domains):
+            return True
+        if re.search(r"^《?[一-鿿]》?（", title):
+            return True
+        if re.search(r"^[一-鿿]（.{0,10}）", title):
+            return True
+        if re.search(r"^[一-鿿]{1,2}[,，、][一-鿿]{1,4}[,，、]", title):
+            return True
+        return False
+
+    def _result_matches_query(self, result: SearchResult) -> bool:
         raw_text = " ".join([result.title, result.snippet, result.source_name])
         text = self._normalize_query(raw_text)
         if any(marker in text for marker in ("未提及", "未涉及", "不涉及", "无关", "another", "unrelated")):
             return False
-        matched = [term for term in query_terms if term in text]
-        if matched and result.has_response_signal:
-            return True
-        if len(query_terms) <= 2:
-            return bool(matched)
-        return len(matched) >= 2
+        return True
 
     def _relevance_terms(self, text: str) -> list[str]:
         stopwords = {
-            "官方",
-            "回应",
-            "通报",
-            "说明",
-            "辟谣",
-            "用户提供文本",
-            "传闻",
-            "网传",
-            "热议",
-            "发酵",
-            "转发",
-            "相关",
-            "信息",
+            "官方", "回应", "通报", "说明", "辟谣", "用户提供文本",
+            "传闻", "网传", "热议", "发酵", "转发", "相关", "信息",
+            "开始", "已经", "而且", "可能", "到底", "是否", "是不是",
+            "了吗", "真的", "假的", "的吗", "是真",
         }
         terms: list[str] = []
-        for term in re.findall(r"[A-Za-z0-9%]{2,}|[\u4e00-\u9fff]{2,12}", text):
-            cleaned = term.strip()
-            if not cleaned or cleaned in stopwords or cleaned in terms:
-                continue
-            if re.fullmatch(r"[\u4e00-\u9fff]{5,12}", cleaned):
-                for marker in ("拼多多", "雄安", "新区", "招聘", "入住", "研发", "技术", "裁员", "脑出血", "死亡"):
-                    if marker in cleaned and marker not in terms:
-                        terms.append(marker)
-                if "死了" in cleaned and "死亡" not in terms:
-                    terms.append("死亡")
-                if "女网红" in cleaned and "女网红" not in terms:
-                    terms.append("女网红")
-                if cleaned not in terms:
-                    terms.append(cleaned)
-            else:
-                terms.append(cleaned)
-        return terms[:5]
+        # Split on spaces first, then extract CJK chunks
+        for segment in text.split():
+            for chunk in re.findall(r"[A-Za-z0-9%]{2,}|[一-鿿]+", segment):
+                if len(chunk) <= 1:
+                    continue
+                # For CJK, extract every 2-char bigram as a candidate term
+                if re.fullmatch(r"[一-鿿]+", chunk):
+                    for i in range(0, len(chunk) - 1):
+                        bigram = chunk[i:i+2]
+                        if bigram not in stopwords and bigram not in terms:
+                            terms.append(bigram)
+                            if len(terms) >= 8:
+                                return terms
+                else:
+                    if chunk not in stopwords and chunk not in terms:
+                        terms.append(chunk)
+                        if len(terms) >= 8:
+                            return terms
+        return terms
 
     def _llm_query_terms(self, event: NormalizedEvent):
         """Entity-focused search terms from the reasoner, or None to fall back.
