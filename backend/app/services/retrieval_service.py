@@ -24,6 +24,7 @@ from backend.app.services.retrieval_models import (
     infer_source_category,
     looks_like_repost,
 )
+from backend.app.services.playwright_search_provider import PlaywrightSearchProvider
 from backend.app.services.progress import emit_log, emit_retrieval
 from backend.app.services.retrieval_provider import GdeltNewsProvider, LlmWebSearchProvider, RetrievalProvider
 
@@ -97,6 +98,8 @@ class RetrievalService:
     def _build_provider(self) -> Optional[RetrievalProvider]:
         if self.settings.retrieval_provider == "gdelt":
             return GdeltNewsProvider(settings=self.settings)
+        if self.settings.retrieval_provider == "playwright":
+            return PlaywrightSearchProvider(settings=self.settings)
         if self.settings.uses_agent_retrieval:
             return LlmWebSearchProvider(settings=self.settings)
         return None
