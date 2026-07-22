@@ -1,10 +1,10 @@
-﻿import type { ReactNode } from "react";
+import type { ReactNode } from "react";
 import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Rumor Checking Workbench",
-  description: "Single-page experience shell for the rumor-checking V1 demo.",
+  title: "较真核查",
+  description: "输入一条消息，帮你判断真假",
 };
 
 interface RootLayoutProps {

@@ -1,111 +1,87 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AgentRunPanel } from "@/components/agent-run-panel";
-import { AnalysisLivePanel } from "@/components/analysis-live-panel";
-import { ClaimTable } from "@/components/claim-table";
-import { ContentCheckPanel } from "@/components/content-check-panel";
-import { EvidenceList } from "@/components/evidence-list";
-import { EventCard } from "@/components/event-card";
-import { InputPanel } from "@/components/input-panel";
-import { ReportOverviewPanel } from "@/components/report-overview-panel";
-import { RiskPanel } from "@/components/risk-panel";
-import { StatusBanner } from "@/components/status-banner";
-import { TimelinePanel } from "@/components/timeline-panel";
 import { analyzeReportStream, getHealth } from "@/lib/api-client";
 import { getLocalDemoCaseSummaries } from "@/lib/demo-cases";
-import { getStatusFromMode, validateInput } from "@/lib/report-utils";
+import { getStatusFromMode, validateInput, getVerdictLabel, formatConfidence, collectEvidence } from "@/lib/report-utils";
+import { getOverallCredibilityMeta } from "@/lib/report-high-score";
 import type {
   AnalysisLiveEvent,
   AnalysisStatus,
   AnalyzeRequest,
   DemoCaseSummary,
-  InputType,
   Report,
   ReportProvenanceState,
 } from "@/types/report";
 
 type BackendState = "checking" | "online" | "offline" | "degraded";
 
-interface LastRequest {
-  request: AnalyzeRequest;
-}
-
 function buildReportProvenance(report: Report): ReportProvenanceState {
   return report.provenance
-    ? {
-        sourceKind: report.provenance.source_type,
-        reportProvenance: report.provenance,
-      }
-    : {
-        sourceKind: "unknown",
-        fallbackReason: "missing_provenance",
-      };
+    ? { sourceKind: report.provenance.source_type, reportProvenance: report.provenance }
+    : { sourceKind: "unknown", fallbackReason: "missing_provenance" };
+}
+
+function getOverallVerdict(report: Report): string {
+  const supported = report.claim_results.filter(c => c.verdict === "supported").length;
+  const refuted = report.claim_results.filter(c => c.verdict === "refuted").length;
+  const insufficient = report.claim_results.filter(c => c.verdict === "insufficient").length;
+  if (refuted > 0 && refuted >= supported) return "refuted";
+  if (supported > 0 && supported > refuted) return "supported";
+  if (insufficient > 0) return "insufficient";
+  return "insufficient";
+}
+
+function getVerdictDisplayLabel(verdict: string): string {
+  switch (verdict) {
+    case "supported": return "基本属实";
+    case "refuted": return "不实信息";
+    case "insufficient": return "证据不足";
+    case "conflicting": return "各方矛盾";
+    default: return "待核查";
+  }
+}
+
+function getVerdictIcon(verdict: string): string {
+  switch (verdict) {
+    case "supported": return "✓";
+    case "refuted": return "✗";
+    case "insufficient": return "?";
+    case "conflicting": return "!";
+    default: return "·";
+  }
 }
 
 export function AnalyzePage() {
   const idleDemoCases = useMemo(() => getLocalDemoCaseSummaries(), []);
-  const [demoCases, setDemoCases] = useState<DemoCaseSummary[]>(idleDemoCases);
   const [inputValue, setInputValue] = useState("");
-  const [inputType, setInputType] = useState<InputType>("auto");
-  const [selectedDemoId, setSelectedDemoId] = useState<string | null>(null);
   const [status, setStatus] = useState<AnalysisStatus>("idle");
   const [report, setReport] = useState<Report | null>(null);
   const [reportProvenance, setReportProvenance] = useState<ReportProvenanceState | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [backendState, setBackendState] = useState<BackendState>("checking");
-  const [lastRequest, setLastRequest] = useState<LastRequest | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
-  const [analysisStartedAt, setAnalysisStartedAt] = useState<string | null>(null);
   const [liveEvents, setLiveEvents] = useState<AnalysisLiveEvent[]>([]);
+  const [lastQuery, setLastQuery] = useState("");
+
+  // Collapsible sections
+  const [claimsOpen, setClaimsOpen] = useState(true);
+  const [evidenceOpen, setEvidenceOpen] = useState(false);
+  const [timelineOpen, setTimelineOpen] = useState(false);
+  const [traceOpen, setTraceOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
-
-    async function hydrate() {
-      const healthResult = await getHealth().catch(() => ({ status: "error" as const }));
-
-      if (!active) {
-        return;
-      }
-
+    async function checkHealth() {
+      const result = await getHealth().catch(() => ({ status: "error" as const }));
+      if (!active) return;
       setBackendState(
-        healthResult.status === "ok"
-          ? "online"
-          : healthResult.status === "degraded"
-            ? "degraded"
-            : "offline",
+        result.status === "ok" ? "online" : result.status === "degraded" ? "degraded" : "offline",
       );
-      setDemoCases(idleDemoCases);
     }
-
-    void hydrate();
-
-    return () => {
-      active = false;
-    };
-  }, [idleDemoCases]);
-
-  function resetDraft() {
-    if (isStreaming) {
-      return;
-    }
-
-    setInputValue("");
-    setInputType("auto");
-    setSelectedDemoId(null);
-    setErrorMessage(null);
-    setLiveEvents([]);
-    setAnalysisStartedAt(null);
-    setStatus(report ? getStatusFromMode(report.mode) : "idle");
-  }
-
-  function selectDemo(demoCase: DemoCaseSummary) {
-    setSelectedDemoId(demoCase.id);
-    setInputType(demoCase.input_type);
-    setInputValue(demoCase.sample_input);
-    setErrorMessage(null);
-  }
+    void checkHealth();
+    return () => { active = false; };
+  }, []);
 
   function handleStreamEvent(event: AnalysisLiveEvent) {
     setLiveEvents((current) => [...current, event]);
@@ -115,23 +91,36 @@ export function AnalyzePage() {
     }
   }
 
-  async function executeSubmission(target: LastRequest) {
+  async function handleSubmit() {
+    const trimmed = inputValue.trim();
+    if (!trimmed) return;
+    const validation = validateInput(trimmed, "auto");
+    if (validation) {
+      setStatus("error");
+      setErrorMessage(validation);
+      return;
+    }
+
+    setLastQuery(trimmed);
     setIsStreaming(true);
     setStatus("submitting");
     setErrorMessage(null);
     setReport(null);
     setReportProvenance(null);
     setLiveEvents([]);
-    setAnalysisStartedAt(new Date().toISOString());
+    setClaimsOpen(true);
+    setEvidenceOpen(false);
+    setTimelineOpen(false);
+    setTraceOpen(false);
 
     try {
-      const nextReport = await analyzeReportStream(target.request, handleStreamEvent);
+      const request: AnalyzeRequest = { raw_input: trimmed, input_type: "auto" };
+      const nextReport = await analyzeReportStream(request, handleStreamEvent);
       setReport(nextReport);
       setReportProvenance(buildReportProvenance(nextReport));
       setStatus(getStatusFromMode(nextReport.mode));
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "请求失败，前端没有拿到可展示的分析结果。";
+      const message = error instanceof Error ? error.message : "请求失败";
       setReport(null);
       setReportProvenance(null);
       setStatus("error");
@@ -141,172 +130,255 @@ export function AnalyzePage() {
     }
   }
 
-  async function handleSubmit() {
-    const validation = validateInput(inputValue, inputType);
-    if (validation) {
-      setStatus("error");
-      setErrorMessage(validation);
-      return;
-    }
-
-    const nextRequest: LastRequest = {
-      request: {
-        raw_input: inputValue.trim(),
-        input_type: inputType,
-      },
-    };
-
-    setLastRequest(nextRequest);
-    await executeSubmission(nextRequest);
+  function handleReset() {
+    setInputValue("");
+    setStatus("idle");
+    setReport(null);
+    setReportProvenance(null);
+    setErrorMessage(null);
+    setLiveEvents([]);
+    setLastQuery("");
   }
 
-  async function retryLastRequest() {
-    if (!lastRequest || isStreaming) {
-      return;
-    }
-
-    await executeSubmission(lastRequest);
+  function selectExample(demo: DemoCaseSummary) {
+    setInputValue(demo.sample_input);
   }
+
+  const hasResult = report !== null;
+  const showResult = hasResult || status === "submitting" || status === "error";
+
+  // Idle: search page
+  if (!showResult) {
+    return (
+      <main className="app app--idle">
+        <div className="search-page">
+          <div className="search-page__brand">
+            <h1>较真核查</h1>
+            <p>输入你看到的消息，帮你判断真假</p>
+          </div>
+
+          <div className="search-box">
+            <textarea
+              className="search-box__input"
+              rows={1}
+              placeholder="粘贴一条消息、新闻标题或链接..."
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void handleSubmit();
+                }
+              }}
+            />
+            <button
+              className="search-box__submit"
+              onClick={() => void handleSubmit()}
+              disabled={isStreaming || !inputValue.trim()}
+            >
+              核查
+            </button>
+          </div>
+
+          <div className="examples">
+            {idleDemoCases.slice(0, 4).map((demo) => (
+              <button key={demo.id} className="examples__chip" onClick={() => selectExample(demo)}>
+                {demo.title}
+              </button>
+            ))}
+          </div>
+
+          <div className="search-page__status">
+            <span className={`status-dot status-dot--${backendState}`} />
+            <span>{backendState === "online" ? "服务正常" : backendState === "offline" ? "服务离线" : backendState === "degraded" ? "服务降级" : "检测中..."}</span>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  // Result page
+  const verdict = report ? getOverallVerdict(report) : null;
+  const overallMeta = report ? getOverallCredibilityMeta(report, reportProvenance) : null;
+  const evidence = report ? collectEvidence(report) : [];
+  const lastLiveEvent = liveEvents[liveEvents.length - 1];
 
   return (
-    <main className="page-shell">
-      <header className="masthead">
-        <div className="masthead__top">
-          <div className="masthead__intro">
-            <p className="eyebrow">Rumor Checking Desk</p>
-            <h1>较真工作台</h1>
-            <p>输入一句话、新闻正文或 URL，输出可信度、传播链、内容核查结论和风险边界。</p>
-          </div>
-          <div className="masthead__summary">
-            <p className="eyebrow">Input / Output</p>
-            <strong>先回答更像真、假，还是真假混杂，再拆开看内容核查与传播链两条主流程。</strong>
-            <p>现在点下“开始分析”后，页面会实时显示后端每个阶段在做什么、调了哪些 API、拿到了哪些结果。</p>
-          </div>
-        </div>
+    <main className="app app--result">
+      <div className="result-page">
+        <header className="result-header">
+          <button className="result-header__back" onClick={handleReset}>
+            &larr; 新查询
+          </button>
+          <span className="result-header__query">{lastQuery}</span>
+        </header>
 
-        <div className="masthead__workflow">
-          <article className="workflow-stage-card workflow-stage-card--done">
-            <span className="workflow-stage-card__step">01 输入</span>
-            <strong>收集线索</strong>
-            <p>支持问题、正文和 URL，先把人、事、时间与原帖线索收进来。</p>
-          </article>
-          <article className="workflow-stage-card workflow-stage-card--active">
-            <span className="workflow-stage-card__step">02 检索</span>
-            <strong>拉取公开信息</strong>
-            <p>实时展示 query plan、外部 API 调用和命中的网页结果。</p>
-          </article>
-          <article className="workflow-stage-card workflow-stage-card--active">
-            <span className="workflow-stage-card__step">03 判断</span>
-            <strong>Agent 与规则链</strong>
-            <p>展示消歧、claim 拆解、verdict 生成与时间线构建的执行过程。</p>
-          </article>
-          <article className="workflow-stage-card">
-            <span className="workflow-stage-card__step">04 输出</span>
-            <strong>返回报告</strong>
-            <p>最后输出总体可信度、风险边界与可追溯的执行记录。</p>
-          </article>
-        </div>
-      </header>
-
-      <div className="studio-main">
-        <section className="studio-section">
-          <div className="studio-section__marker">
-            <span>01</span>
-            <small>输入</small>
-          </div>
-          <div className="studio-section__body">
-            <div className="studio-section__header">
-              <p className="studio-section__eyebrow">Input</p>
-              <h2>输入待核查内容</h2>
-              <p className="studio-section__copy">支持一句话、新闻正文和 URL，提交后会实时展示后端执行轨迹。</p>
-            </div>
-            <InputPanel
-              value={inputValue}
-              inputType={inputType}
-              selectedDemoId={selectedDemoId}
-              demoCases={demoCases}
-              backendState={backendState}
-              isSubmitting={isStreaming}
-              onValueChange={(value) => {
-                setInputValue(value);
-                setSelectedDemoId(null);
-              }}
-              onInputTypeChange={(value) => {
-                setInputType(value);
-                setSelectedDemoId(null);
-              }}
-              onSelectDemo={selectDemo}
-              onSubmit={() => {
-                void handleSubmit();
-              }}
-              onReset={resetDraft}
-            />
-            <AnalysisLivePanel status={status} isStreaming={isStreaming} startedAt={analysisStartedAt} events={liveEvents} />
-            <AgentRunPanel events={liveEvents} />
-          </div>
-        </section>
-
-        <section className="studio-section">
-          <div className="studio-section__marker">
-            <span>02</span>
-            <small>结论</small>
-          </div>
-          <div className="studio-section__body">
-            <div className="studio-section__header">
-              <p className="studio-section__eyebrow">Summary</p>
-              <h2>先看结论和边界</h2>
-              <p className="studio-section__copy">这里展示最终模式、可信度、关键风险和来源说明。</p>
-            </div>
-            <StatusBanner
-              status={status}
-              report={report}
-              provenance={reportProvenance}
-              errorMessage={errorMessage}
-              onRetry={lastRequest ? () => void retryLastRequest() : null}
-            />
-            <div className="result-hero-grid">
-              <ReportOverviewPanel report={report} provenance={reportProvenance} />
-              <div className="result-side-stack">
-                <EventCard report={report} />
-                <RiskPanel report={report} provenance={reportProvenance} />
+        {/* Loading */}
+        {status === "submitting" && !report && (
+          <div className="loading-card">
+            <div className="loading-card__spinner" />
+            <div className="loading-card__text">正在联网核查...</div>
+            {lastLiveEvent && (
+              <div className="loading-card__step">
+                {lastLiveEvent.type === "api_call" ? lastLiveEvent.title
+                  : lastLiveEvent.type === "stage" ? lastLiveEvent.title
+                  : lastLiveEvent.type === "retrieval" ? `检索: ${lastLiveEvent.query}`
+                  : "处理中"}
               </div>
-            </div>
+            )}
           </div>
-        </section>
+        )}
 
-        <section className="studio-section">
-          <div className="studio-section__marker">
-            <span>03</span>
-            <small>核查</small>
+        {/* Error */}
+        {status === "error" && (
+          <div className="error-card">
+            <div className="error-card__title">核查失败</div>
+            <div className="error-card__message">{errorMessage || "请稍后重试"}</div>
+            <button className="error-card__retry" onClick={() => void handleSubmit()}>重试</button>
           </div>
-          <div className="studio-section__body">
-            <div className="studio-section__header">
-              <p className="studio-section__eyebrow">Content</p>
-              <h2>看句子里哪些部分站得住</h2>
-              <p className="studio-section__copy">把事实、观点、争议点和待补证项拆开展示，避免一刀切。</p>
-            </div>
-            <ContentCheckPanel report={report} />
-          </div>
-        </section>
+        )}
 
-        <section className="studio-section">
-          <div className="studio-section__marker">
-            <span>04</span>
-            <small>证据</small>
-          </div>
-          <div className="studio-section__body">
-            <div className="studio-section__header">
-              <p className="studio-section__eyebrow">Evidence</p>
-              <h2>最后看传播过程和证据</h2>
-              <p className="studio-section__copy">时间线解释它如何传播，claim 与证据列表解释为什么这么判断。</p>
+        {/* Verdict */}
+        {report && verdict && (
+          <div className={`verdict-card verdict-card--${verdict}`}>
+            <div className={`verdict-card__label verdict-card__label--${verdict}`}>
+              <span>{getVerdictIcon(verdict)}</span>
+              <span>{getVerdictDisplayLabel(verdict)}</span>
             </div>
-            <TimelinePanel report={report} />
-            <div className="evidence-stage-grid">
-              <ClaimTable report={report} />
-              <EvidenceList report={report} />
+            <div className="verdict-card__summary">{report.final_summary}</div>
+            {overallMeta?.summary && (
+              <div className="verdict-card__detail">{overallMeta.summary}</div>
+            )}
+            <div className="verdict-card__meta">
+              <span className="meta-tag">证据 {evidence.length} 条</span>
+              <span className="meta-tag">核查点 {report.claim_results.length} 个</span>
+              {report.timeline.length > 0 && <span className="meta-tag">时间线 {report.timeline.length} 节点</span>}
+              <span className="meta-tag">
+                {report.provenance?.evidence_source === "retrieval_live" ? "实时检索" : "模拟数据"}
+              </span>
             </div>
           </div>
-        </section>
+        )}
+
+        {/* Claims */}
+        {report && report.claim_results.length > 0 && (
+          <div className="section-card">
+            <div className="section-card__header" onClick={() => setClaimsOpen(!claimsOpen)}>
+              <span className="section-card__title">
+                逐条核查
+                <span className="section-card__badge">{report.claim_results.length}</span>
+              </span>
+              <span className={`section-card__arrow${claimsOpen ? " section-card__arrow--open" : ""}`}>&#9660;</span>
+            </div>
+            {claimsOpen && (
+              <div className="section-card__body">
+                <div className="claim-list">
+                  {report.claim_results.map((claim, i) => (
+                    <div key={`${claim.claim}-${i}`} className={`claim-item claim-item--${claim.verdict}`}>
+                      <div className="claim-item__text">{claim.claim}</div>
+                      <span className={`claim-item__verdict claim-item__verdict--${claim.verdict}`}>
+                        {getVerdictLabel(claim.verdict)} · {formatConfidence(claim.confidence)}
+                      </span>
+                      {claim.notes && <div className="claim-item__notes">{claim.notes}</div>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Evidence */}
+        {report && evidence.length > 0 && (
+          <div className="section-card">
+            <div className="section-card__header" onClick={() => setEvidenceOpen(!evidenceOpen)}>
+              <span className="section-card__title">
+                证据来源
+                <span className="section-card__badge">{evidence.length}</span>
+              </span>
+              <span className={`section-card__arrow${evidenceOpen ? " section-card__arrow--open" : ""}`}>&#9660;</span>
+            </div>
+            {evidenceOpen && (
+              <div className="section-card__body">
+                {evidence.map((item, i) => (
+                  <div key={`${item.url}-${i}`} className="evidence-item">
+                    <div className="evidence-item__source">{item.source_name} · {item.source_tier}</div>
+                    <div className="evidence-item__title">
+                      <a href={item.url} target="_blank" rel="noreferrer">{item.title}</a>
+                    </div>
+                    <div className="evidence-item__snippet">{item.snippet}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Timeline */}
+        {report && report.timeline.length > 0 && (
+          <div className="section-card">
+            <div className="section-card__header" onClick={() => setTimelineOpen(!timelineOpen)}>
+              <span className="section-card__title">
+                传播时间线
+                <span className="section-card__badge">{report.timeline.length}</span>
+              </span>
+              <span className={`section-card__arrow${timelineOpen ? " section-card__arrow--open" : ""}`}>&#9660;</span>
+            </div>
+            {timelineOpen && (
+              <div className="section-card__body">
+                <div className="timeline">
+                  {report.timeline.map((node, i) => (
+                    <div key={`${node.url}-${i}`} className={`timeline__node timeline__node--${node.node_type}`}>
+                      <div className="timeline__node-title">{node.title}</div>
+                      <div className="timeline__node-meta">{node.source_name} · {node.published_at || "时间未知"}</div>
+                      <div className="timeline__node-summary">{node.summary}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Trace (developer view) */}
+        {liveEvents.length > 0 && (
+          <div className="trace-section">
+            <button className="trace-toggle" onClick={() => setTraceOpen(!traceOpen)}>
+              <span>{traceOpen ? "▼" : "▶"}</span>
+              <span>执行过程 ({liveEvents.length} 步)</span>
+            </button>
+            {traceOpen && (
+              <div className="trace-list">
+                {liveEvents.map((event, i) => {
+                  const title = event.type === "api_call" ? event.title
+                    : event.type === "stage" ? event.title
+                    : event.type === "retrieval" ? `检索: ${event.query}`
+                    : event.type === "report" ? "报告已生成"
+                    : event.type === "session" ? "任务开始"
+                    : event.type === "error" ? `错误: ${event.message}`
+                    : event.type === "complete" ? "完成"
+                    : event.type === "log" ? event.title
+                    : "事件";
+                  const eventStatus = event.type === "api_call" ? event.status
+                    : event.type === "stage" ? event.status
+                    : event.type === "error" ? "error"
+                    : "completed";
+                  return (
+                    <div key={`trace-${i}`} className="trace-item">
+                      <div className={`trace-item__status trace-item__status--${eventStatus}`} />
+                      <div className="trace-item__body">
+                        <div className="trace-item__title">{title}</div>
+                        <div className="trace-item__detail">
+                          {event.type === "api_call" ? event.summary : event.type === "stage" ? event.summary : ""}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </main>
   );
