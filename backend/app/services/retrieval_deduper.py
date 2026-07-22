@@ -85,7 +85,7 @@ def canonical_sort_key(item: SearchResult, group_items: list[SearchResult]) -> t
         item.tier_weight,
         explicit_targets,
         keep_original_bonus,
-        -item.published_dt.timestamp(),
+        -item.published_dt.timestamp() if item.published_dt else 0,
     )
 
 
@@ -105,6 +105,8 @@ def classify_relation(left: SearchResult, right: SearchResult) -> Optional[str]:
             or right.is_aggregator_source
         )
         return REPOST_LABEL if is_repost else DUPLICATE_LABEL
+    if not left.published_at or not right.published_at:
+        return None
     if left.published_at[:10] != right.published_at[:10]:
         return None
     if titles_overlap(left.title, right.title):

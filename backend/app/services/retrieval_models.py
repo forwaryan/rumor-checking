@@ -169,7 +169,9 @@ class SearchResult:
         return self.canonical_result_id or self.result_id
 
     @property
-    def published_dt(self) -> datetime:
+    def published_dt(self) -> Optional[datetime]:
+        if not self.published_at:
+            return None
         return datetime.fromisoformat(self.published_at)
 
     @property

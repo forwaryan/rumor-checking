@@ -20,26 +20,6 @@ logger = logging.getLogger(__name__)
 _BAIDU_URL = "https://www.baidu.com/s?wd={query}&rn={count}"
 _BING_URL = "https://cn.bing.com/search?q={query}&count={count}"
 
-_BROWSER = None
-_BROWSER_LOCK = None
-
-
-def _get_lock():
-    global _BROWSER_LOCK
-    if _BROWSER_LOCK is None:
-        import threading
-        _BROWSER_LOCK = threading.Lock()
-    return _BROWSER_LOCK
-
-
-def _get_browser():
-    global _BROWSER
-    if _BROWSER is None:
-        from playwright.sync_api import sync_playwright
-        pw = sync_playwright().start()
-        _BROWSER = pw.chromium.launch(headless=True)
-    return _BROWSER
-
 
 def _source_name_from_url(url: str) -> str:
     hostname = urlparse(url).netloc.lower()
@@ -141,23 +121,26 @@ class PlaywrightSearchProvider:
             return []
 
     def _fetch_page(self, url: str) -> str:
-        with _get_lock():
-            browser = _get_browser()
-        context = browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
-            locale="zh-CN",
+        import httpx
+        response = httpx.get(
+            url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                "Accept-Encoding": "gzip, deflate",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
+            },
+            timeout=15.0,
+            follow_redirects=True,
         )
-        page = context.new_page()
-        try:
-            page.goto(url, wait_until="domcontentloaded", timeout=15000)
-            page.wait_for_timeout(1500)
-            return page.content()
-        finally:
-            context.close()
+        response.raise_for_status()
+        return response.text
 
     def _parse_baidu(self, query_text: str, html: str) -> List[SearchResult]:
         from html.parser import HTMLParser
