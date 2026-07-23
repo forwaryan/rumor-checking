@@ -566,7 +566,38 @@ class RetrievalService:
         text = self._normalize_query(raw_text)
         if any(marker in text for marker in ("未提及", "未涉及", "不涉及", "无关", "another", "unrelated")):
             return False
+
+        # A navigational brand page (homepage / section index like pinduoduo.com/)
+        # matches only the dominant entity term and none of the event-specific ones,
+        # so it is not evidence about the claimed event. Drop it ONLY when it is both
+        # navigational AND fails to share query terms beyond that single entity.
+        if result.is_navigational:
+            query_terms = self._relevance_terms(self._normalize_query(result.query or ""))
+            if len(query_terms) >= 2:
+                haystack = self._normalize_query(" ".join([result.title, result.snippet]))
+                matched = [term for term in query_terms if term in haystack]
+                if not self._has_distinct_topic_match(matched):
+                    return False
         return True
+
+    def _has_distinct_topic_match(self, matched_terms: list[str]) -> bool:
+        """True when matched terms cover 2+ *distinct* concepts, not just multiple
+        adjacent bigrams of a single word. "拼多"+"多多" both come from 拼多多 and
+        count as one concept; "雄安"+"研发" are two. Merge overlapping bigrams
+        (share a boundary char) into one concept before counting."""
+        if len(matched_terms) < 2:
+            return len(matched_terms) >= 2
+        concepts = 0
+        prev: str | None = None
+        for term in matched_terms:
+            # Bigrams from the same contiguous word overlap by one char
+            # (拼多 -> 多多: prev[-1] == term[0]).
+            if prev is not None and len(prev) >= 2 and len(term) >= 2 and prev[-1] == term[0]:
+                prev = term
+                continue
+            concepts += 1
+            prev = term
+        return concepts >= 2
 
     def _relevance_terms(self, text: str) -> list[str]:
         stopwords = {

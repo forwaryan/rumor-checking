@@ -530,6 +530,66 @@ def test_retrieval_service_filters_obviously_off_topic_canonical_hits(tmp_path: 
     assert "off-topic-1" not in canonical_ids
 
 
+def test_retrieval_service_drops_navigational_brand_homepage(tmp_path: Path):
+    # A search for "拼多多雄安买楼" returns the pinduoduo homepage / batch platform,
+    # which only match the brand term (拼多多) and none of the event terms
+    # (雄安/购买/研发). These are navigational pages, not evidence — must be dropped,
+    # while a real article about the event is kept.
+    event = NormalizedEvent(
+        title="拼多多在雄安买了三栋楼招了5000研发人员",
+        summary="拼多多在雄安买了三栋楼招了5000研发人员",
+        keywords=[],
+        input_type="text_news",
+        raw_input="拼多多在雄安买了三栋楼招了5000研发人员",
+    )
+    provider = FakeProvider(
+        results=[
+            _make_result(
+                result_id="homepage",
+                title="拼多多 新电商开创者",
+                snippet="微信扫码免费领取拼多多店铺 联系我们 客服热线。",
+                published_at="2026-07-20T09:00:00+08:00",
+                source_name="www.pinduoduo.com",
+                source_tier="C",
+                url="https://www.pinduoduo.com/",
+            ),
+            _make_result(
+                result_id="batch",
+                title="拼多多批发 官方采购批发平台",
+                snippet="拼多多官方旗下采购批发平台，采购就上拼多多批发。",
+                published_at="2026-07-19T09:00:00+08:00",
+                source_name="pifa.pinduoduo.com",
+                source_tier="C",
+                url="https://pifa.pinduoduo.com/",
+            ),
+            _make_result(
+                result_id="real-article",
+                title="拼多多在雄安设立研发中心并招聘5000人",
+                snippet="拼多多宣布在雄安新区购置办公楼并招聘研发人员。",
+                published_at="2026-07-21T09:00:00+08:00",
+                source_name="finance.example.com",
+                source_tier="B",
+                url="https://finance.example.com/pdd-xiongan-rd",
+            ),
+        ]
+    )
+    service = RetrievalService(
+        settings=replace(get_settings(), retrieval_provider="gdelt", retrieval_max_results=5),
+        provider=provider,
+        cache=RetrievalCache(cache_root=tmp_path, ttl_seconds=3600),
+    )
+
+    bundle = service.retrieve_for_event(
+        event,
+        request_context={"force_retrieval_query": "拼多多 雄安 购买 三栋楼 研发 5000 官方"},
+    )
+
+    canonical_ids = {item.result_id for item in bundle.canonical_results}
+    assert "real-article" in canonical_ids
+    assert "homepage" not in canonical_ids
+    assert "batch" not in canonical_ids
+
+
 def test_question_only_pipeline_uses_real_retrieval_bundle(tmp_path: Path):
     provider = FakeProvider(
         results=[
