@@ -85,6 +85,19 @@ export function AnalyzePage() {
     return () => { active = false; };
   }, []);
 
+  // Restore from a shared/refreshed URL: ?q=<query>&mode=<fast|deep> re-runs the
+  // same check on load. Runs once on mount.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get("q")?.trim();
+    if (!q) return;
+    const mode = params.get("mode") === "deep" ? "deep" : "fast";
+    setInputValue(q);
+    void handleSubmit(mode, q);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function handleStreamEvent(event: AnalysisLiveEvent) {
     setLiveEvents((current) => [...current, event]);
     if (event.type === "report") {
@@ -93,14 +106,23 @@ export function AnalyzePage() {
     }
   }
 
-  async function handleSubmit(mode: "fast" | "deep" = "fast") {
-    const trimmed = inputValue.trim() || lastQuery.trim();
+  async function handleSubmit(mode: "fast" | "deep" = "fast", queryOverride?: string) {
+    const trimmed = (queryOverride ?? (inputValue.trim() || lastQuery.trim())).trim();
     if (!trimmed) return;
     const validation = validateInput(trimmed, "auto");
     if (validation) {
       setStatus("error");
       setErrorMessage(validation);
       return;
+    }
+
+    // Reflect the query in the URL so a refresh/share re-runs the same check.
+    // We store the query + mode, not the result — deep re-runs take minutes.
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams();
+      params.set("q", trimmed);
+      if (mode === "deep") params.set("mode", "deep");
+      window.history.replaceState(null, "", `?${params.toString()}`);
     }
 
     setLastQuery(trimmed);
@@ -145,6 +167,9 @@ export function AnalyzePage() {
     setErrorMessage(null);
     setLiveEvents([]);
     setLastQuery("");
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", window.location.pathname);
+    }
   }
 
   function selectExample(demo: DemoCaseSummary) {
