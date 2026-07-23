@@ -152,6 +152,7 @@ def test_investigation_gate_skipped_when_disabled():
     original = _weak_bundle(query="q0")
 
     result = pipeline._run_investigation(
+        deep_mode=True,
         request=AnalyzeRequest(raw_input="x"),
         event=_event(),
         retrieval_bundle=original,
@@ -170,6 +171,7 @@ def test_investigation_gate_adopts_stronger_bundle(monkeypatch):
     pipeline.retriever = retriever
 
     result = pipeline._run_investigation(
+        deep_mode=True,
         request=AnalyzeRequest(raw_input="x"),
         event=_event(),
         retrieval_bundle=_weak_bundle(query="q0"),
@@ -192,6 +194,7 @@ def test_investigation_gate_keeps_original_when_not_better(monkeypatch):
 
     original = _weak_bundle(query="q0")
     result = pipeline._run_investigation(
+        deep_mode=True,
         request=AnalyzeRequest(raw_input="x"),
         event=_event(),
         retrieval_bundle=original,
@@ -211,6 +214,7 @@ def test_investigation_gate_stops_when_planner_says_stop(monkeypatch):
 
     original = _weak_bundle(query="q0")
     result = pipeline._run_investigation(
+        deep_mode=True,
         request=AnalyzeRequest(raw_input="x"),
         event=_event(),
         retrieval_bundle=original,
@@ -234,6 +238,7 @@ def test_investigation_gate_respects_max_rounds(monkeypatch):
     pipeline.retriever = retriever
 
     pipeline._run_investigation(
+        deep_mode=True,
         request=AnalyzeRequest(raw_input="x"),
         event=_event(),
         retrieval_bundle=_weak_bundle(query="q0"),

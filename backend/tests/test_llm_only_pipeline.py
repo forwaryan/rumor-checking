@@ -61,7 +61,7 @@ def test_analyze_request_falls_back_to_rule_claims_when_llm_returns_no_claims(mo
     with TestClient(app, raise_server_exceptions=False) as client:
         response = client.post(
             "/api/v1/analyze",
-            json={"raw_input": "最近有个女网红脑出血死了真的假的？", "input_type": "question"},
+            json={"raw_input": "最近有个女网红脑出血死了真的假的？", "input_type": "question", "request_context": {"mode": "deep"}},
         )
 
     assert response.status_code == 200
@@ -126,7 +126,7 @@ def test_analyze_request_uses_llm_only_path(monkeypatch):
     with TestClient(app, raise_server_exceptions=False) as client:
         response = client.post(
             "/api/v1/analyze",
-            json={"raw_input": "最近有个女网红脑出血死了真的假的？", "input_type": "question"},
+            json={"raw_input": "最近有个女网红脑出血死了真的假的？", "input_type": "question", "request_context": {"mode": "deep"}},
         )
 
     assert response.status_code == 200

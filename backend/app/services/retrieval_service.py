@@ -664,7 +664,8 @@ class RetrievalService:
         # the primary/keyword query with entity-focused terms it extracts. Falls
         # back to the rule-based queries above when disabled/unparseable.
         alias_query = ""
-        llm_terms = self._llm_query_terms(event)
+        deep_mode = str(request_context.get("mode", "")).strip().lower() == "deep"
+        llm_terms = self._llm_query_terms(event) if deep_mode else None
         if llm_terms is not None:
             primary_query = llm_terms.primary_query
             keyword_query = llm_terms.primary_query

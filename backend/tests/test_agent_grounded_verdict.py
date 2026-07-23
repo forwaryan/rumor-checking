@@ -235,7 +235,7 @@ def test_llm_enabled_synthesis_fallback_is_flagged_in_provenance(monkeypatch):
     pipeline = AnalyzePipeline()
     pipeline.agent_reasoner = _FailingReasoner()
 
-    report = pipeline.analyze(AnalyzeRequest(raw_input=_ACID_INPUT, input_type="text"))
+    report = pipeline.analyze(AnalyzeRequest(raw_input=_ACID_INPUT, input_type="text", request_context={"mode": "deep"}))
 
     assert report.provenance.claim_source == "rule"
     assert LLM_SYNTHESIS_FALLBACK_REASON in report.provenance.fallback_reasons

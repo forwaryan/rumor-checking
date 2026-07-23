@@ -494,6 +494,7 @@ def test_provider_enrichment_updates_event_and_claims(monkeypatch):
             json={
                 "raw_input": "省市场监管部门正核查某品牌奶制品抽检情况，品牌方随后回应并说明整改。",
                 "input_type": "text",
+                "request_context": {"mode": "deep"},
             },
         )
 
@@ -558,6 +559,7 @@ def test_provider_mixed_claims_surface_true_false_split_and_answer_suggestions(m
                 "raw_input": "网传某女主播脑出血去世，平台还封锁消息。",
                 "input_type": "text",
                 "mock_evidence": [item.model_dump(mode="json") for item in mock_evidence],
+                "request_context": {"mode": "deep"},
             },
         )
 
@@ -569,6 +571,46 @@ def test_provider_mixed_claims_surface_true_false_split_and_answer_suggestions(m
     assert any(item["claim"] == "当事人已经去世。" for item in report["content_check"]["likely_false"])
     assert any(item["claim"] == "平台封锁了消息。" for item in report["content_check"]["likely_false"])
     assert any("半真半假" in item["answer"] or "更像真的部分" in item["answer"] for item in report["content_check"]["possible_answers"])
+
+
+def test_fast_mode_skips_llm_enrichment_while_deep_mode_uses_it(monkeypatch):
+    # Two-tier contract: with the provider fully enabled, a fast-mode request
+    # (the default) must NOT touch the LLM, while a deep-mode request must.
+    calls = {"n": 0}
+
+    def counting_analyze(self, event):
+        calls["n"] += 1
+        return ProviderAnalysis(
+            event=ProviderEventDraft(
+                title="省市场监管局核查品牌奶制品抽检情况",
+                summary="省市场监管局已介入核查。",
+                keywords=["抽检"],
+                source_name="省市场监管局",
+                published_at="2026-03-08",
+            ),
+            claims=[ClaimItem(claim="省市场监管局已经介入核查。", claim_type="fact")],
+        )
+
+    monkeypatch.setattr(LlmStructuredProvider, "analyze", counting_analyze)
+    body = {
+        "raw_input": "省市场监管部门正核查某品牌奶制品抽检情况，品牌方随后回应并说明整改。",
+        "input_type": "text",
+    }
+
+    with _provider_enabled_client(monkeypatch) as provider_client:
+        fast = provider_client.post("/api/v1/analyze", json={**body, "request_context": {"mode": "fast"}})
+        assert fast.status_code == 200
+        assert calls["n"] == 0
+        assert fast.json()["provenance"]["provider_used"] is False
+
+        default = provider_client.post("/api/v1/analyze", json=body)
+        assert default.status_code == 200
+        assert calls["n"] == 0  # default is fast
+
+        deep = provider_client.post("/api/v1/analyze", json={**body, "request_context": {"mode": "deep"}})
+        assert deep.status_code == 200
+        assert calls["n"] == 1
+        assert deep.json()["provenance"]["provider_used"] is True
 
 
 def test_provider_failures_fall_back_to_rule_pipeline(monkeypatch):

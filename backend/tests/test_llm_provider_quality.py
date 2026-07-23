@@ -176,6 +176,7 @@ def test_api_provider_enabled_surfaces_more_helpful_output_than_off(monkeypatch,
         json={
             "raw_input": case["raw_input"],
             "input_type": case["input_type"],
+            "request_context": {"mode": "deep"},
         },
     )
     assert on_response.status_code == 200

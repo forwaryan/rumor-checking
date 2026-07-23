@@ -168,6 +168,7 @@ def test_pipeline_prefers_agent_synthesis_over_rule_judgment(monkeypatch, tmp_pa
         AnalyzeRequest(
             raw_input="最近有个女网红脑出血死了真的假的？",
             input_type="question",
+            request_context={"mode": "deep"},
         )
     )
 

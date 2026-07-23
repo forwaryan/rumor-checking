@@ -40,7 +40,9 @@ class AnalyzePipeline:
         if request.request_context.get("force_error"):
             raise RuntimeError("forced_error_for_testing")
 
-        if self.settings.agent_orchestrator_enabled:
+        deep_mode = self._is_deep_mode(request)
+
+        if deep_mode and self.settings.agent_orchestrator_enabled:
             report = self._run_agent_orchestrator(request)
             if report is not None:
                 return report
@@ -88,7 +90,7 @@ class AnalyzePipeline:
             summary="正在判断这次输入是否能稳定锚定到单一事件。",
             details=[f"question_only={normalized_event.input_type == 'question_only'}"],
         )
-        question_resolution = self._resolve_question(event=normalized_event, retrieval_bundle=initial_retrieval_bundle)
+        question_resolution = self._resolve_question(event=normalized_event, retrieval_bundle=initial_retrieval_bundle, deep_mode=deep_mode)
         resolved_event = question_resolution.event
         resolution_status = "skipped" if normalized_event.input_type != "question_only" else "completed"
         resolution_summary = "输入不是纯问题，沿用当前事件草稿。" if resolution_status == "skipped" else "问题消歧已完成。"
@@ -136,6 +138,7 @@ class AnalyzePipeline:
             request=request,
             event=resolved_event,
             retrieval_bundle=retrieval_bundle,
+            deep_mode=deep_mode,
         )
 
         emit_stage(
@@ -149,6 +152,7 @@ class AnalyzePipeline:
             request=request,
             event=resolved_event,
             retrieval_bundle=retrieval_bundle,
+            deep_mode=deep_mode,
         )
         if agent_synthesis is not None:
             event = agent_synthesis.event
@@ -184,10 +188,16 @@ class AnalyzePipeline:
                 details=[],
             )
             try:
-                event, provider_claims = self.provider_enricher.enrich(resolved_event)
-                provider_status = "completed"
-                provider_summary = "Provider enrichment 已返回结构化事件草稿。"
-                provider_details = _event_details(event)
+                if deep_mode:
+                    event, provider_claims = self.provider_enricher.enrich(resolved_event)
+                    provider_status = "completed"
+                    provider_summary = "Provider enrichment 已返回结构化事件草稿。"
+                    provider_details = _event_details(event)
+                else:
+                    event, provider_claims = resolved_event, None
+                    provider_status = "skipped"
+                    provider_summary = "快速模式跳过 LLM 结构化补全，使用规则事件草稿。"
+                    provider_details = _event_details(event)
             except Exception as exc:
                 event, provider_claims = resolved_event, None
                 provider_status = "warning"
@@ -328,23 +338,35 @@ class AnalyzePipeline:
         )
         return final_report
 
-    def _resolve_question(self, *, event, retrieval_bundle):
-        try:
-            agent_resolution = self.agent_reasoner.resolve_question(event=event, retrieval_bundle=retrieval_bundle)
-        except Exception as exc:
-            emit_log(
-                stage_key="question_resolution",
-                level="warning",
-                title="Agent 消歧失败",
-                summary="Agent question resolution 抛错，退回规则消歧。",
-                details=[f"error_type={exc.__class__.__name__}"],
-            )
-            agent_resolution = None
-        if agent_resolution is not None:
-            return agent_resolution
+    def _is_deep_mode(self, request: AnalyzeRequest) -> bool:
+        """Two-tier routing: 'fast' (default) forces the zero-LLM rule path so
+        real users get a sub-second grounded answer; 'deep' opts into the slower
+        LLM/agent path. Unknown values fall back to fast."""
+        mode = request.request_context.get("mode")
+        if isinstance(mode, str):
+            return mode.strip().lower() == "deep"
+        return False
+
+    def _resolve_question(self, *, event, retrieval_bundle, deep_mode: bool):
+        if deep_mode:
+            try:
+                agent_resolution = self.agent_reasoner.resolve_question(event=event, retrieval_bundle=retrieval_bundle)
+            except Exception as exc:
+                emit_log(
+                    stage_key="question_resolution",
+                    level="warning",
+                    title="Agent 消歧失败",
+                    summary="Agent question resolution 抛错，退回规则消歧。",
+                    details=[f"error_type={exc.__class__.__name__}"],
+                )
+                agent_resolution = None
+            if agent_resolution is not None:
+                return agent_resolution
         return self.question_resolver.resolve(event=event, retrieval_bundle=retrieval_bundle)
 
-    def _synthesize_with_agent(self, *, request, event, retrieval_bundle):
+    def _synthesize_with_agent(self, *, request, event, retrieval_bundle, deep_mode: bool):
+        if not deep_mode:
+            return None
         try:
             return self.agent_reasoner.synthesize(
                 request=request,
@@ -402,7 +424,9 @@ class AnalyzePipeline:
             )
             return None
 
-    def _run_investigation(self, *, request, event, retrieval_bundle):
+    def _run_investigation(self, *, request, event, retrieval_bundle, deep_mode: bool):
+        if not deep_mode:
+            return retrieval_bundle
         if not self.settings.lightweight_agent_ready or not self.agent_reasoner.enabled:
             return retrieval_bundle
         if retrieval_bundle is None:
