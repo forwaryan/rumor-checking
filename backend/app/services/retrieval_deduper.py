@@ -146,5 +146,6 @@ def compact_text(text: str) -> str:
     return re.sub(r"\s+", "", text).lower()
 
 
-def chronological_sort_key(item: SearchResult) -> tuple[str, int, str]:
-    return (item.effective_published_at, -item.tier_weight, item.result_id)
+def chronological_sort_key(item: SearchResult) -> tuple[int, str, int, str]:
+    # Dated results sort before undated ones (which otherwise pose as 1970).
+    return (item.undated_sort_flag, item.effective_published_at, -item.tier_weight, item.result_id)

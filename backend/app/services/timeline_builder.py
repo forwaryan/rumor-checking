@@ -132,6 +132,7 @@ class TimelineBuilder:
             return sorted(
                 rumor_candidates,
                 key=lambda item: (
+                    item.undated_sort_flag,
                     item.effective_published_at,
                     0 if not item.is_aggregator_source else 1,
                     -self._query_overlap(item, query),
@@ -147,6 +148,7 @@ class TimelineBuilder:
             return sorted(
                 authoritative_candidates,
                 key=lambda item: (
+                    item.undated_sort_flag,
                     item.effective_published_at,
                     0 if item.is_official_source else 1,
                     -item.tier_weight,
@@ -379,5 +381,7 @@ class TimelineBuilder:
         haystack = f"{result.title} {result.snippet} {result.source_name}".lower()
         return any(keyword.lower() in haystack for keyword in keywords)
 
-    def _sort_key(self, result: SearchResult) -> tuple[str, int, str]:
-        return (result.effective_published_at, -result.tier_weight, result.result_id)
+    def _sort_key(self, result: SearchResult) -> tuple[int, str, int, str]:
+        # Undated hits sort after dated ones so they cannot masquerade as the
+        # earliest event (origin); within each group, ascending by date.
+        return (result.undated_sort_flag, result.effective_published_at, -result.tier_weight, result.result_id)

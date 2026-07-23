@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
 from urllib.parse import urlparse
 
@@ -10,8 +10,11 @@ from backend.app.services.contract_utils import ensure_datetime_string
 
 TIER_WEIGHTS = {"S": 4, "A": 3, "B": 2, "C": 1}
 
-# Fixed minimum used to order dateless SERP hits without crashing datetime comparisons.
-_DATELESS_SENTINEL = datetime(1970, 1, 1)
+# Fixed minimum used to order dateless SERP hits without crashing datetime
+# comparisons. Timezone-aware (+08:00) to match real published_dt values, which
+# are offset-aware — a naive sentinel would raise on `naive < aware` comparisons.
+_SHANGHAI_TZ = timezone(timedelta(hours=8))
+_DATELESS_SENTINEL = datetime(1970, 1, 1, tzinfo=_SHANGHAI_TZ)
 _DATELESS_SENTINEL_ISO = "1970-01-01T00:00:00+08:00"
 
 OFFICIAL_HOST_MARKERS = ("gov.cn", ".gov", "police", "court", "edu.cn", "hospital", "school")
@@ -177,12 +180,21 @@ class SearchResult:
     def published_dt(self) -> Optional[datetime]:
         if not self.published_at:
             return None
-        return datetime.fromisoformat(self.published_at)
+        try:
+            parsed = datetime.fromisoformat(self.published_at)
+        except ValueError:
+            return None
+        # Normalize to tz-aware so comparisons with other results / the dateless
+        # sentinel never mix naive and aware datetimes (which raises TypeError).
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=_SHANGHAI_TZ)
+        return parsed
 
     @property
     def effective_published_dt(self) -> datetime:
         # Live SERP hits often carry no date; fall back to a fixed minimum so
-        # chronological comparisons order dateless hits first instead of crashing.
+        # chronological comparisons never crash. Pair with undated_sort_flag in
+        # sort keys so undated hits sort AFTER dated ones, not before.
         return self.published_dt or _DATELESS_SENTINEL
 
     @property
@@ -190,6 +202,17 @@ class SearchResult:
         # String counterpart to effective_published_dt for [:10] day-bucketing;
         # dateless hits share a single sentinel day rather than crashing on None.
         return self.published_at or _DATELESS_SENTINEL_ISO
+
+    @property
+    def has_published_date(self) -> bool:
+        return self.published_dt is not None
+
+    @property
+    def undated_sort_flag(self) -> int:
+        # 0 for dated, 1 for undated → in an ascending sort, dated results come
+        # first and undated ones sort last (instead of masquerading as 1970 and
+        # winning "earliest / origin"). Use as the leading element of a sort key.
+        return 0 if self.published_dt is not None else 1
 
     @property
     def tier_weight(self) -> int:

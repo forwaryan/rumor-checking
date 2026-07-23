@@ -908,6 +908,51 @@ def test_timeline_builder_selects_key_nodes_from_real_bundle():
     assert timeline_build.confidence >= 60
 
 
+def test_timeline_origin_prefers_dated_result_over_undated():
+    # Regression (codex review P2): an undated hit must not masquerade as the
+    # earliest event. A mixed bundle with one undated rumor and one dated rumor
+    # should anchor the origin on the dated one, not the undated one.
+    event = NormalizedEvent(
+        summary="晨星生物 裁员40% 传闻",
+        keywords=["晨星生物", "裁员", "传闻"],
+        input_type="text_news",
+        raw_input="晨星生物 裁员40% 传闻",
+    )
+    results = (
+        _make_result(
+            result_id="undated-rumor",
+            title="网传晨星生物将裁员40%",
+            snippet="有网民发帖称晨星生物多个部门将裁员40%。",
+            published_at=None,
+            source_name="观察者网",
+            source_tier="C",
+            url="https://example.com/undated-rumor",
+        ),
+        _make_result(
+            result_id="dated-rumor",
+            title="网传晨星生物将裁员40%引发关注",
+            snippet="有帖子称晨星生物裁员40%，网上持续发酵。",
+            published_at="2026-03-05T08:00:00+08:00",
+            source_name="晨星观察",
+            source_tier="C",
+            url="https://example.com/dated-rumor",
+        ),
+    )
+    bundle = RetrievalBundle(
+        query="晨星生物 裁员40% 传闻",
+        matched_case_id="real_search",
+        mode_hint="partial",
+        raw_results=results,
+        canonical_results=results,
+        provider_name="playwright",
+    )
+
+    timeline_build = TimelineBuilder().build_with_source(event, retrieval_bundle=bundle)
+    origin = next((node for node in timeline_build.nodes if node.node_type == "origin"), None)
+    assert origin is not None
+    assert origin.url == "https://example.com/dated-rumor"
+
+
 def test_timeline_builder_scores_frozen_propagation_cases():
     builder = TimelineBuilder()
     retriever = MockRetriever()

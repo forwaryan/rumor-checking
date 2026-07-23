@@ -91,8 +91,9 @@ class SearchResultMerger:
             return NEAR_DUPLICATE_LABEL
         return None
 
-    def chronological_sort_key(self, item: SearchResult) -> tuple[str, int, str]:
-        return (item.effective_published_at, -item.tier_weight, item.result_id)
+    def chronological_sort_key(self, item: SearchResult) -> tuple[int, str, int, str]:
+        # Dated results sort before undated ones (which otherwise pose as 1970).
+        return (item.undated_sort_flag, item.effective_published_at, -item.tier_weight, item.result_id)
 
     def _canonical_sort_key(self, item: SearchResult, group_items: Sequence[SearchResult]) -> tuple[int, int, int, float]:
         explicit_targets = sum(1 for group_item in group_items if group_item.duplicate_of == item.result_id)
