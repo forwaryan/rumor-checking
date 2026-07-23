@@ -62,6 +62,14 @@
 
 因此当前最稳的对外口径仍然是 `mock demo + provenance 边界`，而不是“真实检索已稳定通过”。
 
+### 4b. 两档分析（按请求 `mode` 选择）
+
+- `AnalyzePipeline.analyze` 读取 `request.request_context["mode"]`（见 `_is_deep_mode`），同一进程支持两档，不靠全局环境变量切换：
+  - `fast`（默认；缺省或未知值都按 fast）：强制零 LLM 规则路径——跳过 agent 编排、`resolve_question` / `synthesize` / `_run_investigation`、`provider_enricher.enrich`（结构化补全），以及检索层的 LLM query 抽取。只保留真实检索（由 `RETRIEVAL_PROVIDER` 决定）+ 规则 verdict。实测约 0.2–0.3s。
+  - `deep`：走现有 LLM/agent-first 全链路。
+- 由 `backend/tests/test_api.py::test_fast_mode_skips_llm_enrichment_while_deep_mode_uses_it` 锁定：provider 开启时 fast 不产生 LLM 调用、deep 产生。
+- 前端主按钮走 fast，结果页再给"深度核查"二次入口触发 deep。
+
 ### 5. URL 抽取与检索边界
 
 - URL 输入已支持公开 HTML 页面抽取

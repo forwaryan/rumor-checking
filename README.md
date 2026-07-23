@@ -18,6 +18,7 @@
 - 前端是面向普通用户的单页核查产品：搜索态输入一条消息，结果态给出判定卡片，并把逐条核查、证据、时间线折叠成可展开区块，执行过程 trace 折叠在底部。
 - 前端支持文本、URL、问题三类输入，并通过流式接口消费后端执行过程。
 - 后端已提供 `GET /api/v1/health`、`POST /api/v1/analyze`、`POST /api/v1/analyze/stream`。
+- **两档分析（按请求选择，`request_context.mode`）**：`fast`（默认）走零 LLM 规则路径 + 真实检索，约 0.2–0.3s，实时可用；`deep` 走 LLM/agent 全链路，质量更高但要几分钟，是异步深度档。前端主按钮走 fast，出结果后再给"深度核查"入口。
 - `report.provenance.source_type` 当前只会出现 `backend_live` 或 `backend_mock`。
 - 默认冻结基线仍是 `off + mock + fallback=true`，适合稳定联调和回归。
 - 真实联网检索优先走 `RETRIEVAL_PROVIDER=playwright`（抓取百度/Bing），中文覆盖较好且不依赖模型内建搜索；延迟高于 mock，不作为默认路径。
@@ -134,11 +135,14 @@ powershell -ExecutionPolicy Bypass -File .\frontend\run-local-windows-checks.ps1
 | `enhanced demo` | 额外加 `ANALYSIS_PROVIDER=kimi` 与 `LLM_API_KEY` / `LLM_MODEL`（放 `backend/.env`） | 在 mock 检索基线上，用 LLM 增强标题/摘要/claim/grounded 判定 | 检索仍是 mock，不是真实联网 |
 | `agent orchestrator` | 额外加 `AGENT_ORCHESTRATOR_ENABLED=true`（可再加 `LIGHTWEIGHT_AGENT_ENABLED=true`） | 走可插拔 agent 循环；配 LLM 时 LLM planner 在岔路口决策 | 未配 LLM 时等价于固定 pipeline（RulePlanner 保 parity） |
 | `real live（推荐 playwright）` | `RETRIEVAL_PROVIDER=playwright`、`ANALYSIS_PROVIDER=kimi`、`AGENT_ORCHESTRATOR_ENABLED=true` | 真实联网调查：抓取百度/Bing 搜索结果页 → grounded 判定，结果标 `backend_live + retrieval_live` | 中文覆盖较好、无需模型内建搜索；检索多条 query 已并发，单轮约等于最慢一条；延迟仍高于 mock，不作为默认路径 |
+| `fast 实时档` | `RETRIEVAL_PROVIDER=playwright`（LLM 可配可不配），请求带 `request_context.mode=fast`（默认） | 给真实用户的秒级核查：真实检索 + 规则 verdict | 零 LLM，约 0.2–0.3s，`backend_live` + 真实 URL；判定用规则，深度不如 deep |
+| `deep 深度档` | 同 `real live`，请求带 `request_context.mode=deep` | 需要更强判定时的异步深度核查 | LLM/agent 全链路，几分钟级，前端从 fast 结果页二次触发 |
 
 ### `real live` 路径注意事项
 
+- **两档由请求 `mode` 决定**：`fast`（默认）零 LLM、秒级、规则判定；`deep` 走 LLM/agent 全链路、几分钟级。检索 provider 仍由 `RETRIEVAL_PROVIDER` 决定，两档共用真实检索。
 - **优先用 `playwright` 检索**：纯 httpx 抓取百度（主）+ Bing（兜底）搜索结果页，不依赖浏览器二进制，也不依赖模型内建联网搜索，中文覆盖较好。
-- **检索已并发**：一轮 query plan 的多条 query 会并发抓取，单轮检索墙钟时间约等于最慢一条，不再随 query 条数线性增长；`RETRIEVAL_TIMEOUT_SECONDS`（默认 12s）即单条抓取的读超时，死连接会快速失败，通常无需再放宽。首次冷启动的主要耗时来自 LLM 判定/synthesis，不是检索。
+- **检索已并发**：一轮 query plan 的多条 query 会并发抓取，单轮检索墙钟时间约等于最慢一条，不再随 query 条数线性增长；`RETRIEVAL_TIMEOUT_SECONDS`（默认 12s）即单条抓取的读超时，死连接会快速失败，通常无需再放宽。deep 档首次冷启动的主要耗时来自 LLM 判定/synthesis（当前网关约 0.7s/token，一次 synthesis 可达 ~200s），不是检索。
 - **`kimi` 检索分支需模型支持内建 `$web_search`**：当前所用新模型/网关无此能力，故真实联网优先走 `playwright`。
 - **判定模型要选 key 能访问的**：用 `GET /v1/models` 确认；模型名/端点只放 `backend/.env`，不写入代码或文档。
 - 完整配方也在 [backend/.env.example](./backend/.env.example) 注释里。

@@ -10,6 +10,15 @@
 - `POST /api/v1/analyze`
 - `POST /api/v1/analyze/stream`
 
+## 分析档位（按请求选择）
+
+两个接口都读取 `request_context.mode`，同一个后端进程同时提供两档：
+
+- `mode="fast"`（默认，缺省或未知值都按 fast 处理）：**零 LLM 规则路径**。跳过 agent 编排、resolve/synthesize/investigation、provider 结构化补全和 LLM query 抽取；只做真实联网检索（`playwright`）+ 规则 verdict。实测约 0.2–0.3s，`source_type=backend_live`、真实来源 URL。适合给真实用户当下就能用的实时核查。
+- `mode="deep"`：走现有 LLM/agent-first 全链路（planner/investigation/synthesis/结构化补全）。判定质量更高，但在当前网关上一次 synthesis 就要 ~200s（约 0.7s/token），整轮通常要几分钟，属于异步/后台深度档，不作为默认。
+
+> mode 只切换分析深度；检索 provider 仍由 `RETRIEVAL_PROVIDER` 决定，两档都走同一套真实检索。
+
 ## 当前状态
 
 - 默认运行基线已冻结为 `ANALYSIS_PROVIDER=off`、`RETRIEVAL_PROVIDER=mock`、`RETRIEVAL_FALLBACK_TO_MOCK=true`
