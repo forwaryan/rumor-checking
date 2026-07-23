@@ -267,6 +267,39 @@ a:hover { text-decoration: underline; }
   color: var(--muted);
 }
 
+/* === Deep-mode upsell === */
+.deep-cta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 1rem 1.25rem;
+  border-radius: var(--radius-lg);
+  background: var(--blue-bg);
+  border: 1px solid var(--blue-border);
+  margin-bottom: 1rem;
+}
+
+.deep-cta__text {
+  font-size: 0.85rem;
+  color: var(--fg, #111827);
+}
+
+.deep-cta__button {
+  flex-shrink: 0;
+  padding: 0.5rem 1rem;
+  border-radius: 999px;
+  border: 1px solid var(--blue);
+  background: var(--blue);
+  color: #fff;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.deep-cta__button:hover { opacity: 0.9; }
+
+
 /* === Loading state === */
 .loading-card {
   padding: 2rem;

@@ -63,6 +63,7 @@ export function AnalyzePage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [liveEvents, setLiveEvents] = useState<AnalysisLiveEvent[]>([]);
   const [lastQuery, setLastQuery] = useState("");
+  const [activeMode, setActiveMode] = useState<"fast" | "deep">("fast");
 
   // Collapsible sections
   const [claimsOpen, setClaimsOpen] = useState(true);
@@ -91,8 +92,8 @@ export function AnalyzePage() {
     }
   }
 
-  async function handleSubmit() {
-    const trimmed = inputValue.trim();
+  async function handleSubmit(mode: "fast" | "deep" = "fast") {
+    const trimmed = inputValue.trim() || lastQuery.trim();
     if (!trimmed) return;
     const validation = validateInput(trimmed, "auto");
     if (validation) {
@@ -102,6 +103,7 @@ export function AnalyzePage() {
     }
 
     setLastQuery(trimmed);
+    setActiveMode(mode);
     setIsStreaming(true);
     setStatus("submitting");
     setErrorMessage(null);
@@ -114,7 +116,11 @@ export function AnalyzePage() {
     setTraceOpen(false);
 
     try {
-      const request: AnalyzeRequest = { raw_input: trimmed, input_type: "auto" };
+      const request: AnalyzeRequest = {
+        raw_input: trimmed,
+        input_type: "auto",
+        request_context: { mode },
+      };
       const nextReport = await analyzeReportStream(request, handleStreamEvent);
       setReport(nextReport);
       setReportProvenance(buildReportProvenance(nextReport));
@@ -167,13 +173,13 @@ export function AnalyzePage() {
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  void handleSubmit();
+                  void handleSubmit("fast");
                 }
               }}
             />
             <button
               className="search-box__submit"
-              onClick={() => void handleSubmit()}
+              onClick={() => void handleSubmit("fast")}
               disabled={isStreaming || !inputValue.trim()}
             >
               核查
@@ -217,7 +223,9 @@ export function AnalyzePage() {
         {status === "submitting" && !report && (
           <div className="loading-card">
             <div className="loading-card__spinner" />
-            <div className="loading-card__text">正在联网核查...</div>
+            <div className="loading-card__text">
+              {activeMode === "deep" ? "AI 深度核查中，可能需要几分钟..." : "正在联网核查..."}
+            </div>
             {lastLiveEvent && (
               <div className="loading-card__step">
                 {lastLiveEvent.type === "api_call" ? lastLiveEvent.title
@@ -234,7 +242,7 @@ export function AnalyzePage() {
           <div className="error-card">
             <div className="error-card__title">核查失败</div>
             <div className="error-card__message">{errorMessage || "请稍后重试"}</div>
-            <button className="error-card__retry" onClick={() => void handleSubmit()}>重试</button>
+            <button className="error-card__retry" onClick={() => void handleSubmit(activeMode)}>重试</button>
           </div>
         )}
 
@@ -257,6 +265,16 @@ export function AnalyzePage() {
                 {report.provenance?.evidence_source === "retrieval_live" ? "实时检索" : "模拟数据"}
               </span>
             </div>
+          </div>
+        )}
+
+        {/* Deep-mode upsell: only after a fast result, when not already streaming */}
+        {report && activeMode === "fast" && !isStreaming && (
+          <div className="deep-cta">
+            <div className="deep-cta__text">还不确定？让 AI 深入分析证据、逐条判定。</div>
+            <button className="deep-cta__button" onClick={() => void handleSubmit("deep")}>
+              深度核查（较慢）
+            </button>
           </div>
         )}
 
