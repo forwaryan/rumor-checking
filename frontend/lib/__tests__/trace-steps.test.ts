@@ -29,6 +29,15 @@ function log(stage_key: string, level: "info" | "warning" | "error", summary: st
   return { type: "log", stage_key, title: "log", summary, details: [], level, emitted_at: "2026-03-20T00:00:02Z" } as AnalysisLiveEvent;
 }
 
+function apiCall(
+  stage_key: string,
+  status: AnalysisLiveStatus,
+  title: string,
+  details: string[],
+): AnalysisLiveEvent {
+  return { type: "api_call", stage_key, call_type: "llm", status, title, summary: "", details, emitted_at: "2026-03-20T00:00:03Z" } as AnalysisLiveEvent;
+}
+
 describe("deriveTraceSteps", () => {
   it("groups events by stage and preserves first-seen order", () => {
     const steps = deriveTraceSteps([
@@ -86,5 +95,22 @@ describe("deriveTraceSteps", () => {
       { type: "complete", run_id: "r", success: true, summary: "done", emitted_at: "x" } as AnalysisLiveEvent,
     ]);
     expect(steps).toHaveLength(0);
+  });
+
+  it("pairs an LLM prompt (running) with its response (completed) into one call", () => {
+    const steps = deriveTraceSteps([
+      stage("agent_synthesis", "running", "正在综合判断"),
+      apiCall("agent_synthesis", "running", "调用 Agent synthesis", ["model=DemoModel", "prompt=判断这条消息真假：京东造游轮"]),
+      apiCall("agent_synthesis", "completed", "调用 Agent synthesis 返回", ["model=DemoModel", "content_chars=120", "response={\"verdict\":\"insufficient\"}"]),
+      stage("agent_synthesis", "completed", "已产出结构化结论"),
+    ]);
+    const step = steps[0];
+    expect(step.llmCalls).toHaveLength(1);
+    expect(step.llmCalls[0].prompt).toContain("京东造游轮");
+    expect(step.llmCalls[0].response).toContain("insufficient");
+    expect(step.llmCalls[0].status).toBe("completed");
+    // prompt/response must NOT leak into the generic kv rows
+    expect(step.inputs.find((kv) => kv.key === "prompt")).toBeUndefined();
+    expect(step.outputs.find((kv) => kv.key === "response")).toBeUndefined();
   });
 });

@@ -296,7 +296,6 @@ class LlmWebSearchProvider:
             title="调用 LLM web search",
             summary="正在请求 LLM chat/completions，并要求先执行 $web_search。",
             details=[
-                f"endpoint={self.settings.llm_base_url}/chat/completions",
                 f"model={model}",
             ],
         )

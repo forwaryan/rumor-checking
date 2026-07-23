@@ -128,7 +128,6 @@ class LlmStructuredProvider:
             title="调用 LLM structured analysis",
             summary="正在请求 LLM 结构化抽取事件和 claims。",
             details=[
-                f"endpoint={self.settings.llm_base_url}/chat/completions",
                 f"model={self.settings.llm_model}",
             ],
         )

@@ -433,6 +433,26 @@ export function AnalyzePage() {
                         </div>
                       )}
                       {step.note && <div className="exec-step__note">{step.note}</div>}
+                      {step.llmCalls.length > 0 && (
+                        <div className="exec-step__llm">
+                          {step.llmCalls.map((call, k) => (
+                            <div key={`llm-${k}`} className="exec-llm">
+                              {call.prompt && (
+                                <details className="exec-llm__block">
+                                  <summary className="exec-llm__summary exec-llm__summary--q">提问模型</summary>
+                                  <pre className="exec-llm__text">{call.prompt}</pre>
+                                </details>
+                              )}
+                              {call.response && (
+                                <details className="exec-llm__block">
+                                  <summary className="exec-llm__summary exec-llm__summary--a">模型回答</summary>
+                                  <pre className="exec-llm__text">{call.response}</pre>
+                                </details>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       {step.subEvents.length > 0 && (
                         <div className="exec-step__subs">
                           {step.subEvents.map((sub, j) => (

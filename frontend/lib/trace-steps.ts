@@ -2,6 +2,7 @@ import type {
   AnalysisLiveEvent,
   AnalysisLiveStatus,
   TraceKeyValue,
+  TraceLlmCall,
   TraceStep,
   TraceSubEvent,
 } from "@/types/report";
@@ -68,6 +69,16 @@ function splitDetail(detail: string): [string, string] | null {
   return [detail.slice(0, idx).trim(), detail.slice(idx + 1).trim()];
 }
 
+function detailOf(details: string[], key: string): string | null {
+  for (const detail of details) {
+    const pair = splitDetail(detail);
+    if (pair && pair[0] === key) {
+      return pair[1];
+    }
+  }
+  return null;
+}
+
 function stageKeyOf(event: AnalysisLiveEvent): string {
   if ("stage_key" in event && typeof event.stage_key === "string") {
     return event.stage_key;
@@ -107,6 +118,7 @@ export function deriveTraceSteps(events: AnalysisLiveEvent[]): TraceStep[] {
         inputs: [],
         outputs: [],
         note: null,
+        llmCalls: [],
         subEvents: [],
         startedAt: emittedAt,
         endedAt: null,
@@ -164,6 +176,32 @@ export function deriveTraceSteps(events: AnalysisLiveEvent[]): TraceStep[] {
     if (event.type === "api_call" || event.type === "retrieval" || event.type === "log") {
       const step = ensure(stageKey, event.emitted_at);
       applyDetails(step, event.details);
+
+      // LLM calls carry prompt= (on the running event) and response= (on the
+      // completed "返回" event); pair them into one 提问/回答 record so the
+      // trace shows what was actually asked and answered.
+      if (event.type === "api_call" && event.call_type === "llm") {
+        const details = event.details ?? [];
+        const prompt = detailOf(details, "prompt");
+        const response = detailOf(details, "response");
+        if (prompt !== null) {
+          step.llmCalls.push({
+            title: event.title,
+            prompt,
+            response: null,
+            status: event.status,
+          });
+        } else if (response !== null) {
+          // Attach to the most recent open call, else start a new record.
+          const open = [...step.llmCalls].reverse().find((c) => c.response === null);
+          if (open) {
+            open.response = response;
+            open.status = event.status;
+          } else {
+            step.llmCalls.push({ title: event.title, prompt: null, response, status: event.status });
+          }
+        }
+      }
 
       const subStatus: AnalysisLiveStatus =
         event.type === "retrieval"

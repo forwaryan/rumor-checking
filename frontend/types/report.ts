@@ -85,6 +85,13 @@ export interface TraceSubEvent {
   level?: "info" | "warning" | "error";
 }
 
+export interface TraceLlmCall {
+  title: string;
+  prompt: string | null;
+  response: string | null;
+  status: AnalysisLiveStatus;
+}
+
 export interface TraceStep {
   stageKey: string;
   label: string;
@@ -93,6 +100,7 @@ export interface TraceStep {
   inputs: TraceKeyValue[];
   outputs: TraceKeyValue[];
   note: string | null;
+  llmCalls: TraceLlmCall[];
   subEvents: TraceSubEvent[];
   startedAt: string;
   endedAt: string | null;

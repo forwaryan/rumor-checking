@@ -29,6 +29,19 @@ from backend.app.services.verdict_engine import VerdictEvaluation
 
 logger = logging.getLogger(__name__)
 
+# Max chars of prompt/response surfaced in progress events. Enough to see what
+# was asked and answered without dumping the full evidence blob into the stream.
+_PREVIEW_LIMIT = 800
+
+
+def _preview_text(text: str, limit: int = _PREVIEW_LIMIT) -> str:
+    """Collapse a prompt/response to a single-line, length-capped preview so it
+    can ride in a progress event's detail list (which is a flat list of strings)."""
+    compact = re.sub(r"\s+", " ", text or "").strip()
+    if len(compact) <= limit:
+        return compact
+    return f"{compact[:limit]}…（共 {len(compact)} 字）"
+
 ALLOWED_CLAIM_TYPES = {"fact", "opinion", "prediction", "unverifiable"}
 ALLOWED_VERDICTS = {"supported", "refuted", "insufficient", "conflicting"}
 ALLOWED_CONFIDENCE = {"high", "medium", "low"}
@@ -479,8 +492,8 @@ class LlmAgentReasoner:
             title=title,
             summary="正在调用 LLM chat/completions（streaming）。",
             details=[
-                f"endpoint={endpoint}",
                 f"model={model}",
+                f"prompt={_preview_text(user_prompt)}",
             ],
         )
         content = self._stream_completion(
@@ -498,6 +511,7 @@ class LlmAgentReasoner:
             details=[
                 f"model={model}",
                 f"content_chars={len(content)}",
+                f"response={_preview_text(content)}",
             ],
         )
         return content
