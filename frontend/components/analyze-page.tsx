@@ -5,7 +5,7 @@ import { analyzeReportStream, getHealth } from "@/lib/api-client";
 import { getLocalDemoCaseSummaries } from "@/lib/demo-cases";
 import { getStatusFromMode, validateInput, getVerdictLabel, formatConfidence, collectEvidence } from "@/lib/report-utils";
 import { getOverallCredibilityMeta } from "@/lib/report-high-score";
-import { deriveTraceSteps, formatLlmText } from "@/lib/trace-steps";
+import { deriveTraceSteps, formatLlmText, humanizeLlmText } from "@/lib/trace-steps";
 import type {
   AnalysisLiveEvent,
   AnalysisStatus,
@@ -51,6 +51,35 @@ function getVerdictIcon(verdict: string): string {
     case "conflicting": return "!";
     default: return "·";
   }
+}
+
+// One prompt-or-response block with 人类可读 / 原始 JSON tabs.
+function LlmTextBlock({ stageKey, role, text }: { stageKey: string; role: "prompt" | "response"; text: string }) {
+  const [view, setView] = useState<"human" | "json">("human");
+  const label = role === "prompt" ? "提问模型" : "模型回答";
+  const body = view === "human" ? humanizeLlmText(stageKey, role, text) : formatLlmText(text);
+  return (
+    <div className={`exec-llm__block exec-llm__block--${role}`}>
+      <div className="exec-llm__head">
+        <span className={`exec-llm__label exec-llm__label--${role === "prompt" ? "q" : "a"}`}>{label}</span>
+        <div className="exec-llm__tabs">
+          <button
+            className={`exec-llm__tab${view === "human" ? " exec-llm__tab--active" : ""}`}
+            onClick={() => setView("human")}
+          >
+            人类可读
+          </button>
+          <button
+            className={`exec-llm__tab${view === "json" ? " exec-llm__tab--active" : ""}`}
+            onClick={() => setView("json")}
+          >
+            原始 JSON
+          </button>
+        </div>
+      </div>
+      <pre className="exec-llm__text">{body}</pre>
+    </div>
+  );
 }
 
 export function AnalyzePage() {
@@ -438,20 +467,10 @@ export function AnalyzePage() {
                           {step.llmCalls.map((call, k) => (
                             <div key={`llm-${k}`} className="exec-llm">
                               {call.prompt && (
-                                <details className="exec-llm__block">
-                                  <summary className="exec-llm__summary exec-llm__summary--q">
-                                    提问模型 · 展开查看
-                                  </summary>
-                                  <pre className="exec-llm__text">{formatLlmText(call.prompt)}</pre>
-                                </details>
+                                <LlmTextBlock stageKey={step.stageKey} role="prompt" text={call.prompt} />
                               )}
                               {call.response && (
-                                <details className="exec-llm__block" open>
-                                  <summary className="exec-llm__summary exec-llm__summary--a">
-                                    模型回答
-                                  </summary>
-                                  <pre className="exec-llm__text">{formatLlmText(call.response)}</pre>
-                                </details>
+                                <LlmTextBlock stageKey={step.stageKey} role="response" text={call.response} />
                               )}
                             </div>
                           ))}

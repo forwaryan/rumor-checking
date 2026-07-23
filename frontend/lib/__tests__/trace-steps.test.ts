@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveTraceSteps, formatLlmText } from "@/lib/trace-steps";
+import { deriveTraceSteps, formatLlmText, humanizeLlmText } from "@/lib/trace-steps";
 import type { AnalysisLiveEvent, AnalysisLiveStatus } from "@/types/report";
 
 function stage(
@@ -135,5 +135,51 @@ describe("formatLlmText", () => {
   it("falls back to the raw string when the JSON is malformed", () => {
     const broken = "prefix {not valid json";
     expect(formatLlmText(broken)).toBe(broken);
+  });
+});
+
+describe("humanizeLlmText", () => {
+  it("summarizes a planner response into a decision + reason", () => {
+    const out = humanizeLlmText("agent_planner", "response", '{"next_action":"investigate","reason":"证据太弱"}');
+    expect(out).toContain("决定：再补一轮检索");
+    expect(out).toContain("证据太弱");
+  });
+
+  it("summarizes an investigation response with follow-up query", () => {
+    const out = humanizeLlmText(
+      "investigation_plan",
+      "response",
+      '{"should_continue":true,"follow_up_query":"京东 游轮 官方","reason":"来源不权威"}',
+    );
+    expect(out).toContain("需要再查一轮");
+    expect(out).toContain("京东 游轮 官方");
+    expect(out).toContain("来源不权威");
+  });
+
+  it("summarizes a synthesis response into claims with Chinese verdicts", () => {
+    const out = humanizeLlmText(
+      "agent_synthesis",
+      "response",
+      '{"event":{"summary":"检索无相关信息"},"claims":[{"claim":"京东造游轮","verdict":"insufficient","notes":"未找到来源"}],"timeline":[{"node_type":"origin"}]}',
+    );
+    expect(out).toContain("事件小结：检索无相关信息");
+    expect(out).toContain("京东造游轮 → 证据不足");
+    expect(out).toContain("未找到来源");
+    expect(out).toContain("时间线节点：1");
+  });
+
+  it("summarizes a prompt's evidence snapshot", () => {
+    const out = humanizeLlmText(
+      "agent_planner",
+      "prompt",
+      'Choose the best action. Context JSON: {"evidence_snapshot":{"evidence_grade":"C","canonical_result_count":5,"high_trust_result_count":0}}',
+    );
+    expect(out).toContain("证据等级 C");
+    expect(out).toContain("候选结果 5 条");
+  });
+
+  it("falls back to formatted JSON for an unknown shape", () => {
+    const out = humanizeLlmText("agent_synthesis", "response", '{"weird":"shape"}');
+    expect(out).toContain('"weird": "shape"');
   });
 });

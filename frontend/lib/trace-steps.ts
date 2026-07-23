@@ -30,6 +30,104 @@ export function formatLlmText(text: string): string {
   }
 }
 
+function extractJson(text: string): Record<string, unknown> | null {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return null;
+  try {
+    const parsed = JSON.parse(text.slice(start, end + 1));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+const VERDICT_CN: Record<string, string> = {
+  supported: "基本属实",
+  refuted: "不实",
+  insufficient: "证据不足",
+  conflicting: "各方说法矛盾",
+};
+
+/**
+ * Translate an LLM prompt/response into a natural-language summary so a
+ * non-technical reader understands what the model was asked and answered,
+ * without reading JSON. Falls back to the pretty-printed JSON when the shape
+ * is unrecognized.
+ */
+export function humanizeLlmText(stageKey: string, role: "prompt" | "response", text: string): string {
+  const json = extractJson(text);
+  if (!json) return formatLlmText(text);
+
+  if (role === "response") {
+    // planner: { next_action, reason }
+    if (typeof json.next_action === "string") {
+      const actionCn: Record<string, string> = {
+        investigate: "再补一轮检索",
+        fetch_url: "抓取某条证据的正文",
+        synthesize: "直接综合下结论",
+      };
+      const action = actionCn[json.next_action] ?? String(json.next_action);
+      const reason = typeof json.reason === "string" ? json.reason : "";
+      return `决定：${action}。${reason ? `\n原因：${reason}` : ""}`;
+    }
+    // investigation: { should_continue, follow_up_query, reason }
+    if (typeof json.should_continue === "boolean") {
+      const cont = json.should_continue ? "需要再查一轮" : "不再补检索";
+      const q = typeof json.follow_up_query === "string" && json.follow_up_query ? json.follow_up_query : null;
+      const reason = typeof json.reason === "string" ? json.reason : "";
+      return [
+        `判断：${cont}。`,
+        q ? `追加检索词：${q}` : null,
+        reason ? `原因：${reason}` : null,
+      ].filter(Boolean).join("\n");
+    }
+    // synthesis: { event, claims[], timeline[] }
+    if (json.event || Array.isArray(json.claims)) {
+      const lines: string[] = [];
+      const event = json.event as Record<string, unknown> | undefined;
+      if (event && typeof event.summary === "string") {
+        lines.push(`事件小结：${event.summary}`);
+      }
+      const claims = Array.isArray(json.claims) ? json.claims : [];
+      if (claims.length) {
+        lines.push(`核查了 ${claims.length} 条：`);
+        claims.forEach((c, i) => {
+          const claim = c as Record<string, unknown>;
+          const text = typeof claim.claim === "string" ? claim.claim : `核查点 ${i + 1}`;
+          const verdict = typeof claim.verdict === "string" ? (VERDICT_CN[claim.verdict] ?? claim.verdict) : "";
+          const notes = typeof claim.notes === "string" ? claim.notes : "";
+          lines.push(`  ${i + 1}. ${text} → ${verdict}${notes ? `（${notes}）` : ""}`);
+        });
+      }
+      const timeline = Array.isArray(json.timeline) ? json.timeline : [];
+      if (timeline.length) lines.push(`时间线节点：${timeline.length} 个`);
+      return lines.join("\n") || formatLlmText(text);
+    }
+  }
+
+  if (role === "prompt") {
+    // The prompt is an instruction + Context JSON; summarize the evidence snapshot.
+    const lead = text.slice(0, text.indexOf("{")).trim();
+    const lines: string[] = [];
+    if (lead) lines.push(lead);
+    const snap = (json.evidence_snapshot ?? json.evidence ?? json) as Record<string, unknown>;
+    const parts: string[] = [];
+    const grade = snap.evidence_grade ?? (json.evidence_grade_hint as unknown);
+    if (typeof grade === "string") parts.push(`证据等级 ${grade}`);
+    const n = snap.canonical_result_count ?? snap.canonical_result_count;
+    if (typeof n === "number") parts.push(`候选结果 ${n} 条`);
+    const ht = snap.high_trust_result_count;
+    if (typeof ht === "number") parts.push(`高可信 ${ht} 条`);
+    const hits = json.retrieval_hits;
+    if (Array.isArray(hits)) parts.push(`附带 ${hits.length} 条检索命中`);
+    if (parts.length) lines.push(`给模型的证据：${parts.join("、")}`);
+    return lines.join("\n") || formatLlmText(text);
+  }
+
+  return formatLlmText(text);
+}
+
 // Human labels for each pipeline stage_key, so the trace reads as a narrative
 // of what the backend actually did at each step.
 const STAGE_LABEL: Record<string, string> = {
