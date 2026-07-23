@@ -69,6 +69,35 @@ export interface AgentRunView {
   fetchedPages: number;
 }
 
+// --- Observable execution trace (deep-mode step view) ---
+
+export interface TraceKeyValue {
+  key: string;
+  label: string;
+  value: string;
+}
+
+export interface TraceSubEvent {
+  kind: "api_call" | "retrieval" | "log";
+  title: string;
+  summary: string;
+  status: AnalysisLiveStatus;
+  level?: "info" | "warning" | "error";
+}
+
+export interface TraceStep {
+  stageKey: string;
+  label: string;
+  status: AnalysisLiveStatus;
+  did: string;
+  inputs: TraceKeyValue[];
+  outputs: TraceKeyValue[];
+  note: string | null;
+  subEvents: TraceSubEvent[];
+  startedAt: string;
+  endedAt: string | null;
+}
+
 export interface ReportProvenance {
   source_type: ReportSourceType;
   event_source: EventSourceType;

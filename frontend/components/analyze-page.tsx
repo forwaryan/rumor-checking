@@ -5,6 +5,7 @@ import { analyzeReportStream, getHealth } from "@/lib/api-client";
 import { getLocalDemoCaseSummaries } from "@/lib/demo-cases";
 import { getStatusFromMode, validateInput, getVerdictLabel, formatConfidence, collectEvidence } from "@/lib/report-utils";
 import { getOverallCredibilityMeta } from "@/lib/report-high-score";
+import { deriveTraceSteps } from "@/lib/trace-steps";
 import type {
   AnalysisLiveEvent,
   AnalysisStatus,
@@ -113,7 +114,7 @@ export function AnalyzePage() {
     setClaimsOpen(true);
     setEvidenceOpen(false);
     setTimelineOpen(false);
-    setTraceOpen(false);
+    setTraceOpen(mode === "deep");
 
     try {
       const request: AnalyzeRequest = {
@@ -208,6 +209,7 @@ export function AnalyzePage() {
   const overallMeta = report ? getOverallCredibilityMeta(report, reportProvenance) : null;
   const evidence = report ? collectEvidence(report) : [];
   const lastLiveEvent = liveEvents[liveEvents.length - 1];
+  const traceSteps = deriveTraceSteps(liveEvents);
 
   return (
     <main className="app app--result">
@@ -358,42 +360,68 @@ export function AnalyzePage() {
           </div>
         )}
 
-        {/* Trace (developer view) */}
-        {liveEvents.length > 0 && (
+        {/* Execution trace — observable step timeline */}
+        {traceSteps.length > 0 && (
           <div className="trace-section">
             <button className="trace-toggle" onClick={() => setTraceOpen(!traceOpen)}>
               <span>{traceOpen ? "▼" : "▶"}</span>
-              <span>执行过程 ({liveEvents.length} 步)</span>
+              <span>执行过程 ({traceSteps.length} 步{isStreaming ? " · 进行中" : ""})</span>
             </button>
             {traceOpen && (
-              <div className="trace-list">
-                {liveEvents.map((event, i) => {
-                  const title = event.type === "api_call" ? event.title
-                    : event.type === "stage" ? event.title
-                    : event.type === "retrieval" ? `检索: ${event.query}`
-                    : event.type === "report" ? "报告已生成"
-                    : event.type === "session" ? "任务开始"
-                    : event.type === "error" ? `错误: ${event.message}`
-                    : event.type === "complete" ? "完成"
-                    : event.type === "log" ? event.title
-                    : "事件";
-                  const eventStatus = event.type === "api_call" ? event.status
-                    : event.type === "stage" ? event.status
-                    : event.type === "error" ? "error"
-                    : "completed";
-                  return (
-                    <div key={`trace-${i}`} className="trace-item">
-                      <div className={`trace-item__status trace-item__status--${eventStatus}`} />
-                      <div className="trace-item__body">
-                        <div className="trace-item__title">{title}</div>
-                        <div className="trace-item__detail">
-                          {event.type === "api_call" ? event.summary : event.type === "stage" ? event.summary : ""}
-                        </div>
-                      </div>
+              <ol className="exec-timeline">
+                {traceSteps.map((step, i) => (
+                  <li key={`${step.stageKey}-${i}`} className={`exec-step exec-step--${step.status}`}>
+                    <div className="exec-step__marker">
+                      <span className="exec-step__dot" />
+                      <span className="exec-step__index">{i + 1}</span>
                     </div>
-                  );
-                })}
-              </div>
+                    <div className="exec-step__body">
+                      <div className="exec-step__head">
+                        <span className="exec-step__label">{step.label}</span>
+                        <span className={`exec-step__status exec-step__status--${step.status}`}>
+                          {step.status === "running" ? "进行中"
+                            : step.status === "completed" ? "完成"
+                            : step.status === "warning" ? "降级"
+                            : step.status === "skipped" ? "跳过"
+                            : "出错"}
+                        </span>
+                      </div>
+                      {step.did && <div className="exec-step__did">{step.did}</div>}
+                      {step.inputs.length > 0 && (
+                        <div className="exec-step__kvs">
+                          {step.inputs.map((kv) => (
+                            <div key={`in-${kv.key}`} className="exec-kv exec-kv--in">
+                              <span className="exec-kv__label">{kv.label}</span>
+                              <span className="exec-kv__value">{kv.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {step.outputs.length > 0 && (
+                        <div className="exec-step__kvs">
+                          {step.outputs.map((kv) => (
+                            <div key={`out-${kv.key}`} className="exec-kv exec-kv--out">
+                              <span className="exec-kv__label">{kv.label}</span>
+                              <span className="exec-kv__value">{kv.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {step.note && <div className="exec-step__note">{step.note}</div>}
+                      {step.subEvents.length > 0 && (
+                        <div className="exec-step__subs">
+                          {step.subEvents.map((sub, j) => (
+                            <div key={`sub-${j}`} className={`exec-sub exec-sub--${sub.level ?? sub.status}`}>
+                              <span className="exec-sub__title">{sub.title}</span>
+                              {sub.summary && <span className="exec-sub__summary">{sub.summary}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ol>
             )}
           </div>
         )}
