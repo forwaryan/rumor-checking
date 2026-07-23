@@ -1,6 +1,6 @@
 # 提问分析全链路说明
 
-基于当前代码实现整理，时间点为 `2026-03-16`。  
+基于当前代码实现整理，时间点为 `2026-07-23`。  
 这份文档的目标不是讲“理想架构”，而是讲“现在这个项目，用户点一次开始分析，系统真实做了什么”。
 
 适用场景：
@@ -63,7 +63,7 @@ sequenceDiagram
     participant API as /api/v1/analyze/stream
     participant PIPE as AnalyzePipeline
     participant RET as RetrievalService
-    participant AG as KimiAgentReasoner
+    participant AG as LlmAgentReasoner
     participant RB as ReportBuilder
 
     U->>FE: 输入问题并点击“开始分析”
@@ -116,13 +116,13 @@ sequenceDiagram
 | 2. 接口入口 | `/api/v1/analyze/stream` | `AnalyzeRequest` | `session` 事件、后台 worker | 是 | 把同步 pipeline 包装成流式任务 |
 | 3. 输入标准化 | `InputNormalizer` | 原始问题 | `NormalizedEvent` | 是 | 识别这是问题/正文/URL，并抽取初始线索 |
 | 4. 首轮检索 | `RetrievalService` | `NormalizedEvent` | `RetrievalBundle` | 是 | 生成 query plan，向外部世界拿第一批结果 |
-| 5. 问题消歧 | `KimiAgentReasoner.resolve_question()` 或 `QuestionResolver` | 问题 + 检索结果 | `QuestionResolution` | 是 | 决定能不能把问题锁到单一事件 |
+| 5. 问题消歧 | `LlmAgentReasoner.resolve_question()` 或 `QuestionResolver` | 问题 + 检索结果 | `QuestionResolution` | 是 | 决定能不能把问题锁到单一事件 |
 | 6. 追加检索 | `RetrievalService` | `follow_up_query` | 更精确的 `RetrievalBundle` | 是 | 围绕候选事件补抓更准的结果 |
-| 7. Agent 综合判断 | `KimiAgentReasoner.synthesize()` | 事件 + 检索结果 | event / claims / timeline / verdict | 是 | 用 evidence-grounded agent 生成主要中间结果 |
+| 7. Agent 综合判断 | `LlmAgentReasoner.synthesize()` | 事件 + 检索结果 | event / claims / timeline / verdict | 是 | 用 evidence-grounded agent 生成主要中间结果 |
 | 8. 规则兜底 | `ProviderEnricher` / `ClaimExtractor` / `VerdictEngine` / `TimelineBuilder` | 事件 + 检索结果 | claim 结果、时间线、证据判断 | 是 | agent 不稳定时保证系统仍能产出结构化结果 |
 | 9. 报告构建 | `ReportBuilder` | 中间结果 | `Report` | 是 | 决定 safe/partial/complete，并生成调查总结和评分 |
 | 10. 扩展展示数据 | `ContentCheckBuilder` / `PipelineTraceBuilder` | `Report` | `content_check` / `pipeline_trace` | 间接可见 | 让前端更容易展示“真假拆解”和“链路摘要” |
-| 11. 页面渲染 | `AnalysisLivePanel` + 各结果组件 | 流式事件 + `Report` | 最终页面 | 是 | 让用户看到过程和结论，不再黑盒 |
+| 11. 页面渲染 | `AnalyzePage` 结果态（判定卡片 + 可折叠区块 + 底部 trace） | 流式事件 + `Report` | 最终页面 | 是 | 让用户看到结论和过程，不再黑盒 |
 
 ---
 
@@ -130,20 +130,21 @@ sequenceDiagram
 
 ### 5.1 前端关键职责
 
-前端现在不是“发请求然后等结果”，而是同时承担两件事：
+前端现在是一个**面向普通用户的核查产品**（搜索态 + 结果态两个视图），同时承担两件事：
 
-1. 作为输入工作台，把用户的问题组织成结构化请求。
-2. 作为实时观察面板，把后端执行轨迹逐帧展示出来。
+1. 作为输入入口，把用户的问题组织成结构化请求。
+2. 作为结果与过程展示层：先给判定卡片和一句话结论，再把逐条核查、证据、时间线折叠成可展开区块，执行过程 trace 内联在结果页底部（默认折叠）。
 
 ### 5.2 前端关键文件
 
+前端已从早期的“多面板工作台”**收敛为单一页面组件**，展示逻辑全部内联在 `AnalyzePage` 里。
+
 | 文件 | 职责 | 你讲项目时可以怎么说 |
 | --- | --- | --- |
-| `frontend/components/analyze-page.tsx` | 页面主控制器，串起提交、流式消费、结果落盘 | 这里是页面状态机的核心 |
+| `frontend/components/analyze-page.tsx` | **唯一页面组件**：搜索态/结果态两个视图，内联判定卡片、逐条核查、证据、时间线、执行 trace，并串起提交、流式消费、结果落盘 | 这里是页面状态机的核心 |
 | `frontend/lib/api-client.ts` | `analyzeReportStream()` 解析 NDJSON | 前端不是等一个 JSON，而是在读一个事件流 |
-| `frontend/components/analysis-live-panel.tsx` | 渲染“执行过程直播” | 这是把黑盒改成白盒的关键 UI |
+| `frontend/lib/report-utils.ts` | verdict 标签、置信度格式化、证据收集等展示层整理 | 结果页只是消费结构化 report |
 | `frontend/types/report.ts` | 定义 `AnalysisLiveEvent`、`Report` 等类型 | 前后端不是随便传字符串，而是走类型化契约 |
-| `frontend/components/status-banner.tsx` 等 | 展示最终结论 | 结果页只是消费结构化 report |
 
 ### 5.3 前端提交流程
 
@@ -163,18 +164,16 @@ flowchart TD
 
 ### 5.4 前端现在能看到什么
 
-“执行过程直播”面板会实时显示：
+普通用户看到的主视线是判定卡片和一句话结论；需要复盘时，展开结果页底部的“执行过程”trace 区块，可以看到：
 
-- 当前总共有多少个阶段事件
-- 调了多少次 API
-- 做了多少次检索
-- 当前最新焦点阶段是什么
-- 每个事件的时间戳、标题、摘要、细节
+- 后端走过的阶段事件序列
+- 调了哪些外部 API、做了哪些检索
+- 每条事件的标题、状态与摘要
 
-这意味着用户不再只看到“分析中...”，而是能看到：
+这意味着用户不再只看到“分析中...”，而是能追溯：
 
 - 正在做输入标准化
-- 正在请求 Kimi web search
+- 正在请求联网检索（`playwright` 抓取百度/Bing，或支持内建搜索时走 LLM `$web_search`）
 - 当前 query 是什么
 - 命中了哪些网页
 - Agent 解析成功还是失败
@@ -234,7 +233,7 @@ flowchart TD
 | --- | --- | --- | --- |
 | `session` | `analyze_stream` | run_id、trace_id、输入预览 | 标识一次任务开始 |
 | `stage` | `AnalyzePipeline` | 阶段名、状态、摘要、细节 | 表示 pipeline 当前在第几步 |
-| `api_call` | Kimi/GDELT 调用层 | endpoint、model、status_code | 表示正在调什么外部接口 |
+| `api_call` | LLM/GDELT 调用层 | endpoint、model、status_code | 表示正在调什么外部接口 |
 | `retrieval` | `RetrievalService` | query、provider、hit 摘要 | 表示每次检索拿到了什么 |
 | `log` | 任意服务 | 提示、警告、降级原因 | 表示边界、异常、说明信息 |
 | `report` | `analyze_stream` | 最终 `Report` | 表示最终结构化报告到达 |
@@ -262,7 +261,7 @@ flowchart TD
     G2 --> H["RetrievalService.retrieve(initial)"]
     H --> H1["生成 query plan"]
     H1 --> H2{"provider 是什么?"}
-    H2 -->|agent| H3["KimiWebSearchProvider.search()"]
+    H2 -->|agent| H3["LlmWebSearchProvider.search()"]
     H2 -->|gdelt| H4["GdeltNewsProvider.search()"]
     H2 -->|mock/off| H5["mock / 空结果"]
     H3 --> H6["标准化 SearchResult / RetrievalBundle"]
@@ -271,7 +270,7 @@ flowchart TD
     H6 --> H7["emit_api_call / emit_retrieval / emit_log"]
 
     H7 --> I{"输入是 question_only 吗?"}
-    I -->|是| J["优先走 KimiAgentReasoner.resolve_question()"]
+    I -->|是| J["优先走 LlmAgentReasoner.resolve_question()"]
     I -->|否| K["规则版 QuestionResolver.resolve()"]
     J --> J1{"agent 消歧成功?"}
     J1 -->|是| L["得到 resolved_summary / selected_result / follow_up_query"]
@@ -286,7 +285,7 @@ flowchart TD
     M -->|不需要| N3["跳过 follow-up"]
     N3 --> N2
 
-    N2 --> O["KimiAgentReasoner.synthesize()"]
+    N2 --> O["LlmAgentReasoner.synthesize()"]
     O --> O1{"agent synthesis 成功?"}
     O1 -->|成功| P["得到 event / claims / verdict / timeline"]
     O1 -->|失败| Q["进入 fallback pipeline"]
@@ -307,7 +306,7 @@ flowchart TD
 
     S --> T["worker 推送 report 事件"]
     T --> U["API 层持续输出 NDJSON"]
-    U --> V["前端 AnalysisLivePanel 实时渲染"]
+    U --> V["前端 AnalyzePage 结果态实时渲染"]
     V --> W["complete 事件收尾"]
 
     D -.-> X["progress.py"]
@@ -354,7 +353,7 @@ flowchart TD
     C --> D["RetrievalService.retrieve_for_event()<br/>做首轮检索，拿回第一批公开证据"]
     D --> E{"当前输入是否是 question_only?<br/>是否需要先做问题消歧"}
 
-    E -->|是| F["KimiAgentReasoner.resolve_question()<br/>优先用 Agent 判断用户到底在问哪个事件"]
+    E -->|是| F["LlmAgentReasoner.resolve_question()<br/>优先用 Agent 判断用户到底在问哪个事件"]
     E -->|否| G["QuestionResolver.resolve()<br/>非纯问题场景直接沿用当前事件草稿或走规则消歧"]
 
     F --> H{"是否得到稳定锚点或 follow-up query?<br/>要不要再补一轮更聚焦的检索"}
@@ -363,7 +362,7 @@ flowchart TD
     H -->|需要| I["RetrievalService.retrieve_for_event()<br/>按 follow-up query 做追加检索，补更准的证据"]
     H -->|不需要| J["沿用当前 RetrievalBundle<br/>直接进入综合判断"]
 
-    I --> K["KimiAgentReasoner.synthesize()<br/>基于证据生成 event、claims、verdict、timeline"]
+    I --> K["LlmAgentReasoner.synthesize()<br/>基于证据生成 event、claims、verdict、timeline"]
     J --> K
 
     K --> L{"Agent 是否稳定产出?<br/>能不能直接给结构化中间结果"}
@@ -387,7 +386,7 @@ flowchart TD
 - 最上层入口只是接收请求，真正调度整个后端的是 `AnalyzePipeline.analyze()`。
 - 第一段主链是“标准化输入 -> 首轮检索 -> 问题消歧”，目标不是立刻下结论，而是先把用户问题映射到一个相对稳定的事件上下文。
 - 如果消歧后还需要补证据，就会再走一轮 follow-up 检索，把结果集缩窄到更聚焦的候选事件。
-- 证据够了之后，优先让 `KimiAgentReasoner.synthesize()` 产出结构化中间结果。
+- 证据够了之后，优先让 `LlmAgentReasoner.synthesize()` 产出结构化中间结果。
 - 如果 agent 产出不稳，就退回 `ProviderEnricher -> ClaimExtractor -> VerdictEngine -> TimelineBuilder` 这条规则兜底链。
 - 最后统一交给 `ReportBuilder` 系列模块，把中间结果装成前端可消费的 `Report`。
 
@@ -403,10 +402,10 @@ flowchart TD
 | `AnalyzePipeline.analyze()` | 总编排器 | `AnalyzeRequest` | 顺序调度标准化、检索、消歧、follow-up、agent synthesis、fallback、report build；同时在关键节点发 `emit_stage()`，把执行轨迹暴露给前端。 | 各阶段中间结果和最终 `Report` | 这是后端的总控器，决定整条链怎么走、什么时候切换分支。 |
 | `InputNormalizer.normalize()` | 第一阶段 | 原始文本、输入类型、上下文 | 先识别是问题、正文还是 URL，再抽标题、摘要、关键词、时间词、来源等基础线索，统一映射成一个 `NormalizedEvent`，避免后面每个模块都直接吃原文。 | `NormalizedEvent` | 先把脏输入洗干净、压成统一结构，后面模块才能在同一套数据模型上工作。 |
 | `RetrievalService.retrieve_for_event()`（首轮） | 标准化之后的第一轮外部取证 | `NormalizedEvent` | 按输入类型生成 query plan，把原问题、claim 版本、官方视角、传播视角拆成几组检索；拿到结果后做标准化、去重、证据等级估计和缓存处理，最后组成 `RetrievalBundle`。 | 第一版 `RetrievalBundle` | 检索层不是“搜一下”，而是主动把证据池搭出来。 |
-| `KimiAgentReasoner.resolve_question()` | 问题型输入的优先消歧 | 用户问题 + 首轮检索 hits | 只在 `question_only` 且有检索结果时启用；把“问题文本 + 第一轮 hits”交给 agent，让它判断能不能锚定到一个具体事件，并尝试生成 `follow_up_query`。 | `QuestionResolution` | 它不是直接给结论，而是先回答“用户到底在问哪件事”。 |
+| `LlmAgentReasoner.resolve_question()` | 问题型输入的优先消歧 | 用户问题 + 首轮检索 hits | 只在 `question_only` 且有检索结果时启用；把“问题文本 + 第一轮 hits”交给 agent，让它判断能不能锚定到一个具体事件，并尝试生成 `follow_up_query`。 | `QuestionResolution` | 它不是直接给结论，而是先回答“用户到底在问哪件事”。 |
 | `QuestionResolver.resolve()` | agent 消歧失败或非 agent 路径的兜底消歧 | `NormalizedEvent` + `RetrievalBundle` | 用规则做轻量级 event anchoring：看主体词、动作词、时间词、标题噪声、主语错位等信号，判断能不能稳定选中某个候选结果。 | `QuestionResolution` | 这是消歧兜底器，确保 agent 不稳定时系统也不会完全失明。 |
 | `RetrievalService.retrieve_for_event()`（follow-up） | 消歧之后的补证据阶段 | 已消歧事件 + `follow_up_query` | 如果上一阶段给出了 follow-up query，就按更聚焦的问题再抓一轮结果；这轮检索的目标不是扩范围，而是收窄范围、提高命中精度。 | 更聚焦的 `RetrievalBundle` | 第二轮检索不是重复搜索，而是围绕候选事件补“更像证据”的结果。 |
-| `KimiAgentReasoner.synthesize()` | 主判断分支 | 事件草稿 + 当前证据池 | 把当前事件上下文和检索 hits 交给 Kimi，让它只基于现有证据输出结构化 JSON，里面包含 `event`、`claims`、`timeline`；随后再把这些 JSON 转回系统内部的数据结构。 | `AgentSynthesis` | 这是 agent-first 的核心，不是自由生成长文，而是 evidence-grounded 的结构化综合判断。 |
+| `LlmAgentReasoner.synthesize()` | 主判断分支 | 事件草稿 + 当前证据池 | 把当前事件上下文和检索 hits 交给 LLM，让它只基于现有证据输出结构化 JSON，里面包含 `event`、`claims`、`timeline`；随后再把这些 JSON 转回系统内部的数据结构。 | `AgentSynthesis` | 这是 agent-first 的核心，不是自由生成长文，而是 evidence-grounded 的结构化综合判断。 |
 | `ProviderEnricher.enrich()` | fallback 分支第一步 | 当前事件草稿 | 如果 agent 没稳定产出，就先调用 provider 做一轮结构化补全，尽量把事件摘要、claims 草稿补出来；如果 provider 也失败，就继续沿用当前事件草稿。 | 补全后的事件 + provider claims | 它相当于 fallback 链里的“先补材料”。 |
 | `ClaimExtractor.extract_with_source()` | fallback 分支第二步 | 事件描述 + provider claims | 把事件摘要或 provider 返回的 claim 候选拆成更短、更原子化、可核查的 claim；会做规则 refine、去重、过滤过泛表述。 | `ClaimExtraction` | 它把“一个大事件描述”拆成“若干条可以分别判定的核查点”。 |
 | `VerdictEngine.evaluate_with_source()` | fallback 分支第三步 | 事件、claims、检索结果 | 针对每条 claim 看有哪些 retrieval hits 能支持、反驳或只有弱相关；再汇总成 claim-level verdict、evidence 列表和总体 evidence grade。 | `VerdictEvaluation` | 它不是对整段话一刀切，而是对每条 claim 分别打分和判定。 |
@@ -487,14 +486,15 @@ flowchart TD
 
 | 配置 | 实际行为 |
 | --- | --- |
-| `RETRIEVAL_PROVIDER=agent` | 走 Kimi web search |
-| `RETRIEVAL_PROVIDER=gdelt` | 走 GDELT |
+| `RETRIEVAL_PROVIDER=playwright` | 纯 httpx 抓取百度（主）+ Bing（兜底）搜索结果页并解析（当前推荐的真实联网路径） |
+| `RETRIEVAL_PROVIDER=kimi` | 走 LLM 内建 `$web_search`（仅对支持该工具的供应商有效；当前新模型无此能力） |
+| `RETRIEVAL_PROVIDER=gdelt` | 走 GDELT 免费新闻 API（英文偏向、中文覆盖弱） |
 | `RETRIEVAL_PROVIDER=mock` | 走 mock retrieval |
 | `RETRIEVAL_PROVIDER=off` | 不检索 |
 
 当前本地你这套运行链路，主打的是：
 
-- `agent` 检索，也就是 Kimi `$web_search`
+- `playwright` 检索，也就是抓取百度/Bing 搜索结果页（不依赖浏览器二进制，也不依赖模型内建搜索）
 
 #### 问题输入的 query plan 逻辑
 
@@ -566,7 +566,7 @@ flowchart TD
 #### 当前消歧策略
 
 1. **先走 agent 版消歧**  
-   `KimiAgentReasoner.resolve_question()`
+   `LlmAgentReasoner.resolve_question()`
 
 2. **agent 失败则走规则版消歧**  
    `QuestionResolver.resolve()`
@@ -647,7 +647,7 @@ flowchart TD
 
 ---
 
-### 6.8 阶段 5：Agent 综合判断 `KimiAgentReasoner.synthesize()`
+### 6.8 阶段 5：Agent 综合判断 `LlmAgentReasoner.synthesize()`
 
 这是当前主链最“智能”的部分。
 
@@ -677,11 +677,11 @@ flowchart TD
 
 因为这一步把系统从：
 
-- “Kimi 抽一下 + 规则判”
+- “LLM 抽一下 + 规则判”
 
 升级到了：
 
-- “Kimi 基于证据做 event / claim / timeline 的结构化综合”
+- “LLM 基于证据做 event / claim / timeline 的结构化综合”
 
 #### 设计上的关键约束
 
@@ -728,7 +728,7 @@ flowchart TD
 
 | 模块 | 作用 |
 | --- | --- |
-| `ProviderEnricher` | 用 Kimi 做结构化事件/claim 补全，但不是完整 agent |
+| `ProviderEnricher` | 用 LLM 做结构化事件/claim 补全，但不是完整 agent |
 | `ClaimExtractor` | 规则拆 claim |
 | `VerdictEngine` | 基于证据重叠、否定词、主体锚点等做 verdict |
 | `TimelineBuilder` | 从检索结果中挑选 origin / amplification / peak / turn / clarification |
@@ -906,14 +906,14 @@ flowchart TD
 
     E --> H["RetrievalService"]
     H --> I["RetrievalCache"]
-    H --> J["KimiWebSearchProvider / GdeltNewsProvider"]
+    H --> J["LlmWebSearchProvider / GdeltNewsProvider"]
 
-    E --> K["KimiAgentReasoner.resolve_question()"]
-    E --> L["KimiAgentReasoner.synthesize()"]
+    E --> K["LlmAgentReasoner.resolve_question()"]
+    E --> L["LlmAgentReasoner.synthesize()"]
     E --> M["QuestionResolver"]
 
     E --> N["ProviderEnricher"]
-    N --> O["KimiProvider"]
+    N --> O["LlmStructuredProvider"]
     E --> P["ClaimExtractor"]
     E --> Q["VerdictEngine"]
     E --> R["TimelineBuilder"]
@@ -927,20 +927,19 @@ flowchart TD
 
 | 模块 | 输入 | 输出 | 内部怎么做 |
 | --- | --- | --- | --- |
-| `AnalyzePage` | 用户输入、输入类型、流式事件 | 页面状态、最终 report | 管理 `status / report / liveEvents / isStreaming`，提交前先 `validateInput()`，提交流式请求，收到 `report` 事件就落盘，收到错误就切到 `error` 状态 |
+| `AnalyzePage` | 用户输入、输入类型、流式事件 | 页面状态、最终 report、两个视图 | 管理 `status / report / liveEvents / isStreaming`，提交前先 `validateInput()`，提交流式请求，收到 `report` 事件就落盘，收到错误就切到 `error` 状态；渲染逻辑（判定卡片/逐条核查/证据/时间线/trace）全部内联在本组件 |
 | `api-client.analyzeReportStream()` | `AnalyzeRequest` | `AnalysisLiveEvent[]` + 最终 `Report` | 用 `fetch()` 调 `/api/v1/analyze/stream`，拿 `response.body.getReader()` 按行读取 NDJSON，逐条 `JSON.parse()` 后映射成强类型事件 |
-| `AnalysisLivePanel` | `events`、`status`、`startedAt` | 实时执行面板 UI | 把 `session / stage / api_call / retrieval / log / report / error / complete` 统一转成 `RenderedLiveItem`，再按时间线渲染 |
-| `StatusBanner / ReportOverviewPanel / ClaimTable / TimelinePanel / EvidenceList` | `Report` | 结果展示 | 这些组件本身不做推理，只消费结构化 `Report` |
+| `AnalyzePage` 结果态区块 | 流式事件 / `Report` | 判定卡片 + 可折叠区块 + 底部 trace | 执行过程 trace 把 `session / stage / api_call / retrieval / log / report / error / complete` 统一渲染成折叠列表；判定/核查/证据/时间线直接消费结构化 `Report`，本身不做推理 |
 
 #### 6.14.3 `AnalyzePage` 具体实现点
 
 | 代码动作 | 具体实现 |
 | --- | --- |
 | 输入校验 | 先走 `validateInput()`，不合法直接前端报错，不打后端 |
-| 提交前清理 | 提交时会清空旧 `report`、旧 `reportProvenance`、旧 `liveEvents` |
+| 提交前清理 | 提交时会清空旧 `report`、旧 `reportProvenance`、旧 `liveEvents`，并重置各折叠区块的展开状态 |
 | 流式追踪接入 | `handleStreamEvent()` 对每个事件做 `setLiveEvents([...current, event])` |
 | 结果提前落盘 | 只要流里出现 `report` 事件，前端就已经能刷新结果区，不必等整个请求完全结束 |
-| 重试逻辑 | `retryLastRequest()` 复用上次请求体，再跑一遍 |
+| 视图切换 | `showResult` 为假时渲染搜索态（居中输入框 + 示例），为真时渲染结果态；“新查询”按钮 `handleReset()` 回到搜索态 |
 
 #### 6.14.4 `api-client.analyzeReportStream()` 具体实现点
 
@@ -953,15 +952,16 @@ flowchart TD
 | 异常传播 | 如果流中收到 `error` 事件，会组装成 `ApiClientError` 抛出 |
 | 成功条件 | 最终必须拿到 `report` 事件，否则视为异常 |
 
-#### 6.14.5 流式事件面板 `AnalysisLivePanel` 的实现思路
+#### 6.14.5 结果态执行过程 trace 的实现思路
+
+早期版本用独立的 `AnalysisLivePanel` 组件渲染“执行过程直播”；前端重写为单页产品界面后，这段逻辑内联到 `AnalyzePage` 结果态底部的可折叠 trace 区块，思路不变：
 
 | 问题 | 当前实现怎么解决 |
 | --- | --- |
-| 事件类型很多，UI 难统一 | 先把所有事件转换成统一的 `RenderedLiveItem` |
-| 用户只关心“现在进行到哪” | 用 `latestItem` 做 `Current Focus` 区域 |
-| 需要一眼看出量级 | 顶部显示阶段数、API 调用数、检索次数、总事件数 |
-| 需要看错误/完成状态 | `renderStatus()` 给每种事件一个统一状态色和 pill |
-| 需要看技术细节 | `details` 区直接展示 `model=... / query=... / status_code=...` 这类键值细节 |
+| 事件类型很多，UI 难统一 | 对每个事件按 `type` 取标题、状态与摘要，统一渲染成一行 trace item |
+| 普通用户不需要每步细节 | trace 区块默认折叠，判定卡片和结论优先占据主视线 |
+| 加载态需要反馈 | 加载卡片显示最新一条事件的标题，让用户知道当前进行到哪 |
+| 需要看错误/完成状态 | 每条 trace item 按事件状态给一个统一的状态色点 |
 
 #### 6.14.6 流式接口 `POST /api/v1/analyze/stream` 具体实现点
 
@@ -1022,7 +1022,7 @@ flowchart TD
 
 | 细节 | 当前做法 |
 | --- | --- |
-| provider 选择 | 根据配置构造 `GdeltNewsProvider` 或 `KimiWebSearchProvider` |
+| provider 选择 | 根据配置构造 `GdeltNewsProvider` 或 `LlmWebSearchProvider` |
 | query plan 生成 | `_build_query_plan()` 按输入情形生成 1 到 4 条检索 query |
 | query 去重 | `_dedupe_query_plan()` 对 query 做规范化和去重 |
 | 缓存读取 | 优先读 `RetrievalCache`，支持 stale cache |
@@ -1047,7 +1047,7 @@ flowchart TD
 - 一条 query 负责找权威回应
 - 一条 query 负责找传播链
 
-#### 6.14.12 `KimiWebSearchProvider` / `GdeltNewsProvider` 具体实现点
+#### 6.14.12 `LlmWebSearchProvider` / `GdeltNewsProvider` 具体实现点
 
 ##### `GdeltNewsProvider`
 
@@ -1058,15 +1058,15 @@ flowchart TD
 | 结果解析 | 把 article 转成内部 `SearchResult` |
 | 来源等级 | 根据域名和来源名推断 `S / A / B / C` |
 
-##### `KimiWebSearchProvider`
+##### `LlmWebSearchProvider`
 
 | 细节 | 当前做法 |
 | --- | --- |
-| 调用方式 | 调 Moonshot `/chat/completions` |
+| 调用方式 | 调配置指定的 OpenAI 兼容 `/chat/completions` 端点 |
 | 工具使用 | 强制要求模型先调用 `$web_search` |
 | system prompt | 明确要求只返回 JSON，且 URL 必须来自当前 web search |
 | 循环逻辑 | `_run_search_loop()` 最多跑 4 轮 tool call |
-| 模型选择 | `kimi-k2.5` 会强制 fallback 到 `kimi-k2-turbo-preview`，避免 tool-calling 不稳定 |
+| 模型选择 | 由配置（`LLM_SEARCH_MODEL` / `LLM_MODEL`）决定；模型名只放 `backend/.env` |
 | 结果解析 | 把模型 JSON 里的 `results[]` 转成 `SearchResult` |
 
 #### 6.14.13 `SearchResult` / `RetrievalBundle` 内部结构为什么重要
@@ -1098,32 +1098,32 @@ flowchart TD
 | 选中条件 | 至少有足够 overlap，且必须出现高可信来源 |
 | follow-up query 构造 | 结合 summary、标题、snippet 和 source_name 拼后续检索词 |
 
-#### 6.14.15 `KimiAgentReasoner` 具体实现点
+#### 6.14.15 `LlmAgentReasoner` 具体实现点
 
 | 子能力 | 具体实现 |
 | --- | --- |
-| `resolve_question()` | 把问题和前几条 retrieval hit 发给 Kimi，让它判断是否能锁单一事件 |
-| `synthesize()` | 把 request + event + retrieval hits 发给 Kimi，让它返回结构化 event/claims/timeline |
+| `resolve_question()` | 把问题和前几条 retrieval hit 发给 LLM，让它判断是否能锁单一事件 |
+| `synthesize()` | 把 request + event + retrieval hits 发给 LLM，让它返回结构化 event/claims/timeline |
 | 输出约束 | 都必须是 JSON，且只能引用已有 `result_id` |
 | 证据绑定 | claim 的 `evidence_result_ids` 会回查成具体 `EvidenceItem` |
 | 时间线绑定 | timeline 节点必须引用已有 `result_id`，再映射成 `TimelineNode` |
-| 模型选择 | 优先用 `kimi_search_model`，避免 `kimi-k2.5` 的 tool / timeout 问题 |
+| 模型选择 | 优先用配置的 `LLM_SEARCH_MODEL`，否则回落 `LLM_MODEL`；模型名只放 `backend/.env` |
 | 失败策略 | 解析失败直接返回 `None`，由上层 fallback |
 
-#### 6.14.16 `ProviderEnricher` 和 `KimiProvider` 的区别
+#### 6.14.16 `ProviderEnricher` 和 `LlmStructuredProvider` 的区别
 
 很多人会把这两个和 agent 混掉，实际上不是一回事。
 
 | 模块 | 定位 | 当前实现方式 |
 | --- | --- | --- |
-| `KimiAgentReasoner` | agent 综合判断 | 基于 retrieval hits 做 evidence-grounded synthesis |
-| `KimiProvider` | 结构化抽取器 | 只对输入文本做 event + claims 的结构化抽取 |
-| `ProviderEnricher` | 包装层 | 用 `KimiProvider` 的结果补全标题、摘要、关键词、来源 |
+| `LlmAgentReasoner` | agent 综合判断 | 基于 retrieval hits 做 evidence-grounded synthesis |
+| `LlmStructuredProvider` | 结构化抽取器 | 只对输入文本做 event + claims 的结构化抽取 |
+| `ProviderEnricher` | 包装层 | 用 `LlmStructuredProvider` 的结果补全标题、摘要、关键词、来源 |
 
 也就是说：
 
-- `KimiProvider` 更像 “抽取器”
-- `KimiAgentReasoner` 更像 “带证据约束的综合器”
+- `LlmStructuredProvider` 更像 “抽取器”
+- `LlmAgentReasoner` 更像 “带证据约束的综合器”
 
 #### 6.14.17 `ClaimExtractor` 具体实现点
 
@@ -1229,7 +1229,7 @@ flowchart LR
 | --- | --- |
 | 检索层 | 会做 query plan，不止一条 query |
 | 消歧层 | 会判断能不能锁到单一事件，不是词一重叠就选 |
-| agent 层 | Kimi 需要在 retrieval hits 上做结构化综合 |
+| agent 层 | LLM 需要在 retrieval hits 上做结构化综合 |
 | verdict 层 | 会看否定信号、主体锚点、数量冲突、来源等级 |
 | 时间线层 | 会映射传播角色，不是简单时间排序 |
 | 报告层 | 会做 mode 选择、风险边界、调查总结、评分 |
@@ -1296,7 +1296,7 @@ flowchart LR
 | 设计点 | 你可以怎么讲 |
 | --- | --- |
 | 可观测性 | 我们把“分析中”拆成了实时执行轨迹，而不是让用户盲等 |
-| agent-first | 现在不是单纯规则，而是先让 Kimi 在证据约束下做综合判断 |
+| agent-first | 现在不是单纯规则，而是先让 LLM 在证据约束下做综合判断 |
 | fallback-safe | agent 不稳定时会回退，不会让系统直接失明 |
 | evidence-grounded | 每个结论都尽量回到检索结果，而不是自由生成 |
 | contract-driven output | 最终页面消费的是结构化 report，不是模型散文 |
@@ -1312,7 +1312,7 @@ flowchart LR
 
 ### 10.2 90 秒版本
 
-> 一次提问进来后，前端会走流式接口而不是普通接口。后端先把输入规整成统一的 `NormalizedEvent`，然后生成 query plan 做首轮检索。对问题型输入，会额外做一个消歧阶段，判断能不能把问题锁到单一事件；如果能，就再做一轮更窄的 follow-up retrieval。接着系统优先让 Kimi 在给定 retrieval hits 上输出结构化的 event、claims、timeline 和 judgment；如果这一步失败，就退回 provider enrichment、claim extraction、verdict engine 和 timeline builder 这条规则链。最后由 report builder 统一决定 safe / partial / complete，并生成风险边界、调查总结和评分，同时整个过程不断把阶段事件、API 调用和检索结果推回前端，让用户实时看到系统在干什么。
+> 一次提问进来后，前端会走流式接口而不是普通接口。后端先把输入规整成统一的 `NormalizedEvent`，然后生成 query plan 做首轮检索。对问题型输入，会额外做一个消歧阶段，判断能不能把问题锁到单一事件；如果能，就再做一轮更窄的 follow-up retrieval。接着系统优先让 LLM 在给定 retrieval hits 上输出结构化的 event、claims、timeline 和 judgment；如果这一步失败，就退回 provider enrichment、claim extraction、verdict engine 和 timeline builder 这条规则链。最后由 report builder 统一决定 safe / partial / complete，并生成风险边界、调查总结和评分，同时整个过程不断把阶段事件、API 调用和检索结果推回前端，让用户实时看到系统在干什么。
 
 ---
 
@@ -1327,14 +1327,14 @@ flowchart LR
 | 检索调度 | `backend/app/services/retrieval_service.py` |
 | 在线检索 provider | `backend/app/services/retrieval_provider.py` |
 | agent 消歧与综合 | `backend/app/services/agent_reasoner.py` |
-| fallback provider | `backend/app/services/kimi_provider.py` |
+| fallback provider | `backend/app/services/llm_provider.py` |
 | verdict 判定 | `backend/app/services/verdict_engine.py` |
 | 时间线构建 | `backend/app/services/timeline_builder.py` |
 | 报告构建 | `backend/app/services/report_builder.py` |
 | 内容核查视图 | `backend/app/services/content_check_builder.py` |
 | 回放摘要 | `backend/app/services/pipeline_trace_builder.py` |
 | 页面主控 | `frontend/components/analyze-page.tsx` |
-| 实时追踪面板 | `frontend/components/analysis-live-panel.tsx` |
+| 实时追踪面板 | 内联于 `frontend/components/analyze-page.tsx`（结果态底部 trace 区块） |
 | 流式客户端 | `frontend/lib/api-client.ts` |
 
 ---

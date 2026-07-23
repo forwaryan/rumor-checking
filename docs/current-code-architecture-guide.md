@@ -1,6 +1,6 @@
 # 当前代码结构与项目架构说明
 
-更新时间：2026-03-27（Asia/Shanghai）
+更新时间：2026-07-23（Asia/Shanghai）
 
 这份文档只讲三件事：
 
@@ -29,11 +29,13 @@
 
 | 维度 | 稳定基线（默认） | 增强路径 | 关键开关 |
 | --- | --- | --- | --- |
-| 分析 provider | 规则兜底 | Kimi 综合判断 | `ANALYSIS_PROVIDER=off\|kimi` |
-| 检索 provider | mock | Kimi 联网 / gdelt | `RETRIEVAL_PROVIDER=mock\|kimi\|gdelt` |
+| 分析 provider | 规则兜底 | LLM 综合判断 | `ANALYSIS_PROVIDER=off\|kimi` |
+| 检索 provider | mock | playwright 抓取 / gdelt / LLM 内建联网 | `RETRIEVAL_PROVIDER=mock\|playwright\|gdelt\|kimi\|off` |
 | 主编排 | 固定 pipeline | 可插拔 agent 循环 | `AGENT_ORCHESTRATOR_ENABLED=false\|true` |
 
 三个开关都默认取"稳定基线"一侧，所以**开箱即 `off + mock + 固定 pipeline`**，零 key、可复现、可回归。
+
+> 说明：`ANALYSIS_PROVIDER` / `RETRIEVAL_PROVIDER` 的枚举值 `kimi` 只是历史遗留的**配置开关字面量**，不代表具体供应商；LLM 调用层已做成供应商中立（见 §6.4），真实模型/端点/密钥全部由 git 忽略的 `backend/.env` 决定。`playwright` 是纯 httpx 抓取百度/Bing 的独立联网检索路径（不依赖浏览器二进制，也不依赖 LLM 内建搜索）。
 
 `backend/.env.example` 是模板（key 字段留空）；真实运行时把密钥和覆盖项放进 **git 忽略的 `backend/.env`**（该文件不进版本库）。理解架构时分两层看：
 
@@ -95,7 +97,7 @@ flowchart LR
     PIPE --> NORM["InputNormalizer"]
     PIPE --> RET["RetrievalService"]
     PIPE --> RESOLVE["QuestionResolver / Agent question resolution"]
-    PIPE --> SYN["KimiAgentReasoner.synthesize"]
+    PIPE --> SYN["LlmAgentReasoner.synthesize"]
     PIPE --> FALLBACK["ProviderEnricher + ClaimExtractor + VerdictEngine + TimelineBuilder"]
     PIPE --> BUILD["ReportBuilder + ContentCheckBuilder + PipelineTraceBuilder"]
 
@@ -120,40 +122,46 @@ flowchart LR
 
 ### 5.1 前端现在的定位
 
-前端现在承担两个角色：
+前端现在是一个**面向普通用户的核查产品**，而不是内部工作台。它承担两件事：
 
-- 一个“输入工作台”
-- 一个“执行过程直播台 + 报告展示台”
+- 一个“输入框”：像搜索引擎首页一样，居中一个输入框加几个示例。
+- 一个“结果页”：大号判定卡片打头，下面把逐条核查、证据、时间线折叠成可展开区块；执行过程轨迹默认折叠在最底部。
 
-也就是说，前端不只是提交按钮，而是当前项目“可解释性”的一半。
+也就是说，普通用户先看到一句话结论和判定色块，需要时再逐层展开细节；开发/调试信息（执行 trace）不占据主视线。
 
 ### 5.2 前端核心文件
+
+当前前端已从早期的“多面板工作台”（十余个组件）**收敛为单一页面组件**。核心文件如下：
 
 | 文件 | 当前职责 |
 | --- | --- |
 | [frontend/app/page.tsx](../frontend/app/page.tsx) | 页面入口，只挂载 `AnalyzePage` |
-| [frontend/components/analyze-page.tsx](../frontend/components/analyze-page.tsx) | 页面主控制器，维护输入、状态、流式事件、报告结果 |
-| [frontend/components/input-panel.tsx](../frontend/components/input-panel.tsx) | 输入区域和 demo case 选择 |
-| [frontend/components/analysis-live-panel.tsx](../frontend/components/analysis-live-panel.tsx) | 渲染 NDJSON 事件流 |
+| [frontend/app/layout.tsx](../frontend/app/layout.tsx) | 根布局与站点标题（“较真核查”） |
+| [frontend/app/globals.css](../frontend/app/globals.css) | 全站样式，移动端优先，约 300 行 |
+| [frontend/components/analyze-page.tsx](../frontend/components/analyze-page.tsx) | **唯一的页面组件**：搜索态 / 结果态两个视图，内联判定卡片、逐条核查、证据、时间线、执行 trace，并维护输入、流式事件、报告状态 |
 | [frontend/lib/api-client.ts](../frontend/lib/api-client.ts) | 请求 `/health`、`/analyze`、`/analyze/stream`，并解析后端返回 |
-| [frontend/lib/report-utils.ts](../frontend/lib/report-utils.ts) | 展示层二次整理，例如来源标签、得分解读、事件标题兜底 |
+| [frontend/lib/report-utils.ts](../frontend/lib/report-utils.ts) | 展示层二次整理，例如 verdict 标签、置信度格式化、证据收集 |
+| [frontend/lib/report-high-score.ts](../frontend/lib/report-high-score.ts) | 整体可信度、评分拆解等派生指标 |
+| [frontend/lib/agent-run.ts](../frontend/lib/agent-run.ts) | 从流式事件派生 agent 调查动作视图 |
+| [frontend/lib/demo-cases.ts](../frontend/lib/demo-cases.ts) | 提供搜索态的示例输入卡片 |
 | [frontend/types/report.ts](../frontend/types/report.ts) | 前端侧 `Report`、`AnalysisLiveEvent` 类型定义 |
 
-### 5.3 前端组件关系图
+### 5.3 前端结构图
+
+早期把 `Report` 拆给十几个面板组件；现在这些展示逻辑全部内联在 `AnalyzePage` 里，按“搜索态 / 结果态”两个分支渲染，结果态内部再分区块。
 
 ```mermaid
 flowchart TD
-    PAGE["app/page.tsx"] --> ANALYZE["AnalyzePage"]
-    ANALYZE --> INPUT["InputPanel"]
-    ANALYZE --> LIVE["AnalysisLivePanel"]
-    ANALYZE --> STATUS["StatusBanner"]
-    ANALYZE --> OVERVIEW["ReportOverviewPanel"]
-    ANALYZE --> EVENT["EventCard"]
-    ANALYZE --> RISK["RiskPanel"]
-    ANALYZE --> CONTENT["ContentCheckPanel"]
-    ANALYZE --> TIMELINE["TimelinePanel"]
-    ANALYZE --> CLAIM["ClaimTable"]
-    ANALYZE --> EVIDENCE["EvidenceList"]
+    PAGE["app/page.tsx"] --> ANALYZE["AnalyzePage（单组件）"]
+
+    ANALYZE --> IDLE["搜索态：输入框 + 示例 + 服务状态点"]
+    ANALYZE --> RESULT["结果态"]
+
+    RESULT --> VERDICT["判定卡片（色块 + 一句话结论）"]
+    RESULT --> CLAIMS["逐条核查（可折叠）"]
+    RESULT --> EVIDENCE["证据来源（可折叠）"]
+    RESULT --> TIMELINE["传播时间线（可折叠）"]
+    RESULT --> TRACE["执行过程 trace（默认折叠）"]
 
     ANALYZE --> CLIENT["api-client.ts"]
     CLIENT --> STREAM["/api/v1/analyze/stream"]
@@ -165,27 +173,25 @@ flowchart TD
 ```mermaid
 sequenceDiagram
     participant U as 用户
-    participant P as InputPanel
     participant A as AnalyzePage
     participant C as api-client
     participant B as Backend
 
-    U->>P: 输入文本 / URL / 问题
-    P->>A: onSubmit()
+    U->>A: 在搜索框输入文本 / URL / 问题
     A->>A: validateInput()
     A->>C: analyzeReportStream(request)
     C->>B: POST /api/v1/analyze/stream
     B-->>C: NDJSON 事件流
     C-->>A: session / stage / retrieval / log / report / complete
     A->>A: 更新 liveEvents / report / status
-    A-->>U: 实时过程 + 最终报告
+    A-->>U: 结果态（判定卡片 + 可折叠区块 + 底部 trace）
 ```
 
 前端这层最值得讲给面试官的点是：
 
-- `AnalyzePage` 其实就是一个轻量状态机。
+- `AnalyzePage` 其实就是一个轻量状态机，搜索态和结果态是它的两个视图。
 - `api-client.ts` 读的是 **NDJSON 流**，不是等到最后一次性读 JSON。
-- `AnalysisLivePanel` 让后端每个阶段都能被用户看到。
+- 执行过程 trace 直接内联在结果态底部（默认折叠），流式事件仍能让后端每个阶段被追溯。
 
 ---
 
@@ -248,9 +254,9 @@ flowchart TD
 | 服务 | 当前职责 | 说明 |
 | --- | --- | --- |
 | [backend/app/services/input_normalizer.py](../backend/app/services/input_normalizer.py) | 识别 `text / url / question`，抽取标题、摘要、关键词、来源 | URL 输入还会尝试正文抽取 |
-| [backend/app/services/retrieval_service.py](../backend/app/services/retrieval_service.py) | 生成 query plan，决定走 mock / gdelt / kimi，做缓存与 fallback | 检索不是一条 query，而是一组 query |
+| [backend/app/services/retrieval_service.py](../backend/app/services/retrieval_service.py) | 生成 query plan，决定走 mock / playwright / gdelt / LLM 内建联网，做缓存与 fallback | 检索不是一条 query，而是一组 query |
 | [backend/app/services/question_resolver.py](../backend/app/services/question_resolver.py) | 对问句做事件收束 | 只在 `question_only` 路径生效 |
-| [backend/app/services/agent_reasoner.py](../backend/app/services/agent_reasoner.py) | 用 Kimi 做 question resolution 和 synthesis | 配置关闭时整段分支失效 |
+| [backend/app/services/agent_reasoner.py](../backend/app/services/agent_reasoner.py) | `LlmAgentReasoner`：用 LLM 做 question resolution 和 synthesis | 配置关闭时整段分支失效 |
 | [backend/app/services/provider_enricher.py](../backend/app/services/provider_enricher.py) | 给事件补结构化标题/摘要/claim | 属于 fallback 链的一部分 |
 | [backend/app/services/claim_extractor.py](../backend/app/services/claim_extractor.py) | 把一句话拆成原子 claim | 规则抽取是默认兜底 |
 | [backend/app/services/verdict_engine.py](../backend/app/services/verdict_engine.py) | 给 claim 打 `supported/refuted/insufficient/conflicting` | 依据是 retrieval evidence |
@@ -275,7 +281,7 @@ flowchart TD
 Planner 可插拔，这是"agent 为主又不破坏基线"的关键取舍：
 
 - `RulePlanner`（默认）：永远取第一个合法动作，复刻固定 pipeline 顺序。在 `off + mock` 上产出与旧链路**逐字节一致**的 `Report`（`backend/tests/test_agent_orchestrator.py` 的 parity 测试保证）。
-- `LlmPlanner`（配置 Kimi 时启用）：只在真实岔路口调用 LLM；其余强制步骤不浪费 LLM 调用。非法/失败选择一律退回 `RulePlanner`。岔路口的候选动作：`investigate`（补一轮检索）/ `fetch_url`（抓取最权威证据的全文）/ `synthesize`（直接综合）。`fetch_url` 始终排在规则默认动作之后，`RulePlanner`（取第一个）永不选它 → parity 不受影响。
+- `LlmPlanner`（配置 LLM 时启用）：只在真实岔路口调用 LLM；其余强制步骤不浪费 LLM 调用。非法/失败选择一律退回 `RulePlanner`。岔路口的候选动作：`investigate`（补一轮检索）/ `fetch_url`（抓取最权威证据的全文）/ `synthesize`（直接综合）。`fetch_url` 始终排在规则默认动作之后，`RulePlanner`（取第一个）永不选它 → parity 不受影响。
 
 ```mermaid
 flowchart TD
@@ -285,7 +291,7 @@ flowchart TD
     RUN --> PLAN["Planner.next_action(state)"]
     PLAN --> LEGAL["legal_actions(state)"]
     LEGAL -->|唯一合法| TOOL["执行该工具"]
-    LEGAL -->|岔路 & 配置 Kimi| LLM["LlmPlanner 调 LLM 决策"]
+    LEGAL -->|岔路 & 配置 LLM| LLM["LlmPlanner 调 LLM 决策"]
     LLM --> TOOL
     TOOL --> STATE["写回 AgentState"]
     STATE -->|未完成| PLAN
@@ -293,7 +299,7 @@ flowchart TD
     RUN -->|抛错| PIPE
 ```
 
-配合的能力开关：`LIGHTWEIGHT_AGENT_ENABLED`（证据弱时让 LLM planner 追加 1 轮定向检索）、`AGENT_MAX_URL_FETCHES`（允许 planner 抓取几次证据全文，默认 1、0=关）、以及开 Kimi 时 `agent_reasoner.synthesize` 接管 grounded verdict（判定必须带证据，否则降级 `insufficient`）。
+配合的能力开关：`LIGHTWEIGHT_AGENT_ENABLED`（证据弱时让 LLM planner 追加 1 轮定向检索）、`AGENT_MAX_URL_FETCHES`（允许 planner 抓取几次证据全文，默认 1、0=关）、以及开 LLM 时 `agent_reasoner.synthesize` 接管 grounded verdict（判定必须带证据，否则降级 `insufficient`）。
 
 ---
 
@@ -398,7 +404,7 @@ RETRIEVAL_CACHE_ENABLED=false
 
 这意味着本例会走：
 
-- 不启用 Kimi synthesis
+- 不启用 LLM synthesis
 - 走 mock retrieval
 - 走规则型 claim / verdict / timeline 链路
 
@@ -633,7 +639,7 @@ sequenceDiagram
 
 如果你要向别人解释这个项目，最稳的表述是：
 
-> 这是一个带执行过程可视化的谣言核查工作台。前端负责把一次分析过程完整展示出来，后端把输入加工成标准化事件，再做检索、消歧、claim 判定、时间线构建和报告组装。当前代码同时支持稳定 mock 基线和 Kimi 增强路径，但无论走哪条路径，最终都统一收敛到一份带 provenance 的 `Report`。
+> 这是一个带执行过程可视化的谣言核查工作台。前端负责把一次分析过程完整展示出来，后端把输入加工成标准化事件，再做检索、消歧、claim 判定、时间线构建和报告组装。当前代码同时支持稳定 mock 基线和 LLM 增强路径，但无论走哪条路径，最终都统一收敛到一份带 provenance 的 `Report`。
 
 再压缩一点，可以直接说：
 

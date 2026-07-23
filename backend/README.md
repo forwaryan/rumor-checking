@@ -2,7 +2,7 @@
 
 本目录承载 rumor-checking 的后端主链路。
 
-更新时间：2026-03-26（Asia/Shanghai）
+更新时间：2026-07-23（Asia/Shanghai）
 
 ## 当前接口
 
@@ -26,21 +26,24 @@ RETRIEVAL_PROVIDER=mock
 RETRIEVAL_FALLBACK_TO_MOCK=true
 ```
 
-如需启用 Kimi 分析增强，再显式配置：
+如需启用 LLM 分析增强，再显式配置（模型/端点/密钥都放 git 忽略的 `backend/.env`，不写入版本库）：
 
 ```dotenv
 ANALYSIS_PROVIDER=kimi
-KIMI_API_KEY=你的真实 key
-KIMI_BASE_URL=https://api.moonshot.cn/v1
-KIMI_MODEL=moonshot-v1-8k
+LLM_API_KEY=你的真实 key
+LLM_BASE_URL=你的 OpenAI 兼容网关端点
+LLM_MODEL=你的模型名
 PROVIDER_TIMEOUT_SECONDS=20
 ```
 
+> `ANALYSIS_PROVIDER=kimi` 只是历史遗留的开关字面量，不代表具体供应商；调用层已供应商中立，走标准 OpenAI 兼容 `chat/completions` 流式接口。
+
 ## 检索 provider
 
-- `RETRIEVAL_PROVIDER=mock`：稳定回归
-- `RETRIEVAL_PROVIDER=gdelt`：公开 GDELT 检索，失败时可回退到 mock
-- `RETRIEVAL_PROVIDER=agent` 或 `kimi`：走 Kimi 联网搜索，再整理为 retrieval hits
+- `RETRIEVAL_PROVIDER=mock`：稳定回归（默认）
+- `RETRIEVAL_PROVIDER=playwright`：纯 httpx 抓取百度（主）+ Bing（兜底）搜索结果页，中文覆盖较好，无需额外依赖（**当前推荐的真实联网路径**）
+- `RETRIEVAL_PROVIDER=gdelt`：公开 GDELT 检索（英文偏向），失败时可回退到 mock
+- `RETRIEVAL_PROVIDER=kimi`：走 LLM 内建 `$web_search`（仅对支持该工具的供应商有效；当前新模型无此能力）
 - `RETRIEVAL_PROVIDER=off`：关闭检索，只保留保守链路
 
 相关环境变量：
@@ -48,7 +51,7 @@ PROVIDER_TIMEOUT_SECONDS=20
 - `RETRIEVAL_TIMEOUT_SECONDS`
 - `RETRIEVAL_GDELT_BASE_URL`
 - `RETRIEVAL_MAX_RESULTS`
-- `KIMI_SEARCH_MODEL`
+- `LLM_SEARCH_MODEL`
 - `RETRIEVAL_CACHE_ENABLED`
 - `RETRIEVAL_CACHE_TTL_SECONDS`
 - `RETRIEVAL_CACHE_ALLOW_STALE_ON_ERROR`
@@ -100,4 +103,4 @@ uvicorn backend.app.main:app --reload
 
 - verdict 和 timeline 仍是基于检索结果的规则/启发式判断，不是完整 agent 搜证系统
 - `live probe` 仍只用于内部诊断，不代表真实检索已通过最终验收
-- 共享协议仍以 [contracts/report.schema.json](/home/forwaryan/mianshi/rumor-checking/contracts/report.schema.json) 为准
+- 共享协议仍以 [contracts/report.schema.json](../contracts/report.schema.json) 为准

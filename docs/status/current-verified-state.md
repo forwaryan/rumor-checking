@@ -1,6 +1,6 @@
 # 当前已核验状态
 
-更新时间：2026-07-19（Asia/Shanghai）
+更新时间：2026-07-23（Asia/Shanghai）
 
 这份文档只保留已经被当前代码核验过的事实，用来约束 README 和现行运行文档的口径。
 
@@ -16,7 +16,6 @@
 - `backend/app/models/schemas.py`
 - `backend/app/services/report_builder.py`
 - `frontend/components/analyze-page.tsx`
-- `frontend/components/agent-run-panel.tsx`
 - `frontend/lib/agent-run.ts`
 - `frontend/lib/api-client.ts`
 - `frontend/lib/report-utils.ts`
@@ -77,7 +76,7 @@
   - `LlmPlanner`（配置了 LLM 时启用）在真实岔路口调用 LLM 决策，带非法动作护栏，失败即退回 `RulePlanner`。当前岔路口的候选动作：`investigate`（补一轮检索）、`fetch_url`（抓取高价值证据全文）、`synthesize`（直接综合）。
 - `fetch_url` 自主动作：LLM 可选择抓取当前证据里最权威（high-trust/非聚合/高 tier）来源的正文，按**同一 `result_id`** 挂靠喂给 synthesis（grounding 安全，不新增证据源）；由 `AGENT_MAX_URL_FETCHES` 限制（默认 1，0=关），带去重与抓取失败降级。`fetch_url` 在 `legal_actions` 里始终排在规则默认动作之后，所以 `RulePlanner`（取首个）永不选它 → off+mock parity 不受影响。
 - runner 抛错时自动回退固定 pipeline，不影响可交付性。
-- 前端有对应的调查过程面板（`frontend/components/agent-run-panel.tsx`），从现有 `stage`/`log` 事件派生，非 agent 路径自动隐藏。
+- 前端保留了从 `stage`/`log` 事件派生 agent 调查动作的逻辑（`frontend/lib/agent-run.ts`）。前端重写为单页产品界面后，早期的独立调查过程面板组件已移除，执行过程改为内联在结果页底部的可折叠 trace 区块；非 agent 路径下 trace 仍照常展示流水线事件。
 
 ### 7. Grounded verdict 与诚实兜底
 
@@ -88,13 +87,16 @@
 
 - LLM 调用层已做成**供应商中立**：走标准 OpenAI 兼容 `chat/completions`、流式读取，模型/端点/密钥全部由配置（`LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` / `LLM_SEARCH_MODEL`）决定。当前已从早期供应商切换到一批**新的可配置模型**（通过内部网关），判定/planner/synthesis 均走该路径并端到端联调通过。
 - 具体端点、模型名和密钥只存在于 git 忽略的 `backend/.env`，不写入代码或 `.env.example`（保持对外中立）。
-- **联网检索现状**：真实 `$web_search` 联网检索曾在早期供应商上端到端跑通（真实 URL、`source_type=backend_live`、`evidence_source=retrieval_live`、grounded 判定，含 `fetch_url` 自主抓正文）。但当前所用的新模型/网关**没有等价的内建联网搜索工具**，因此 `RETRIEVAL_PROVIDER` 默认回落到 `mock`；联网检索代码保留但默认关闭。要恢复真实联网需另接独立搜索源。
-- 判定层（新模型）与检索层是解耦的：换判定模型不影响检索策略，反之亦然。
-- 默认交付/演示路径仍是 `off + mock`（见第 4 条）。
+- **联网检索现状**：`RETRIEVAL_PROVIDER` 当前实现的枚举为 `mock | playwright | gdelt | kimi | off`（见 `backend/app/services/retrieval_service.py` 的 `_build_provider`）。
+  - `playwright`（`backend/app/services/playwright_search_provider.py`）：**当前推荐的真实联网路径**，用纯 httpx 抓取百度（主）+ Bing（兜底）搜索结果页并解析，不依赖浏览器二进制、也不依赖模型内建搜索，中文覆盖较好。已端到端验证可产出真实 URL 证据并驱动 grounded 判定。
+  - `kimi`（LLM 内建 `$web_search`）：仅对支持该工具的供应商有效。真实 `$web_search` 曾在早期供应商上端到端跑通（`source_type=backend_live`、`evidence_source=retrieval_live`、含 `fetch_url` 自主抓正文）；当前所用新模型/网关**没有等价内建搜索工具**，因此该分支在当前模型下不可用。
+  - `gdelt`：免费新闻 API，英文偏向、中文覆盖弱。
+- 判定层（新模型）与检索层是解耦的：换判定模型不影响检索策略，反之亦然。检索是否联网只由 `RETRIEVAL_PROVIDER` 决定。
+- 默认交付/演示路径仍是 `off + mock`（见第 4 条）；要走真实联网优先选 `playwright`。
 
 ## 当前仍未完成的事项
 
-- 真实 live retrieval 的进一步降延迟策略（当前已有检索缓存和 `fetch_url` 正文缓存，但首次冷启动单次仍可超 120s）
+- 真实 live retrieval 的进一步降延迟：检索层已把一轮 query plan 的多条 query 改为并发抓取（`retrieve_for_event` 内用线程池并行执行 cache-miss 的网络请求），单轮检索墙钟时间从"多条 query 串行相加"降到"最慢单条"；`playwright` 抓取超时也已改为读取 `RETRIEVAL_TIMEOUT_SECONDS`（默认 12s，含独立 connect 超时），死连接会快速失败而非吊满窗口。当前剩余的冷启动开销主要来自 LLM 判定/synthesis 首次调用，不再是检索串行
 - 公开 HTML 之外的 URL 抽取扩展
 - agent planner 更强的自主性（当前可在 investigate/fetch_url/synthesize 岔路口决策，但还不能自主换角度重搜或动态扩大工具集合）
 - 若未来确实需要 replay，是否公开接口和如何冻结术语体系
