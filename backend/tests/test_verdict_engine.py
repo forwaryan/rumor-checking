@@ -150,3 +150,64 @@ def test_resolution_claim_with_unresolved_signals_returns_conflicting():
     assert claim_result.verdict == "conflicting"
     assert claim_result.confidence == "medium"
     assert "未收口信号" in claim_result.notes
+
+
+def _empty_live_bundle(provider_name: str = "kimi") -> RetrievalBundle:
+    return RetrievalBundle(
+        query="拼多多雄安买楼招5000研发",
+        matched_case_id="real_search",
+        mode_hint="safe",
+        provider_name=provider_name,
+        canonical_results=(),
+    )
+
+
+def test_empty_evidence_after_live_search_says_searched_but_not_found():
+    # After P0 drops navigational junk, a live search can legitimately yield zero
+    # evidence. The note must own that we searched and found nothing — not imply the
+    # input was thin.
+    engine = VerdictEngine()
+    event = NormalizedEvent(
+        summary="拼多多在雄安买了三栋楼招了5000研发人员",
+        keywords=[],
+        input_type="text_news",
+        raw_input="拼多多在雄安买了三栋楼招了5000研发人员",
+    )
+    claims = [ClaimItem(claim="拼多多在雄安买了三栋楼招了5000研发人员。", claim_type="fact")]
+
+    result = engine.evaluate_with_source(
+        request=AnalyzeRequest(raw_input="拼多多在雄安买了三栋楼招了5000研发人员", input_type="text"),
+        event=event,
+        claims=claims,
+        retrieval_bundle=_empty_live_bundle(),
+    )
+
+    claim_result = result.claim_results[0]
+    assert claim_result.verdict == "insufficient"
+    assert "已联网检索" in claim_result.notes
+    assert "未找到" in claim_result.notes
+
+
+def test_empty_evidence_without_live_search_keeps_generic_note():
+    # No bundle (or mock/off provider) means we never really searched — the honest
+    # "已联网检索" wording would be a lie, so keep the generic conservative note.
+    engine = VerdictEngine()
+    event = NormalizedEvent(
+        summary="拼多多在雄安买了三栋楼招了5000研发人员",
+        keywords=[],
+        input_type="text_news",
+        raw_input="拼多多在雄安买了三栋楼招了5000研发人员",
+    )
+    claims = [ClaimItem(claim="拼多多在雄安买了三栋楼招了5000研发人员。", claim_type="fact")]
+
+    for bundle in (None, _empty_live_bundle(provider_name="mock")):
+        result = engine.evaluate_with_source(
+            request=AnalyzeRequest(raw_input="拼多多在雄安买了三栋楼招了5000研发人员", input_type="text"),
+            event=event,
+            claims=claims,
+            retrieval_bundle=bundle,
+        )
+        claim_result = result.claim_results[0]
+        assert claim_result.verdict == "insufficient"
+        assert "已联网检索" not in claim_result.notes
+        assert "缺少可核验的证据链" in claim_result.notes

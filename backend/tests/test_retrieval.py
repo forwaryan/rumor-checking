@@ -590,6 +590,92 @@ def test_retrieval_service_drops_navigational_brand_homepage(tmp_path: Path):
     assert "batch" not in canonical_ids
 
 
+def test_retrieval_service_returns_empty_when_all_results_are_navigational_junk(tmp_path: Path):
+    # The exact failure mode from the pinduoduo trace: a search where EVERY hit is a
+    # navigational brand page. Returning nothing is more honest than surfacing the
+    # homepage as "evidence" — the old code fell back to the noise-stripped set and
+    # let the homepage through when relevance filtering emptied the list.
+    event = NormalizedEvent(
+        title="拼多多在雄安买了三栋楼招了5000研发人员",
+        summary="拼多多在雄安买了三栋楼招了5000研发人员",
+        keywords=[],
+        input_type="text_news",
+        raw_input="拼多多在雄安买了三栋楼招了5000研发人员",
+    )
+    provider = FakeProvider(
+        results=[
+            _make_result(
+                result_id="homepage",
+                title="拼多多 新电商开创者",
+                snippet="微信扫码免费领取拼多多店铺 联系我们 客服热线。",
+                published_at="2026-07-20T09:00:00+08:00",
+                source_name="www.pinduoduo.com",
+                source_tier="C",
+                url="https://www.pinduoduo.com/",
+            ),
+            _make_result(
+                result_id="batch",
+                title="拼多多批发 官方采购批发平台",
+                snippet="拼多多官方旗下采购批发平台，采购就上拼多多批发。",
+                published_at="2026-07-19T09:00:00+08:00",
+                source_name="pifa.pinduoduo.com",
+                source_tier="C",
+                url="https://pifa.pinduoduo.com/",
+            ),
+        ]
+    )
+    service = RetrievalService(
+        settings=replace(get_settings(), retrieval_provider="gdelt", retrieval_max_results=5),
+        provider=provider,
+        cache=RetrievalCache(cache_root=tmp_path, ttl_seconds=3600),
+    )
+
+    bundle = service.retrieve_for_event(
+        event,
+        request_context={"force_retrieval_query": "拼多多 雄安 购买 三栋楼 研发 5000 官方"},
+    )
+
+    assert bundle.canonical_results == ()
+    assert bundle.mode_hint == "safe"
+
+
+def test_retrieval_service_drops_lone_navigational_result(tmp_path: Path):
+    # A single navigational page must NOT slip through: the old len==1 short-circuit
+    # returned the sole result before the navigational check could drop it.
+    event = NormalizedEvent(
+        title="拼多多在雄安买了三栋楼招了5000研发人员",
+        summary="拼多多在雄安买了三栋楼招了5000研发人员",
+        keywords=[],
+        input_type="text_news",
+        raw_input="拼多多在雄安买了三栋楼招了5000研发人员",
+    )
+    provider = FakeProvider(
+        results=[
+            _make_result(
+                result_id="homepage",
+                title="拼多多 新电商开创者",
+                snippet="微信扫码免费领取拼多多店铺 联系我们 客服热线。",
+                published_at="2026-07-20T09:00:00+08:00",
+                source_name="www.pinduoduo.com",
+                source_tier="C",
+                url="https://www.pinduoduo.com/",
+            ),
+        ]
+    )
+    service = RetrievalService(
+        settings=replace(get_settings(), retrieval_provider="gdelt", retrieval_max_results=5),
+        provider=provider,
+        cache=RetrievalCache(cache_root=tmp_path, ttl_seconds=3600),
+    )
+
+    bundle = service.retrieve_for_event(
+        event,
+        request_context={"force_retrieval_query": "拼多多 雄安 购买 三栋楼 研发 5000 官方"},
+    )
+
+    assert bundle.canonical_results == ()
+
+
 def test_question_only_pipeline_uses_real_retrieval_bundle(tmp_path: Path):
     provider = FakeProvider(
         results=[

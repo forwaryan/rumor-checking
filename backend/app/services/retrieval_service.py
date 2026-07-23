@@ -506,18 +506,22 @@ class RetrievalService:
         if not results:
             return results
         # Hard filter: dictionary/encyclopedia junk (surfaced when a search engine
-        # splits a Chinese phrase into single chars) is never real evidence, so drop
-        # it even when it's all we have — returning nothing is more honest than
-        # presenting a 字典 entry as a source.
-        non_noise = [item for item in results if not self._is_noise_result(item)]
-        if not non_noise:
-            return []
-        if len(non_noise) == 1:
-            return non_noise
+        # splits a Chinese phrase into single chars) and navigational brand pages
+        # (a homepage / section index that only matches the entity term) are never
+        # real evidence, so drop them even when they're all we have — returning
+        # nothing is more honest than presenting a 字典 entry or a bare homepage as
+        # a source.
+        grounded = [
+            item
+            for item in results
+            if not self._is_noise_result(item) and not self._is_navigational_non_evidence(item)
+        ]
+        if len(grounded) <= 1:
+            return grounded
         # Soft filter: query relevance can be over-aggressive, so fall back to the
-        # noise-stripped set rather than dropping everything.
-        on_topic = [item for item in non_noise if self._result_matches_query(item)]
-        return on_topic or non_noise
+        # hard-filtered set rather than dropping everything.
+        on_topic = [item for item in grounded if self._result_matches_query(item)]
+        return on_topic or grounded
 
     def _is_noise_result(self, result: SearchResult) -> bool:
         title = result.title
@@ -561,23 +565,26 @@ class RetrievalService:
             return True
         return False
 
+    def _is_navigational_non_evidence(self, result: SearchResult) -> bool:
+        # A navigational brand page (homepage / section index like pinduoduo.com/)
+        # matches only the dominant entity term and none of the event-specific ones,
+        # so it is not evidence about the claimed event. Treat it as a hard drop ONLY
+        # when it is both navigational AND fails to share query terms beyond that
+        # single entity — a homepage that genuinely discusses the event is kept.
+        if not result.is_navigational:
+            return False
+        query_terms = self._relevance_terms(self._normalize_query(result.query or ""))
+        if len(query_terms) < 2:
+            return False
+        haystack = self._normalize_query(" ".join([result.title, result.snippet]))
+        matched = [term for term in query_terms if term in haystack]
+        return not self._has_distinct_topic_match(matched)
+
     def _result_matches_query(self, result: SearchResult) -> bool:
         raw_text = " ".join([result.title, result.snippet, result.source_name])
         text = self._normalize_query(raw_text)
         if any(marker in text for marker in ("未提及", "未涉及", "不涉及", "无关", "another", "unrelated")):
             return False
-
-        # A navigational brand page (homepage / section index like pinduoduo.com/)
-        # matches only the dominant entity term and none of the event-specific ones,
-        # so it is not evidence about the claimed event. Drop it ONLY when it is both
-        # navigational AND fails to share query terms beyond that single entity.
-        if result.is_navigational:
-            query_terms = self._relevance_terms(self._normalize_query(result.query or ""))
-            if len(query_terms) >= 2:
-                haystack = self._normalize_query(" ".join([result.title, result.snippet]))
-                matched = [term for term in query_terms if term in haystack]
-                if not self._has_distinct_topic_match(matched):
-                    return False
         return True
 
     def _has_distinct_topic_match(self, matched_terms: list[str]) -> bool:

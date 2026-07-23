@@ -244,7 +244,7 @@ class VerdictEngine:
                         verdict="insufficient",
                         confidence="low",
                         evidence=[],
-                        notes="当前输入缺少可核验的证据链，先保持保守。",
+                        notes=self._empty_evidence_note(retrieval_bundle),
                     )
                 )
                 continue
@@ -272,6 +272,23 @@ class VerdictEngine:
             evidence_grade=evidence_grade,
             evidence_source=evidence_source,
         )
+
+    def _empty_evidence_note(self, retrieval_bundle: RetrievalBundle | None) -> str:
+        # A live search that ran cleanly but came back with no on-topic hits is a
+        # different signal from "we never searched" or "the search errored" — say so
+        # plainly instead of implying the input itself was thin. The probability
+        # layer still reports a 50/50 prior here (basis="prior"), so the note carries
+        # the honesty about *why*. Only claim "已联网检索" when the provider actually
+        # ran without failing or degrading to a fallback.
+        searched_live = (
+            retrieval_bundle is not None
+            and retrieval_bundle.provider_name not in ("mock", "off")
+            and not retrieval_bundle.fallback_used
+            and not retrieval_bundle.failure_detail
+        )
+        if searched_live:
+            return "已联网检索，但未找到与该说法相关的公开报道，无法核验真伪。"
+        return "当前输入缺少可核验的证据链，先保持保守。"
 
     def _resolve_evidence_pool(
         self,
