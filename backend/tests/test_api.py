@@ -150,6 +150,30 @@ def test_health_endpoint_allows_local_frontend_origin(client):
     assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:3123"
 
 
+def test_models_endpoint_returns_whitelist_and_default(monkeypatch):
+    with _configured_client(monkeypatch, LLM_MODELS="ModelA,ModelB", LLM_MODEL="ModelA") as client:
+        response = client.get("/api/v1/models")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["models"] == ["ModelA", "ModelB"]
+        assert body["default"] == "ModelA"
+
+
+def test_resolve_model_rejects_non_whitelisted(monkeypatch):
+    from backend.app.core.config import get_settings
+
+    monkeypatch.setenv("LLM_MODELS", "ModelA,ModelB")
+    monkeypatch.setenv("LLM_MODEL", "ModelA")
+    get_settings.cache_clear()
+    try:
+        settings = get_settings()
+        assert settings.resolve_model("ModelB") == "ModelB"
+        assert settings.resolve_model("evil-model") == "ModelA"
+        assert settings.resolve_model(None) == "ModelA"
+    finally:
+        get_settings.cache_clear()
+
+
 def test_validation_errors_use_unified_error_shape(client):
     response = client.post("/api/v1/analyze", json={})
     assert response.status_code == 422

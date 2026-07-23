@@ -91,6 +91,7 @@ class Settings:
     llm_base_url: str
     llm_model: str
     llm_search_model: str
+    llm_models: tuple[str, ...]
     llm_temperature: float
     llm_query_extraction_enabled: bool
     provider_timeout_seconds: float
@@ -114,6 +115,24 @@ class Settings:
     @property
     def llm_enabled(self) -> bool:
         return self.analysis_provider == "kimi" and bool(self.llm_api_key)
+
+    @property
+    def available_models(self) -> tuple[str, ...]:
+        """Whitelist of selectable models; always includes the default."""
+        models = list(self.llm_models)
+        if self.llm_model and self.llm_model not in models:
+            models.insert(0, self.llm_model)
+        return tuple(models)
+
+    def resolve_model(self, requested: str | None) -> str:
+        """Return the requested model only if it is in the whitelist; otherwise
+        fall back to the configured default. Prevents a client from pointing the
+        gateway at an arbitrary model name."""
+        if requested:
+            candidate = requested.strip()
+            if candidate and candidate in self.available_models:
+                return candidate
+        return self.llm_model.strip()
 
     @property
     def lightweight_agent_ready(self) -> bool:
@@ -154,6 +173,9 @@ def get_settings() -> Settings:
         llm_base_url=(os.getenv("LLM_BASE_URL") or os.getenv("KIMI_BASE_URL") or "https://api.openai.com/v1").rstrip("/"),
         llm_model=(os.getenv("LLM_MODEL") or os.getenv("KIMI_MODEL") or "").strip(),
         llm_search_model=(os.getenv("LLM_SEARCH_MODEL") or os.getenv("KIMI_SEARCH_MODEL") or "").strip(),
+        llm_models=tuple(
+            m.strip() for m in (os.getenv("LLM_MODELS") or "").split(",") if m.strip()
+        ),
         llm_temperature=_as_float(os.getenv("LLM_TEMPERATURE") or os.getenv("KIMI_TEMPERATURE"), 0.1),
         llm_query_extraction_enabled=_as_bool(os.getenv("LLM_QUERY_EXTRACTION_ENABLED"), default=False),
         provider_timeout_seconds=_as_float(os.getenv("PROVIDER_TIMEOUT_SECONDS"), 20.0),

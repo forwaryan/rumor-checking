@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { analyzeReportStream, getHealth } from "@/lib/api-client";
+import { analyzeReportStream, getHealth, getModels } from "@/lib/api-client";
 import { getLocalDemoCaseSummaries } from "@/lib/demo-cases";
 import { getStatusFromMode, validateInput, getVerdictLabel, formatConfidence, collectEvidence } from "@/lib/report-utils";
 import { getOverallCredibilityMeta } from "@/lib/report-high-score";
@@ -94,6 +94,8 @@ export function AnalyzePage() {
   const [liveEvents, setLiveEvents] = useState<AnalysisLiveEvent[]>([]);
   const [lastQuery, setLastQuery] = useState("");
   const [activeMode, setActiveMode] = useState<"fast" | "deep">("fast");
+  const [models, setModels] = useState<string[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string>("");
 
   // Collapsible sections
   const [claimsOpen, setClaimsOpen] = useState(true);
@@ -114,6 +116,19 @@ export function AnalyzePage() {
     return () => { active = false; };
   }, []);
 
+  // Load the selectable model whitelist for the deep-mode picker.
+  useEffect(() => {
+    let active = true;
+    void getModels()
+      .then((res) => {
+        if (!active) return;
+        setModels(res.models);
+        setSelectedModel((cur) => cur || res.default || res.models[0] || "");
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
+
   // Restore from a shared/refreshed URL: ?q=<query>&mode=<fast|deep> re-runs the
   // same check on load. Runs once on mount.
   useEffect(() => {
@@ -122,8 +137,10 @@ export function AnalyzePage() {
     const q = params.get("q")?.trim();
     if (!q) return;
     const mode = params.get("mode") === "deep" ? "deep" : "fast";
+    const urlModel = params.get("model") ?? undefined;
+    if (urlModel) setSelectedModel(urlModel);
     setInputValue(q);
-    void handleSubmit(mode, q);
+    void handleSubmit(mode, q, urlModel);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -135,7 +152,7 @@ export function AnalyzePage() {
     }
   }
 
-  async function handleSubmit(mode: "fast" | "deep" = "fast", queryOverride?: string) {
+  async function handleSubmit(mode: "fast" | "deep" = "fast", queryOverride?: string, modelOverride?: string) {
     const trimmed = (queryOverride ?? (inputValue.trim() || lastQuery.trim())).trim();
     if (!trimmed) return;
     const validation = validateInput(trimmed, "auto");
@@ -145,12 +162,15 @@ export function AnalyzePage() {
       return;
     }
 
+    const model = modelOverride ?? selectedModel;
+
     // Reflect the query in the URL so a refresh/share re-runs the same check.
     // We store the query + mode, not the result — deep re-runs take minutes.
     if (typeof window !== "undefined") {
       const params = new URLSearchParams();
       params.set("q", trimmed);
       if (mode === "deep") params.set("mode", "deep");
+      if (mode === "deep" && model) params.set("model", model);
       window.history.replaceState(null, "", `?${params.toString()}`);
     }
 
@@ -171,7 +191,10 @@ export function AnalyzePage() {
       const request: AnalyzeRequest = {
         raw_input: trimmed,
         input_type: "auto",
-        request_context: { mode },
+        request_context: {
+          mode,
+          ...(mode === "deep" && model ? { model } : {}),
+        },
       };
       const nextReport = await analyzeReportStream(request, handleStreamEvent);
       setReport(nextReport);
@@ -328,9 +351,23 @@ export function AnalyzePage() {
         {report && activeMode === "fast" && !isStreaming && (
           <div className="deep-cta">
             <div className="deep-cta__text">还不确定？让 AI 深入分析证据、逐条判定。</div>
-            <button className="deep-cta__button" onClick={() => void handleSubmit("deep")}>
-              深度核查（较慢）
-            </button>
+            <div className="deep-cta__actions">
+              {models.length > 1 && (
+                <select
+                  className="deep-cta__model"
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                  aria-label="选择分析模型"
+                >
+                  {models.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              )}
+              <button className="deep-cta__button" onClick={() => void handleSubmit("deep")}>
+                深度核查（较慢）
+              </button>
+            </div>
           </div>
         )}
 

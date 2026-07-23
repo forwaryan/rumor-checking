@@ -223,6 +223,9 @@ class NextActionPlan:
 class LlmAgentReasoner:
     def __init__(self, settings: Optional[Settings] = None) -> None:
         self.settings = settings or get_settings()
+        # Optional per-request model override (validated against the whitelist by
+        # the caller). None means use the configured default.
+        self.model_override: Optional[str] = None
 
     @property
     def enabled(self) -> bool:
@@ -566,6 +569,8 @@ class LlmAgentReasoner:
         return "".join(parts).strip()
 
     def _reasoning_model(self) -> str:
+        if self.model_override:
+            return self.model_override
         return self.settings.llm_search_model.strip() or self.settings.llm_model.strip()
 
     def _request_temperature(self, model: str) -> float:

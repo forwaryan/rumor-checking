@@ -606,3 +606,21 @@ export async function getHealth(): Promise<HealthResponse> {
 
   return { status: "ok" };
 }
+
+export interface ModelsResponse {
+  models: string[];
+  default: string;
+}
+
+export async function getModels(): Promise<ModelsResponse> {
+  const response = await fetch(`${getApiBase()}/api/v1/models`, { cache: "no-store" });
+  const payload = await parseJson<unknown>(response);
+  if (isObject(payload) && Array.isArray(payload.models)) {
+    const models = payload.models.filter((m): m is string => typeof m === "string");
+    return {
+      models,
+      default: typeof payload.default === "string" ? payload.default : models[0] ?? "",
+    };
+  }
+  return { models: [], default: "" };
+}

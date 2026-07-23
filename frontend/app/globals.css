@@ -299,6 +299,24 @@ a:hover { text-decoration: underline; }
 
 .deep-cta__button:hover { opacity: 0.9; }
 
+.deep-cta__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.deep-cta__model {
+  padding: 0.45rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--blue-border);
+  background: var(--card);
+  color: var(--ink);
+  font-size: 0.8rem;
+  cursor: pointer;
+  max-width: 12rem;
+}
+
 
 /* === Loading state === */
 .loading-card {

@@ -96,6 +96,10 @@ JSON 结构如下：
 class LlmStructuredProvider:
     def __init__(self, settings: Optional[Settings] = None) -> None:
         self.settings = settings or get_settings()
+        self.model_override: Optional[str] = None
+
+    def _model(self) -> str:
+        return self.model_override or self.settings.llm_model
 
     @property
     def enabled(self) -> bool:
@@ -128,7 +132,7 @@ class LlmStructuredProvider:
             title="调用 LLM structured analysis",
             summary="正在请求 LLM 结构化抽取事件和 claims。",
             details=[
-                f"model={self.settings.llm_model}",
+                f"model={self._model()}",
             ],
         )
         response = httpx.post(
@@ -138,7 +142,7 @@ class LlmStructuredProvider:
                 "Content-Type": "application/json",
             },
             json={
-                "model": self.settings.llm_model,
+                "model": self._model(),
                 "temperature": self._request_temperature(),
                 "response_format": {"type": "json_object"},
                 "messages": [
@@ -158,7 +162,7 @@ class LlmStructuredProvider:
             summary="LLM 已返回结构化抽取结果。",
             details=[
                 f"status_code={response.status_code}",
-                f"model={self.settings.llm_model}",
+                f"model={self._model()}",
             ],
         )
         choice = payload.get("choices", [{}])[0]

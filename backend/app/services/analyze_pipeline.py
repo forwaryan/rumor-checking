@@ -41,6 +41,7 @@ class AnalyzePipeline:
             raise RuntimeError("forced_error_for_testing")
 
         deep_mode = self._is_deep_mode(request)
+        self._apply_model_override(request)
 
         if deep_mode and self.settings.agent_orchestrator_enabled:
             report = self._run_agent_orchestrator(request)
@@ -337,6 +338,14 @@ class AnalyzePipeline:
             ],
         )
         return final_report
+
+    def _apply_model_override(self, request: AnalyzeRequest) -> None:
+        """Resolve request_context['model'] against the whitelist and apply it to
+        the LLM-backed services for this request. Invalid/absent → default."""
+        requested = request.request_context.get("model")
+        resolved = self.settings.resolve_model(requested if isinstance(requested, str) else None)
+        self.agent_reasoner.model_override = resolved
+        self.provider_enricher.provider.model_override = resolved
 
     def _is_deep_mode(self, request: AnalyzeRequest) -> bool:
         """Two-tier routing: 'fast' (default) forces the zero-LLM rule path so

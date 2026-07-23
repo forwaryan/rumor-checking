@@ -27,3 +27,15 @@ def health_check() -> dict:
         "environment": settings.environment,
         "version": settings.version,
     }
+
+
+@router.get("/models")
+def list_models() -> dict:
+    """Selectable analysis models (config-driven whitelist) + the default, so the
+    frontend can offer a picker. Only names from LLM_MODELS/LLM_MODEL are exposed;
+    the gateway endpoint and key are never returned."""
+    settings = get_settings()
+    return {
+        "models": list(settings.available_models),
+        "default": settings.llm_model,
+    }
