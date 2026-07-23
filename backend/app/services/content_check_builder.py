@@ -84,6 +84,8 @@ class ContentCheckBuilder:
                 claim_type=item.claim_type,
                 verdict=item.verdict,
                 confidence=item.confidence,
+                truth_probability=item.truth_probability,
+                probability_basis=item.probability_basis,
                 reason=item.notes,
             )
             for item in ordered[:4]

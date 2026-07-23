@@ -20,6 +20,7 @@
 - 后端已提供 `GET /api/v1/health`、`GET /api/v1/models`、`POST /api/v1/analyze`、`POST /api/v1/analyze/stream`。
 - **两档分析（按请求选择，`request_context.mode`）**：`fast`（默认）走零 LLM 规则路径 + 真实检索，约 0.2–0.3s，实时可用；`deep` 走 LLM/agent 全链路，质量更高但要几分钟，是异步深度档。前端主按钮走 fast，出结果后再给"深度核查"入口。
 - **深度档可观测 + 可选模型**：执行过程按步骤展示"干了什么/输入/输出/结论"，每次 LLM 调用的提问与回答有"人类可读 / 原始 JSON"两个 tab；deep 档可从 `LLM_MODELS` 白名单里选判定模型。
+- **多可能性 + 为真概率**：把消息拆成多条 claim 与整体"情形分布"，每条给"为真概率"，并用 `basis` 诚实标注是"有检索证据（evidence）"还是"仅凭常识先验（prior）"。概率独立于 verdict——无证据仍可给出 prior 概率，但 grounded 判定不受影响。fast 档给规则粗概率、不伪造整体分布；deep 档由 LLM 给常识概率 + 合计≈100 的互斥情形。
 - `report.provenance.source_type` 当前只会出现 `backend_live` 或 `backend_mock`。
 - 默认冻结基线仍是 `off + mock + fallback=true`，适合稳定联调和回归。
 - 真实联网检索优先走 `RETRIEVAL_PROVIDER=playwright`（抓取百度/Bing），中文覆盖较好且不依赖模型内建搜索；延迟高于 mock，不作为默认路径。

@@ -150,6 +150,8 @@ export type ConfidenceLevel = "high" | "medium" | "low";
 
 export type ConfidenceValue = ConfidenceLevel | number;
 
+export type ProbabilityBasis = "evidence" | "prior";
+
 export type SourceTier = "S" | "A" | "B" | "C";
 
 export interface Event {
@@ -187,6 +189,8 @@ export interface ClaimResult {
   claim_type: ClaimType;
   verdict: Verdict;
   confidence: ConfidenceValue;
+  truth_probability?: number | null;
+  probability_basis?: ProbabilityBasis | null;
   evidence: Evidence[];
   notes: string;
 }
@@ -199,6 +203,8 @@ export interface InvestigationStep {
 export interface PossibilityItem {
   scenario: string;
   likelihood: ConfidenceLevel;
+  probability?: number | null;
+  basis?: ProbabilityBasis | null;
   summary: string;
 }
 
@@ -215,6 +221,8 @@ export interface ContentCheckItem {
   claim_type: ClaimType;
   verdict: Verdict;
   confidence: ConfidenceValue;
+  truth_probability?: number | null;
+  probability_basis?: ProbabilityBasis | null;
   reason: string;
 }
 

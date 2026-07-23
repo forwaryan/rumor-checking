@@ -53,6 +53,25 @@ function getVerdictIcon(verdict: string): string {
   }
 }
 
+function formatProbability(value?: number | null): string | null {
+  if (typeof value !== "number" || Number.isNaN(value)) return null;
+  return `${Math.round(value)}%`;
+}
+
+function getBasisLabel(basis?: string | null): string | null {
+  if (basis === "evidence") return "有证据";
+  if (basis === "prior") return "凭常识";
+  return null;
+}
+
+function getLikelihoodLabel(likelihood: string): string {
+  switch (likelihood) {
+    case "high": return "可能性高";
+    case "medium": return "可能性中";
+    default: return "可能性低";
+  }
+}
+
 // One prompt-or-response block with 人类可读 / 原始 JSON tabs.
 function LlmTextBlock({ stageKey, role, text }: { stageKey: string; role: "prompt" | "response"; text: string }) {
   const [view, setView] = useState<"human" | "json">("human");
@@ -99,6 +118,7 @@ export function AnalyzePage() {
 
   // Collapsible sections
   const [claimsOpen, setClaimsOpen] = useState(true);
+  const [possibilitiesOpen, setPossibilitiesOpen] = useState(true);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [traceOpen, setTraceOpen] = useState(false);
@@ -371,6 +391,47 @@ export function AnalyzePage() {
           </div>
         )}
 
+        {/* Possibilities distribution */}
+        {report && report.investigation && report.investigation.possibilities.length > 0 && (
+          <div className="section-card">
+            <div className="section-card__header" onClick={() => setPossibilitiesOpen(!possibilitiesOpen)}>
+              <span className="section-card__title">
+                可能性分布
+                <span className="section-card__badge">{report.investigation.possibilities.length}</span>
+              </span>
+              <span className={`section-card__arrow${possibilitiesOpen ? " section-card__arrow--open" : ""}`}>&#9660;</span>
+            </div>
+            {possibilitiesOpen && (
+              <div className="section-card__body">
+                <div className="possibility-list">
+                  {report.investigation.possibilities.map((item, i) => {
+                    const prob = formatProbability(item.probability);
+                    const basisLabel = getBasisLabel(item.basis);
+                    const width = typeof item.probability === "number" ? Math.max(0, Math.min(100, item.probability)) : null;
+                    return (
+                      <div key={`${item.scenario}-${i}`} className="possibility-item">
+                        <div className="possibility-item__head">
+                          <span className="possibility-item__scenario">{item.scenario}</span>
+                          <span className={`possibility-item__prob possibility-item__prob--${item.likelihood}`}>
+                            {prob ?? getLikelihoodLabel(item.likelihood)}
+                            {basisLabel ? ` · ${basisLabel}` : ""}
+                          </span>
+                        </div>
+                        {width !== null && (
+                          <div className="possibility-item__bar">
+                            <div className={`possibility-item__bar-fill possibility-item__bar-fill--${item.likelihood}`} style={{ width: `${width}%` }} />
+                          </div>
+                        )}
+                        {item.summary && <div className="possibility-item__summary">{item.summary}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Claims */}
         {report && report.claim_results.length > 0 && (
           <div className="section-card">
@@ -384,15 +445,26 @@ export function AnalyzePage() {
             {claimsOpen && (
               <div className="section-card__body">
                 <div className="claim-list">
-                  {report.claim_results.map((claim, i) => (
+                  {report.claim_results.map((claim, i) => {
+                    const prob = formatProbability(claim.truth_probability);
+                    const basisLabel = getBasisLabel(claim.probability_basis);
+                    return (
                     <div key={`${claim.claim}-${i}`} className={`claim-item claim-item--${claim.verdict}`}>
                       <div className="claim-item__text">{claim.claim}</div>
-                      <span className={`claim-item__verdict claim-item__verdict--${claim.verdict}`}>
-                        {getVerdictLabel(claim.verdict)} · {formatConfidence(claim.confidence)}
-                      </span>
+                      <div className="claim-item__tags">
+                        <span className={`claim-item__verdict claim-item__verdict--${claim.verdict}`}>
+                          {getVerdictLabel(claim.verdict)} · {formatConfidence(claim.confidence)}
+                        </span>
+                        {prob && (
+                          <span className="claim-item__prob" title={claim.probability_basis === "prior" ? "无检索证据，基于常识的先验估计" : "基于检索证据的估计"}>
+                            为真 {prob}{basisLabel ? ` · ${basisLabel}` : ""}
+                          </span>
+                        )}
+                      </div>
                       {claim.notes && <div className="claim-item__notes">{claim.notes}</div>}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}

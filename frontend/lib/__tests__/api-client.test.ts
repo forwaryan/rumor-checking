@@ -128,6 +128,58 @@ describe("parseReport", () => {
   it("throws on non-object payloads", () => {
     expect(() => parseReport(null)).toThrow("无法解析后端返回的 Report。");
   });
+
+  it("parses claim + scenario probabilities and clamps/validates them", () => {
+    const report = parseReport({
+      mode: "safe_mode",
+      claim_results: [
+        {
+          claim: "拼多多在雄安买了三栋楼。",
+          claim_type: "fact",
+          verdict: "insufficient",
+          confidence: "low",
+          truth_probability: 15,
+          probability_basis: "prior",
+          evidence: [],
+          notes: "无检索证据。",
+        },
+        {
+          claim: "溢出与非法基准都被兜住。",
+          claim_type: "fact",
+          verdict: "supported",
+          confidence: "high",
+          truth_probability: 150,
+          probability_basis: "bogus",
+          evidence: [],
+          notes: "n",
+        },
+      ],
+      investigation: {
+        question: "q",
+        reframed_question: "r",
+        thinking_process: [],
+        possibilities: [
+          { scenario: "暂无法证实", likelihood: "high", probability: 60, basis: "prior", summary: "s1" },
+          { scenario: "分类降级", likelihood: "low", summary: "s2" },
+        ],
+        final_conclusion: "c",
+      },
+    });
+
+    const claims = report.claim_results;
+    expect(claims[0]?.truth_probability).toBe(15);
+    expect(claims[0]?.probability_basis).toBe("prior");
+    // Clamp to 100, reject bogus basis -> null.
+    expect(claims[1]?.truth_probability).toBe(100);
+    expect(claims[1]?.probability_basis).toBeNull();
+
+    const possibilities = report.investigation?.possibilities ?? [];
+    expect(possibilities[0]?.probability).toBe(60);
+    expect(possibilities[0]?.basis).toBe("prior");
+    // Missing probability stays null (falls back to categorical likelihood chip).
+    expect(possibilities[1]?.probability).toBeNull();
+    expect(possibilities[1]?.basis).toBeNull();
+  });
 });
 
 function ndjsonResponse(lines: string[]): Response {

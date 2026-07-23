@@ -23,6 +23,7 @@ import type {
   OutputMode,
   PipelineTrace,
   PipelineStepStatus,
+  ProbabilityBasis,
   Report,
   ReportProvenance,
   RetrievalDiagnostics,
@@ -100,6 +101,17 @@ function ensureConfidence(value: unknown): ConfidenceValue {
 
 function ensureLiteral<T extends string>(value: unknown, allowed: readonly T[]): T | null {
   return typeof value === "string" && allowed.includes(value as T) ? (value as T) : null;
+}
+
+function ensureProbability(value: unknown): number | null {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return null;
+  }
+  return Math.max(0, Math.min(100, value));
+}
+
+function ensureProbabilityBasis(value: unknown): ProbabilityBasis | null {
+  return ensureLiteral(value, ["evidence", "prior"] as const);
 }
 
 function ensureTimestamp(value: unknown) {
@@ -183,6 +195,8 @@ function parseClaimResults(value: unknown): ClaimResult[] {
         : "unverifiable",
     verdict: ensureVerdict(item.verdict),
     confidence: ensureConfidence(item.confidence),
+    truth_probability: ensureProbability(item.truth_probability),
+    probability_basis: ensureProbabilityBasis(item.probability_basis),
     evidence: parseEvidence(item.evidence),
     notes: ensureString(item.notes, "未提供补充说明"),
   }));
@@ -259,6 +273,8 @@ function parseInvestigation(value: unknown): Investigation | null {
           return {
             scenario: ensureString(item.scenario, "待核查可能性"),
             likelihood,
+            probability: ensureProbability(item.probability),
+            basis: ensureProbabilityBasis(item.basis),
             summary: ensureString(item.summary, "暂无可能性说明"),
           };
         })
@@ -289,6 +305,8 @@ function parseContentCheckItems(value: unknown): ContentCheck["likely_true"] {
         : "unverifiable",
     verdict: ensureVerdict(item.verdict),
     confidence: ensureConfidence(item.confidence),
+    truth_probability: ensureProbability(item.truth_probability),
+    probability_basis: ensureProbabilityBasis(item.probability_basis),
     reason: ensureString(item.reason, "当前没有返回补充说明。"),
   }));
 }

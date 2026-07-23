@@ -10,6 +10,7 @@
 - 页面输入支持 `text / url / question`（默认 `auto`）
 - **两档核查**：主"核查"按钮走 `fast`（默认，秒级、零 LLM 规则路径），请求带 `request_context.mode=fast`；结果页出现"深度核查（较慢）"入口，点击后带 `mode=deep` 走 LLM/agent 全链路（展示"可能需要几分钟"的加载态）。
 - **可观测执行过程**：结果态把流式事件按步骤聚合成执行时间线（`lib/trace-steps.ts`），每步显示"干了什么/输入/输出/结论"；每次 LLM 调用的提问与回答有"人类可读 / 原始 JSON"两个 tab。
+- **多可能性 + 为真概率**：结果态在判定卡片下方新增"可能性分布"区块（渲染 `investigation.possibilities`：有 `probability` 时画百分比条形分布，否则显示分类 likelihood chip，每行带"有证据/凭常识"basis 标签）；逐条核查每条 claim 旁展示"为真 N%"+ basis。deep 档给 LLM 常识概率与合计≈100 的情形分布，fast 档给规则粗概率、不伪造整体分布。
 - **可选模型**：深度核查入口带模型下拉（数据来自 `GET /api/v1/models` 白名单），选中的模型随请求 `request_context.model` 发送；查询、mode、model 都写进 URL（`?q=&mode=&model=`），刷新/分享可复现（fast 秒级重跑、deep 会重新跑几分钟）。
 - 页面通过 `POST /api/v1/analyze/stream` 获取流式分析过程
 - 页面启动时通过 `GET /api/v1/health` 判断后端状态，并拉 `GET /api/v1/models` 填充模型下拉

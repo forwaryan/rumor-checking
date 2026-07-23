@@ -1,6 +1,6 @@
 # 当前已核验状态
 
-更新时间：2026-07-23（Asia/Shanghai）
+更新时间：2026-07-23（Asia/Shanghai）；概率与情形分布特性于同日追加
 
 这份文档只保留已经被当前代码核验过的事实，用来约束 README 和现行运行文档的口径。
 
@@ -18,8 +18,10 @@
 - `backend/app/services/retrieval_service.py`
 - `backend/app/services/retrieval_models.py`
 - `backend/app/services/timeline_builder.py`
-- `backend/app/models/schemas.py`
+- `backend/app/services/verdict_engine.py`
 - `backend/app/services/report_builder.py`
+- `backend/app/services/content_check_builder.py`
+- `backend/app/models/schemas.py`
 - `frontend/components/analyze-page.tsx`
 - `frontend/lib/agent-run.ts`
 - `frontend/lib/trace-steps.ts`
@@ -112,6 +114,14 @@
 - **SERP 结果清洗**（`retrieval_service._is_noise_result` / `_result_matches_query`）：硬过滤字典/百科/时间校准类垃圾页（全被过滤后诚实返回空而非拿垃圾当证据）；导航型品牌首页（如 `pinduoduo.com/`）只匹配单一实体词、不含事件词时会被丢弃，避免把官网首页当"证据"。
 - **无日期结果排序**（codex review 修复）：真实 SERP 命中常无 `published_at`；时间排序键统一以 `undated_sort_flag` 领先，有日期的结果恒排在无日期之前，无日期结果不再"冒充最早"抢时间线 origin。dateless sentinel 已改为带时区（`+08:00`），`published_dt` 也把 naive 字符串归一到 `+08:00`，避免混合有/无日期 bundle 触发 naive-vs-aware datetime 比较崩溃。
 - 默认交付/演示路径仍是 `off + mock`（见第 4 条）；要走真实联网优先选 `playwright`。
+
+### 9. 多可能性 + 为真概率（概率与 verdict 解耦）
+
+- 每条 claim 除 `verdict` / `confidence` 外，新增 `truth_probability`（0–100）与 `probability_basis`（`evidence` / `prior`）；`ContentCheckItem` 同步带这两个字段；`PossibilityItem`（承载"整体情形分布"）新增 `probability` + `basis`，保留原 `likelihood` 作缺省降级展示。全部为可选字段，对既有反序列化/parity 是纯增量。
+- **核心原则：概率独立于 verdict。** grounded 兜底（无证据的决定性 verdict 必须降级为 `insufficient`，见第 7 条）完全不变；概率是另一维度，用 `basis` 诚实区分"由检索证据支撑（evidence）"与"仅凭常识先验（prior）"。因此一条 `insufficient` 的 claim 仍可带 `truth_probability=15, basis=prior`（由 `test_probability.py::test_probability_is_independent_of_grounded_verdict_downgrade` 锁定）。
+- **fast 档（零 LLM）**：`verdict_engine.coarse_truth_probability` 把现有 verdict+confidence 确定映射成粗概率（supported/refuted 分档、conflicting/insufficient=50），在 `report_builder._backfill_claim_probabilities` 单点回填。insufficient→`basis=prior`（无信息中点，不谎称有证据）；决定性 verdict 但无证据挂靠时也降级为 `prior`。整体情形分布仍走规则 `_build_possibilities`，`probability` 留空、**不伪造** sum-to-100 分布。
+- **deep 档（LLM）**：`SYNTHESIS_SYSTEM_PROMPT` 要求模型对每条 claim 给 `truth_probability`+`probability_basis`，并额外产出 2–4 条互斥的整体 `scenarios`（合计≈100）。`agent_reasoner._build_scenarios` 解析、clamp 并对偏离 100 的分布按比例归一化；`_normalize_probability_basis` 强制：模型标 `evidence` 但实际无证据挂靠时改回 `prior`。deep 有 scenarios 时以 `possibilities_override` 替换规则可能性。
+- 回填在 fast/deep 两档共用的 `report_builder.build` 内，off+mock 下 legacy 与 agent 编排走同一路径 → parity 逐字节一致不受影响（`test_agent_orchestrator.py`）。契约见 `contracts/claim_result.schema.json` 与 `contracts/report.schema.json` 的 `possibilities` / `contentCheckItems`。
 
 ## 当前仍未完成的事项
 

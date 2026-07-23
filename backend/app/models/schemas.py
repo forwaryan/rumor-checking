@@ -17,6 +17,7 @@ TimelineNodeType = Literal["origin", "amplification", "peak", "turn", "clarifica
 UrlFetchStatus = Literal["ok", "partial", "empty", "timeout", "error", "unsupported"]
 EventSourceType = Literal["input_normalized", "url_extract", "provider_enriched", "retrieval_resolved"]
 ClaimSourceType = Literal["rule", "provider", "provider_plus_rule"]
+ProbabilityBasis = Literal["evidence", "prior"]
 EvidenceSourceType = Literal["retrieval_live", "retrieval_mock", "request_mock", "none"]
 TimelineSourceType = Literal["retrieval", "input_seed", "none"]
 ReportSourceType = Literal["backend_live", "backend_mock"]
@@ -111,6 +112,8 @@ class ClaimResult(BaseModel):
     claim_type: ClaimType
     verdict: VerdictType
     confidence: ConfidenceValue
+    truth_probability: Optional[float] = Field(default=None, ge=0, le=100)
+    probability_basis: Optional[ProbabilityBasis] = None
     evidence: List[EvidenceItem] = Field(default_factory=list)
     notes: str
 
@@ -149,6 +152,8 @@ class InvestigationStep(BaseModel):
 class PossibilityItem(BaseModel):
     scenario: str
     likelihood: ConfidenceLevel
+    probability: Optional[float] = Field(default=None, ge=0, le=100)
+    basis: Optional[ProbabilityBasis] = None
     summary: str
 
 
@@ -165,6 +170,8 @@ class ContentCheckItem(BaseModel):
     claim_type: ClaimType
     verdict: VerdictType
     confidence: ConfidenceValue
+    truth_probability: Optional[float] = Field(default=None, ge=0, le=100)
+    probability_basis: Optional[ProbabilityBasis] = None
     reason: str
 
 

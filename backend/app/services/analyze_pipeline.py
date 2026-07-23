@@ -142,6 +142,7 @@ class AnalyzePipeline:
             deep_mode=deep_mode,
         )
 
+        agent_possibilities = []
         emit_stage(
             stage_key="agent_synthesis",
             title="Agent 综合判断",
@@ -161,6 +162,7 @@ class AnalyzePipeline:
             claim_extraction = agent_synthesis.claim_extraction
             verdict = agent_synthesis.verdict
             timeline = agent_synthesis.timeline
+            agent_possibilities = agent_synthesis.possibilities
             emit_stage(
                 stage_key="agent_synthesis",
                 title="Agent 综合判断",
@@ -299,6 +301,7 @@ class AnalyzePipeline:
             evidence_grade=verdict.evidence_grade,
             provenance=provenance,
             original_input=request.raw_input,
+            possibilities_override=agent_possibilities or None,
         )
         content_check = self.content_check_builder.build(
             report=report,

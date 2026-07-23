@@ -52,6 +52,17 @@
         }
       ]
     },
+    "truth_probability": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 100,
+      "default": null
+    },
+    "probability_basis": {
+      "type": ["string", "null"],
+      "enum": ["evidence", "prior", null],
+      "default": null
+    },
     "evidence": {
       "type": "array",
       "items": {

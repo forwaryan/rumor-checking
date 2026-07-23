@@ -72,6 +72,50 @@ SOURCE_GAP_CLAIM_MARKERS = (
 SOURCE_GAP_EVIDENCE_MARKERS = SOURCE_GAP_CLAIM_MARKERS + ("截图", "转发", "聚合页", "无落款", "无来源")
 HIGH_TRUST_SOURCE_TIERS = {"S", "A"}
 DECISIVE_HIGH_CONFIDENCE_TIER = "S"
+
+
+def _confidence_bucket(confidence: object) -> str:
+    """Collapse a categorical or numeric confidence into high/medium/low."""
+    if isinstance(confidence, (int, float)):
+        if confidence >= 0.8:
+            return "high"
+        if confidence >= 0.5:
+            return "medium"
+        return "low"
+    if confidence in {"high", "medium", "low"}:
+        return str(confidence)
+    return "low"
+
+
+# Deterministic verdict+confidence -> P(true) mapping for the zero-LLM fast path.
+# These are coarse, rule-derived numbers (no world knowledge), so they are always
+# tagged basis="evidence" when a grounded verdict backs them, and basis="prior"
+# for insufficient (no information -> 50/50 midpoint, not a knowledge claim).
+_COARSE_PROBABILITY_TABLE = {
+    "supported": {"high": 90.0, "medium": 75.0, "low": 62.0},
+    "refuted": {"high": 10.0, "medium": 22.0, "low": 32.0},
+}
+
+
+def coarse_truth_probability(
+    verdict: str, confidence: object, *, has_evidence: bool = True
+) -> Tuple[float, str]:
+    """Map a rule verdict+confidence to a coarse P(true) and its basis.
+
+    Used only by the fast path, which never invokes an LLM: it turns the existing
+    verdict/confidence into a number without pretending to have common-sense
+    judgement. ``conflicting`` and ``insufficient`` both center on 50 — the former
+    because sources disagree (evidence-backed), the latter because we simply have
+    no information (prior)."""
+    bucket = _confidence_bucket(confidence)
+    if verdict in _COARSE_PROBABILITY_TABLE:
+        probability = _COARSE_PROBABILITY_TABLE[verdict][bucket]
+        basis = "evidence" if has_evidence else "prior"
+        return probability, basis
+    if verdict == "conflicting":
+        return 50.0, "evidence" if has_evidence else "prior"
+    # insufficient / unknown: no information -> honest 50/50, prior basis.
+    return 50.0, "prior"
 QUANTITY_TOKEN_PATTERN = re.compile(r"\d+(?:\.\d+)?%|\d+(?:\.\d+)?[人名例起条线艘班个年月天小时分钟]")
 RESOLUTION_CLAIM_MARKERS = (
     "已经解决",

@@ -21,6 +21,13 @@
 
 > mode 只切换分析深度；检索 provider 仍由 `RETRIEVAL_PROVIDER` 决定，两档都走同一套真实检索。
 
+## 多可能性 + 为真概率
+
+- 每条 claim 带 `truth_probability`（0–100）与 `probability_basis`（`evidence` / `prior`）；`Investigation.possibilities`（整体情形分布）带 `probability` + `basis`，缺省时回落到分类 `likelihood`。全部可选字段。
+- **概率与 verdict 解耦**：grounded 兜底不变（无证据的决定性 verdict 仍降级为 `insufficient`），概率是独立维度，`basis` 诚实区分"有检索证据（evidence）"与"仅凭常识先验（prior）"——所以一条 `insufficient` 的 claim 也能带 `truth_probability=15, basis=prior`。
+- **fast 档**：`verdict_engine.coarse_truth_probability` 把 verdict+confidence 确定映射成粗概率，在 `report_builder` 单点回填；insufficient→50%/prior，不伪造整体分布。
+- **deep 档**：LLM 直接产出每条 claim 概率 + 2–4 条互斥情形（合计≈100），解析层做 clamp/归一化，并强制"标 evidence 但无证据挂靠"回退为 prior。
+
 ## 当前状态
 
 - 默认运行基线已冻结为 `ANALYSIS_PROVIDER=off`、`RETRIEVAL_PROVIDER=mock`、`RETRIEVAL_FALLBACK_TO_MOCK=true`

@@ -433,6 +433,75 @@ a:hover { text-decoration: underline; }
 
 .claim-item__notes { font-size: 0.8rem; color: var(--muted); margin-top: 0.25rem; }
 
+.claim-item__tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.claim-item__prob {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+/* === Possibility distribution === */
+.possibility-list { display: flex; flex-direction: column; gap: 0.9rem; }
+
+.possibility-item {
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.possibility-item__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.possibility-item__scenario { font-size: 0.85rem; font-weight: 500; }
+
+.possibility-item__prob {
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.possibility-item__prob--high { color: var(--red); }
+.possibility-item__prob--medium { color: var(--amber); }
+.possibility-item__prob--low { color: var(--muted); }
+
+.possibility-item__bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.possibility-item__bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+.possibility-item__bar-fill--high { background: var(--red); }
+.possibility-item__bar-fill--medium { background: var(--amber); }
+.possibility-item__bar-fill--low { background: var(--muted); }
+
+.possibility-item__summary {
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.5;
+  margin-top: 0.4rem;
+}
+
 /* === Evidence list === */
 .evidence-item {
   padding: 0.75rem 0;

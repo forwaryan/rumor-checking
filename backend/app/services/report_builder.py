@@ -20,6 +20,7 @@ from backend.app.models.schemas import (
     TimelineNode,
 )
 from backend.app.services.contract_utils import default_source_name, default_source_url, ensure_datetime_string
+from backend.app.services.verdict_engine import coarse_truth_probability
 from backend.app.services.question_intent import (
     is_broad_trend_question,
     rewrite_broad_trend_question_as_claim,
@@ -81,8 +82,10 @@ class ReportBuilder:
         retrieval_hits: List[EvidenceItem] | None = None,
         retrieval_diagnostics: RetrievalDiagnostics | None = None,
         original_input: str | None = None,
+        possibilities_override: List[PossibilityItem] | None = None,
     ) -> Report:
         retrieval_hits = list(retrieval_hits or [])
+        claim_results = self._backfill_claim_probabilities(claim_results)
         mode = self._select_mode(
             event=event,
             claim_results=claim_results,
@@ -120,6 +123,7 @@ class ReportBuilder:
             retrieval_hits=retrieval_hits,
             final_summary=final_summary,
             provenance=provenance,
+            possibilities_override=possibilities_override,
         )
         score_computation = self._build_score_computation(
             mode=mode,
@@ -148,6 +152,28 @@ class ReportBuilder:
             investigation=investigation,
             provenance=provenance,
         )
+
+    def _backfill_claim_probabilities(self, claim_results: List[ClaimResult]) -> List[ClaimResult]:
+        """Ensure every claim carries a truth_probability + basis.
+
+        The fast (zero-LLM) path never sets these, so we derive a coarse number
+        from the existing verdict/confidence. The deep path's LLM already fills
+        them; we only backfill the ones it left empty. Runs in both modes, so the
+        off+mock parity (legacy vs agent orchestrator) stays byte-identical."""
+        updated: List[ClaimResult] = []
+        for claim in claim_results:
+            if claim.truth_probability is not None:
+                updated.append(claim)
+                continue
+            probability, basis = coarse_truth_probability(
+                claim.verdict,
+                claim.confidence,
+                has_evidence=bool(claim.evidence),
+            )
+            updated.append(
+                claim.model_copy(update={"truth_probability": probability, "probability_basis": basis})
+            )
+        return updated
 
     def _select_mode(
         self,
@@ -247,6 +273,7 @@ class ReportBuilder:
         retrieval_hits: List[EvidenceItem],
         final_summary: str,
         provenance: ReportProvenance,
+        possibilities_override: List[PossibilityItem] | None = None,
     ) -> Investigation:
         reframed_question = self._derive_reframed_question(
             original_input=original_input,
@@ -262,7 +289,7 @@ class ReportBuilder:
             retrieval_hits=retrieval_hits,
             provenance=provenance,
         )
-        possibilities = self._build_possibilities(
+        possibilities = possibilities_override if possibilities_override else self._build_possibilities(
             mode=mode,
             original_input=original_input,
             public_event=public_event,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import httpx
@@ -16,6 +16,7 @@ from backend.app.models.schemas import (
     ConfidenceValue,
     EvidenceSourceType,
     NormalizedEvent,
+    PossibilityItem,
     TimelineNode,
 )
 from backend.app.services.claim_extractor import ClaimExtraction
@@ -86,8 +87,18 @@ Return one JSON object with this schema:
       "claim_type": "fact|opinion|prediction|unverifiable",
       "verdict": "supported|refuted|insufficient|conflicting",
       "confidence": "high|medium|low",
+      "truth_probability": 0-100,
+      "probability_basis": "evidence|prior",
       "evidence_result_ids": ["result_id"],
       "notes": "string"
+    }
+  ],
+  "scenarios": [
+    {
+      "label": "string — a distinct way the whole message could be true/false",
+      "probability": 0-100,
+      "basis": "evidence|prior",
+      "summary": "string"
     }
   ],
   "timeline": [
@@ -103,6 +114,19 @@ Return one JSON object with this schema:
 Rules:
 - Use only supplied retrieval hits. Never invent result ids, evidence, or URLs.
 - Claims must be atomic and directly checkable. Prefer 1 to 4 claims.
+- PROBABILITY (independent of verdict — read carefully):
+  - `truth_probability` = your best estimate of P(this claim is literally true), 0-100.
+  - `probability_basis` = "evidence" ONLY if the supplied hits actually bear on this claim;
+    otherwise "prior" (you are using world knowledge / common sense, not the hits).
+  - You MUST still give a number even with zero relevant evidence — use your prior and mark
+    basis="prior". Example: a well-known company plausibly owns buildings (high prior), but a
+    very specific unverified combo (a named city + an exact count + an exact headcount) is
+    individually unlikely and unsupported → low probability, basis="prior".
+  - Probability does NOT change the verdict. A claim can be `insufficient` (no evidence) yet
+    still carry, say, truth_probability 15 with basis="prior". Keep the two independent.
+- `scenarios`: 2 to 4 MUTUALLY EXCLUSIVE ways the WHOLE input could turn out (e.g. 基本属实 /
+  部分属实但细节被夸大失真 / 暂无法证实 / 纯属虚构). Their `probability` values MUST sum to ~100.
+  Set basis="evidence" for a scenario grounded in the hits, else "prior".
 - CRITICAL — how to pick each verdict (follow this decision procedure exactly):
   1. Find hits that are about the SAME subject AND the SAME action/topic as the claim.
   2. If there are NONE (the hits are about other topics, other companies, or you find yourself
@@ -205,6 +229,7 @@ class AgentSynthesis:
     claim_extraction: ClaimExtraction
     verdict: VerdictEvaluation
     timeline: TimelineBuild
+    possibilities: list[PossibilityItem] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -344,6 +369,7 @@ class LlmAgentReasoner:
         )
         claim_items = [ClaimItem(claim=item.claim, claim_type=item.claim_type) for item in claim_results]
         timeline_source = "retrieval" if timeline_nodes else "none"
+        possibilities = self._build_scenarios(payload.get("scenarios"))
         return AgentSynthesis(
             event=synthesized_event,
             claim_extraction=ClaimExtraction(
@@ -363,6 +389,7 @@ class LlmAgentReasoner:
                 completeness=self._timeline_completeness(timeline_nodes),
                 confidence=self._timeline_confidence(retrieval_bundle, timeline_nodes),
             ),
+            possibilities=possibilities,
         )
 
     def plan_investigation(
@@ -763,6 +790,11 @@ class LlmAgentReasoner:
                 notes=notes,
                 evidence=selected_evidence,
             )
+            truth_probability, probability_basis = self._normalize_probability(
+                item.get("truth_probability"),
+                item.get("probability_basis"),
+                has_evidence=bool(selected_evidence),
+            )
 
             claim_results.append(
                 ClaimResult(
@@ -770,6 +802,8 @@ class LlmAgentReasoner:
                     claim_type=claim_type,
                     verdict=verdict,
                     confidence=confidence,
+                    truth_probability=truth_probability,
+                    probability_basis=probability_basis,
                     evidence=selected_evidence,
                     notes=notes,
                 )
@@ -956,6 +990,99 @@ class LlmAgentReasoner:
         cleaned = self._clean_optional_string(value)
         if cleaned in ALLOWED_CONFIDENCE:
             return cleaned
+        return "low"
+
+    def _clamp_probability(self, value: Any) -> Optional[float]:
+        if isinstance(value, bool):
+            return None
+        if not isinstance(value, (int, float)):
+            cleaned = self._clean_optional_string(value)
+            if cleaned is None:
+                return None
+            try:
+                value = float(cleaned.rstrip("%"))
+            except ValueError:
+                return None
+        return max(0.0, min(100.0, float(value)))
+
+    def _normalize_probability_basis(self, value: Any, *, has_evidence: bool) -> str:
+        cleaned = self._clean_optional_string(value)
+        if cleaned in {"evidence", "prior"}:
+            # Never let the model claim "evidence" basis when nothing grounded it —
+            # keeps the probability honest about where the number came from.
+            if cleaned == "evidence" and not has_evidence:
+                return "prior"
+            return cleaned
+        return "evidence" if has_evidence else "prior"
+
+    def _normalize_probability(
+        self, raw_probability: Any, raw_basis: Any, *, has_evidence: bool
+    ) -> tuple[Optional[float], Optional[str]]:
+        probability = self._clamp_probability(raw_probability)
+        if probability is None:
+            return None, None
+        basis = self._normalize_probability_basis(raw_basis, has_evidence=has_evidence)
+        return probability, basis
+
+    def _build_scenarios(self, scenarios_payload: Any) -> list[PossibilityItem]:
+        """Parse the LLM's mutually-exclusive whole-message scenarios into
+        PossibilityItem, clamping probabilities and renormalizing to ~100 when the
+        model's numbers drift. Returns [] when nothing parseable, so the caller
+        falls back to the rule-based possibilities."""
+        if not isinstance(scenarios_payload, list):
+            return []
+        parsed: list[dict[str, Any]] = []
+        for item in scenarios_payload:
+            if not isinstance(item, dict):
+                continue
+            label = self._clean_optional_string(item.get("label")) or self._clean_optional_string(item.get("scenario"))
+            if not label:
+                continue
+            probability = self._clamp_probability(item.get("probability"))
+            basis_value = self._clean_optional_string(item.get("basis"))
+            basis = basis_value if basis_value in {"evidence", "prior"} else None
+            summary = self._clean_optional_string(item.get("summary")) or label
+            parsed.append(
+                {"scenario": label, "probability": probability, "basis": basis, "summary": summary}
+            )
+            if len(parsed) >= 4:
+                break
+        if not parsed:
+            return []
+
+        total = sum(entry["probability"] for entry in parsed if entry["probability"] is not None)
+        counted = [entry for entry in parsed if entry["probability"] is not None]
+        if counted and (total <= 0 or abs(total - 100.0) > 1.0):
+            emit_log(
+                stage_key="agent_synthesis",
+                level="info",
+                title="情形分布已归一化",
+                summary=f"scenarios 概率合计为 {round(total, 1)}，已按比例缩放到 100。",
+                details=[],
+            )
+            if total > 0:
+                for entry in counted:
+                    entry["probability"] = round(entry["probability"] / total * 100.0, 1)
+
+        return [
+            PossibilityItem(
+                scenario=entry["scenario"],
+                likelihood=self._likelihood_from_probability(entry["probability"]),
+                probability=entry["probability"],
+                basis=entry["basis"],
+                summary=entry["summary"],
+            )
+            for entry in parsed
+        ]
+
+    @staticmethod
+    def _likelihood_from_probability(probability: Optional[float]) -> str:
+        if probability is None:
+            return "low"
+        if probability >= 66:
+            return "high"
+        if probability >= 33:
+            return "medium"
         return "low"
 
     def _normalize_timeline_type(self, value: Any) -> str:
