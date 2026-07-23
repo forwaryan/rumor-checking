@@ -40,10 +40,14 @@ class PlaywrightSearchProvider:
         if not self.enabled:
             return []
 
-        results = self._search_baidu(query_text)
+        # Bing returns real destination URLs directly, so the source domain
+        # (and thus tier / independence / provenance) survives; Baidu wraps every
+        # hit in a www.baidu.com/link?url= redirect that collapses grounding.
+        # Prefer Bing, fall back to Baidu only when Bing yields nothing.
+        results = self._search_bing(query_text)
         if not results:
-            logger.info("playwright_baidu_failed_fallback_to_bing query=%s", query_text)
-            results = self._search_bing(query_text)
+            logger.info("playwright_bing_failed_fallback_to_baidu query=%s", query_text)
+            results = self._search_baidu(query_text)
         return results
 
     def _search_baidu(self, query_text: str) -> List[SearchResult]:
@@ -122,6 +126,7 @@ class PlaywrightSearchProvider:
 
     def _fetch_page(self, url: str) -> str:
         import httpx
+        read_timeout = max(float(self.settings.retrieval_timeout_seconds), 1.0)
         response = httpx.get(
             url,
             headers={
@@ -136,21 +141,44 @@ class PlaywrightSearchProvider:
                 "Connection": "keep-alive",
                 "Upgrade-Insecure-Requests": "1",
             },
-            timeout=15.0,
+            timeout=httpx.Timeout(read_timeout, connect=min(read_timeout, 5.0)),
             follow_redirects=True,
         )
         response.raise_for_status()
         return response.text
 
+    def _resolve_baidu_redirect(self, url: str) -> str:
+        # Baidu wraps every hit in http://www.baidu.com/link?url=... which hides
+        # the real destination domain (and thus tier/independence/provenance).
+        # A HEAD request follows the redirect back to the real URL; on any failure
+        # keep the wrapped URL rather than dropping the result.
+        if "baidu.com/link?" not in url:
+            return url
+        import httpx
+        connect = min(max(float(self.settings.retrieval_timeout_seconds), 1.0), 5.0)
+        try:
+            response = httpx.head(
+                url,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; rumor-checking/1.0)"},
+                timeout=httpx.Timeout(connect, connect=connect),
+                follow_redirects=True,
+            )
+            resolved = str(response.url)
+            if resolved and "baidu.com/link?" not in resolved:
+                return resolved
+        except Exception as exc:
+            logger.info("baidu_redirect_resolve_failed url=%s error=%s", url[:80], exc)
+        return url
+
     def _parse_baidu(self, query_text: str, html: str) -> List[SearchResult]:
-        from html.parser import HTMLParser
+        import html as _html
 
         results: List[SearchResult] = []
         items = _extract_baidu_items(html)
         for index, item in enumerate(items, start=1):
             if not item.get("title") or not item.get("url"):
                 continue
-            url = item["url"]
+            url = self._resolve_baidu_redirect(_html.unescape(item["url"]))
             title = _clean_text(item["title"])
             snippet = _clean_text(item.get("snippet") or title)
             source_name = item.get("source") or _source_name_from_url(url)
@@ -212,7 +240,9 @@ class PlaywrightSearchProvider:
 
 
 def _clean_text(text: str) -> str:
+    import html as _html
     text = re.sub(r"<[^>]+>", "", text)
+    text = _html.unescape(text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
 

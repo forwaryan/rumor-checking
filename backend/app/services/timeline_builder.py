@@ -94,7 +94,7 @@ class TimelineBuilder:
                     title=result.title,
                     url=result.url,
                     source_name=result.source_name,
-                    published_at=result.published_at,
+                    published_at=ensure_datetime_string(result.published_at),
                     summary=result.snippet,
                     why_selected=self._build_selection_reason(
                         node_type=node_type,
@@ -126,13 +126,13 @@ class TimelineBuilder:
             if self._looks_like_rumor(item)
             and not item.is_repost_like
             and self._query_overlap(item, query) >= 1
-            and (first_authoritative_response is None or item.published_dt <= first_authoritative_response.published_dt)
+            and (first_authoritative_response is None or item.effective_published_dt <= first_authoritative_response.effective_published_dt)
         ]
         if rumor_candidates:
             return sorted(
                 rumor_candidates,
                 key=lambda item: (
-                    item.published_at,
+                    item.effective_published_at,
                     0 if not item.is_aggregator_source else 1,
                     -self._query_overlap(item, query),
                     -item.tier_weight,
@@ -147,7 +147,7 @@ class TimelineBuilder:
             return sorted(
                 authoritative_candidates,
                 key=lambda item: (
-                    item.published_at,
+                    item.effective_published_at,
                     0 if item.is_official_source else 1,
                     -item.tier_weight,
                     item.result_id,
@@ -160,7 +160,7 @@ class TimelineBuilder:
             return None
         candidates = []
         for item in sorted(results, key=self._sort_key):
-            if item.result_id == origin.result_id or item.published_dt < origin.published_dt:
+            if item.result_id == origin.result_id or item.effective_published_dt < origin.effective_published_dt:
                 continue
             if item.has_response_signal and item.source_tier == "S":
                 continue
@@ -181,7 +181,7 @@ class TimelineBuilder:
                 0 if not item.has_response_signal else 1,
                 0 if self._is_match(item, AMPLIFICATION_KEYWORDS) else 1,
                 -item.propagation_score,
-                item.published_at,
+                item.effective_published_at,
                 item.result_id,
             ),
         )[0]
@@ -189,7 +189,7 @@ class TimelineBuilder:
     def _select_peak(self, results: Sequence[SearchResult], origin: Optional[SearchResult]) -> Optional[SearchResult]:
         if origin is None or len(results) < 3:
             return None
-        post_origin = [item for item in results if item.published_dt >= origin.published_dt]
+        post_origin = [item for item in results if item.effective_published_dt >= origin.effective_published_dt]
         if len(post_origin) < 3:
             return None
         day_scores = self._day_scores(post_origin)
@@ -197,7 +197,7 @@ class TimelineBuilder:
         if peak_score < 3:
             return None
         day_candidates = [
-            item for item in post_origin if item.published_at[:10] == peak_day and item.result_id != origin.result_id
+            item for item in post_origin if item.effective_published_at[:10] == peak_day and item.result_id != origin.result_id
         ]
         if not day_candidates:
             return None
@@ -207,7 +207,7 @@ class TimelineBuilder:
                 0 if self._is_match(item, PEAK_KEYWORDS) else 1,
                 -item.propagation_score,
                 0 if item.is_mainstream_source or item.is_aggregator_source else 1,
-                item.published_at,
+                item.effective_published_at,
                 item.result_id,
             ),
         )[0]
@@ -215,7 +215,7 @@ class TimelineBuilder:
     def _select_turn(self, results: Sequence[SearchResult], origin: Optional[SearchResult]) -> Optional[SearchResult]:
         candidates = []
         for item in sorted(results, key=self._sort_key):
-            if origin is not None and item.published_dt <= origin.published_dt:
+            if origin is not None and item.effective_published_dt <= origin.effective_published_dt:
                 continue
             if item.has_response_signal or item.is_official_source:
                 candidates.append(item)
@@ -226,7 +226,7 @@ class TimelineBuilder:
             key=lambda item: (
                 0 if item.is_official_source else 1,
                 0 if item.has_response_signal else 1,
-                item.published_at,
+                item.effective_published_at,
                 -item.tier_weight,
                 item.result_id,
             ),
@@ -241,7 +241,7 @@ class TimelineBuilder:
         boundary = turn or origin
         candidates = []
         for item in sorted(results, key=self._sort_key):
-            if boundary is not None and item.published_dt <= boundary.published_dt:
+            if boundary is not None and item.effective_published_dt <= boundary.effective_published_dt:
                 continue
             if item.is_high_trust and (self._is_match(item, CLARIFICATION_KEYWORDS) or item.has_response_signal):
                 candidates.append(item)
@@ -251,7 +251,7 @@ class TimelineBuilder:
             candidates,
             key=lambda item: (
                 0 if self._is_match(item, CLARIFICATION_KEYWORDS) else 1,
-                item.published_at,
+                item.effective_published_at,
                 -item.tier_weight,
                 item.result_id,
             ),
@@ -275,7 +275,7 @@ class TimelineBuilder:
     ) -> str:
         reasons: list[str] = []
         earliest = min(results, key=self._sort_key)
-        same_day_results = [item for item in results if item.published_at[:10] == result.published_at[:10]]
+        same_day_results = [item for item in results if item.effective_published_at[:10] == result.effective_published_at[:10]]
         same_day_independent = len({item.effective_independence_key for item in same_day_results if item.effective_independence_key})
 
         if node_type == "origin":
@@ -303,7 +303,7 @@ class TimelineBuilder:
                 reasons.append("文本中带有热议、持续发酵或刷屏等峰值信号")
         elif node_type == "turn":
             reasons.append("它让叙事从传闻/报道推进到回应或纠偏阶段")
-            if origin is not None and result.published_dt > origin.published_dt:
+            if origin is not None and result.effective_published_dt > origin.effective_published_dt:
                 reasons.append("发布时间晚于 origin，符合传播链转折顺序")
             if result.is_official_source:
                 reasons.append("这是官方回应节点，不只是媒体转述")
@@ -313,7 +313,7 @@ class TimelineBuilder:
                 reasons.append("文本明确出现回应、否认、核查或辟谣信号")
         elif node_type == "clarification":
             reasons.append("它补充了转折之后的官方说明或后续更新")
-            if turn is not None and result.published_dt > turn.published_dt:
+            if turn is not None and result.effective_published_dt > turn.effective_published_dt:
                 reasons.append("发布时间位于 turn 之后，承担后续澄清角色")
             if result.is_official_source:
                 reasons.append("来源属于官方/当事方，适合承接最终说明")
@@ -359,7 +359,7 @@ class TimelineBuilder:
     def _day_scores(self, results: Sequence[SearchResult]) -> dict[str, int]:
         day_scores: dict[str, int] = {}
         for item in results:
-            day = item.published_at[:10]
+            day = item.effective_published_at[:10]
             day_scores[day] = day_scores.get(day, 0) + item.propagation_score
         return day_scores
 
@@ -380,4 +380,4 @@ class TimelineBuilder:
         return any(keyword.lower() in haystack for keyword in keywords)
 
     def _sort_key(self, result: SearchResult) -> tuple[str, int, str]:
-        return (result.published_at, -result.tier_weight, result.result_id)
+        return (result.effective_published_at, -result.tier_weight, result.result_id)

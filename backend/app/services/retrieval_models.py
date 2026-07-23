@@ -6,8 +6,13 @@ from typing import Optional, Tuple
 from urllib.parse import urlparse
 
 from backend.app.models.schemas import EvidenceItem, RetrievalDiagnostics, SourceTier
+from backend.app.services.contract_utils import ensure_datetime_string
 
 TIER_WEIGHTS = {"S": 4, "A": 3, "B": 2, "C": 1}
+
+# Fixed minimum used to order dateless SERP hits without crashing datetime comparisons.
+_DATELESS_SENTINEL = datetime(1970, 1, 1)
+_DATELESS_SENTINEL_ISO = "1970-01-01T00:00:00+08:00"
 
 OFFICIAL_HOST_MARKERS = ("gov.cn", ".gov", "police", "court", "edu.cn", "hospital", "school")
 MAINSTREAM_HOST_MARKERS = (
@@ -175,12 +180,41 @@ class SearchResult:
         return datetime.fromisoformat(self.published_at)
 
     @property
+    def effective_published_dt(self) -> datetime:
+        # Live SERP hits often carry no date; fall back to a fixed minimum so
+        # chronological comparisons order dateless hits first instead of crashing.
+        return self.published_dt or _DATELESS_SENTINEL
+
+    @property
+    def effective_published_at(self) -> str:
+        # String counterpart to effective_published_dt for [:10] day-bucketing;
+        # dateless hits share a single sentinel day rather than crashing on None.
+        return self.published_at or _DATELESS_SENTINEL_ISO
+
+    @property
     def tier_weight(self) -> int:
         return TIER_WEIGHTS[self.source_tier]
 
     @property
     def is_high_trust(self) -> bool:
         return self.source_tier in {"S", "A"}
+
+    @property
+    def is_navigational(self) -> bool:
+        # Brand queries make search engines surface the site's homepage / a
+        # section index (apple.com/, jd.com/index.html) rather than an article
+        # about the claim. These carry no evidentiary content, so we rank them
+        # below real articles instead of dropping them outright.
+        parsed = urlparse(self.url)
+        path = parsed.path.rstrip("/").lower()
+        if path in ("", "/index", "/index.html", "/index.htm", "/home"):
+            return True
+        # A path with no article-like segment (no digits, no long slug) and a
+        # short depth is almost always a landing/section page.
+        segments = [seg for seg in path.split("/") if seg]
+        if not segments:
+            return True
+        return False
 
     @property
     def effective_source_category(self) -> str:
@@ -341,7 +375,7 @@ class SearchResult:
             title=self.title,
             url=self.url,
             source_name=self.source_name,
-            published_at=self.published_at,
+            published_at=ensure_datetime_string(self.published_at),
             snippet=self.snippet,
             relevance_reason=relevance_reason,
             source_tier=self.source_tier,
@@ -455,7 +489,7 @@ class RetrievalBundle:
         evidence: list[EvidenceItem] = []
         ordered_results = sorted(
             self.canonical_results,
-            key=lambda item: (-item.tier_weight, item.published_at, item.result_id),
+            key=lambda item: (item.is_navigational, -item.tier_weight, item.effective_published_at, item.result_id),
         )
         for result in ordered_results[:limit]:
             reason = self._build_relevance_reason(result)
@@ -466,7 +500,7 @@ class RetrievalBundle:
         hits: list[EvidenceItem] = []
         ordered_results = sorted(
             self.canonical_results,
-            key=lambda item: (item.published_at, item.tier_weight, item.result_id),
+            key=lambda item: (not item.is_navigational, item.effective_published_at, item.tier_weight, item.result_id),
             reverse=True,
         )
         for result in ordered_results[:limit]:

@@ -85,14 +85,14 @@ class SearchResultMerger:
         if self._normalize_title(left.title) == self._normalize_title(right.title):
             is_repost = self._looks_like_repost(left.title, left.source_name) or self._looks_like_repost(right.title, right.source_name)
             return REPOST_LABEL if is_repost else DUPLICATE_LABEL
-        if left.published_at[:10] != right.published_at[:10]:
+        if left.effective_published_at[:10] != right.effective_published_at[:10]:
             return None
         if self._titles_overlap(left.title, right.title):
             return NEAR_DUPLICATE_LABEL
         return None
 
     def chronological_sort_key(self, item: SearchResult) -> tuple[str, int, str]:
-        return (item.published_at, -item.tier_weight, item.result_id)
+        return (item.effective_published_at, -item.tier_weight, item.result_id)
 
     def _canonical_sort_key(self, item: SearchResult, group_items: Sequence[SearchResult]) -> tuple[int, int, int, float]:
         explicit_targets = sum(1 for group_item in group_items if group_item.duplicate_of == item.result_id)
@@ -101,7 +101,7 @@ class SearchResultMerger:
             item.tier_weight,
             explicit_targets,
             keep_original_bonus,
-            -item.published_dt.timestamp(),
+            -item.effective_published_dt.timestamp(),
         )
 
     def _titles_overlap(self, left_title: str, right_title: str) -> bool:

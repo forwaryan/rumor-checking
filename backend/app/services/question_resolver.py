@@ -319,7 +319,7 @@ class QuestionResolver:
                 score += 8
             if any(token in haystack for token in ("去世", "死亡", "脑出血", "脑溢血")):
                 score += 3
-            scored.append((score, overlap, item.published_at, item.tier_weight, item))
+            scored.append((score, overlap, item.effective_published_at, item.tier_weight, item))
 
         if not scored:
             return None

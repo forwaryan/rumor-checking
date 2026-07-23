@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -25,7 +26,13 @@ from backend.app.services.retrieval_models import (
     looks_like_repost,
 )
 from backend.app.services.playwright_search_provider import PlaywrightSearchProvider
-from backend.app.services.progress import emit_log, emit_retrieval
+from backend.app.services.progress import (
+    emit_log,
+    emit_retrieval,
+    get_progress_callback,
+    reset_progress_callback,
+    set_progress_callback,
+)
 from backend.app.services.retrieval_provider import GdeltNewsProvider, LlmWebSearchProvider, RetrievalProvider
 
 logger = logging.getLogger(__name__)
@@ -151,13 +158,16 @@ class RetrievalService:
         if provider_name == "mock":
             return self._mock_bundle(event, query_plan=query_plan)
 
-        query_bundles: list[RetrievalBundle] = []
+        query_bundles_by_index: dict[int, RetrievalBundle] = {}
+        cache_status_by_index: dict[int, str] = {}
         query_failures: list[str] = []
-        cache_statuses: list[str] = []
         provider_failure_details: list[str] = []
         provider_unavailable = self.provider is None or not self.provider.enabled
 
-        for spec in query_plan:
+        # Phase 1 (sequential): resolve cache and fast-fail paths, collecting the
+        # specs that still need a live network fetch.
+        fetch_indices: list[int] = []
+        for index, spec in enumerate(query_plan):
             if cache_enabled and not bypass_cache:
                 cached = self.cache.read(
                     query_text=spec.query,
@@ -170,8 +180,8 @@ class RetrievalService:
                         query_groups=(spec,),
                         query_failures=(),
                     )
-                    query_bundles.append(cached_bundle)
-                    cache_statuses.append(cached.cache_status)
+                    query_bundles_by_index[index] = cached_bundle
+                    cache_status_by_index[index] = cached.cache_status
                     emit_retrieval(
                         stage_key=stage_key,
                         query_label=spec.label,
@@ -184,7 +194,7 @@ class RetrievalService:
 
             if cache_only:
                 query_failures.append(f"{spec.label}:cache_miss")
-                cache_statuses.append("miss")
+                cache_status_by_index[index] = "miss"
                 emit_log(
                     stage_key=stage_key,
                     level="warning",
@@ -206,20 +216,49 @@ class RetrievalService:
                 )
                 continue
 
-            try:
-                emit_log(
-                    stage_key=stage_key,
-                    title="执行检索 query",
-                    summary=f"正在调用 {provider_name} 执行 {spec.label}。",
-                    details=[
-                        f"query={spec.query}",
-                        f"rationale={spec.rationale}",
-                    ],
-                )
-                raw_results = self.provider.search(spec.query)
-            except AppError:
-                raise
-            except Exception as exc:
+            fetch_indices.append(index)
+
+        # Phase 2 (concurrent): the query plan issues independent network calls, so
+        # run the cache-miss fetches in parallel instead of summing their latencies.
+        # ContextVar-based progress callbacks don't cross threads, so rebind the
+        # parent callback inside each worker.
+        fetch_outcomes: dict[int, tuple[Optional[list[SearchResult]], Optional[Exception]]] = {}
+        if fetch_indices:
+            parent_callback = get_progress_callback()
+
+            def _run_fetch(index: int) -> tuple[Optional[list[SearchResult]], Optional[Exception]]:
+                spec = query_plan[index]
+                token = set_progress_callback(parent_callback) if parent_callback is not None else None
+                try:
+                    emit_log(
+                        stage_key=stage_key,
+                        title="执行检索 query",
+                        summary=f"正在调用 {provider_name} 执行 {spec.label}。",
+                        details=[
+                            f"query={spec.query}",
+                            f"rationale={spec.rationale}",
+                        ],
+                    )
+                    return self.provider.search(spec.query), None
+                except AppError:
+                    raise
+                except Exception as exc:  # noqa: BLE001 - degraded per-query, surfaced below
+                    return None, exc
+                finally:
+                    if token is not None:
+                        reset_progress_callback(token)
+
+            with ThreadPoolExecutor(max_workers=len(fetch_indices)) as executor:
+                future_map = {executor.submit(_run_fetch, index): index for index in fetch_indices}
+                for future, index in future_map.items():
+                    fetch_outcomes[index] = future.result()
+
+        # Phase 3 (sequential, query-plan order): assemble bundles and cache writes
+        # deterministically from the fetched results.
+        for index in fetch_indices:
+            spec = query_plan[index]
+            raw_results, exc = fetch_outcomes[index]
+            if exc is not None:
                 failure_detail = self._describe_exception(exc)
                 logger.warning(
                     "retrieval_failed provider=%s query_label=%s error_type=%s",
@@ -235,16 +274,14 @@ class RetrievalService:
                         scope_key=spec.normalized_scope(),
                     )
                     if stale_cached is not None:
-                        query_bundles.append(
-                            stale_cached.with_runtime_metadata(
-                                fallback_used=True,
-                                fallback_reason="real_retrieval_failed",
-                                failure_detail=failure_detail,
-                                query_groups=(spec,),
-                                query_failures=(),
-                            )
-                    )
-                        cache_statuses.append("stale_hit")
+                        query_bundles_by_index[index] = stale_cached.with_runtime_metadata(
+                            fallback_used=True,
+                            fallback_reason="real_retrieval_failed",
+                            failure_detail=failure_detail,
+                            query_groups=(spec,),
+                            query_failures=(),
+                        )
+                        cache_status_by_index[index] = "stale_hit"
                         emit_retrieval(
                             stage_key=stage_key,
                             query_label=spec.label,
@@ -281,8 +318,8 @@ class RetrievalService:
                     bundle=bundle,
                     scope_key=spec.normalized_scope(),
                 )
-            query_bundles.append(bundle)
-            cache_statuses.append(bundle.cache_status)
+            query_bundles_by_index[index] = bundle
+            cache_status_by_index[index] = bundle.cache_status
             emit_retrieval(
                 stage_key=stage_key,
                 query_label=spec.label,
@@ -291,6 +328,9 @@ class RetrievalService:
                 summary=f"{spec.label} 已返回 {len(bundle.canonical_results)} 条去重结果。",
                 details=_retrieval_preview_details(bundle),
             )
+
+        query_bundles = [query_bundles_by_index[index] for index in sorted(query_bundles_by_index)]
+        cache_statuses = [cache_status_by_index[index] for index in sorted(cache_status_by_index)]
 
         if not query_bundles:
             if cache_only:
@@ -463,11 +503,21 @@ class RetrievalService:
         return combined
 
     def _filter_relevant_results(self, results: list[SearchResult]) -> list[SearchResult]:
-        if len(results) <= 1:
+        if not results:
             return results
-        filtered = [item for item in results if not self._is_noise_result(item)]
-        filtered = [item for item in filtered if self._result_matches_query(item)]
-        return filtered or results
+        # Hard filter: dictionary/encyclopedia junk (surfaced when a search engine
+        # splits a Chinese phrase into single chars) is never real evidence, so drop
+        # it even when it's all we have — returning nothing is more honest than
+        # presenting a 字典 entry as a source.
+        non_noise = [item for item in results if not self._is_noise_result(item)]
+        if not non_noise:
+            return []
+        if len(non_noise) == 1:
+            return non_noise
+        # Soft filter: query relevance can be over-aggressive, so fall back to the
+        # noise-stripped set rather than dropping everything.
+        on_topic = [item for item in non_noise if self._result_matches_query(item)]
+        return on_topic or non_noise
 
     def _is_noise_result(self, result: SearchResult) -> bool:
         title = result.title
@@ -480,8 +530,16 @@ class RetrievalService:
         )
         if any(p in title_lower for p in noise_title_patterns):
             return True
-        noise_domains = ("baike.baidu.com", "dict.", "zidian.", "hanyu.", "zdic.net", "guoxuedashi")
+        noise_domains = (
+            "baike.baidu.com", "dict.", "zidian.", "hanyu.", "hanyuguoxue.com",
+            "zdic.net", "guoxuedashi", "hgcha.com", "chagushici.com",
+            "shidianguji.com", "gxdq.com",
+        )
         if any(d in url for d in noise_domains):
+            return True
+        # CJK dictionary/idiom sites Bing surfaces when it splits a phrase into
+        # single chars all share a /zidian/, /hans/ or /character/ lookup path.
+        if re.search(r"/(?:zidian|hans|character)/", url):
             return True
         if re.search(r"^《?[一-鿿]》?（", title):
             return True
@@ -531,7 +589,14 @@ class RetrievalService:
 
         Only fires on the agent+LLM retrieval path; any failure degrades silently to the
         rule-based query builder so the off+mock path is unchanged.
+
+        Gated behind ``llm_query_extraction_enabled`` (default off): the extraction
+        call costs a full ~40s LLM round-trip on the current gateway, but the
+        rule-based dedup query builder already produces clean queries, so we skip
+        it by default and reserve the LLM budget for synthesis/verdict.
         """
+        if not self.settings.llm_query_extraction_enabled:
+            return None
         reasoner = self.agent_reasoner
         if reasoner is None or not getattr(reasoner, "enabled", False):
             return None
@@ -546,6 +611,19 @@ class RetrievalService:
                 details=[f"error_type={exc.__class__.__name__}"],
             )
             return None
+
+    def _alias_query_specs(self, alias_query: str, *, claim_hint: str) -> list[RetrievalQuerySpec]:
+        normalized = self._normalize_query(alias_query)
+        if not normalized:
+            return []
+        return [
+            RetrievalQuerySpec(
+                label="alias_recall",
+                query=normalized,
+                rationale="用 LLM 抽取的别名/母品牌/相关表述再补一路检索，扩大召回。",
+                claim_hint=claim_hint,
+            )
+        ]
 
     def _build_query_plan(self, event: NormalizedEvent, *, request_context: dict[str, Any]) -> list[RetrievalQuerySpec]:
         forced_query = request_context.get("force_retrieval_query")
@@ -585,10 +663,15 @@ class RetrievalService:
         # ("京东开始造游轮了，而且..."), so when the reasoner is available, replace
         # the primary/keyword query with entity-focused terms it extracts. Falls
         # back to the rule-based queries above when disabled/unparseable.
+        alias_query = ""
         llm_terms = self._llm_query_terms(event)
         if llm_terms is not None:
             primary_query = llm_terms.primary_query
             keyword_query = llm_terms.primary_query
+            # The reasoner also surfaces aliases (parent brand, person behind it,
+            # alternate phrasings) that hit the same event from another angle;
+            # fold them into one extra query to widen recall.
+            alias_query = self._build_term_query(*llm_terms.aliases[:4])
 
         official_query = self._extend_query(keyword_query or primary_query, *OFFICIAL_QUERY_TERMS, event.source_name)
         propagation_query = self._extend_query(keyword_query or primary_query, *PROPAGATION_QUERY_TERMS)
@@ -635,6 +718,7 @@ class RetrievalService:
                         rationale="补抓网传、发酵、转载等传播链节点。",
                         claim_hint=rewritten_query or primary_query,
                     ),
+                    *self._alias_query_specs(alias_query, claim_hint=rewritten_query or primary_query),
                 ]
             )
 
@@ -664,6 +748,7 @@ class RetrievalService:
                     rationale="补抓传播扩散和转载放大节点，供时间线使用。",
                     claim_hint=event.summary or primary_query,
                 ),
+                *self._alias_query_specs(alias_query, claim_hint=event.summary or primary_query),
             ]
         )
 
@@ -684,7 +769,7 @@ class RetrievalService:
                     cache_scope=candidate.cache_scope or f"{candidate.label}:{candidate.claim_hint or normalized_query}",
                 )
             )
-            if len(query_plan) >= 4:
+            if len(query_plan) >= 5:
                 break
         if len(query_plan) == 1:
             only = query_plan[0]
@@ -707,16 +792,14 @@ class RetrievalService:
                 return event.raw_input.strip().rstrip("\uFF1F?")
             return self._rewrite_question_query(event.raw_input)
 
-        ordered_parts: list[str] = []
-        seen = set()
-        for part in [event.title, event.summary, *event.keywords[:4]]:
-            if not part:
-                continue
-            compact = re.sub(r"\s+", " ", part).strip()
-            if compact and compact not in seen:
-                seen.add(compact)
-                ordered_parts.append(compact)
-        return " ".join(ordered_parts) or event.raw_input.strip()
+        # Extract deduplicated terms rather than concatenating raw parts: title and
+        # summary usually overlap heavily (title is often a prefix of summary), so
+        # whole-part dedup leaves a redundant, punctuation-laden blob that makes the
+        # search engine fall back to matching only the brand \u2192 homepage hits.
+        term_query = self._build_term_query(
+            event.title, event.summary, " ".join(event.keywords[:4])
+        )
+        return term_query or event.raw_input.strip()
 
     def _build_term_query(self, *texts: Optional[str], max_terms: int = 8) -> str:
         terms: list[str] = []

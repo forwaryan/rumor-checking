@@ -107,7 +107,7 @@ def classify_relation(left: SearchResult, right: SearchResult) -> Optional[str]:
         return REPOST_LABEL if is_repost else DUPLICATE_LABEL
     if not left.published_at or not right.published_at:
         return None
-    if left.published_at[:10] != right.published_at[:10]:
+    if left.effective_published_at[:10] != right.effective_published_at[:10]:
         return None
     if titles_overlap(left.title, right.title):
         if left.is_aggregator_source or right.is_aggregator_source:
@@ -147,4 +147,4 @@ def compact_text(text: str) -> str:
 
 
 def chronological_sort_key(item: SearchResult) -> tuple[str, int, str]:
-    return (item.published_at, -item.tier_weight, item.result_id)
+    return (item.effective_published_at, -item.tier_weight, item.result_id)

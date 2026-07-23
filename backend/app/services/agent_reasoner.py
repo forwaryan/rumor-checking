@@ -505,8 +505,8 @@ class LlmAgentReasoner:
     def _stream_completion(self, *, endpoint: str, model: str, system_prompt: str, user_prompt: str) -> str:
         """Read an OpenAI-compatible SSE stream and return the concatenated content.
 
-        Streaming (not one-shot) so models that only behave under stream=true on
-        the gateway (e.g. GLM/Oxygen) work; DeepSeek streams fine too.
+        Streaming (not one-shot) because some gateway models only behave correctly
+        under stream=true; others stream fine too, so we always stream.
         """
         parts: list[str] = []
         with httpx.stream(
@@ -833,7 +833,7 @@ class LlmAgentReasoner:
                     title=result.title,
                     url=result.url,
                     source_name=result.source_name,
-                    published_at=result.published_at,
+                    published_at=ensure_datetime_string(result.published_at),
                     summary=self._clean_optional_string(item.get("summary")) or result.snippet,
                     why_selected=self._clean_optional_string(item.get("why_selected")) or "Agent selected this retrieval hit as a timeline node.",
                 )

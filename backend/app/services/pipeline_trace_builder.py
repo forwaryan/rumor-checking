@@ -40,7 +40,7 @@ def _iter_top_results(bundle: RetrievalBundle | None, limit: int = 3) -> Iterabl
         return []
     ordered = sorted(
         bundle.canonical_results,
-        key=lambda item: (-item.tier_weight, item.published_at, item.result_id),
+        key=lambda item: (-item.tier_weight, item.effective_published_at, item.result_id),
     )
     return [_result_line(item) for item in ordered[:limit]]
 

@@ -569,8 +569,8 @@ def test_question_only_pipeline_uses_real_retrieval_bundle(tmp_path: Path):
     )
 
     assert len(provider.calls) >= 4
-    assert provider.calls[1] != provider.calls[0]
-    assert any("gov" in call or "官方" in call for call in provider.calls[1:])
+    assert len(set(provider.calls)) >= 2
+    assert any("gov" in call or "官方" in call for call in provider.calls)
     assert report.mode == "partial_mode"
     assert report.sources
     assert report.timeline
@@ -623,7 +623,7 @@ def test_llm_question_retrieval_keeps_raw_rumor_phrasing(tmp_path: Path):
         )
     )
 
-    assert provider.calls[0] == "最近有个女网红脑出血死了真的假的"
+    assert "最近有个女网红脑出血死了真的假的" in provider.calls
     assert len(provider.calls) >= 4
     assert report.mode == "partial_mode"
     assert report.event.title in {
@@ -1042,7 +1042,7 @@ def test_question_only_pipeline_answers_broad_trend_questions_without_forcing_si
     )
 
     assert 1 <= len(provider.calls) <= 2
-    assert provider.calls[0] == "裁员"
+    assert "裁员" in provider.calls
     assert report.mode == "partial_mode"
     assert report.provenance.event_source == "input_normalized"
     assert report.provenance.evidence_source == "retrieval_live"

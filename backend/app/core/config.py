@@ -92,6 +92,7 @@ class Settings:
     llm_model: str
     llm_search_model: str
     llm_temperature: float
+    llm_query_extraction_enabled: bool
     provider_timeout_seconds: float
     retrieval_provider: str
     retrieval_timeout_seconds: float
@@ -154,6 +155,7 @@ def get_settings() -> Settings:
         llm_model=(os.getenv("LLM_MODEL") or os.getenv("KIMI_MODEL") or "").strip(),
         llm_search_model=(os.getenv("LLM_SEARCH_MODEL") or os.getenv("KIMI_SEARCH_MODEL") or "").strip(),
         llm_temperature=_as_float(os.getenv("LLM_TEMPERATURE") or os.getenv("KIMI_TEMPERATURE"), 0.1),
+        llm_query_extraction_enabled=_as_bool(os.getenv("LLM_QUERY_EXTRACTION_ENABLED"), default=False),
         provider_timeout_seconds=_as_float(os.getenv("PROVIDER_TIMEOUT_SECONDS"), 20.0),
         retrieval_provider=_normalize_retrieval_provider(os.getenv("RETRIEVAL_PROVIDER"), default="mock"),
         retrieval_timeout_seconds=_as_float(os.getenv("RETRIEVAL_TIMEOUT_SECONDS"), 12.0),

@@ -13,6 +13,10 @@ def set_progress_callback(callback: ProgressCallback) -> Token:
     return _progress_callback.set(callback)
 
 
+def get_progress_callback() -> Optional[ProgressCallback]:
+    return _progress_callback.get()
+
+
 def reset_progress_callback(token: Token) -> None:
     _progress_callback.reset(token)
 
