@@ -215,6 +215,47 @@ function isTerminal(status: AnalysisLiveStatus): boolean {
   return status !== "running";
 }
 
+// Rank a sub-event's severity so a step's inferred terminal status reflects its
+// worst outcome (an error sub-event should not resolve to a bland "completed").
+function severityRank(status: AnalysisLiveStatus): number {
+  if (status === "error") return 3;
+  if (status === "warning") return 2;
+  return 1;
+}
+
+// Concurrent retrieval emits each query as a running (from a worker thread) and
+// then a completed sub-event, and the threads interleave — so a step's raw
+// sub-event list is both out of order and doubled. Sort by emit time, then fold
+// each running+terminal pair of the same (kind, title) into its final state,
+// mirroring how llmCalls pair a prompt with its response.
+function normalizeSubEvents(subEvents: TraceSubEvent[]): TraceSubEvent[] {
+  const ordered = subEvents
+    .map((sub, index) => ({ sub, index }))
+    .sort((a, b) => {
+      const ta = a.sub.emittedAt ?? "";
+      const tb = b.sub.emittedAt ?? "";
+      if (ta !== tb) return ta < tb ? -1 : 1;
+      return a.index - b.index; // stable within the same timestamp
+    })
+    .map((entry) => entry.sub);
+
+  const collapsed: TraceSubEvent[] = [];
+  const byKey = new Map<string, TraceSubEvent>();
+  for (const sub of ordered) {
+    const key = `${sub.kind}:${sub.title}`;
+    const open = byKey.get(key);
+    if (open && open.status === "running") {
+      open.status = sub.status;
+      open.summary = sub.summary || open.summary;
+      if (isTerminal(sub.status)) byKey.delete(key);
+      continue;
+    }
+    collapsed.push(sub);
+    if (sub.status === "running") byKey.set(key, sub);
+  }
+  return collapsed;
+}
+
 /**
  * Group the flat live-event stream into ordered, observable steps.
  *
@@ -344,6 +385,7 @@ export function deriveTraceSteps(events: AnalysisLiveEvent[]): TraceStep[] {
         summary: event.summary,
         status: subStatus,
         level: event.type === "log" ? event.level : undefined,
+        emittedAt: event.emitted_at,
       };
       step.subEvents.push(sub);
 
@@ -355,5 +397,28 @@ export function deriveTraceSteps(events: AnalysisLiveEvent[]): TraceStep[] {
     }
   }
 
-  return order.map((key) => byStage.get(key)!);
+  // Some stages (agent_orchestrator, agent_planner) only ever emit log/api_call
+  // events, never a terminal `stage` event, so their step is born "running" and
+  // would hang there forever. Once the run itself has ended, resolve any step
+  // still marked running from its own sub-events (worst outcome wins), so no step
+  // is left falsely "进行中" after the pipeline finished. While the stream is
+  // still in flight we leave the last step running, as before.
+  const streamEnded = events.some(
+    (event) => event.type === "complete" || event.type === "error" || event.type === "report",
+  );
+
+  const steps = order.map((key) => byStage.get(key)!);
+  for (const step of steps) {
+    step.subEvents = normalizeSubEvents(step.subEvents);
+    if (streamEnded && step.status === "running") {
+      const worst = step.subEvents.reduce(
+        (acc, sub) => (severityRank(sub.status) > severityRank(acc) ? sub.status : acc),
+        "completed" as AnalysisLiveStatus,
+      );
+      step.status = worst;
+      const lastSub = step.subEvents[step.subEvents.length - 1];
+      step.endedAt = lastSub?.emittedAt ?? step.startedAt;
+    }
+  }
+  return steps;
 }

@@ -12,7 +12,7 @@ function stage(
   return { type: "stage", stage_key, status, title: stage_key, summary, details, emitted_at } as AnalysisLiveEvent;
 }
 
-function retrieval(stage_key: string, query: string, summary: string): AnalysisLiveEvent {
+function retrieval(stage_key: string, query: string, summary: string, emitted_at = "2026-03-20T00:00:01Z"): AnalysisLiveEvent {
   return {
     type: "retrieval",
     stage_key,
@@ -21,7 +21,7 @@ function retrieval(stage_key: string, query: string, summary: string): AnalysisL
     provider_name: "playwright",
     summary,
     details: [],
-    emitted_at: "2026-03-20T00:00:01Z",
+    emitted_at,
   } as AnalysisLiveEvent;
 }
 
@@ -34,8 +34,14 @@ function apiCall(
   status: AnalysisLiveStatus,
   title: string,
   details: string[],
+  emitted_at = "2026-03-20T00:00:03Z",
+  call_type = "llm",
 ): AnalysisLiveEvent {
-  return { type: "api_call", stage_key, call_type: "llm", status, title, summary: "", details, emitted_at: "2026-03-20T00:00:03Z" } as AnalysisLiveEvent;
+  return { type: "api_call", stage_key, call_type, status, title, summary: "", details, emitted_at } as AnalysisLiveEvent;
+}
+
+function complete(emitted_at = "2026-03-20T00:00:09Z"): AnalysisLiveEvent {
+  return { type: "complete", run_id: "r", success: true, summary: "done", emitted_at } as AnalysisLiveEvent;
 }
 
 describe("deriveTraceSteps", () => {
@@ -112,6 +118,69 @@ describe("deriveTraceSteps", () => {
     // prompt/response must NOT leak into the generic kv rows
     expect(step.inputs.find((kv) => kv.key === "prompt")).toBeUndefined();
     expect(step.outputs.find((kv) => kv.key === "response")).toBeUndefined();
+  });
+
+  it("resolves a log-only step (agent_orchestrator) once the run completes", () => {
+    // agent_orchestrator only emits a log, never a terminal stage event — it must
+    // not hang at 进行中 after the run ends.
+    const steps = deriveTraceSteps([
+      log("agent_orchestrator", "info", "Agent orchestrator 接管本次分析。"),
+      stage("agent_synthesis", "completed", "done"),
+      complete(),
+    ]);
+    const orch = steps.find((s) => s.stageKey === "agent_orchestrator")!;
+    expect(orch.status).toBe("completed");
+    expect(orch.endedAt).not.toBeNull();
+  });
+
+  it("resolves a stuck step to its worst sub-event outcome", () => {
+    const steps = deriveTraceSteps([
+      apiCall("agent_planner", "running", "调用 planner", ["prompt=x"]),
+      log("agent_planner", "warning", "planner 返回非法动作，退回规则 planner。"),
+      complete(),
+    ]);
+    const planner = steps.find((s) => s.stageKey === "agent_planner")!;
+    expect(planner.status).toBe("warning");
+  });
+
+  it("keeps a log-only step running while the stream is still in flight", () => {
+    // No complete/error/report event yet -> do not force-resolve.
+    const steps = deriveTraceSteps([log("agent_orchestrator", "info", "接管中")]);
+    expect(steps[0].status).toBe("running");
+    expect(steps[0].endedAt).toBeNull();
+  });
+
+  it("collapses a running+completed retrieval pair into one ordered sub-event", () => {
+    // Concurrent retrieval emits each query as running (from a worker) then
+    // completed, and threads interleave — the trace must show one entry per query,
+    // in time order, in its final state.
+    const steps = deriveTraceSteps([
+      stage("retrieval_initial", "running", "执行检索"),
+      retrieval("retrieval_initial", "query B", "B running", "2026-03-20T00:00:05Z"),
+      retrieval("retrieval_initial", "query A", "A running", "2026-03-20T00:00:02Z"),
+      stage("retrieval_initial", "completed", "检索完成"),
+      complete(),
+    ]);
+    const step = steps[0];
+    // retrieval sub-events already arrive as "completed"; distinct queries stay
+    // distinct, and they are ordered by emit time (A before B).
+    expect(step.subEvents).toHaveLength(2);
+    expect(step.subEvents[0].title).toContain("query A");
+    expect(step.subEvents[1].title).toContain("query B");
+  });
+
+  it("folds a running api_call sub-event into its terminal event", () => {
+    const steps = deriveTraceSteps([
+      stage("retrieval_initial", "running", "执行检索"),
+      apiCall("retrieval_initial", "running", "百度检索（HTTP 抓取）", ["query=x"], "2026-03-20T00:00:02Z", "http"),
+      apiCall("retrieval_initial", "completed", "百度检索（HTTP 抓取）", ["count=4"], "2026-03-20T00:00:04Z", "http"),
+      stage("retrieval_initial", "completed", "检索完成"),
+      complete(),
+    ]);
+    const step = steps[0];
+    const httpSubs = step.subEvents.filter((s) => s.title.includes("HTTP 抓取"));
+    expect(httpSubs).toHaveLength(1);
+    expect(httpSubs[0].status).toBe("completed");
   });
 });
 

@@ -57,10 +57,10 @@ class PlaywrightSearchProvider:
         )
         emit_api_call(
             stage_key="retrieval_initial",
-            call_type="browser",
+            call_type="http",
             status="running",
-            title="Playwright 百度搜索",
-            summary="正在通过 headless 浏览器搜索百度。",
+            title="百度检索（HTTP 抓取）",
+            summary="正在通过 HTTP 抓取百度搜索结果页。",
             details=[f"query={query_text}"],
         )
         try:
@@ -68,7 +68,7 @@ class PlaywrightSearchProvider:
             results = self._parse_baidu(query_text, html)
             emit_api_call(
                 stage_key="retrieval_initial",
-                call_type="browser",
+                call_type="http",
                 status="completed",
                 title="百度搜索完成",
                 summary=f"百度返回 {len(results)} 条结果。",
@@ -79,7 +79,7 @@ class PlaywrightSearchProvider:
             logger.warning("playwright_baidu_error query=%s error=%s", query_text, e)
             emit_api_call(
                 stage_key="retrieval_initial",
-                call_type="browser",
+                call_type="http",
                 status="error",
                 title="百度搜索失败",
                 summary=f"百度搜索出错,将尝试 Bing: {e}",
@@ -94,10 +94,10 @@ class PlaywrightSearchProvider:
         )
         emit_api_call(
             stage_key="retrieval_initial",
-            call_type="browser",
+            call_type="http",
             status="running",
-            title="Playwright Bing 搜索",
-            summary="正在通过 headless 浏览器搜索 Bing。",
+            title="Bing 检索（HTTP 抓取）",
+            summary="正在通过 HTTP 抓取 Bing 搜索结果页。",
             details=[f"query={query_text}"],
         )
         try:
@@ -105,7 +105,7 @@ class PlaywrightSearchProvider:
             results = self._parse_bing(query_text, html)
             emit_api_call(
                 stage_key="retrieval_initial",
-                call_type="browser",
+                call_type="http",
                 status="completed",
                 title="Bing 搜索完成",
                 summary=f"Bing 返回 {len(results)} 条结果。",
@@ -116,7 +116,7 @@ class PlaywrightSearchProvider:
             logger.warning("playwright_bing_error query=%s error=%s", query_text, e)
             emit_api_call(
                 stage_key="retrieval_initial",
-                call_type="browser",
+                call_type="http",
                 status="error",
                 title="Bing 搜索失败",
                 summary=f"Bing 搜索出错: {e}",

@@ -83,6 +83,7 @@ export interface TraceSubEvent {
   summary: string;
   status: AnalysisLiveStatus;
   level?: "info" | "warning" | "error";
+  emittedAt: string;
 }
 
 export interface TraceLlmCall {
