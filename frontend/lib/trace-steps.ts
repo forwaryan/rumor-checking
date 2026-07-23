@@ -7,6 +7,29 @@ import type {
   TraceSubEvent,
 } from "@/types/report";
 
+/**
+ * Make an LLM prompt/response readable: pretty-print the embedded JSON object
+ * (the compressed one-line JSON is unreadable), while keeping any leading
+ * instruction text ("Choose the single best… Context JSON:") as-is. Falls back
+ * to the original string when there is no parseable JSON.
+ */
+export function formatLlmText(text: string): string {
+  if (!text) return "";
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) {
+    return text.trim();
+  }
+  const lead = text.slice(0, start).trim();
+  const jsonPart = text.slice(start, end + 1);
+  try {
+    const pretty = JSON.stringify(JSON.parse(jsonPart), null, 2);
+    return lead ? `${lead}\n\n${pretty}` : pretty;
+  } catch {
+    return text.trim();
+  }
+}
+
 // Human labels for each pipeline stage_key, so the trace reads as a narrative
 // of what the backend actually did at each step.
 const STAGE_LABEL: Record<string, string> = {

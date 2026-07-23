@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveTraceSteps } from "@/lib/trace-steps";
+import { deriveTraceSteps, formatLlmText } from "@/lib/trace-steps";
 import type { AnalysisLiveEvent, AnalysisLiveStatus } from "@/types/report";
 
 function stage(
@@ -112,5 +112,28 @@ describe("deriveTraceSteps", () => {
     // prompt/response must NOT leak into the generic kv rows
     expect(step.inputs.find((kv) => kv.key === "prompt")).toBeUndefined();
     expect(step.outputs.find((kv) => kv.key === "response")).toBeUndefined();
+  });
+});
+
+describe("formatLlmText", () => {
+  it("pretty-prints a compressed one-line JSON response", () => {
+    const out = formatLlmText('{"next_action":"investigate","reason":"weak"}');
+    expect(out).toContain('"next_action": "investigate"');
+    expect(out.split("\n").length).toBeGreaterThan(1);
+  });
+
+  it("keeps leading instruction text and pretty-prints the embedded Context JSON", () => {
+    const out = formatLlmText('Choose the best action. Context JSON: {"a":1,"b":{"c":2}}');
+    expect(out.startsWith("Choose the best action. Context JSON:")).toBe(true);
+    expect(out).toContain('"c": 2');
+  });
+
+  it("returns plain text unchanged when there is no JSON", () => {
+    expect(formatLlmText("just some text")).toBe("just some text");
+  });
+
+  it("falls back to the raw string when the JSON is malformed", () => {
+    const broken = "prefix {not valid json";
+    expect(formatLlmText(broken)).toBe(broken);
   });
 });

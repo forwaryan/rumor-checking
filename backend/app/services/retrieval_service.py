@@ -523,6 +523,7 @@ class RetrievalService:
         title = result.title
         title_lower = title.lower()
         url = result.url.lower()
+        snippet_lower = (result.snippet or "").lower()
         noise_title_patterns = (
             "百度百科", "汉语", "拼音", "笔顺", "部首", "笔画",
             "字典", "词典", "汉字", "解释", "组词", "地名",
@@ -530,10 +531,21 @@ class RetrievalService:
         )
         if any(p in title_lower for p in noise_title_patterns):
             return True
+        # Time-calibration / clock / calendar utility pages: search engines return
+        # these for any query containing a place name or number, but they carry no
+        # event content (e.g. beijing-time.org for "拼多多雄安买楼").
+        time_junk_patterns = (
+            "时间校准", "北京时间", "在线时钟", "标准时间", "时间校对",
+            "现在时间", "世界时间", "万年历", "对时服务", "时间同步",
+        )
+        title_and_snippet = f"{title_lower} {snippet_lower}"
+        if any(p in title_and_snippet for p in time_junk_patterns):
+            return True
         noise_domains = (
             "baike.baidu.com", "dict.", "zidian.", "hanyu.", "hanyuguoxue.com",
             "zdic.net", "guoxuedashi", "hgcha.com", "chagushici.com",
             "shidianguji.com", "gxdq.com",
+            "beijing-time.org", "time.org", "-time.com", "shijian.cc",
         )
         if any(d in url for d in noise_domains):
             return True

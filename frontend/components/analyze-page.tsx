@@ -5,7 +5,7 @@ import { analyzeReportStream, getHealth } from "@/lib/api-client";
 import { getLocalDemoCaseSummaries } from "@/lib/demo-cases";
 import { getStatusFromMode, validateInput, getVerdictLabel, formatConfidence, collectEvidence } from "@/lib/report-utils";
 import { getOverallCredibilityMeta } from "@/lib/report-high-score";
-import { deriveTraceSteps } from "@/lib/trace-steps";
+import { deriveTraceSteps, formatLlmText } from "@/lib/trace-steps";
 import type {
   AnalysisLiveEvent,
   AnalysisStatus,
@@ -439,14 +439,18 @@ export function AnalyzePage() {
                             <div key={`llm-${k}`} className="exec-llm">
                               {call.prompt && (
                                 <details className="exec-llm__block">
-                                  <summary className="exec-llm__summary exec-llm__summary--q">提问模型</summary>
-                                  <pre className="exec-llm__text">{call.prompt}</pre>
+                                  <summary className="exec-llm__summary exec-llm__summary--q">
+                                    提问模型 · 展开查看
+                                  </summary>
+                                  <pre className="exec-llm__text">{formatLlmText(call.prompt)}</pre>
                                 </details>
                               )}
                               {call.response && (
-                                <details className="exec-llm__block">
-                                  <summary className="exec-llm__summary exec-llm__summary--a">模型回答</summary>
-                                  <pre className="exec-llm__text">{call.response}</pre>
+                                <details className="exec-llm__block" open>
+                                  <summary className="exec-llm__summary exec-llm__summary--a">
+                                    模型回答
+                                  </summary>
+                                  <pre className="exec-llm__text">{formatLlmText(call.response)}</pre>
                                 </details>
                               )}
                             </div>
