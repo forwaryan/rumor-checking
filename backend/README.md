@@ -7,6 +7,7 @@
 ## 当前接口
 
 - `GET /api/v1/health`
+- `GET /api/v1/models`（可选分析模型白名单 + 默认，供前端下拉；只返回模型名，不含网关地址/密钥）
 - `POST /api/v1/analyze`
 - `POST /api/v1/analyze/stream`
 
@@ -16,6 +17,7 @@
 
 - `mode="fast"`（默认，缺省或未知值都按 fast 处理）：**零 LLM 规则路径**。跳过 agent 编排、resolve/synthesize/investigation、provider 结构化补全和 LLM query 抽取；只做真实联网检索（`playwright`）+ 规则 verdict。实测约 0.2–0.3s，`source_type=backend_live`、真实来源 URL。适合给真实用户当下就能用的实时核查。
 - `mode="deep"`：走现有 LLM/agent-first 全链路（planner/investigation/synthesis/结构化补全）。判定质量更高，但在当前网关上一次 synthesis 就要 ~200s（约 0.7s/token），整轮通常要几分钟，属于异步/后台深度档，不作为默认。
+- `request_context.model`（可选）：deep 档指定判定模型，由 `LLM_MODELS` 白名单校验，不在白名单内退回默认 `LLM_MODEL`。
 
 > mode 只切换分析深度；检索 provider 仍由 `RETRIEVAL_PROVIDER` 决定，两档都走同一套真实检索。
 

@@ -17,8 +17,9 @@
 
 - 前端是面向普通用户的单页核查产品：搜索态输入一条消息，结果态给出判定卡片，并把逐条核查、证据、时间线折叠成可展开区块，执行过程 trace 折叠在底部。
 - 前端支持文本、URL、问题三类输入，并通过流式接口消费后端执行过程。
-- 后端已提供 `GET /api/v1/health`、`POST /api/v1/analyze`、`POST /api/v1/analyze/stream`。
+- 后端已提供 `GET /api/v1/health`、`GET /api/v1/models`、`POST /api/v1/analyze`、`POST /api/v1/analyze/stream`。
 - **两档分析（按请求选择，`request_context.mode`）**：`fast`（默认）走零 LLM 规则路径 + 真实检索，约 0.2–0.3s，实时可用；`deep` 走 LLM/agent 全链路，质量更高但要几分钟，是异步深度档。前端主按钮走 fast，出结果后再给"深度核查"入口。
+- **深度档可观测 + 可选模型**：执行过程按步骤展示"干了什么/输入/输出/结论"，每次 LLM 调用的提问与回答有"人类可读 / 原始 JSON"两个 tab；deep 档可从 `LLM_MODELS` 白名单里选判定模型。
 - `report.provenance.source_type` 当前只会出现 `backend_live` 或 `backend_mock`。
 - 默认冻结基线仍是 `off + mock + fallback=true`，适合稳定联调和回归。
 - 真实联网检索优先走 `RETRIEVAL_PROVIDER=playwright`（抓取百度/Bing），中文覆盖较好且不依赖模型内建搜索；延迟高于 mock，不作为默认路径。

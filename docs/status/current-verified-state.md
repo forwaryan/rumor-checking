@@ -9,14 +9,20 @@
 已直接核对以下实现或测试文件：
 
 - `backend/app/api/v1/endpoints/analyze.py`
+- `backend/app/api/v1/endpoints/health.py`
+- `backend/app/core/config.py`
 - `backend/app/services/analyze_pipeline.py`
 - `backend/app/agent/{state,planner,runner}.py`
 - `backend/app/agent_tools/{base,tools}.py`
 - `backend/app/services/agent_reasoner.py`
+- `backend/app/services/retrieval_service.py`
+- `backend/app/services/retrieval_models.py`
+- `backend/app/services/timeline_builder.py`
 - `backend/app/models/schemas.py`
 - `backend/app/services/report_builder.py`
 - `frontend/components/analyze-page.tsx`
 - `frontend/lib/agent-run.ts`
+- `frontend/lib/trace-steps.ts`
 - `frontend/lib/api-client.ts`
 - `frontend/lib/report-utils.ts`
 - `contracts/report.schema.json`
@@ -28,6 +34,7 @@
 当前公开路由只有：
 
 - `GET /api/v1/health`
+- `GET /api/v1/models`
 - `POST /api/v1/analyze`
 - `POST /api/v1/analyze/stream`
 
@@ -68,7 +75,8 @@
   - `fast`（默认；缺省或未知值都按 fast）：强制零 LLM 规则路径——跳过 agent 编排、`resolve_question` / `synthesize` / `_run_investigation`、`provider_enricher.enrich`（结构化补全），以及检索层的 LLM query 抽取。只保留真实检索（由 `RETRIEVAL_PROVIDER` 决定）+ 规则 verdict。实测约 0.2–0.3s。
   - `deep`：走现有 LLM/agent-first 全链路。
 - 由 `backend/tests/test_api.py::test_fast_mode_skips_llm_enrichment_while_deep_mode_uses_it` 锁定：provider 开启时 fast 不产生 LLM 调用、deep 产生。
-- 前端主按钮走 fast，结果页再给"深度核查"二次入口触发 deep。
+- 前端主按钮走 fast，结果页再给"深度核查"二次入口触发 deep；深度档可在下拉里选白名单模型（见第 8 条），选择随 `?q=&mode=&model=` 写进 URL，刷新/分享可复现。
+- 前端把流式事件按 `stage_key` 聚合成可观测执行时间线（`frontend/lib/trace-steps.ts`），每步展示"干了什么/输入/输出/结论"；每次 LLM 调用的**提问与回答**都以"人类可读 / 原始 JSON"两个 tab 呈现（`humanizeLlmText` 把 planner/investigation/synthesis 的 JSON 翻成中文摘要）。后端 emit 的事件里已去除内网网关地址（只保留模型名），实测流复扫无泄漏。
 
 ### 5. URL 抽取与检索边界
 
@@ -100,6 +108,9 @@
   - `kimi`（LLM 内建 `$web_search`）：仅对支持该工具的供应商有效。真实 `$web_search` 曾在早期供应商上端到端跑通（`source_type=backend_live`、`evidence_source=retrieval_live`、含 `fetch_url` 自主抓正文）；当前所用新模型/网关**没有等价内建搜索工具**，因此该分支在当前模型下不可用。
   - `gdelt`：免费新闻 API，英文偏向、中文覆盖弱。
 - 判定层（新模型）与检索层是解耦的：换判定模型不影响检索策略，反之亦然。检索是否联网只由 `RETRIEVAL_PROVIDER` 决定。
+- **多模型可选**：`LLM_MODELS`（逗号分隔白名单）+ `LLM_MODEL`（默认）；`GET /api/v1/models` 暴露白名单+默认给前端下拉。请求可带 `request_context.model`，由 `Settings.resolve_model` 校验——不在白名单内的一律退回默认，防止客户端把网关指向任意模型。端点只返回模型名，网关地址/密钥永不返回。
+- **SERP 结果清洗**（`retrieval_service._is_noise_result` / `_result_matches_query`）：硬过滤字典/百科/时间校准类垃圾页（全被过滤后诚实返回空而非拿垃圾当证据）；导航型品牌首页（如 `pinduoduo.com/`）只匹配单一实体词、不含事件词时会被丢弃，避免把官网首页当"证据"。
+- **无日期结果排序**（codex review 修复）：真实 SERP 命中常无 `published_at`；时间排序键统一以 `undated_sort_flag` 领先，有日期的结果恒排在无日期之前，无日期结果不再"冒充最早"抢时间线 origin。dateless sentinel 已改为带时区（`+08:00`），`published_dt` 也把 naive 字符串归一到 `+08:00`，避免混合有/无日期 bundle 触发 naive-vs-aware datetime 比较崩溃。
 - 默认交付/演示路径仍是 `off + mock`（见第 4 条）；要走真实联网优先选 `playwright`。
 
 ## 当前仍未完成的事项
