@@ -521,12 +521,13 @@ class LlmAgentReasoner:
     def _request_completion(self, *, stage_key: str, title: str, system_prompt: str, user_prompt: str) -> str:
         model = self._reasoning_model()
         endpoint = f"{self.settings.base_url_for_model(model)}/chat/completions"
-        # Reasoning models on this gateway are unreliable: the same prompt succeeds
-        # (~130s, valid JSON) on some runs and stalls with empty content on others
-        # (chain-of-thought never terminates before the wall-clock deadline). An
-        # empty return is retryable — the caller can't parse it anyway. Fast models
-        # answer deterministically, so they get a single attempt.
-        attempts = self.settings.llm_reasoning_retries + 1 if self.settings.is_reasoning_model(model) else 1
+        # An empty completion is always retryable — the caller can't parse it either
+        # way — and empties happen to BOTH families on this gateway: reasoning models
+        # stall when the chain-of-thought never terminates, and even fast models time
+        # out mid-answer on the heavy synthesis prompt (observed: 249 chars then a
+        # read-timeout, then 0 chars). So retry regardless of model type; a run that
+        # returns content on the first try still costs exactly one call.
+        attempts = self.settings.llm_reasoning_retries + 1
         content = ""
         for attempt in range(1, attempts + 1):
             emit_api_call(

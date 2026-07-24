@@ -186,9 +186,26 @@ def test_reasoning_model_retries_on_empty_content(monkeypatch):
     assert calls["n"] == 2  # one retry after the empty first attempt
 
 
-def test_fast_model_is_not_retried_on_empty(monkeypatch):
-    # Fast models answer deterministically, so an empty return is a real failure,
-    # not worth retrying.
+def test_empty_completion_is_retried_regardless_of_model(monkeypatch):
+    # Empties happen to fast models too — the heavy synthesis prompt times out
+    # mid-answer (observed in real runs). So a fast model's empty output is retried
+    # up to llm_reasoning_retries times, same as a reasoning model's.
+    calls = {"n": 0}
+
+    def flaky(*, endpoint, model, system_prompt, user_prompt):
+        calls["n"] += 1
+        return "" if calls["n"] < 3 else '{"ok": true}'
+
+    r = _reasoner(llm_model="fast-x", llm_reasoning_retries=2)
+    monkeypatch.setattr(r, "_stream_completion", flaky)
+
+    out = r._request_completion(stage_key="s", title="t", system_prompt="sys", user_prompt="usr")
+    assert out == '{"ok": true}'
+    assert calls["n"] == 3  # two retries after the two empty attempts
+
+
+def test_retries_are_capped_at_configured_count(monkeypatch):
+    # A persistently-empty model stops after llm_reasoning_retries + 1 attempts.
     calls = {"n": 0}
 
     def always_empty(*, endpoint, model, system_prompt, user_prompt):
@@ -200,5 +217,6 @@ def test_fast_model_is_not_retried_on_empty(monkeypatch):
 
     out = r._request_completion(stage_key="s", title="t", system_prompt="sys", user_prompt="usr")
     assert out == ""
-    assert calls["n"] == 1  # no retry for a fast model
+    assert calls["n"] == 3  # 1 initial + 2 retries, then give up
+
 
