@@ -30,6 +30,23 @@ def _as_int(value: str | None, default: int) -> int:
         return default
 
 
+def _parse_model_base_urls(value: str | None) -> dict[str, str]:
+    """Parse per-model base-URL overrides from a `model=url,model2=url2` string.
+
+    Most models share the global LLM_BASE_URL, but some live on a different gateway
+    path (e.g. a model only served under /v2). Entries here override the default for
+    the named model only. Malformed entries (no `=`, blank name/url) are skipped."""
+    overrides: dict[str, str] = {}
+    if not value:
+        return overrides
+    for entry in value.split(","):
+        name, sep, url = entry.partition("=")
+        name, url = name.strip(), url.strip()
+        if sep and name and url:
+            overrides[name] = url.rstrip("/")
+    return overrides
+
+
 def _normalize_retrieval_provider(value: str | None, default: str = "mock") -> str:
     normalized = (value or default).strip().lower()
     if normalized == "agent":
@@ -89,6 +106,7 @@ class Settings:
     agent_max_url_fetches: int
     llm_api_key: str | None
     llm_base_url: str
+    llm_model_base_urls: dict[str, str]
     llm_model: str
     llm_search_model: str
     llm_models: tuple[str, ...]
@@ -139,6 +157,12 @@ class Settings:
                 return candidate
         return self.llm_model.strip()
 
+    def base_url_for_model(self, model: str) -> str:
+        """Gateway base URL for a model: its per-model override if declared, else
+        the global default. Lets a model served on a different path (e.g. /v2)
+        coexist with the rest without a second global setting."""
+        return self.llm_model_base_urls.get(model.strip(), self.llm_base_url)
+
     def is_reasoning_model(self, model: str) -> bool:
         """Whether a model is a reasoning model (emits a chain-of-thought before its
         answer). These need a large token budget and a long timeout — the CoT can
@@ -185,6 +209,7 @@ def get_settings() -> Settings:
         agent_max_url_fetches=max(_as_int(os.getenv("AGENT_MAX_URL_FETCHES"), 1), 0),
         llm_api_key=os.getenv("LLM_API_KEY") or os.getenv("KIMI_API_KEY"),
         llm_base_url=(os.getenv("LLM_BASE_URL") or os.getenv("KIMI_BASE_URL") or "https://api.openai.com/v1").rstrip("/"),
+        llm_model_base_urls=_parse_model_base_urls(os.getenv("LLM_MODEL_BASE_URLS")),
         llm_model=(os.getenv("LLM_MODEL") or os.getenv("KIMI_MODEL") or "").strip(),
         llm_search_model=(os.getenv("LLM_SEARCH_MODEL") or os.getenv("KIMI_SEARCH_MODEL") or "").strip(),
         llm_models=tuple(

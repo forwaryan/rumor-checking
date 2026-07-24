@@ -520,7 +520,7 @@ class LlmAgentReasoner:
 
     def _request_completion(self, *, stage_key: str, title: str, system_prompt: str, user_prompt: str) -> str:
         model = self._reasoning_model()
-        endpoint = f"{self.settings.llm_base_url}/chat/completions"
+        endpoint = f"{self.settings.base_url_for_model(model)}/chat/completions"
         # Reasoning models on this gateway are unreliable: the same prompt succeeds
         # (~130s, valid JSON) on some runs and stalls with empty content on others
         # (chain-of-thought never terminates before the wall-clock deadline). An

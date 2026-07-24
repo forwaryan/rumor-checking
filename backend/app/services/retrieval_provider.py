@@ -277,7 +277,7 @@ class LlmWebSearchProvider:
             ],
         )
         response = httpx.post(
-            f"{self.settings.llm_base_url}/chat/completions",
+            f"{self.settings.base_url_for_model(model)}/chat/completions",
             headers={
                 "Authorization": f"Bearer {self.settings.llm_api_key}",
                 "Content-Type": "application/json",
