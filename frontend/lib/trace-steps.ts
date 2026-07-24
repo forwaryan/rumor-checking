@@ -175,6 +175,7 @@ const DETAIL_META: Record<string, { label: string; kind: "input" | "output" }> =
   selected_result: { label: "选中结果", kind: "output" },
   source_name: { label: "来源", kind: "output" },
   mode: { label: "模式", kind: "output" },
+  outcome: { label: "本次结果", kind: "output" },
   hit: { label: "命中", kind: "output" },
   failure_detail: { label: "失败原因", kind: "output" },
   error_type: { label: "错误类型", kind: "output" },
@@ -344,11 +345,13 @@ export function deriveTraceSteps(events: AnalysisLiveEvent[]): TraceStep[] {
       // trace shows what was actually asked and answered.
       if (event.type === "api_call" && event.call_type === "llm") {
         const details = event.details ?? [];
+        const system = detailOf(details, "system");
         const prompt = detailOf(details, "prompt");
         const response = detailOf(details, "response");
         if (prompt !== null) {
           step.llmCalls.push({
             title: event.title,
+            system,
             prompt,
             response: null,
             status: event.status,
@@ -360,7 +363,7 @@ export function deriveTraceSteps(events: AnalysisLiveEvent[]): TraceStep[] {
             open.response = response;
             open.status = event.status;
           } else {
-            step.llmCalls.push({ title: event.title, prompt: null, response, status: event.status });
+            step.llmCalls.push({ title: event.title, system, prompt: null, response, status: event.status });
           }
         }
       }

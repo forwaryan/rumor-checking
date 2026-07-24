@@ -120,6 +120,41 @@ describe("deriveTraceSteps", () => {
     expect(step.outputs.find((kv) => kv.key === "response")).toBeUndefined();
   });
 
+  it("captures the system prompt on an LLM call", () => {
+    const steps = deriveTraceSteps([
+      stage("agent_synthesis", "running", "正在综合判断"),
+      apiCall("agent_synthesis", "running", "调用 Agent synthesis", [
+        "model=DemoModel",
+        "system=你是核查后端的综合判定阶段。CLAIM DECOMPOSITION 规则...",
+        "prompt=判断这条消息真假：京东造游轮",
+      ]),
+      apiCall("agent_synthesis", "completed", "调用 Agent synthesis 返回", ["response={\"claims\":[]}"]),
+    ]);
+    const step = steps[0];
+    expect(step.llmCalls[0].system).toContain("CLAIM DECOMPOSITION");
+    // system must NOT leak into the generic kv rows either
+    expect(step.inputs.find((kv) => kv.key === "system")).toBeUndefined();
+    expect(step.outputs.find((kv) => kv.key === "system")).toBeUndefined();
+  });
+
+  it("shows each retry attempt as its own call with its raw output", () => {
+    // A truncated first attempt (warning) then an accepted retry (completed) must
+    // surface as TWO llmCalls, so the trace shows what each attempt returned.
+    const steps = deriveTraceSteps([
+      stage("agent_synthesis", "running", "正在综合判断"),
+      apiCall("agent_synthesis", "running", "调用 Agent synthesis", ["prompt=判断真假", "system=sys"]),
+      apiCall("agent_synthesis", "warning", "调用 Agent synthesis 返回", ["outcome=unparseable", "response={ \"event\": { \"summary\": \"拼"]),
+      apiCall("agent_synthesis", "running", "调用 Agent synthesis（重试 1）", ["prompt=判断真假", "system=sys"]),
+      apiCall("agent_synthesis", "completed", "调用 Agent synthesis（重试 1） 返回", ["outcome=accepted", "response={\"claims\":[{\"claim\":\"c\"}]}"]),
+    ]);
+    const step = steps[0];
+    expect(step.llmCalls).toHaveLength(2);
+    expect(step.llmCalls[0].response).toContain("拼");
+    expect(step.llmCalls[0].status).toBe("warning");
+    expect(step.llmCalls[1].response).toContain("claims");
+    expect(step.llmCalls[1].status).toBe("completed");
+  });
+
   it("resolves a log-only step (agent_orchestrator) once the run completes", () => {
     // agent_orchestrator only emits a log, never a terminal stage event — it must
     // not hang at 进行中 after the run ends.

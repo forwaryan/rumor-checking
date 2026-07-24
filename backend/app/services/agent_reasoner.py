@@ -36,18 +36,13 @@ logger = logging.getLogger(__name__)
 # output the model's own max_tokens failed to bound — never a well-formed response.
 _STREAM_CHARS_PER_TOKEN = 8
 
-# Max chars of prompt/response surfaced in progress events. Enough to see what
-# was asked and answered without dumping the full evidence blob into the stream.
-_PREVIEW_LIMIT = 800
 
-
-def _preview_text(text: str, limit: int = _PREVIEW_LIMIT) -> str:
-    """Collapse a prompt/response to a single-line, length-capped preview so it
-    can ride in a progress event's detail list (which is a flat list of strings)."""
-    compact = re.sub(r"\s+", " ", text or "").strip()
-    if len(compact) <= limit:
-        return compact
-    return f"{compact[:limit]}…（共 {len(compact)} 字）"
+def _full_text(text: str) -> str:
+    """Collapse a prompt/response to a single line for a progress event's detail
+    list (a flat list of strings), but never truncate — the whole LLM exchange
+    rides in the trace so it is fully inspectable. The frontend re-parses and
+    pretty-prints any JSON block, so structure is not lost for the reader."""
+    return re.sub(r"\s+", " ", text or "").strip()
 
 ALLOWED_CLAIM_TYPES = {"fact", "opinion", "prediction", "unverifiable"}
 ALLOWED_VERDICTS = {"supported", "refuted", "insufficient", "conflicting"}
@@ -562,16 +557,18 @@ class LlmAgentReasoner:
         attempts = self.settings.llm_reasoning_retries + 1
         content = ""
         for attempt in range(1, attempts + 1):
+            attempt_title = title if attempt == 1 else f"{title}（重试 {attempt - 1}）"
             emit_api_call(
                 stage_key=stage_key,
                 call_type="llm",
                 status="running",
-                title=title if attempt == 1 else f"{title}（重试 {attempt - 1}）",
+                title=attempt_title,
                 summary="正在调用 LLM chat/completions（streaming）。",
                 details=[
                     f"model={model}",
                     f"attempt={attempt}/{attempts}",
-                    f"prompt={_preview_text(user_prompt)}",
+                    f"system={_full_text(system_prompt)}",
+                    f"prompt={_full_text(user_prompt)}",
                 ],
             )
             content = self._stream_completion(
@@ -580,25 +577,34 @@ class LlmAgentReasoner:
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
             )
-            if content and (is_valid is None or is_valid(content)):
+            accepted = bool(content) and (is_valid is None or is_valid(content))
+            reason = "accepted" if accepted else ("empty" if not content else "unparseable")
+            # Emit every attempt's raw output — including the empty/truncated/
+            # unparseable ones that get retried — so the trace shows exactly what the
+            # model returned on each try, not just the final accepted answer.
+            emit_api_call(
+                stage_key=stage_key,
+                call_type="llm",
+                status="completed" if accepted else "warning",
+                title=f"{attempt_title} 返回",
+                summary=(
+                    "LLM 已返回流式响应。"
+                    if accepted
+                    else f"本次返回不可用（{reason}），{'将重试。' if attempt < attempts else '已达重试上限。'}"
+                ),
+                details=[
+                    f"model={model}",
+                    f"content_chars={len(content)}",
+                    f"outcome={reason}",
+                    f"response={_full_text(content)}",
+                ],
+            )
+            if accepted:
                 break
-            reason = "empty" if not content else "unparseable"
             logger.warning(
                 "llm_bad_completion model=%s attempt=%s/%s stage=%s reason=%s chars=%s",
                 model, attempt, attempts, stage_key, reason, len(content),
             )
-        emit_api_call(
-            stage_key=stage_key,
-            call_type="llm",
-            status="completed",
-            title=f"{title} 返回",
-            summary="LLM 已返回流式响应。",
-            details=[
-                f"model={model}",
-                f"content_chars={len(content)}",
-                f"response={_preview_text(content)}",
-            ],
-        )
         return content
 
     def _stream_completion(self, *, endpoint: str, model: str, system_prompt: str, user_prompt: str) -> str:

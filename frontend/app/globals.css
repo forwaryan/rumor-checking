@@ -743,6 +743,7 @@ a:hover { text-decoration: underline; }
 }
 .exec-llm__block--prompt { border-left: 3px solid var(--blue); }
 .exec-llm__block--response { border-left: 3px solid var(--green); }
+.exec-llm__block--system { border-left: 3px solid var(--muted); }
 
 .exec-llm__head {
   display: flex;
@@ -757,6 +758,7 @@ a:hover { text-decoration: underline; }
 .exec-llm__label { font-size: 0.72rem; font-weight: 600; }
 .exec-llm__label--q { color: var(--blue); }
 .exec-llm__label--a { color: var(--green); }
+.exec-llm__label--s { color: var(--muted); }
 
 .exec-llm__tabs { display: inline-flex; gap: 0.15rem; background: rgba(0,0,0,0.05); border-radius: 999px; padding: 0.1rem; }
 

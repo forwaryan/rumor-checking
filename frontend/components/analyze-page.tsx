@@ -73,8 +73,23 @@ function getLikelihoodLabel(likelihood: string): string {
 }
 
 // One prompt-or-response block with 人类可读 / 原始 JSON tabs.
-function LlmTextBlock({ stageKey, role, text }: { stageKey: string; role: "prompt" | "response"; text: string }) {
+function LlmTextBlock({ stageKey, role, text }: { stageKey: string; role: "prompt" | "response" | "system"; text: string }) {
   const [view, setView] = useState<"human" | "json">("human");
+  // The system prompt is a fixed instruction block (not JSON), long and identical
+  // across calls — render it raw and collapsed by default so it doesn't bury the
+  // per-call 提问/回答. prompt/response keep the 人类可读 / 原始 JSON toggle.
+  const [systemOpen, setSystemOpen] = useState(false);
+  if (role === "system") {
+    return (
+      <div className="exec-llm__block exec-llm__block--system">
+        <div className="exec-llm__head" onClick={() => setSystemOpen(!systemOpen)} style={{ cursor: "pointer" }}>
+          <span className="exec-llm__label exec-llm__label--s">系统指令</span>
+          <span className={`section-card__arrow${systemOpen ? " section-card__arrow--open" : ""}`}>&#9660;</span>
+        </div>
+        {systemOpen && <pre className="exec-llm__text">{text}</pre>}
+      </div>
+    );
+  }
   const label = role === "prompt" ? "提问模型" : "模型回答";
   const body = view === "human" ? humanizeLlmText(stageKey, role, text) : formatLlmText(text);
   return (
@@ -636,6 +651,9 @@ export function AnalyzePage() {
                         <div className="exec-step__llm">
                           {step.llmCalls.map((call, k) => (
                             <div key={`llm-${k}`} className="exec-llm">
+                              {call.system && (
+                                <LlmTextBlock stageKey={step.stageKey} role="system" text={call.system} />
+                              )}
                               {call.prompt && (
                                 <LlmTextBlock stageKey={step.stageKey} role="prompt" text={call.prompt} />
                               )}

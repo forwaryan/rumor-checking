@@ -88,6 +88,7 @@ export interface TraceSubEvent {
 
 export interface TraceLlmCall {
   title: string;
+  system: string | null;
   prompt: string | null;
   response: string | null;
   status: AnalysisLiveStatus;
