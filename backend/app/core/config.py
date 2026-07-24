@@ -93,6 +93,11 @@ class Settings:
     llm_search_model: str
     llm_models: tuple[str, ...]
     llm_temperature: float
+    llm_max_tokens: int
+    llm_reasoning_models: tuple[str, ...]
+    llm_reasoning_max_tokens: int
+    llm_reasoning_timeout_seconds: float
+    llm_reasoning_retries: int
     llm_query_extraction_enabled: bool
     provider_timeout_seconds: float
     retrieval_provider: str
@@ -133,6 +138,15 @@ class Settings:
             if candidate and candidate in self.available_models:
                 return candidate
         return self.llm_model.strip()
+
+    def is_reasoning_model(self, model: str) -> bool:
+        """Whether a model is a reasoning model (emits a chain-of-thought before its
+        answer). These need a large token budget and a long timeout — the CoT can
+        run 2+ minutes before the first answer token — and must NOT be pinned to
+        response_format=json_object, which makes some of them stall indefinitely.
+        Declared via LLM_REASONING_MODELS (.env, never committed) rather than
+        pattern-matched on the name, so a rename never silently flips the path."""
+        return bool(model) and model.strip() in self.llm_reasoning_models
 
     @property
     def lightweight_agent_ready(self) -> bool:
@@ -177,6 +191,13 @@ def get_settings() -> Settings:
             m.strip() for m in (os.getenv("LLM_MODELS") or "").split(",") if m.strip()
         ),
         llm_temperature=_as_float(os.getenv("LLM_TEMPERATURE") or os.getenv("KIMI_TEMPERATURE"), 0.1),
+        llm_max_tokens=max(_as_int(os.getenv("LLM_MAX_TOKENS"), 4096), 256),
+        llm_reasoning_models=tuple(
+            m.strip() for m in (os.getenv("LLM_REASONING_MODELS") or "").split(",") if m.strip()
+        ),
+        llm_reasoning_max_tokens=max(_as_int(os.getenv("LLM_REASONING_MAX_TOKENS"), 16000), 2048),
+        llm_reasoning_timeout_seconds=_as_float(os.getenv("LLM_REASONING_TIMEOUT_SECONDS"), 200.0),
+        llm_reasoning_retries=max(_as_int(os.getenv("LLM_REASONING_RETRIES"), 2), 0),
         llm_query_extraction_enabled=_as_bool(os.getenv("LLM_QUERY_EXTRACTION_ENABLED"), default=False),
         provider_timeout_seconds=_as_float(os.getenv("PROVIDER_TIMEOUT_SECONDS"), 20.0),
         retrieval_provider=_normalize_retrieval_provider(os.getenv("RETRIEVAL_PROVIDER"), default="mock"),

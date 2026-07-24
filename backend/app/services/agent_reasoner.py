@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -29,6 +30,11 @@ from backend.app.services.timeline_builder import TimelineBuild
 from backend.app.services.verdict_engine import VerdictEvaluation
 
 logger = logging.getLogger(__name__)
+
+# Chars-per-token multiplier for the client-side stream budget. Deliberately
+# generous (a token is ~1-4 chars) so the char cap only trips on genuine runaway
+# output the model's own max_tokens failed to bound — never a well-formed response.
+_STREAM_CHARS_PER_TOKEN = 8
 
 # Max chars of prompt/response surfaced in progress events. Enough to see what
 # was asked and answered without dumping the full evidence blob into the stream.
@@ -515,23 +521,37 @@ class LlmAgentReasoner:
     def _request_completion(self, *, stage_key: str, title: str, system_prompt: str, user_prompt: str) -> str:
         model = self._reasoning_model()
         endpoint = f"{self.settings.llm_base_url}/chat/completions"
-        emit_api_call(
-            stage_key=stage_key,
-            call_type="llm",
-            status="running",
-            title=title,
-            summary="正在调用 LLM chat/completions（streaming）。",
-            details=[
-                f"model={model}",
-                f"prompt={_preview_text(user_prompt)}",
-            ],
-        )
-        content = self._stream_completion(
-            endpoint=endpoint,
-            model=model,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-        )
+        # Reasoning models on this gateway are unreliable: the same prompt succeeds
+        # (~130s, valid JSON) on some runs and stalls with empty content on others
+        # (chain-of-thought never terminates before the wall-clock deadline). An
+        # empty return is retryable — the caller can't parse it anyway. Fast models
+        # answer deterministically, so they get a single attempt.
+        attempts = self.settings.llm_reasoning_retries + 1 if self.settings.is_reasoning_model(model) else 1
+        content = ""
+        for attempt in range(1, attempts + 1):
+            emit_api_call(
+                stage_key=stage_key,
+                call_type="llm",
+                status="running",
+                title=title if attempt == 1 else f"{title}（重试 {attempt - 1}）",
+                summary="正在调用 LLM chat/completions（streaming）。",
+                details=[
+                    f"model={model}",
+                    f"attempt={attempt}/{attempts}",
+                    f"prompt={_preview_text(user_prompt)}",
+                ],
+            )
+            content = self._stream_completion(
+                endpoint=endpoint,
+                model=model,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+            )
+            if content:
+                break
+            logger.warning(
+                "llm_empty_completion model=%s attempt=%s/%s stage=%s", model, attempt, attempts, stage_key
+            )
         emit_api_call(
             stage_key=stage_key,
             call_type="llm",
@@ -547,52 +567,114 @@ class LlmAgentReasoner:
         return content
 
     def _stream_completion(self, *, endpoint: str, model: str, system_prompt: str, user_prompt: str) -> str:
-        """Read an OpenAI-compatible SSE stream and return the concatenated content.
+        """Read an OpenAI-compatible SSE stream and return the concatenated answer.
 
         Streaming (not one-shot) because some gateway models only behave correctly
         under stream=true; others stream fine too, so we always stream.
+
+        Two model families need different handling:
+
+        - **Fast models**: pin response_format=json_object, a modest token budget,
+          and the short provider timeout. They answer immediately.
+        - **Reasoning models**: emit a long chain-of-thought in `reasoning_content`
+          BEFORE any `content` (observed: 124s of CoT, then a clean ```json answer,
+          finish=stop). They need a large token budget (else the CoT eats it and no
+          answer is ever produced) and a long timeout, and must NOT be pinned to
+          json_object — that makes them stall indefinitely with zero output.
+
+        Regardless of family we keep a client-side character budget + wall-clock
+        deadline (httpx's timeout is only an inter-chunk gap, so it can't bound a
+        stream that keeps trickling) and, on ReadTimeout, return whatever content
+        arrived so the caller's lenient parser can still try to recover it.
         """
+        is_reasoning = self.settings.is_reasoning_model(model)
+        max_tokens = self.settings.llm_reasoning_max_tokens if is_reasoning else self.settings.llm_max_tokens
+        timeout_seconds = (
+            self.settings.llm_reasoning_timeout_seconds if is_reasoning else self.settings.provider_timeout_seconds
+        )
+        body: dict[str, Any] = {
+            "model": model,
+            "temperature": self._request_temperature(model),
+            "stream": True,
+            "max_tokens": max_tokens,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        }
+        # json_object stalls reasoning models; they still return a fenced ```json
+        # block that loads_lenient_json recovers, so only pin it for fast models.
+        if not is_reasoning:
+            body["response_format"] = {"type": "json_object"}
+
         parts: list[str] = []
-        with httpx.stream(
-            "POST",
-            endpoint,
-            headers={
-                "Authorization": f"Bearer {self.settings.llm_api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": model,
-                "temperature": self._request_temperature(model),
-                "response_format": {"type": "json_object"},
-                "stream": True,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-            },
-            timeout=self.settings.provider_timeout_seconds,
-        ) as response:
-            response.raise_for_status()
-            for raw_line in response.iter_lines():
-                if not raw_line:
-                    continue
-                line = raw_line.strip()
-                if not line.startswith("data:"):
-                    continue
-                data = line[len("data:") :].strip()
-                if not data or data == "[DONE]":
-                    if data == "[DONE]":
+        char_budget = max_tokens * _STREAM_CHARS_PER_TOKEN
+        deadline = time.monotonic() + timeout_seconds
+        collected = 0
+        reasoning_chars = 0
+        truncated = False
+        try:
+            with httpx.stream(
+                "POST",
+                endpoint,
+                headers={
+                    "Authorization": f"Bearer {self.settings.llm_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=body,
+                timeout=timeout_seconds,
+            ) as response:
+                response.raise_for_status()
+                for raw_line in response.iter_lines():
+                    if collected >= char_budget or time.monotonic() >= deadline:
+                        truncated = True
                         break
-                    continue
-                try:
-                    chunk = json.loads(data)
-                except json.JSONDecodeError:
-                    continue
-                choices = chunk.get("choices") or [{}]
-                delta = choices[0].get("delta") or {}
-                piece = delta.get("content")
-                if isinstance(piece, str):
-                    parts.append(piece)
+                    if not raw_line:
+                        continue
+                    line = raw_line.strip()
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[len("data:") :].strip()
+                    if not data or data == "[DONE]":
+                        if data == "[DONE]":
+                            break
+                        continue
+                    try:
+                        chunk = json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+                    choices = chunk.get("choices") or [{}]
+                    delta = choices[0].get("delta") or {}
+                    piece = delta.get("content")
+                    if isinstance(piece, str):
+                        parts.append(piece)
+                        collected += len(piece)
+                    # Reasoning tokens don't count toward the answer, but they do
+                    # count toward the runaway budget so a CoT that never terminates
+                    # still gets cut off.
+                    thought = delta.get("reasoning_content")
+                    if isinstance(thought, str):
+                        reasoning_chars += len(thought)
+                        collected += len(thought)
+        except httpx.ReadTimeout:
+            # A stalled/runaway stream: keep whatever arrived; the caller's lenient
+            # JSON parser may still recover a usable object from the partial content.
+            truncated = True
+            logger.warning(
+                "llm_stream_read_timeout model=%s content_chars=%s reasoning_chars=%s",
+                model,
+                len("".join(parts)),
+                reasoning_chars,
+            )
+        if truncated:
+            logger.warning(
+                "llm_stream_truncated model=%s reasoning=%s content_chars=%s reasoning_chars=%s char_budget=%s",
+                model,
+                is_reasoning,
+                len("".join(parts)),
+                reasoning_chars,
+                char_budget,
+            )
         return "".join(parts).strip()
 
     def _reasoning_model(self) -> str:
