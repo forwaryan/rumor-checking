@@ -210,6 +210,7 @@ class RetrievalService:
                         provider_name=provider_name,
                         summary=f"{spec.label} 命中缓存，直接复用检索结果。",
                         details=_retrieval_preview_details(cached_bundle),
+                        results=_retrieval_result_items(cached_bundle),
                     )
                     continue
 
@@ -312,6 +313,7 @@ class RetrievalService:
                             provider_name=provider_name,
                             summary=f"{spec.label} 实时检索失败，已退回陈旧缓存。",
                             details=_retrieval_preview_details(stale_cached),
+                            results=_retrieval_result_items(stale_cached),
                         )
                         continue
                 query_failures.append(f"{spec.label}:{failure_detail}")
@@ -350,6 +352,7 @@ class RetrievalService:
                 provider_name=provider_name,
                 summary=f"{spec.label} 已返回 {len(bundle.canonical_results)} 条去重结果。",
                 details=_retrieval_preview_details(bundle),
+                results=_retrieval_result_items(bundle),
             )
 
         query_bundles = [query_bundles_by_index[index] for index in sorted(query_bundles_by_index)]
@@ -1135,3 +1138,27 @@ def _retrieval_preview_details(bundle: RetrievalBundle) -> list[str]:
     if bundle.failure_detail:
         details.append(f"failure_detail={bundle.failure_detail}")
     return details
+
+
+# How many per-query hits to stream to the trace. The goal is full observability of
+# what each search returned, so this is generous; a query rarely yields more.
+_RETRIEVAL_RESULTS_LIMIT = 12
+
+
+def _retrieval_result_items(bundle: RetrievalBundle) -> list[dict[str, Any]]:
+    """Structured per-hit records for the trace so the frontend can show exactly
+    what a search returned — title, snippet, url, source, tier — not just a count."""
+    items: list[dict[str, Any]] = []
+    for result in bundle.canonical_results[:_RETRIEVAL_RESULTS_LIMIT]:
+        items.append(
+            {
+                "title": result.title,
+                "url": result.url,
+                "snippet": result.snippet,
+                "source_name": result.source_name,
+                "source_tier": result.source_tier,
+                "published_at": result.published_at,
+                "category": result.effective_source_category,
+            }
+        )
+    return items

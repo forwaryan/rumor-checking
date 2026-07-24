@@ -77,6 +77,16 @@ export interface TraceKeyValue {
   value: string;
 }
 
+export interface RetrievalResultItem {
+  title: string;
+  url: string;
+  snippet: string;
+  source_name: string;
+  source_tier: SourceTier;
+  published_at: string;
+  category: string;
+}
+
 export interface TraceSubEvent {
   kind: "api_call" | "retrieval" | "log";
   title: string;
@@ -84,6 +94,8 @@ export interface TraceSubEvent {
   status: AnalysisLiveStatus;
   level?: "info" | "warning" | "error";
   emittedAt: string;
+  query?: string;
+  results?: RetrievalResultItem[];
 }
 
 export interface TraceLlmCall {
@@ -295,6 +307,7 @@ export interface AnalysisLiveRetrievalEvent extends AnalysisLiveEventBase {
   provider_name: string;
   summary: string;
   details: string[];
+  results?: RetrievalResultItem[];
 }
 
 export interface AnalysisLiveLogEvent extends AnalysisLiveEventBase {

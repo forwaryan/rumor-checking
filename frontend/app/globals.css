@@ -800,6 +800,32 @@ a:hover { text-decoration: underline; }
 .exec-sub__title { color: var(--ink); font-weight: 500; }
 .exec-sub__summary { display: block; color: var(--muted); margin-top: 0.1rem; }
 
+/* Per-query retrieval hits: the actual search results (title/snippet/url/source)
+   surfaced under each 检索 sub-event for full observability of what was returned. */
+.exec-hits { display: flex; flex-direction: column; gap: 0.3rem; margin-top: 0.4rem; }
+.exec-hit {
+  padding: 0.35rem 0.5rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.exec-hit__meta { display: flex; align-items: center; gap: 0.4rem; font-size: 0.68rem; color: var(--muted); }
+.exec-hit__tier {
+  font-weight: 700;
+  padding: 0 0.3rem;
+  border-radius: 3px;
+  color: #fff;
+  background: var(--muted);
+}
+.exec-hit__tier--S { background: var(--green); }
+.exec-hit__tier--A { background: var(--blue); }
+.exec-hit__tier--B { background: var(--amber); }
+.exec-hit__tier--C { background: var(--muted); }
+.exec-hit__source { font-weight: 500; }
+.exec-hit__date { margin-left: auto; }
+.exec-hit__title { font-size: 0.74rem; font-weight: 500; margin-top: 0.15rem; }
+.exec-hit__snippet { font-size: 0.7rem; color: var(--muted); line-height: 1.45; margin-top: 0.15rem; }
+
 /* === Error state === */
 .error-card {
   padding: 1.5rem;

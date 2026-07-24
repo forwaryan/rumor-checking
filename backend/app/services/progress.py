@@ -97,6 +97,7 @@ def emit_retrieval(
     provider_name: str,
     summary: str,
     details: list[str] | None = None,
+    results: list[dict[str, Any]] | None = None,
 ) -> None:
     emit_progress(
         "retrieval",
@@ -106,6 +107,7 @@ def emit_retrieval(
         provider_name=provider_name,
         summary=summary,
         details=details or [],
+        results=results or [],
     )
 
 

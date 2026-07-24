@@ -248,6 +248,9 @@ function normalizeSubEvents(subEvents: TraceSubEvent[]): TraceSubEvent[] {
     if (open && open.status === "running") {
       open.status = sub.status;
       open.summary = sub.summary || open.summary;
+      // The terminal event carries the actual hits; keep them on the folded row.
+      if (sub.results && sub.results.length) open.results = sub.results;
+      if (sub.query) open.query = sub.query;
       if (isTerminal(sub.status)) byKey.delete(key);
       continue;
     }
@@ -389,6 +392,8 @@ export function deriveTraceSteps(events: AnalysisLiveEvent[]): TraceStep[] {
         status: subStatus,
         level: event.type === "log" ? event.level : undefined,
         emittedAt: event.emitted_at,
+        query: event.type === "retrieval" ? event.query : undefined,
+        results: event.type === "retrieval" ? event.results : undefined,
       };
       step.subEvents.push(sub);
 

@@ -670,6 +670,27 @@ export function AnalyzePage() {
                             <div key={`sub-${j}`} className={`exec-sub exec-sub--${sub.level ?? sub.status}`}>
                               <span className="exec-sub__title">{sub.title}</span>
                               {sub.summary && <span className="exec-sub__summary">{sub.summary}</span>}
+                              {sub.results && sub.results.length > 0 && (
+                                <div className="exec-hits">
+                                  {sub.results.map((hit, h) => (
+                                    <div key={`hit-${h}`} className="exec-hit">
+                                      <div className="exec-hit__meta">
+                                        <span className={`exec-hit__tier exec-hit__tier--${hit.source_tier}`}>{hit.source_tier}</span>
+                                        <span className="exec-hit__source">{hit.source_name}</span>
+                                        {hit.published_at && <span className="exec-hit__date">{hit.published_at.slice(0, 10)}</span>}
+                                      </div>
+                                      <div className="exec-hit__title">
+                                        {hit.url ? (
+                                          <a href={hit.url} target="_blank" rel="noreferrer">{hit.title}</a>
+                                        ) : (
+                                          hit.title
+                                        )}
+                                      </div>
+                                      {hit.snippet && <div className="exec-hit__snippet">{hit.snippet}</div>}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>

@@ -406,6 +406,48 @@ def test_retrieval_service_builds_multi_query_bundle_with_independence_and_confl
     assert bundle.to_diagnostics().failure_detail is None
 
 
+def test_retrieval_service_emits_structured_results_for_each_query(tmp_path: Path):
+    # Observability: every retrieval event must carry the actual hits (title,
+    # snippet, url, source, tier) so the frontend can show what each search
+    # returned — not just a count.
+    from backend.app.services import progress
+
+    event = _event_for_case("R01")
+    provider = FakeProvider(
+        results=[
+            _make_result(
+                result_id="hit-1",
+                title="拼多多雄安办公楼正式投用",
+                snippet="购置整栋楼宇，LOGO 标识安装完毕。",
+                published_at="2026-07-20T08:00:00+08:00",
+                source_name="news.qq.com",
+                source_tier="B",
+                url="https://news.qq.com/pdd-xiongan-1",
+            ),
+        ]
+    )
+    service = RetrievalService(
+        settings=replace(get_settings(), retrieval_provider="gdelt"),
+        provider=provider,
+        cache=RetrievalCache(cache_root=tmp_path, ttl_seconds=3600),
+    )
+
+    events: list[dict] = []
+    token = progress.set_progress_callback(events.append)
+    try:
+        service.retrieve_for_event(event)
+    finally:
+        progress.reset_progress_callback(token)
+
+    retrieval_events = [e for e in events if e.get("type") == "retrieval" and e.get("results")]
+    assert retrieval_events, "at least one retrieval event must carry structured results"
+    hit = retrieval_events[0]["results"][0]
+    assert {"title", "url", "snippet", "source_name", "source_tier"}.issubset(hit.keys())
+    assert hit["title"] == "拼多多雄安办公楼正式投用"
+    assert hit["url"] == "https://news.qq.com/pdd-xiongan-1"
+    assert hit["snippet"]  # snippet must be present, not just the title
+
+
 def test_retrieval_service_falls_back_to_mock_when_real_provider_fails(tmp_path: Path):
     event = _event_for_case("R01")
     service = RetrievalService(
