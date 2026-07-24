@@ -577,33 +577,48 @@ class LlmAgentReasoner:
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
             )
-            accepted = bool(content) and (is_valid is None or is_valid(content))
-            reason = "accepted" if accepted else ("empty" if not content else "unparseable")
-            # Emit every attempt's raw output — including the empty/truncated/
-            # unparseable ones that get retried — so the trace shows exactly what the
-            # model returned on each try, not just the final accepted answer.
+            # Two distinct notions, kept separate so the trace never overclaims:
+            #  - `retry`: does the loop try again? (only empties, or a failed
+            #    validator, are retried.)
+            #  - `outcome`: what actually happened, truthfully. Without a validator
+            #    the loop can't judge usability, so it reports "unchecked", NOT
+            #    "accepted" — the caller's own parser is the real judge downstream.
+            if not content:
+                outcome, retry = "empty", True
+            elif is_valid is None:
+                outcome, retry = "unchecked", False
+            elif is_valid(content):
+                outcome, retry = "accepted", False
+            else:
+                outcome, retry = "unparseable", True
+            outcome_label = {
+                "empty": "空返回",
+                "unchecked": "原样采用（未做解析校验）",
+                "accepted": "校验通过",
+                "unparseable": "无法解析",
+            }[outcome]
             emit_api_call(
                 stage_key=stage_key,
                 call_type="llm",
-                status="completed" if accepted else "warning",
+                status="warning" if retry else "completed",
                 title=f"{attempt_title} 返回",
                 summary=(
-                    "LLM 已返回流式响应。"
-                    if accepted
-                    else f"本次返回不可用（{reason}），{'将重试。' if attempt < attempts else '已达重试上限。'}"
+                    f"本次返回不可用（{outcome_label}），{'将重试。' if attempt < attempts else '已达重试上限。'}"
+                    if retry
+                    else "LLM 已返回流式响应。"
                 ),
                 details=[
                     f"model={model}",
                     f"content_chars={len(content)}",
-                    f"outcome={reason}",
+                    f"outcome={outcome_label}",
                     f"response={_full_text(content)}",
                 ],
             )
-            if accepted:
+            if not retry:
                 break
             logger.warning(
                 "llm_bad_completion model=%s attempt=%s/%s stage=%s reason=%s chars=%s",
-                model, attempt, attempts, stage_key, reason, len(content),
+                model, attempt, attempts, stage_key, outcome, len(content),
             )
         return content
 

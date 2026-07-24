@@ -274,3 +274,43 @@ def test_synthesis_content_usable_rejects_truncated_and_claimless():
     assert r._synthesis_content_usable('{"event": {"title": "x"}, "claims": []}') is False
     # A well-formed object with at least one claim is usable.
     assert r._synthesis_content_usable('{"claims": [{"claim": "c"}]}') is True
+
+
+def _capture_outcomes(r, monkeypatch, *, content, is_valid=None):
+    """Run _request_completion capturing the outcome= emitted per attempt."""
+    from backend.app.services import progress
+
+    monkeypatch.setattr(r, "_stream_completion", lambda **k: content)
+    events: list[dict] = []
+    token = progress.set_progress_callback(events.append)
+    try:
+        r._request_completion(
+            stage_key="s", title="t", system_prompt="sys", user_prompt="usr", is_valid=is_valid
+        )
+    finally:
+        progress.reset_progress_callback(token)
+    outcomes = []
+    for e in events:
+        if e.get("type") != "api_call":
+            continue
+        for d in e.get("details", []):
+            if d.startswith("outcome="):
+                outcomes.append(d[len("outcome=") :])
+    return outcomes
+
+
+def test_outcome_is_unchecked_not_accepted_without_validator(monkeypatch):
+    # The trace must not claim "校验通过" for a validator-less call — the retry loop
+    # never judged usability, the caller's own parser does. Claiming it passed here
+    # would lie when that downstream parse then fails (the run-4 bug).
+    r = _reasoner(llm_model="fast-x", llm_reasoning_retries=2)
+    outcomes = _capture_outcomes(r, monkeypatch, content='{ "next_action": "investigate"')
+    assert outcomes == ["原样采用（未做解析校验）"]  # non-empty, no validator -> honest, no retry
+
+
+def test_outcome_is_accepted_only_when_validator_passes(monkeypatch):
+    r = _reasoner(llm_model="fast-x", llm_reasoning_retries=2)
+    outcomes = _capture_outcomes(
+        r, monkeypatch, content='{"claims": [{"claim": "c"}]}', is_valid=r._synthesis_content_usable
+    )
+    assert outcomes == ["校验通过"]
