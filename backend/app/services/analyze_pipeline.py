@@ -115,6 +115,7 @@ class AnalyzePipeline:
             )
             follow_up_context = dict(request.request_context)
             follow_up_context["force_retrieval_query"] = question_resolution.follow_up_query
+            follow_up_context["retrieval_stage_key"] = "retrieval_follow_up"
             follow_up_bundle = self.retriever.retrieve_for_event(resolved_event, request_context=follow_up_context)
             if follow_up_bundle.canonical_results or follow_up_bundle.matched_case_id:
                 retrieval_bundle = follow_up_bundle
@@ -494,6 +495,7 @@ class AnalyzePipeline:
 
             follow_up_context = dict(request.request_context)
             follow_up_context["force_retrieval_query"] = plan.follow_up_query
+            follow_up_context["retrieval_stage_key"] = "investigation_retrieval"
             emit_stage(
                 stage_key="investigation_retrieval",
                 title="调查补检索",

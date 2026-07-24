@@ -7,6 +7,12 @@ from typing import Any, Callable, Dict, Optional
 ProgressCallback = Callable[[Dict[str, Any]], None]
 
 _progress_callback: ContextVar[Optional[ProgressCallback]] = ContextVar("progress_callback", default=None)
+# The stage_key that owns the retrieval currently in flight. Providers emit their
+# own HTTP/LLM sub-events without knowing which pipeline step invoked them, so the
+# retrieval service publishes the owning stage here and providers read it back —
+# otherwise every provider event lands in a hardcoded "retrieval_initial" card
+# regardless of whether it was the initial, follow-up, or investigation round.
+_retrieval_stage_key: ContextVar[Optional[str]] = ContextVar("retrieval_stage_key", default=None)
 
 
 def set_progress_callback(callback: ProgressCallback) -> Token:
@@ -19,6 +25,18 @@ def get_progress_callback() -> Optional[ProgressCallback]:
 
 def reset_progress_callback(token: Token) -> None:
     _progress_callback.reset(token)
+
+
+def set_retrieval_stage_key(stage_key: Optional[str]) -> Token:
+    return _retrieval_stage_key.set(stage_key)
+
+
+def get_retrieval_stage_key() -> Optional[str]:
+    return _retrieval_stage_key.get()
+
+
+def reset_retrieval_stage_key(token: Token) -> None:
+    _retrieval_stage_key.reset(token)
 
 
 def emit_progress(event_type: str, **payload: Any) -> None:

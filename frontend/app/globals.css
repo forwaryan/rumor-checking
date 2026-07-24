@@ -508,6 +508,12 @@ a:hover { text-decoration: underline; }
   border-bottom: 1px solid var(--border);
 }
 
+.section-card__hint {
+  font-size: 0.75rem;
+  color: var(--muted);
+  padding-bottom: 0.5rem;
+}
+
 .evidence-item:last-child { border-bottom: none; }
 
 .evidence-item__source {

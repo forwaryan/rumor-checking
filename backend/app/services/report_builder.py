@@ -138,7 +138,7 @@ class ReportBuilder:
             event=public_event,
             claim_results=claim_results,
             timeline=timeline,
-            sources=evidence,
+            sources=self._cited_sources(claim_results, fallback=evidence, mode=mode),
             retrieval_hits=retrieval_hits,
             retrieval_diagnostics=retrieval_diagnostics,
             overall_credibility_score=score_computation.overall_score,
@@ -152,6 +152,36 @@ class ReportBuilder:
             investigation=investigation,
             provenance=provenance,
         )
+
+    def _cited_sources(
+        self,
+        claim_results: List[ClaimResult],
+        *,
+        fallback: List[EvidenceItem],
+        mode: str,
+    ) -> List[EvidenceItem]:
+        """Sources actually cited by at least one claim, de-duplicated by url.
+
+        `report.sources` drives the user-facing "证据 N 条" count and the "证据来源"
+        card, so it must reflect evidence the verdict actually leaned on — not the
+        whole retrieved pool. Uncited retrieval hits still live in
+        `report.retrieval_hits`. When claims cite nothing we return empty in
+        safe_mode (nothing was grounded, so "0 条证据" is the honest answer) but
+        keep the full pool in decisive modes, where an empty card would hide the
+        evidence a supported/refuted verdict must be standing on."""
+        cited: List[EvidenceItem] = []
+        seen: set[str] = set()
+        for claim in claim_results:
+            for item in claim.evidence:
+                if item.url in seen:
+                    continue
+                seen.add(item.url)
+                cited.append(item)
+        if cited:
+            return cited
+        if mode == "safe_mode":
+            return []
+        return fallback
 
     def _backfill_claim_probabilities(self, claim_results: List[ClaimResult]) -> List[ClaimResult]:
         """Ensure every claim carries a truth_probability + basis.

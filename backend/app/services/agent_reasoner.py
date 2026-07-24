@@ -20,7 +20,7 @@ from backend.app.models.schemas import (
     TimelineNode,
 )
 from backend.app.services.claim_extractor import ClaimExtraction
-from backend.app.services.contract_utils import default_source_name, default_source_url, ensure_datetime_string
+from backend.app.services.contract_utils import default_source_name, default_source_url, ensure_datetime_string, loads_lenient_json
 from backend.app.services.progress import emit_api_call, emit_log
 from backend.app.services.question_intent import is_broad_trend_question
 from backend.app.services.question_resolver import QuestionResolution
@@ -1122,26 +1122,7 @@ class LlmAgentReasoner:
         return None
 
     def _extract_json_payload(self, content: str) -> Optional[dict[str, Any]]:
-        stripped = content.strip()
-        candidates = [stripped]
-
-        fenced_match = re.search(r"```(?:json)?\s*(\{.*\})\s*```", stripped, flags=re.DOTALL)
-        if fenced_match:
-            candidates.insert(0, fenced_match.group(1).strip())
-
-        brace_start = stripped.find("{")
-        brace_end = stripped.rfind("}")
-        if brace_start != -1 and brace_end != -1 and brace_end > brace_start:
-            candidates.append(stripped[brace_start : brace_end + 1])
-
-        for candidate in candidates:
-            try:
-                parsed = json.loads(candidate)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(parsed, dict):
-                return parsed
-        return None
+        return loads_lenient_json(content)
 
     def _coerce_content(self, content: Any) -> str:
         if isinstance(content, str):

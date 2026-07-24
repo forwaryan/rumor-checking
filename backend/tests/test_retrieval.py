@@ -676,6 +676,101 @@ def test_retrieval_service_drops_lone_navigational_result(tmp_path: Path):
     assert bundle.canonical_results == ()
 
 
+def test_retrieval_service_drops_brand_page_matching_only_a_generic_commerce_word(tmp_path: Path):
+    # Real leak from the pinduoduo trace: the batch platform's snippet says
+    # "办公采购", and the old bigram matcher counted the "办公" of the query's
+    # 办公楼 as an event-topic match, so the brand page survived and inflated the
+    # evidence grade. The event terms (雄安/研发/招聘) appear nowhere on the page,
+    # so it must be dropped.
+    event = NormalizedEvent(
+        title="拼多多在雄安买了三栋楼招了5000研发人员",
+        summary="拼多多在雄安买了三栋楼招了5000研发人员",
+        keywords=[],
+        input_type="text_news",
+        raw_input="拼多多在雄安买了三栋楼招了5000研发人员",
+    )
+    provider = FakeProvider(
+        results=[
+            _make_result(
+                result_id="batch",
+                title="拼多多批发 - 拼多多官方采购批发平台，多多批发",
+                snippet="拼多多官方旗下采购批发平台。提供好货好价的精选好货，满足货源采购、办公采购、企业购等诉求。",
+                published_at="2026-07-19T09:00:00+08:00",
+                source_name="pifa.pinduoduo.com",
+                source_tier="C",
+                url="https://pifa.pinduoduo.com/",
+            ),
+            _make_result(
+                result_id="real-article",
+                title="拼多多在雄安设立研发中心并招聘5000人",
+                snippet="拼多多宣布在雄安新区购置办公楼并招聘研发人员。",
+                published_at="2026-07-21T09:00:00+08:00",
+                source_name="finance.example.com",
+                source_tier="B",
+                url="https://finance.example.com/pdd-xiongan-rd",
+            ),
+        ]
+    )
+    service = RetrievalService(
+        settings=replace(get_settings(), retrieval_provider="gdelt", retrieval_max_results=5),
+        provider=provider,
+        cache=RetrievalCache(cache_root=tmp_path, ttl_seconds=3600),
+    )
+
+    bundle = service.retrieve_for_event(
+        event,
+        request_context={"force_retrieval_query": "拼多多 雄安 购买 办公楼 研发 招聘 官方"},
+    )
+
+    canonical_ids = {item.result_id for item in bundle.canonical_results}
+    assert "batch" not in canonical_ids
+    assert "real-article" in canonical_ids
+
+
+def test_retrieval_service_publishes_caller_stage_key_to_providers(tmp_path: Path):
+    # Regression for the trace stage_key collision: provider HTTP/LLM events used
+    # to hardcode "retrieval_initial", so an investigation-round retrieval's events
+    # landed in the wrong card. The service must publish the caller's stage_key so
+    # providers tag their sub-events with it.
+    from backend.app.services.progress import get_retrieval_stage_key
+
+    seen_stage_keys: list = []
+
+    class StageKeyProbeProvider:
+        name = "gdelt"
+        enabled = True
+
+        def search(self, query_text: str):
+            seen_stage_keys.append(get_retrieval_stage_key())
+            return []
+
+    event = NormalizedEvent(
+        title="某事件",
+        summary="某事件摘要",
+        keywords=[],
+        input_type="text_news",
+        raw_input="某事件摘要",
+    )
+    service = RetrievalService(
+        settings=replace(get_settings(), retrieval_provider="gdelt", retrieval_max_results=5),
+        provider=StageKeyProbeProvider(),
+        cache=RetrievalCache(cache_root=tmp_path, ttl_seconds=3600),
+    )
+
+    service.retrieve_for_event(
+        event,
+        request_context={
+            "force_retrieval_query": "某事件 追加检索",
+            "retrieval_stage_key": "investigation_retrieval",
+        },
+    )
+
+    assert seen_stage_keys, "provider.search was never invoked"
+    assert all(key == "investigation_retrieval" for key in seen_stage_keys)
+    # And the contextvar is reset once retrieval returns (no leakage).
+    assert get_retrieval_stage_key() is None
+
+
 def test_question_only_pipeline_uses_real_retrieval_bundle(tmp_path: Path):
     provider = FakeProvider(
         results=[

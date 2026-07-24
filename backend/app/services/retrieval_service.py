@@ -31,7 +31,9 @@ from backend.app.services.progress import (
     emit_retrieval,
     get_progress_callback,
     reset_progress_callback,
+    reset_retrieval_stage_key,
     set_progress_callback,
+    set_retrieval_stage_key,
 )
 from backend.app.services.retrieval_provider import GdeltNewsProvider, LlmWebSearchProvider, RetrievalProvider
 
@@ -118,7 +120,26 @@ class RetrievalService:
         request_context: Optional[dict[str, Any]] = None,
     ) -> RetrievalBundle:
         request_context = request_context or {}
-        stage_key = "retrieval_follow_up" if request_context.get("force_retrieval_query") else "retrieval_initial"
+        # The caller (agent tool) owns the pipeline step this retrieval belongs to
+        # and passes it via retrieval_stage_key; only fall back to the force-query
+        # heuristic when it is absent. Publish it so the provider layer tags its
+        # own HTTP/LLM sub-events with the same stage instead of a hardcoded one.
+        stage_key = request_context.get("retrieval_stage_key") or (
+            "retrieval_follow_up" if request_context.get("force_retrieval_query") else "retrieval_initial"
+        )
+        stage_token = set_retrieval_stage_key(stage_key)
+        try:
+            return self._retrieve_for_event(event, request_context=request_context, stage_key=stage_key)
+        finally:
+            reset_retrieval_stage_key(stage_token)
+
+    def _retrieve_for_event(
+        self,
+        event: NormalizedEvent,
+        *,
+        request_context: dict[str, Any],
+        stage_key: str,
+    ) -> RetrievalBundle:
         query_plan = self._build_query_plan(event, request_context=request_context)
         if not query_plan:
             emit_log(
@@ -220,8 +241,8 @@ class RetrievalService:
 
         # Phase 2 (concurrent): the query plan issues independent network calls, so
         # run the cache-miss fetches in parallel instead of summing their latencies.
-        # ContextVar-based progress callbacks don't cross threads, so rebind the
-        # parent callback inside each worker.
+        # ContextVar-based progress callbacks and the retrieval stage key don't cross
+        # threads, so rebind both inside each worker.
         fetch_outcomes: dict[int, tuple[Optional[list[SearchResult]], Optional[Exception]]] = {}
         if fetch_indices:
             parent_callback = get_progress_callback()
@@ -229,6 +250,7 @@ class RetrievalService:
             def _run_fetch(index: int) -> tuple[Optional[list[SearchResult]], Optional[Exception]]:
                 spec = query_plan[index]
                 token = set_progress_callback(parent_callback) if parent_callback is not None else None
+                stage_token = set_retrieval_stage_key(stage_key)
                 try:
                     emit_log(
                         stage_key=stage_key,
@@ -245,6 +267,7 @@ class RetrievalService:
                 except Exception as exc:  # noqa: BLE001 - degraded per-query, surfaced below
                     return None, exc
                 finally:
+                    reset_retrieval_stage_key(stage_token)
                     if token is not None:
                         reset_progress_callback(token)
 
@@ -567,18 +590,44 @@ class RetrievalService:
 
     def _is_navigational_non_evidence(self, result: SearchResult) -> bool:
         # A navigational brand page (homepage / section index like pinduoduo.com/)
-        # matches only the dominant entity term and none of the event-specific ones,
-        # so it is not evidence about the claimed event. Treat it as a hard drop ONLY
-        # when it is both navigational AND fails to share query terms beyond that
-        # single entity — a homepage that genuinely discusses the event is kept.
+        # only ever matches the dominant entity term, so it is not evidence about the
+        # claimed event. Keep it ONLY when its title/snippet actually discusses the
+        # event — i.e. it shares a *whole* event-specific query token (雄安/研发/招聘),
+        # not a brand word (拼多多) and not a bigram fragment that coincidentally lands
+        # inside an unrelated word (e.g. the "办公" of 办公楼 matching a batch-platform's
+        # "办公采购"). Anything else is a landing page riding the brand name — drop it.
         if not result.is_navigational:
             return False
-        query_terms = self._relevance_terms(self._normalize_query(result.query or ""))
-        if len(query_terms) < 2:
-            return False
+        event_terms = self._event_specific_terms(result.query or "")
+        if not event_terms:
+            # No event-specific term to anchor on (query is only the brand): a
+            # navigational page can never be evidence, so drop it.
+            return True
         haystack = self._normalize_query(" ".join([result.title, result.snippet]))
-        matched = [term for term in query_terms if term in haystack]
-        return not self._has_distinct_topic_match(matched)
+        return not any(term in haystack for term in event_terms)
+
+    def _event_specific_terms(self, query: str) -> list[str]:
+        """Whole-word query tokens that identify the *event*, not the brand.
+
+        Splits the query on whitespace (the query builder already tokenizes into
+        space-separated terms), then drops generic scaffolding: the retrieval
+        stopwords, generic commerce/navigation words a brand homepage matches by
+        default, and any single character. Unlike the old bigram approach these are
+        whole tokens, so "办公楼" no longer matches a stray "办公" on a shopping page."""
+        generic = {
+            "拼多多", "京东", "淘宝", "阿里", "腾讯", "百度", "美团", "字节",
+            "官方", "平台", "采购", "办公", "批发", "旗下", "服务", "企业",
+            "公司", "集团", "商城", "商家", "店铺", "下载", "登录", "首页",
+            "电商", "购物", "客服", "热线", "联系", "我们", "关于",
+        }
+        stopwords = self._relevance_stopwords()
+        terms: list[str] = []
+        for token in self._normalize_query(query).split():
+            for chunk in re.findall(r"[A-Za-z0-9%]{2,}|[一-鿿]{2,}", token):
+                if chunk in generic or chunk in stopwords or chunk in terms:
+                    continue
+                terms.append(chunk)
+        return terms
 
     def _result_matches_query(self, result: SearchResult) -> bool:
         raw_text = " ".join([result.title, result.snippet, result.source_name])
@@ -587,52 +636,13 @@ class RetrievalService:
             return False
         return True
 
-    def _has_distinct_topic_match(self, matched_terms: list[str]) -> bool:
-        """True when matched terms cover 2+ *distinct* concepts, not just multiple
-        adjacent bigrams of a single word. "拼多"+"多多" both come from 拼多多 and
-        count as one concept; "雄安"+"研发" are two. Merge overlapping bigrams
-        (share a boundary char) into one concept before counting."""
-        if len(matched_terms) < 2:
-            return len(matched_terms) >= 2
-        concepts = 0
-        prev: str | None = None
-        for term in matched_terms:
-            # Bigrams from the same contiguous word overlap by one char
-            # (拼多 -> 多多: prev[-1] == term[0]).
-            if prev is not None and len(prev) >= 2 and len(term) >= 2 and prev[-1] == term[0]:
-                prev = term
-                continue
-            concepts += 1
-            prev = term
-        return concepts >= 2
-
-    def _relevance_terms(self, text: str) -> list[str]:
-        stopwords = {
+    def _relevance_stopwords(self) -> set[str]:
+        return {
             "官方", "回应", "通报", "说明", "辟谣", "用户提供文本",
             "传闻", "网传", "热议", "发酵", "转发", "相关", "信息",
             "开始", "已经", "而且", "可能", "到底", "是否", "是不是",
             "了吗", "真的", "假的", "的吗", "是真",
         }
-        terms: list[str] = []
-        # Split on spaces first, then extract CJK chunks
-        for segment in text.split():
-            for chunk in re.findall(r"[A-Za-z0-9%]{2,}|[一-鿿]+", segment):
-                if len(chunk) <= 1:
-                    continue
-                # For CJK, extract every 2-char bigram as a candidate term
-                if re.fullmatch(r"[一-鿿]+", chunk):
-                    for i in range(0, len(chunk) - 1):
-                        bigram = chunk[i:i+2]
-                        if bigram not in stopwords and bigram not in terms:
-                            terms.append(bigram)
-                            if len(terms) >= 8:
-                                return terms
-                else:
-                    if chunk not in stopwords and chunk not in terms:
-                        terms.append(chunk)
-                        if len(terms) >= 8:
-                            return terms
-        return terms
 
     def _llm_query_terms(self, event: NormalizedEvent):
         """Entity-focused search terms from the reasoner, or None to fall back.

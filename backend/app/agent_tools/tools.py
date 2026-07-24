@@ -3,6 +3,7 @@ from __future__ import annotations
 from backend.app.agent.state import AgentState
 from backend.app.agent_tools.base import ToolContext
 from backend.app.services.analyze_pipeline import (
+    _GRADE_RANK,
     _bundle_quality,
     _claim_details,
     _event_details,
@@ -105,6 +106,7 @@ def follow_up_retrieval(ctx: ToolContext, state: AgentState) -> None:
         )
         follow_up_context = dict(state.request.request_context)
         follow_up_context["force_retrieval_query"] = resolution.follow_up_query
+        follow_up_context["retrieval_stage_key"] = "retrieval_follow_up"
         follow_up_bundle = ctx.retriever.retrieve_for_event(
             state.resolved_event, request_context=follow_up_context
         )
@@ -188,6 +190,7 @@ def investigate(ctx: ToolContext, state: AgentState) -> None:
 
         follow_up_context = dict(state.request.request_context)
         follow_up_context["force_retrieval_query"] = plan.follow_up_query
+        follow_up_context["retrieval_stage_key"] = "investigation_retrieval"
         emit_stage(
             stage_key="investigation_retrieval",
             title="调查补检索",
@@ -199,16 +202,36 @@ def investigate(ctx: ToolContext, state: AgentState) -> None:
             state.resolved_event, request_context=follow_up_context
         )
         adopted = _bundle_quality(candidate_bundle) > _bundle_quality(current_bundle)
+        # Name the dimension that actually improved so the summary can't claim
+        # "更强证据" while every visible metric reads unchanged. _bundle_quality
+        # ranks by (grade, independent high-trust count, canonical count), so an
+        # adoption can be driven by any one of the three.
+        grade_up = _GRADE_RANK.get(candidate_bundle.evidence_grade, 0) > _GRADE_RANK.get(current_bundle.evidence_grade, 0)
+        high_trust_up = candidate_bundle.independent_high_trust_source_count > current_bundle.independent_high_trust_source_count
+        canonical_up = len(candidate_bundle.canonical_results) > len(current_bundle.canonical_results)
+        if adopted:
+            if grade_up:
+                summary = "补检索把证据等级提上去了，已采用。"
+            elif high_trust_up:
+                summary = "补检索新增了高可信独立源，已采用。"
+            elif canonical_up:
+                summary = "补检索多召回了相关结果（但证据等级/高可信源没变），已采用。"
+            else:
+                summary = "补检索质量略有提升，已采用。"
+        else:
+            summary = "补检索未带来更强证据，沿用原结果。"
         emit_stage(
             stage_key="investigation_retrieval",
             title="调查补检索",
             status="completed" if adopted else "warning",
-            summary="补检索获得更强证据，已采用。" if adopted else "补检索未带来更强证据，沿用原结果。",
+            summary=summary,
             details=[
                 f"adopted={adopted}",
                 f"grade={current_bundle.evidence_grade}->{candidate_bundle.evidence_grade}",
                 f"independent_high_trust={current_bundle.independent_high_trust_source_count}"
                 f"->{candidate_bundle.independent_high_trust_source_count}",
+                f"canonical_results={len(current_bundle.canonical_results)}"
+                f"->{len(candidate_bundle.canonical_results)}",
             ],
         )
         state.investigation_rounds += 1

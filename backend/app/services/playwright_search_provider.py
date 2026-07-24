@@ -6,7 +6,7 @@ from typing import List, Optional
 from urllib.parse import quote_plus, urlparse
 
 from backend.app.core.config import Settings, get_settings
-from backend.app.services.progress import emit_api_call
+from backend.app.services.progress import emit_api_call, get_retrieval_stage_key
 from backend.app.services.retrieval_models import (
     SearchResult,
     build_independence_key,
@@ -56,7 +56,7 @@ class PlaywrightSearchProvider:
             count=self.settings.retrieval_max_results,
         )
         emit_api_call(
-            stage_key="retrieval_initial",
+            stage_key=get_retrieval_stage_key() or "retrieval_initial",
             call_type="http",
             status="running",
             title="百度检索（HTTP 抓取）",
@@ -67,7 +67,7 @@ class PlaywrightSearchProvider:
             html = self._fetch_page(url)
             results = self._parse_baidu(query_text, html)
             emit_api_call(
-                stage_key="retrieval_initial",
+                stage_key=get_retrieval_stage_key() or "retrieval_initial",
                 call_type="http",
                 status="completed",
                 title="百度搜索完成",
@@ -78,7 +78,7 @@ class PlaywrightSearchProvider:
         except Exception as e:
             logger.warning("playwright_baidu_error query=%s error=%s", query_text, e)
             emit_api_call(
-                stage_key="retrieval_initial",
+                stage_key=get_retrieval_stage_key() or "retrieval_initial",
                 call_type="http",
                 status="error",
                 title="百度搜索失败",
@@ -93,7 +93,7 @@ class PlaywrightSearchProvider:
             count=self.settings.retrieval_max_results,
         )
         emit_api_call(
-            stage_key="retrieval_initial",
+            stage_key=get_retrieval_stage_key() or "retrieval_initial",
             call_type="http",
             status="running",
             title="Bing 检索（HTTP 抓取）",
@@ -104,7 +104,7 @@ class PlaywrightSearchProvider:
             html = self._fetch_page(url)
             results = self._parse_bing(query_text, html)
             emit_api_call(
-                stage_key="retrieval_initial",
+                stage_key=get_retrieval_stage_key() or "retrieval_initial",
                 call_type="http",
                 status="completed",
                 title="Bing 搜索完成",
@@ -115,7 +115,7 @@ class PlaywrightSearchProvider:
         except Exception as e:
             logger.warning("playwright_bing_error query=%s error=%s", query_text, e)
             emit_api_call(
-                stage_key="retrieval_initial",
+                stage_key=get_retrieval_stage_key() or "retrieval_initial",
                 call_type="http",
                 status="error",
                 title="Bing 搜索失败",

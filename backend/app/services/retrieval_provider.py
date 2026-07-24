@@ -11,7 +11,7 @@ import httpx
 
 from backend.app.core.config import Settings, get_settings
 from backend.app.services.contract_utils import ensure_datetime_string
-from backend.app.services.progress import emit_api_call
+from backend.app.services.progress import emit_api_call, get_retrieval_stage_key
 from backend.app.services.retrieval_models import (
     SearchResult,
     build_independence_key,
@@ -149,7 +149,7 @@ class GdeltNewsProvider:
             return []
 
         emit_api_call(
-            stage_key="retrieval_initial",
+            stage_key=get_retrieval_stage_key() or "retrieval_initial",
             call_type="http",
             status="running",
             title="调用 GDELT API",
@@ -173,7 +173,7 @@ class GdeltNewsProvider:
         response.raise_for_status()
         results = self._parse_articles(query_text, response.json())
         emit_api_call(
-            stage_key="retrieval_initial",
+            stage_key=get_retrieval_stage_key() or "retrieval_initial",
             call_type="http",
             status="completed",
             title="GDELT API 返回",
@@ -290,7 +290,7 @@ class LlmWebSearchProvider:
     def _request_completion(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
         model = self._search_model()
         emit_api_call(
-            stage_key="retrieval_initial",
+            stage_key=get_retrieval_stage_key() or "retrieval_initial",
             call_type="llm",
             status="running",
             title="调用 LLM web search",
@@ -323,7 +323,7 @@ class LlmWebSearchProvider:
         if isinstance(message, dict) and isinstance(message.get("tool_calls"), list):
             tool_call_count = len(message.get("tool_calls") or [])
         emit_api_call(
-            stage_key="retrieval_initial",
+            stage_key=get_retrieval_stage_key() or "retrieval_initial",
             call_type="llm",
             status="completed",
             title="LLM web search 返回",

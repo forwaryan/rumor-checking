@@ -120,6 +120,7 @@ export function AnalyzePage() {
   const [claimsOpen, setClaimsOpen] = useState(true);
   const [possibilitiesOpen, setPossibilitiesOpen] = useState(true);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
+  const [retrievalHitsOpen, setRetrievalHitsOpen] = useState(false);
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [traceOpen, setTraceOpen] = useState(false);
 
@@ -305,6 +306,10 @@ export function AnalyzePage() {
   const verdict = report ? getOverallVerdict(report) : null;
   const overallMeta = report ? getOverallCredibilityMeta(report, reportProvenance) : null;
   const evidence = report ? collectEvidence(report) : [];
+  // Retrieved results the verdict did NOT cite. They stay visible as "检索命中"
+  // (search hits) rather than inflating the cited-evidence count / card.
+  const citedUrls = new Set(evidence.map((item) => item.url));
+  const retrievalOnlyHits = (report?.retrieval_hits ?? []).filter((item) => !citedUrls.has(item.url));
   const lastLiveEvent = liveEvents[liveEvents.length - 1];
   const traceSteps = deriveTraceSteps(liveEvents);
 
@@ -484,6 +489,34 @@ export function AnalyzePage() {
             {evidenceOpen && (
               <div className="section-card__body">
                 {evidence.map((item, i) => (
+                  <div key={`${item.url}-${i}`} className="evidence-item">
+                    <div className="evidence-item__source">{item.source_name} · {item.source_tier}</div>
+                    <div className="evidence-item__title">
+                      <a href={item.url} target="_blank" rel="noreferrer">{item.title}</a>
+                    </div>
+                    <div className="evidence-item__snippet">{item.snippet}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Retrieval hits: results we fetched but no claim cited as evidence.
+            Kept separate so they don't inflate the cited-evidence count. */}
+        {report && retrievalOnlyHits.length > 0 && (
+          <div className="section-card">
+            <div className="section-card__header" onClick={() => setRetrievalHitsOpen(!retrievalHitsOpen)}>
+              <span className="section-card__title">
+                检索命中（未被采信）
+                <span className="section-card__badge">{retrievalOnlyHits.length}</span>
+              </span>
+              <span className={`section-card__arrow${retrievalHitsOpen ? " section-card__arrow--open" : ""}`}>&#9660;</span>
+            </div>
+            {retrievalHitsOpen && (
+              <div className="section-card__body">
+                <div className="section-card__hint">这些是检索到、但没有被任何核查点当作判定证据的结果，仅供参考。</div>
+                {retrievalOnlyHits.map((item, i) => (
                   <div key={`${item.url}-${i}`} className="evidence-item">
                     <div className="evidence-item__source">{item.source_name} · {item.source_tier}</div>
                     <div className="evidence-item__title">
