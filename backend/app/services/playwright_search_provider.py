@@ -20,6 +20,11 @@ logger = logging.getLogger(__name__)
 _BAIDU_URL = "https://www.baidu.com/s?wd={query}&rn={count}"
 _BING_URL = "https://cn.bing.com/search?q={query}&count={count}"
 
+# Single CJK characters too generic to anchor relevance on: question/filler words
+# that survive tokenization but carry no topic ("是真的吗" etc.). A result matching
+# only these is not on-topic.
+_GENERIC_QUERY_CHARS = set("的了吗呢啊是不有和与或在为对吗真假事件消息新闻网传")
+
 
 def _source_name_from_url(url: str) -> str:
     hostname = urlparse(url).netloc.lower()
@@ -40,15 +45,55 @@ class PlaywrightSearchProvider:
         if not self.enabled:
             return []
 
-        # Bing returns real destination URLs directly, so the source domain
-        # (and thus tier / independence / provenance) survives; Baidu wraps every
-        # hit in a www.baidu.com/link?url= redirect that collapses grounding.
-        # Prefer Bing, fall back to Baidu only when Bing yields nothing.
-        results = self._search_bing(query_text)
+        # Baidu reads a Chinese hot-topic query as a whole phrase; Bing cn
+        # tokenizes it down to the highest-IDF single character (e.g. "京东造游轮"
+        # -> just "京") and returns encyclopedia noise about that one character. So
+        # prefer Baidu, and fall back to Bing only when Baidu yields nothing. Baidu
+        # wraps hits in a /link?url= redirect that _resolve_baidu_redirect follows
+        # back to the real destination, so grounding (tier/independence) survives.
+        results = self._search_baidu(query_text)
         if not results:
-            logger.info("playwright_bing_failed_fallback_to_baidu query=%s", query_text)
-            results = self._search_baidu(query_text)
-        return results
+            logger.info("playwright_baidu_empty_fallback_to_bing query=%s", query_text)
+            results = self._search_bing(query_text)
+        return self._drop_tokenization_junk(query_text, results)
+
+    def _query_topical_units(self, query_text: str) -> set[str]:
+        """Topical match units of a query: multi-char alnum tokens and individual
+        CJK characters, minus generic function words. A result must overlap these
+        to count as on-topic."""
+        units: set[str] = set()
+        for token in re.findall(r"[A-Za-z0-9%]{2,}", query_text):
+            units.add(token.lower())
+        for char in re.findall(r"[一-鿿]", query_text):
+            if char not in _GENERIC_QUERY_CHARS:
+                units.add(char)
+        return units
+
+    def _looks_like_tokenization_junk(self, query_units: set[str], result: SearchResult) -> bool:
+        """A result is tokenization junk when it overlaps the query on at most one
+        topical unit — the shape Bing cn produces when it collapses a multi-word
+        Chinese query down to a single high-IDF character (returning 京-the-character
+        pages for "京东造游轮"). Genuinely relevant results touch two or more
+        distinct query units."""
+        haystack = f"{result.title} {result.snippet}".lower()
+        matched = sum(1 for unit in query_units if unit in haystack)
+        return matched < 2
+
+    def _drop_tokenization_junk(self, query_text: str, results: List[SearchResult]) -> List[SearchResult]:
+        query_units = self._query_topical_units(query_text)
+        # With < 2 topical units (e.g. a single short entity) there is nothing to
+        # cross-check relevance against, so leave the results untouched.
+        if len(query_units) < 2:
+            return results
+        kept = [r for r in results if not self._looks_like_tokenization_junk(query_units, r)]
+        if not kept:
+            # Everything read as junk — rather than return nothing, keep the
+            # original set and let the downstream relevance/provenance layers judge.
+            logger.info("playwright_junk_filter_kept_all query=%s count=%s", query_text, len(results))
+            return results
+        if len(kept) < len(results):
+            logger.info("playwright_junk_filter_dropped query=%s kept=%s of=%s", query_text, len(kept), len(results))
+        return kept
 
     def _search_baidu(self, query_text: str) -> List[SearchResult]:
         url = _BAIDU_URL.format(

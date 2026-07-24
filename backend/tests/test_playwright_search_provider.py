@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from backend.app.core.config import get_settings
 from backend.app.services.playwright_search_provider import (
+    PlaywrightSearchProvider,
     _extract_baidu_items,
     _extract_bing_items,
     _clean_text,
 )
+from backend.app.services.retrieval_models import SearchResult
 
 
 BAIDU_HTML = """
@@ -71,3 +74,109 @@ def test_extract_baidu_empty_html_returns_empty():
 def test_extract_bing_empty_html_returns_empty():
     items = _extract_bing_items("<html><body>no results here</body></html>")
     assert items == []
+
+
+def _provider() -> PlaywrightSearchProvider:
+    # RETRIEVAL_PROVIDER=playwright so .enabled is True; the conftest autouse
+    # fixture forces mock, so override just for this provider instance.
+    from dataclasses import replace
+
+    return PlaywrightSearchProvider(settings=replace(get_settings(), retrieval_provider="playwright"))
+
+
+def _result(result_id: str, title: str, snippet: str = "", *, query: str = "京东造游轮") -> SearchResult:
+    return SearchResult(
+        case_id="real_search",
+        query=query,
+        result_id=result_id,
+        title=title,
+        url=f"https://news.example.com/{result_id}",
+        source_name="news.example.com",
+        published_at=None,
+        snippet=snippet or title,
+        source_tier="B",
+    )
+
+
+def test_search_prefers_baidu_when_it_returns_results(monkeypatch):
+    # Baidu understands Chinese hot-topic phrases; Bing cn tokenizes them to a
+    # single character. So Baidu must win and Bing must not even be called.
+    p = _provider()
+    bing_called = False
+
+    def fake_baidu(q):
+        return [_result("bd-1", "刘强东要造游艇了", "个人出资50亿造游艇")]
+
+    def fake_bing(q):
+        nonlocal bing_called
+        bing_called = True
+        return [_result("bing-1", "京（汉语文字）_百度百科", "京的释义")]
+
+    monkeypatch.setattr(p, "_search_baidu", fake_baidu)
+    monkeypatch.setattr(p, "_search_bing", fake_bing)
+
+    results = p.search("京东造游轮")
+    assert [r.result_id for r in results] == ["bd-1"]
+    assert bing_called is False
+
+
+def test_search_falls_back_to_bing_when_baidu_empty(monkeypatch):
+    p = _provider()
+    monkeypatch.setattr(p, "_search_baidu", lambda q: [])
+    monkeypatch.setattr(
+        p, "_search_bing", lambda q: [_result("bing-1", "京东造游轮 刘强东回应", "京东游艇项目")]
+    )
+
+    results = p.search("京东造游轮")
+    assert [r.result_id for r in results] == ["bing-1"]
+
+
+def test_tokenization_junk_is_dropped(monkeypatch):
+    # The exact Bing cn failure: "京东造游轮" collapses to the single char 京, so
+    # results are 京-the-character encyclopedia pages sharing only that one unit.
+    p = _provider()
+    junk = _result("junk", "京（汉语文字）_百度百科", "京的拼音、部首、笔顺")
+    good = _result("good", "刘强东要造游艇了", "京东创始人个人出资50亿造游艇")
+    monkeypatch.setattr(p, "_search_baidu", lambda q: [junk, good])
+
+    results = p.search("京东造游轮")
+    ids = [r.result_id for r in results]
+    assert "good" in ids
+    assert "junk" not in ids
+
+
+def test_single_char_match_keeps_synonym_evidence(monkeypatch):
+    # Rumor says 游轮, real coverage says 游艇 — a whole-word "游轮" filter would
+    # wrongly drop the debunk. Single-char 游 + 京东 must keep it.
+    p = _provider()
+    good = _result("yacht", "刘强东要造游艇了", "京东出资造游艇")
+    monkeypatch.setattr(p, "_search_baidu", lambda q: [good])
+
+    results = p.search("京东造游轮")
+    assert [r.result_id for r in results] == ["yacht"]
+
+
+def test_junk_filter_keeps_original_when_all_filtered(monkeypatch):
+    # If every result reads as junk, return the original set rather than nothing —
+    # let the downstream relevance/provenance layers judge.
+    p = _provider()
+    only_junk = [
+        _result("j1", "京（汉语文字）_百度百科", "京的释义"),
+        _result("j2", "北京市_百度百科", "北京市概况"),
+    ]
+    monkeypatch.setattr(p, "_search_baidu", lambda q: only_junk)
+
+    results = p.search("京东造游轮")
+    assert [r.result_id for r in results] == ["j1", "j2"]
+
+
+def test_short_query_skips_junk_filter(monkeypatch):
+    # A query with < 2 topical units has nothing to cross-check against, so results
+    # pass through untouched.
+    p = _provider()
+    passthrough = [_result("x", "任意标题", "任意内容", query="京")]
+    monkeypatch.setattr(p, "_search_baidu", lambda q: passthrough)
+
+    results = p.search("京")
+    assert [r.result_id for r in results] == ["x"]
+

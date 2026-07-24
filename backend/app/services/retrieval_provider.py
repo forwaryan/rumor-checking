@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 import httpx
 
 from backend.app.core.config import Settings, get_settings
-from backend.app.services.contract_utils import ensure_datetime_string
+from backend.app.services.contract_utils import ensure_datetime_string, loads_lenient_json
 from backend.app.services.progress import emit_api_call, get_retrieval_stage_key
 from backend.app.services.retrieval_models import (
     SearchResult,
@@ -101,29 +101,6 @@ def _infer_source_tier(url: str, source_name: str) -> str:
     if any(marker in host for marker in PORTAL_MARKERS):
         return "B"
     return "C"
-
-
-def _extract_json_payload(content: str) -> Optional[dict[str, Any]]:
-    stripped = content.strip()
-    candidates = [stripped]
-
-    fenced_match = re.search(r"```(?:json)?\s*(\{.*\})\s*```", stripped, flags=re.DOTALL)
-    if fenced_match:
-        candidates.insert(0, fenced_match.group(1).strip())
-
-    brace_start = stripped.find("{")
-    brace_end = stripped.rfind("}")
-    if brace_start != -1 and brace_end != -1 and brace_end > brace_start:
-        candidates.append(stripped[brace_start : brace_end + 1])
-
-    for candidate in candidates:
-        try:
-            parsed = json.loads(candidate)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(parsed, dict):
-            return parsed
-    return None
 
 
 class RetrievalProvider(Protocol):
@@ -396,7 +373,7 @@ class LlmWebSearchProvider:
         return ""
 
     def _parse_results(self, query_text: str, content: str) -> List[SearchResult]:
-        payload = _extract_json_payload(content)
+        payload = loads_lenient_json(content)
         if payload is None:
             return []
 
