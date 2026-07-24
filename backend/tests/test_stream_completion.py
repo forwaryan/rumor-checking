@@ -220,3 +220,57 @@ def test_retries_are_capped_at_configured_count(monkeypatch):
     assert calls["n"] == 3  # 1 initial + 2 retries, then give up
 
 
+def test_unparseable_completion_is_retried_when_validator_supplied(monkeypatch):
+    # The run-3 bug: a fast model returns a NON-empty but truncated JSON fragment
+    # (stream dropped mid-answer). Without a validator the truthy fragment breaks
+    # the loop, fails to parse, and drops the whole run to the rule fallback. With
+    # an is_valid validator, the bad fragment is retried like an empty one.
+    calls = {"n": 0}
+
+    def flaky(*, endpoint, model, system_prompt, user_prompt):
+        calls["n"] += 1
+        # First attempt: truncated fragment (what V4-Flash actually returned).
+        if calls["n"] < 2:
+            return '{ "event": { "title": "x", "summary": "拼'
+        return '{"claims": [{"claim": "c"}]}'
+
+    r = _reasoner(llm_model="fast-x", llm_reasoning_retries=2)
+    monkeypatch.setattr(r, "_stream_completion", flaky)
+
+    out = r._request_completion(
+        stage_key="s",
+        title="t",
+        system_prompt="sys",
+        user_prompt="usr",
+        is_valid=r._synthesis_content_usable,
+    )
+    assert out == '{"claims": [{"claim": "c"}]}'
+    assert calls["n"] == 2  # retried once after the truncated fragment
+
+
+def test_nonempty_completion_accepted_without_validator(monkeypatch):
+    # Callers that pass no validator (planner, investigation, question-resolution)
+    # keep the original behavior: any non-empty completion is accepted on attempt 1,
+    # even if it is not valid JSON — their own lenient parsers handle recovery.
+    calls = {"n": 0}
+
+    def once(*, endpoint, model, system_prompt, user_prompt):
+        calls["n"] += 1
+        return "not json but non-empty"
+
+    r = _reasoner(llm_model="fast-x", llm_reasoning_retries=2)
+    monkeypatch.setattr(r, "_stream_completion", once)
+
+    out = r._request_completion(stage_key="s", title="t", system_prompt="sys", user_prompt="usr")
+    assert out == "not json but non-empty"
+    assert calls["n"] == 1  # no retry — no validator means non-empty is enough
+
+
+def test_synthesis_content_usable_rejects_truncated_and_claimless():
+    r = _reasoner(llm_model="fast-x")
+    # Truncated fragment the lenient parser cannot recover into an object.
+    assert r._synthesis_content_usable('{ "event": { "summary": "拼') is False
+    # Parseable but carries no claims -> not usable for synthesis.
+    assert r._synthesis_content_usable('{"event": {"title": "x"}, "claims": []}') is False
+    # A well-formed object with at least one claim is usable.
+    assert r._synthesis_content_usable('{"claims": [{"claim": "c"}]}') is True

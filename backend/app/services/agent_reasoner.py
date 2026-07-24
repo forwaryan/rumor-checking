@@ -354,6 +354,10 @@ class LlmAgentReasoner:
                 retrieval_bundle=retrieval_bundle,
                 fetched_bodies=fetched_bodies,
             ),
+            # Retry a truncated/garbage completion instead of dropping the whole run
+            # to the rule fallback: "usable" here means the same parser the code path
+            # below relies on recovers an object carrying at least one claim.
+            is_valid=self._synthesis_content_usable,
         )
         payload = self._extract_json_payload(content)
         if payload is None:
@@ -532,7 +536,15 @@ class LlmAgentReasoner:
             return None
         return QueryTerms(entities=entities, keywords=keywords, primary_query=primary_query, aliases=aliases)
 
-    def _request_completion(self, *, stage_key: str, title: str, system_prompt: str, user_prompt: str) -> str:
+    def _request_completion(
+        self,
+        *,
+        stage_key: str,
+        title: str,
+        system_prompt: str,
+        user_prompt: str,
+        is_valid: Optional[Any] = None,
+    ) -> str:
         model = self._reasoning_model()
         endpoint = f"{self.settings.base_url_for_model(model)}/chat/completions"
         # An empty completion is always retryable — the caller can't parse it either
@@ -541,6 +553,12 @@ class LlmAgentReasoner:
         # out mid-answer on the heavy synthesis prompt (observed: 249 chars then a
         # read-timeout, then 0 chars). So retry regardless of model type; a run that
         # returns content on the first try still costs exactly one call.
+        #
+        # `is_valid` lets a caller also retry a NON-empty but unusable completion —
+        # e.g. synthesis returning a truncated JSON fragment (`{"event":{..."summary":"拼`)
+        # that the parser then rejects. Without this, the truthy fragment breaks the
+        # loop, fails to parse, and drops the whole run to the rule fallback. When no
+        # validator is supplied we keep the original "retry only when empty" behavior.
         attempts = self.settings.llm_reasoning_retries + 1
         content = ""
         for attempt in range(1, attempts + 1):
@@ -562,10 +580,12 @@ class LlmAgentReasoner:
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
             )
-            if content:
+            if content and (is_valid is None or is_valid(content)):
                 break
+            reason = "empty" if not content else "unparseable"
             logger.warning(
-                "llm_empty_completion model=%s attempt=%s/%s stage=%s", model, attempt, attempts, stage_key
+                "llm_bad_completion model=%s attempt=%s/%s stage=%s reason=%s chars=%s",
+                model, attempt, attempts, stage_key, reason, len(content),
             )
         emit_api_call(
             stage_key=stage_key,
@@ -1220,6 +1240,17 @@ class LlmAgentReasoner:
 
     def _extract_json_payload(self, content: str) -> Optional[dict[str, Any]]:
         return loads_lenient_json(content)
+
+    def _synthesis_content_usable(self, content: str) -> bool:
+        """A synthesis completion is worth keeping only if the lenient parser can
+        recover an object with at least one claim. A truncated fragment (stream cut
+        mid-JSON) or a claim-less object fails this, triggering a retry rather than a
+        silent drop to the rule fallback."""
+        payload = self._extract_json_payload(content)
+        if not isinstance(payload, dict):
+            return False
+        claims = payload.get("claims")
+        return isinstance(claims, list) and len(claims) > 0
 
     def _coerce_content(self, content: Any) -> str:
         if isinstance(content, str):
