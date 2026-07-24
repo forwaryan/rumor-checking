@@ -688,6 +688,98 @@ class RetrievalService:
             )
         ]
 
+    def _subclaim_query_specs(self, event: NormalizedEvent) -> list[RetrievalQuerySpec]:
+        """Focused sub-queries so a multi-part rumor's each sub-fact gets its own
+        search, not just the whole combined sentence.
+
+        A rumor like "拼多多在雄安买了三栋楼招了5000研发人员" bundles distinct facts
+        (buildings count, headcount, role) that a single whole-sentence query tends
+        to answer only for the dominant one. We keep the leading entities/place as an
+        anchor, split the rest into segments at action verbs (买 / 招 / 投资 …), and
+        pair each segment with the anchor — e.g. "拼多多 雄安 买 楼" and
+        "拼多多 雄安 招 研发人员". Empirically these surface distinct evidence (e.g. a
+        page clarifying 5000 = total posts, first batch 1000) the combined query misses.
+        Rule-based (no extra LLM round-trip) so it never adds gateway latency.
+        Fires only when the sentence has ≥2 action verbs — a single-fact rumor keeps
+        the normal plan and gets no redundant sub-queries.
+        """
+        # De-dupe the parts first: title/summary/raw_input often coincide, and a
+        # repeated sentence would fake multiple action segments (买…买…买…). Prefer the
+        # single longest distinct part as the claim sentence to split.
+        parts = list(dict.fromkeys(filter(None, [event.title, event.summary, event.raw_input])))
+        text = self._normalize_query(max(parts, key=len) if parts else "")
+        if not text:
+            return []
+        anchor_terms = self._subclaim_anchor_terms(text)
+        segments = self._subclaim_action_segments(text)
+        if not anchor_terms or len(segments) < 2:
+            return []
+        specs: list[RetrievalQuerySpec] = []
+        seen: set[str] = set()
+        for index, segment in enumerate(segments):
+            seg_terms = [
+                t
+                for t in self._build_term_query(segment).split()
+                if t not in anchor_terms and not any(a in t or t in a for a in anchor_terms)
+            ]
+            if not seg_terms:
+                continue
+            query = self._normalize_query(" ".join([*anchor_terms, *seg_terms[:4]]))
+            if not query or query in seen:
+                continue
+            seen.add(query)
+            specs.append(
+                RetrievalQuerySpec(
+                    label=f"subclaim_{index + 1}",
+                    query=query,
+                    rationale="把多部分传闻按子事实拆开各检一路，给每个子说法找独立证据（数量/人数/岗位类型）。",
+                    claim_hint=segment,
+                )
+            )
+            if len(specs) >= 2:
+                break
+        return specs
+
+    # Action verbs that start a new sub-fact ("买了…楼" vs "招了…研发人员"). Splitting
+    # on these separates the bundled facts without needing a digit, so Chinese
+    # numerals (三栋 / 五千) don't defeat the split.
+    _SUBCLAIM_VERBS = "买购租建招设成开裁持投收"
+    _SUBCLAIM_VERB_RE = re.compile(f"[{_SUBCLAIM_VERBS}]")
+
+    def _subclaim_anchor_terms(self, text: str) -> list[str]:
+        # Terms before the first action verb = subject + place anchor. Regex can't
+        # word-segment Chinese, so we take the head, strip trailing particles, and
+        # keep it whole plus split off a trailing place token — good enough to anchor.
+        match = self._SUBCLAIM_VERB_RE.search(text)
+        head = (text[: match.start()] if match else text).strip()
+        # Strip leading/trailing scaffolding chars so "拼多多在雄安" -> "拼多多在雄安"
+        # then peel a trailing 在X place: keep both the full head and the tail token.
+        head = re.sub(r"(最近|有个|有一个|据说|网传|听说)", "", head)
+        terms: list[str] = []
+        for token in re.findall(r"[A-Za-z0-9%]{2,}|[一-鿿]{2,8}", head):
+            token = re.sub(r"[在了的和与并还]$", "", token)
+            # If the token embeds a place after 在, split it: 拼多多在雄安 -> 拼多多, 雄安
+            for part in re.split(r"在", token):
+                part = part.strip()
+                if len(part) >= 2 and part not in terms:
+                    terms.append(part)
+        return terms[:3]
+
+    def _subclaim_action_segments(self, text: str) -> list[str]:
+        # Cut the sentence at each action verb; each piece is one sub-fact clause.
+        starts = [m.start() for m in self._SUBCLAIM_VERB_RE.finditer(text)]
+        if not starts:
+            return []
+        # Collapse adjacent verbs (投资/收购 back-to-back) into one boundary so a single
+        # action isn't split mid-word.
+        bounds: list[int] = []
+        for s in starts:
+            if not bounds or s - bounds[-1] >= 3:
+                bounds.append(s)
+        bounds.append(len(text))
+        segments = [text[bounds[i] : bounds[i + 1]].strip() for i in range(len(bounds) - 1)]
+        return [s for s in segments if len(s) >= 2][:3]
+
     def _build_query_plan(self, event: NormalizedEvent, *, request_context: dict[str, Any]) -> list[RetrievalQuerySpec]:
         forced_query = request_context.get("force_retrieval_query")
         if isinstance(forced_query, str) and forced_query.strip():
@@ -800,6 +892,10 @@ class RetrievalService:
                     rationale="把事件摘要压到更接近单条 claim 的 query，补足细粒度证据。",
                     claim_hint=event.summary or primary_query,
                 ),
+                # Sub-claim queries (deep mode only): split a multi-part rumor so each
+                # sub-fact gets its own search. Placed before official/propagation so
+                # they survive the 5-query cap when the rumor is genuinely multi-part.
+                *(self._subclaim_query_specs(event) if deep_mode else []),
                 RetrievalQuerySpec(
                     label="event_official",
                     query=official_query,

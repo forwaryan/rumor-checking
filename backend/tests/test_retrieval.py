@@ -406,6 +406,37 @@ def test_retrieval_service_builds_multi_query_bundle_with_independence_and_confl
     assert bundle.to_diagnostics().failure_detail is None
 
 
+def test_deep_mode_splits_multi_fact_rumor_into_subclaim_queries():
+    # A multi-part rumor must get a focused query per sub-fact so each can find its
+    # own evidence, instead of only the whole combined sentence.
+    svc = RetrievalService(settings=replace(get_settings(), retrieval_provider="playwright"))
+    text = "拼多多在雄安买了三顿楼招了5000研发人员"
+    event = NormalizedEvent(summary=text, title=text, input_type="text_news", raw_input=text)
+
+    deep = svc._build_query_plan(event, request_context={"mode": "deep"})
+    labels = [s.label for s in deep]
+    sub = [s for s in deep if s.label.startswith("subclaim_")]
+    assert len(sub) == 2, f"expected 2 sub-claim queries, got {labels}"
+    joined = " ".join(s.query for s in sub)
+    assert "买" in joined and "楼" in joined  # buildings sub-fact
+    assert "招" in joined and "研发" in joined  # headcount/role sub-fact
+    # The full-sentence core query must still lead the plan.
+    assert deep[0].label == "event_core"
+
+    # Fast mode stays lean — no sub-claim queries (keeps the zero-LLM path fast).
+    fast = svc._build_query_plan(event, request_context={})
+    assert not any(s.label.startswith("subclaim_") for s in fast)
+
+
+def test_single_fact_rumor_gets_no_subclaim_queries():
+    # A single-action rumor should not be split — one focused query is redundant.
+    svc = RetrievalService(settings=replace(get_settings(), retrieval_provider="playwright"))
+    text = "拼多多在雄安买了三栋楼"
+    event = NormalizedEvent(summary=text, title=text, input_type="text_news", raw_input=text)
+    deep = svc._build_query_plan(event, request_context={"mode": "deep"})
+    assert not any(s.label.startswith("subclaim_") for s in deep)
+
+
 def test_retrieval_service_emits_structured_results_for_each_query(tmp_path: Path):
     # Observability: every retrieval event must carry the actual hits (title,
     # snippet, url, source, tier) so the frontend can show what each search
