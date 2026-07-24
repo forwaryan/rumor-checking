@@ -7,6 +7,7 @@ from backend.app.models.schemas import (
     AnalyzeRequest,
     ClaimItem,
     NormalizedEvent,
+    PossibilityItem,
     Report,
 )
 from backend.app.services.claim_extractor import ClaimExtraction
@@ -52,6 +53,10 @@ class AgentState:
     claim_extraction: Optional[ClaimExtraction] = None
     verdict: Optional[VerdictEvaluation] = None
     timeline: Optional[TimelineBuild] = None
+    # LLM-produced mutually-exclusive whole-message scenarios. When synthesis
+    # succeeds these override the rule-based possibilities in the final report;
+    # empty when synthesis fell back to the rule chain.
+    possibilities: List[PossibilityItem] = field(default_factory=list)
 
     agent_synthesized: bool = False
     synthesis_attempted: bool = False

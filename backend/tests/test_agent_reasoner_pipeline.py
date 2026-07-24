@@ -3,9 +3,10 @@ from __future__ import annotations
 from dataclasses import replace
 
 from backend.app.core.config import get_settings
-from backend.app.models.schemas import AnalyzeRequest, ClaimItem, ClaimResult, TimelineNode
+from backend.app.models.schemas import AnalyzeRequest, ClaimItem, ClaimResult, PossibilityItem, TimelineNode
 from backend.app.services.agent_reasoner import AgentSynthesis, LlmAgentReasoner
 from backend.app.services.analyze_pipeline import AnalyzePipeline
+from backend.app.agent.planner import SYNTHESIZE
 from backend.app.services.claim_extractor import ClaimExtraction
 from backend.app.services.question_resolver import QuestionResolution
 from backend.app.services.retrieval_cache import RetrievalCache
@@ -29,6 +30,19 @@ class FakeLlmProvider:
 class FakeAgentReasoner:
     enabled = True
 
+    # Planner hooks used only on the orchestrator path; the linear pipeline
+    # never calls these. plan_next_action commits straight to synthesis so the
+    # test exercises the synthesize -> finalize threading without extra rounds.
+    def plan_investigation(self, *, event, retrieval_bundle, round_index):
+        return None
+
+    def plan_next_action(self, *, evidence_snapshot, allowed_actions):
+        from backend.app.services.agent_reasoner import NextActionPlan
+
+        if SYNTHESIZE in allowed_actions:
+            return NextActionPlan(next_action=SYNTHESIZE, reason="commit to synthesis")
+        return None
+
     def resolve_question(self, *, event, retrieval_bundle):
         selected = retrieval_bundle.canonical_results[0]
         resolved_event = event.model_copy(
@@ -47,7 +61,7 @@ class FakeAgentReasoner:
             selected_result=selected,
         )
 
-    def synthesize(self, *, request, event, retrieval_bundle):
+    def synthesize(self, *, request, event, retrieval_bundle, fetched_bodies=None):
         primary = retrieval_bundle.canonical_results[0]
         secondary = retrieval_bundle.canonical_results[1]
         claim_results = [
@@ -121,6 +135,22 @@ class FakeAgentReasoner:
                 completeness=50,
                 confidence=82,
             ),
+            possibilities=[
+                PossibilityItem(
+                    scenario="核心事件属实但死亡说法被夸大",
+                    likelihood="high",
+                    probability=70.0,
+                    basis="evidence",
+                    summary="医院与平台均确认仍在救治，网传死亡不实。",
+                ),
+                PossibilityItem(
+                    scenario="纯属虚构",
+                    likelihood="low",
+                    probability=30.0,
+                    basis="prior",
+                    summary="无来源支持整条消息完全捏造的可能性较低。",
+                ),
+            ],
         )
 
 
@@ -181,6 +211,70 @@ def test_pipeline_prefers_agent_synthesis_over_rule_judgment(monkeypatch, tmp_pa
     assert report.claim_results[0].verdict == "supported"
     assert report.claim_results[1].verdict == "refuted"
     assert len(report.timeline) == 2
+
+
+def _deep_pipeline_with_fake_reasoner(tmp_path):
+    pipeline = AnalyzePipeline()
+    pipeline.agent_reasoner = FakeAgentReasoner()
+    pipeline.provider_enricher.enrich = lambda event: (event, None)
+    pipeline.retriever = RetrievalService(
+        settings=replace(get_settings(), retrieval_provider="kimi"),
+        provider=FakeLlmProvider(
+            results=[
+                SearchResult(
+                    case_id="real_search",
+                    query="最近有个女网红脑出血死了真的假的",
+                    result_id="web-1",
+                    title="医院回应女主播脑出血：仍在救治",
+                    url="https://hospital.example.com/notice-1",
+                    source_name="hospital.example.com",
+                    published_at="2026-03-15T08:00:00+08:00",
+                    snippet="医院通报称当事人仍在救治，网传死亡信息不实。",
+                    source_tier="S",
+                ),
+                SearchResult(
+                    case_id="real_search",
+                    query="最近有个女网红脑出血死了真的假的",
+                    result_id="web-2",
+                    title="平台发布辟谣说明",
+                    url="https://platform.example.com/statement-1",
+                    source_name="platform.example.com",
+                    published_at="2026-03-15T09:00:00+08:00",
+                    snippet="平台称网传死亡和封锁消息不实。",
+                    source_tier="A",
+                ),
+            ]
+        ),
+        cache=RetrievalCache(cache_root=tmp_path, ttl_seconds=3600),
+    )
+    return pipeline
+
+
+def test_agent_orchestrator_threads_llm_possibilities_into_report(monkeypatch, tmp_path):
+    # The orchestrator path (tools.finalize_report) must forward the LLM's
+    # scenario distribution as possibilities_override — otherwise the nuanced
+    # "核心事件属实但死亡说法被夸大" scenarios get silently replaced by the
+    # generic rule-based possibilities.
+    monkeypatch.setenv("ANALYSIS_PROVIDER", "kimi")
+    monkeypatch.setenv("RETRIEVAL_PROVIDER", "kimi")
+    monkeypatch.setenv("LLM_API_KEY", "test-llm-key")
+    monkeypatch.setenv("AGENT_ORCHESTRATOR_ENABLED", "true")
+    get_settings.cache_clear()
+
+    pipeline = _deep_pipeline_with_fake_reasoner(tmp_path)
+    report = pipeline.analyze(
+        AnalyzeRequest(
+            raw_input="最近有个女网红脑出血死了真的假的？",
+            input_type="question",
+            request_context={"mode": "deep"},
+        )
+    )
+
+    scenarios = [item.scenario for item in report.investigation.possibilities]
+    assert "核心事件属实但死亡说法被夸大" in scenarios
+    top = report.investigation.possibilities[0]
+    assert top.probability == 70.0
+    assert top.basis == "evidence"
 
 
 def test_agent_reasoner_uses_configured_search_model_verbatim():

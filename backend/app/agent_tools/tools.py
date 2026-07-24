@@ -396,6 +396,7 @@ def synthesize(ctx: ToolContext, state: AgentState) -> bool:
     state.claim_extraction = agent_synthesis.claim_extraction
     state.verdict = agent_synthesis.verdict
     state.timeline = agent_synthesis.timeline
+    state.possibilities = agent_synthesis.possibilities
     state.agent_synthesized = True
     emit_stage(
         stage_key="agent_synthesis",
@@ -561,6 +562,7 @@ def finalize_report(ctx: ToolContext, state: AgentState) -> None:
         evidence_grade=verdict.evidence_grade,
         provenance=provenance,
         original_input=request.raw_input,
+        possibilities_override=state.possibilities or None,
     )
     content_check = ctx.content_check_builder.build(
         report=report,

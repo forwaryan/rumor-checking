@@ -11,6 +11,7 @@ from backend.app.models.schemas import (
     ReportProvenance,
 )
 from backend.app.services.agent_reasoner import LlmAgentReasoner
+from backend.app.services.content_check_builder import ContentCheckBuilder
 from backend.app.services.report_builder import ReportBuilder
 from backend.app.services.retrieval_service import RetrievalService
 from backend.app.services.verdict_engine import coarse_truth_probability
@@ -240,3 +241,79 @@ def test_scenarios_basis_defaults_to_none_when_absent(monkeypatch):
     )
     assert result is not None
     assert all(s.basis is None for s in result.possibilities)
+
+
+# --- claim decomposition: verified core survives an unverified detail ---------
+
+
+def test_decomposed_core_stays_supported_while_detail_stays_uncertain(monkeypatch):
+    # The 拼多多雄安 failure mode: a rumor bundles a supported CORE ("购置了办公楼",
+    # evidence-backed) with an unverified DETAIL ("三栋" exact count). The fix asks
+    # the model to SPLIT them; this test locks in that a split response flows all
+    # the way through so the core lands in likely_true and the detail in uncertain,
+    # instead of one bundled claim collapsing to insufficient.
+    bundle, event = _mock_bundle()
+    # result_ids from the mock bundle aren't a fixed sequence — cite a real one so
+    # the grounding invariant keeps the core's supported verdict.
+    core_evidence_id = bundle.canonical_results[0].result_id
+    response = {
+        "event": {"title": "拼多多雄安办公楼", "summary": "购置办公楼与招聘", "anchor_result_id": core_evidence_id},
+        "claims": [
+            {
+                "claim": "拼多多在雄安购置了办公楼。",
+                "claim_type": "fact",
+                "verdict": "supported",
+                "confidence": "high",
+                "truth_probability": 85,
+                "probability_basis": "evidence",
+                "evidence_result_ids": [core_evidence_id],
+                "notes": "多家公开来源确认购置办公楼。",
+            },
+            {
+                "claim": "拼多多在雄安购置的办公楼数量为三栋。",
+                "claim_type": "fact",
+                "verdict": "insufficient",
+                "confidence": "low",
+                "truth_probability": 25,
+                "probability_basis": "prior",
+                "evidence_result_ids": [],
+                "notes": "未见来源明确‘三栋’这一具体数量。",
+            },
+        ],
+        "scenarios": [],
+        "timeline": [],
+    }
+    reasoner = _enabled_reasoner(monkeypatch, response)
+    result = reasoner.synthesize(
+        request=AnalyzeRequest(raw_input="拼多多在雄安买了三栋楼", input_type="text"),
+        event=event,
+        retrieval_bundle=bundle,
+    )
+    assert result is not None
+
+    core, detail = result.verdict.claim_results
+    # The verified core keeps its supported verdict + evidence — NOT dragged down.
+    assert core.verdict == "supported"
+    assert core.evidence, "core claim must retain its grounding evidence"
+    # The unverified detail stays honestly insufficient with a prior-based number.
+    assert detail.verdict == "insufficient"
+    assert detail.evidence == []
+    assert detail.probability_basis == "prior"
+
+    # And the split survives into the user-facing content_check split.
+    report = ReportBuilder().build(
+        event=result.event,
+        claim_results=result.verdict.claim_results,
+        timeline=result.timeline.nodes,
+        evidence=result.verdict.evidence,
+        evidence_grade=result.verdict.evidence_grade,
+        provenance=_provenance(),
+        retrieval_hits=bundle.to_retrieval_hit_items(),
+        original_input="拼多多在雄安买了三栋楼",
+        possibilities_override=result.possibilities or None,
+    )
+    content_check = ContentCheckBuilder().build(report=report, original_input="拼多多在雄安买了三栋楼")
+    likely_true_claims = [item.claim for item in content_check.likely_true]
+    uncertain_claims = [item.claim for item in content_check.uncertain]
+    assert "拼多多在雄安购置了办公楼。" in likely_true_claims
+    assert "拼多多在雄安购置的办公楼数量为三栋。" in uncertain_claims

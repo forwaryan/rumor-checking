@@ -119,7 +119,21 @@ Return one JSON object with this schema:
 
 Rules:
 - Use only supplied retrieval hits. Never invent result ids, evidence, or URLs.
-- Claims must be atomic and directly checkable. Prefer 1 to 4 claims.
+- Claims must be atomic and directly checkable. Prefer 1 to 4 claims, but splitting a
+  core+detail pair (see CLAIM DECOMPOSITION) may take you up to 6 — that is fine.
+- CLAIM DECOMPOSITION — split a verified core from an unverified detail (read carefully):
+  - A rumor often glues a checkable CORE fact to a specific QUANTIFIER or QUALIFIER
+    (an exact count, an exact headcount, a role/scope restriction, a precise date).
+    When the hits support the core but NOT the specific detail, DO NOT emit one bundled
+    claim and mark the whole thing insufficient — that buries a real supported fact under
+    one unproven modifier. Instead emit TWO atomic claims:
+      1. the CORE (evidence supports it → `supported`), and
+      2. the DETAIL alone (no evidence for the exact number/scope → `insufficient`).
+  - Example: input "买了三栋楼、招了5000研发". If hits confirm 购置办公楼 and 5000招聘名额
+    but not "三栋" or "研发岗", emit: (a) "购置了办公楼" supported, (b) "办公楼数量为三栋"
+    insufficient, (c) "招聘名额约5000" supported, (d) "招聘岗位均为研发" insufficient.
+  - Keep each split claim self-contained (name the subject in every claim; never rely on
+    "它/该数量" back-references). The core claim carries its own evidence_result_ids.
 - PROBABILITY (independent of verdict — read carefully):
   - `truth_probability` = your best estimate of P(this claim is literally true), 0-100.
   - `probability_basis` = "evidence" ONLY if the supplied hits actually bear on this claim;

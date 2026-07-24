@@ -118,6 +118,7 @@ export function AnalyzePage() {
 
   // Collapsible sections
   const [claimsOpen, setClaimsOpen] = useState(true);
+  const [answersOpen, setAnswersOpen] = useState(true);
   const [possibilitiesOpen, setPossibilitiesOpen] = useState(true);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [retrievalHitsOpen, setRetrievalHitsOpen] = useState(false);
@@ -393,6 +394,33 @@ export function AnalyzePage() {
                 深度核查（较慢）
               </button>
             </div>
+          </div>
+        )}
+
+        {/* Possible answers: evidence-grounded corrective takes, so a half-true
+            rumor shows "what's more likely true" instead of only 证据不足. */}
+        {report && report.content_check && report.content_check.possible_answers.length > 0 && (
+          <div className="section-card">
+            <div className="section-card__header" onClick={() => setAnswersOpen(!answersOpen)}>
+              <span className="section-card__title">
+                更可能的答案
+                <span className="section-card__badge">{report.content_check.possible_answers.length}</span>
+              </span>
+              <span className={`section-card__arrow${answersOpen ? " section-card__arrow--open" : ""}`}>&#9660;</span>
+            </div>
+            {answersOpen && (
+              <div className="section-card__body">
+                <div className="section-card__hint">基于当前证据给出的更可能正确的说法，用来纠正被夸大或失真的部分。</div>
+                <div className="answer-list">
+                  {report.content_check.possible_answers.map((item, i) => (
+                    <div key={`${item.angle}-${i}`} className="answer-item">
+                      <span className="answer-item__angle">{item.angle}</span>
+                      <span className="answer-item__text">{item.answer}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
