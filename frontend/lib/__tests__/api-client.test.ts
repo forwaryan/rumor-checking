@@ -237,4 +237,54 @@ describe("analyzeReportStream heartbeat handling", () => {
     expect(seen.some((event) => event.type === "stage")).toBe(true);
     expect(seen.some((event) => event.type === "report")).toBe(true);
   });
+
+  it("preserves a retrieval event's structured results through parsing", async () => {
+    // Regression: the retrieval parser dropped `results`, so the frontend showed
+    // no per-query hits even though the backend emitted them.
+    const lines = [
+      JSON.stringify({
+        type: "retrieval",
+        stage_key: "retrieval_initial",
+        query_label: "event_core",
+        query: "拼多多 雄安 办公楼",
+        provider_name: "playwright",
+        summary: "已返回 1 条去重结果。",
+        details: [],
+        results: [
+          {
+            title: "拼多多雄安办公楼正式投用",
+            url: "https://news.qq.com/pdd-1",
+            snippet: "购置整栋楼宇。",
+            source_name: "news.qq.com",
+            source_tier: "B",
+            published_at: "2026-07-20T08:00:00+08:00",
+            category: "mainstream_media",
+          },
+        ],
+        emitted_at: "2026-03-20T00:00:02Z",
+      }),
+      JSON.stringify({ type: "report", run_id: "r", summary: "done", report: { mode: "safe_mode" }, emitted_at: "2026-03-20T00:00:12Z" }),
+      JSON.stringify({ type: "complete", run_id: "r", success: true, summary: "结束", emitted_at: "2026-03-20T00:00:13Z" }),
+    ];
+    const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse(lines));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const seen: AnalysisLiveEvent[] = [];
+    try {
+      await analyzeReportStream({ raw_input: "x", input_type: "auto" }, (event) => seen.push(event));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    const retrieval = seen.find((e) => e.type === "retrieval");
+    expect(retrieval).toBeDefined();
+    const results = (retrieval as { results?: unknown[] }).results ?? [];
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      title: "拼多多雄安办公楼正式投用",
+      url: "https://news.qq.com/pdd-1",
+      snippet: "购置整栋楼宇。",
+      source_tier: "B",
+    });
+  });
 });

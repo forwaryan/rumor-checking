@@ -27,6 +27,7 @@ import type {
   Report,
   ReportProvenance,
   RetrievalDiagnostics,
+  RetrievalResultItem,
   ReportSourceType,
   TimelineNode,
   TimelineSourceType,
@@ -139,6 +140,29 @@ function parseEvidence(value: unknown): Evidence[] {
         item.source_tier === "C"
           ? item.source_tier
           : "C",
+    }));
+}
+
+function parseRetrievalResults(value: unknown): RetrievalResultItem[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter(isObject)
+    .map((item) => ({
+      title: ensureString(item.title, "未命名结果"),
+      url: ensureString(item.url),
+      snippet: ensureString(item.snippet),
+      source_name: ensureString(item.source_name, "来源待补充"),
+      source_tier:
+        item.source_tier === "S" ||
+        item.source_tier === "A" ||
+        item.source_tier === "B" ||
+        item.source_tier === "C"
+          ? item.source_tier
+          : "C",
+      published_at: ensureString(item.published_at),
+      category: ensureString(item.category),
     }));
 }
 
@@ -454,6 +478,7 @@ function parseLiveEvent(value: unknown): AnalysisLiveEvent {
       provider_name: ensureString(value.provider_name, "unknown"),
       summary: ensureString(value.summary),
       details: ensureStringArray(value.details),
+      results: parseRetrievalResults(value.results),
     };
     return event;
   }
