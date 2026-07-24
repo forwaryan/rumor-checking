@@ -116,6 +116,7 @@ class Settings:
     llm_reasoning_max_tokens: int
     llm_reasoning_timeout_seconds: float
     llm_reasoning_retries: int
+    llm_synthesis_timeout_multiplier: float
     llm_query_extraction_enabled: bool
     provider_timeout_seconds: float
     retrieval_provider: str
@@ -223,6 +224,7 @@ def get_settings() -> Settings:
         llm_reasoning_max_tokens=max(_as_int(os.getenv("LLM_REASONING_MAX_TOKENS"), 16000), 2048),
         llm_reasoning_timeout_seconds=_as_float(os.getenv("LLM_REASONING_TIMEOUT_SECONDS"), 200.0),
         llm_reasoning_retries=max(_as_int(os.getenv("LLM_REASONING_RETRIES"), 2), 0),
+        llm_synthesis_timeout_multiplier=max(_as_float(os.getenv("LLM_SYNTHESIS_TIMEOUT_MULTIPLIER"), 1.5), 1.0),
         llm_query_extraction_enabled=_as_bool(os.getenv("LLM_QUERY_EXTRACTION_ENABLED"), default=False),
         provider_timeout_seconds=_as_float(os.getenv("PROVIDER_TIMEOUT_SECONDS"), 20.0),
         retrieval_provider=_normalize_retrieval_provider(os.getenv("RETRIEVAL_PROVIDER"), default="mock"),

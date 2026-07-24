@@ -36,9 +36,11 @@ class _Capture:
     def __init__(self, body: bytes):
         self.body = body
         self.sent_json: dict | None = None
+        self.sent_timeout: float | None = None
 
     def __call__(self, method, url, *, headers, json, timeout):  # noqa: A002 - httpx kwarg name
         self.sent_json = json
+        self.sent_timeout = timeout
         request = httpx.Request(method, url)
         response = httpx.Response(200, request=request, content=self.body)
         return _StreamCtx(response)
@@ -69,6 +71,37 @@ def test_fast_model_pins_json_object_and_short_budget(monkeypatch):
     assert out == '{"ok": true}'
     assert cap.sent_json["response_format"] == {"type": "json_object"}
     assert cap.sent_json["max_tokens"] == 4096
+
+
+def test_timeout_multiplier_extends_the_deadline(monkeypatch):
+    # Synthesis passes a >1 multiplier so its heavy JSON body gets more wall-clock
+    # than the short planner/investigation calls (which use multiplier 1.0).
+    cap = _Capture(_sse({"content": '{"ok": true}'}))
+    monkeypatch.setattr(httpx, "stream", cap)
+    r = _reasoner(llm_model="think-x", llm_reasoning_models=("think-x",), llm_reasoning_timeout_seconds=200.0)
+
+    r._stream_completion(
+        endpoint="http://gateway.test/v1/chat/completions",
+        model="think-x",
+        system_prompt="sys",
+        user_prompt="usr",
+        timeout_multiplier=1.5,
+    )
+    assert cap.sent_timeout == 300.0  # 200 * 1.5
+
+
+def test_timeout_multiplier_defaults_to_base(monkeypatch):
+    cap = _Capture(_sse({"content": '{"ok": true}'}))
+    monkeypatch.setattr(httpx, "stream", cap)
+    r = _reasoner(llm_model="think-x", llm_reasoning_models=("think-x",), llm_reasoning_timeout_seconds=200.0)
+
+    r._stream_completion(
+        endpoint="http://gateway.test/v1/chat/completions",
+        model="think-x",
+        system_prompt="sys",
+        user_prompt="usr",
+    )
+    assert cap.sent_timeout == 200.0  # no multiplier -> base deadline
 
 
 def test_reasoning_model_drops_json_object_and_uses_reasoning_budget(monkeypatch):
@@ -174,7 +207,7 @@ def test_reasoning_model_retries_on_empty_content(monkeypatch):
     # non-empty answer wins.
     calls = {"n": 0}
 
-    def flaky(*, endpoint, model, system_prompt, user_prompt):
+    def flaky(*, endpoint, model, system_prompt, user_prompt, **_):
         calls["n"] += 1
         return "" if calls["n"] < 2 else '{"verdict": "supported"}'
 
@@ -192,7 +225,7 @@ def test_empty_completion_is_retried_regardless_of_model(monkeypatch):
     # up to llm_reasoning_retries times, same as a reasoning model's.
     calls = {"n": 0}
 
-    def flaky(*, endpoint, model, system_prompt, user_prompt):
+    def flaky(*, endpoint, model, system_prompt, user_prompt, **_):
         calls["n"] += 1
         return "" if calls["n"] < 3 else '{"ok": true}'
 
@@ -208,7 +241,7 @@ def test_retries_are_capped_at_configured_count(monkeypatch):
     # A persistently-empty model stops after llm_reasoning_retries + 1 attempts.
     calls = {"n": 0}
 
-    def always_empty(*, endpoint, model, system_prompt, user_prompt):
+    def always_empty(*, endpoint, model, system_prompt, user_prompt, **_):
         calls["n"] += 1
         return ""
 
@@ -227,7 +260,7 @@ def test_unparseable_completion_is_retried_when_validator_supplied(monkeypatch):
     # an is_valid validator, the bad fragment is retried like an empty one.
     calls = {"n": 0}
 
-    def flaky(*, endpoint, model, system_prompt, user_prompt):
+    def flaky(*, endpoint, model, system_prompt, user_prompt, **_):
         calls["n"] += 1
         # First attempt: truncated fragment (what V4-Flash actually returned).
         if calls["n"] < 2:
@@ -254,7 +287,7 @@ def test_nonempty_completion_accepted_without_validator(monkeypatch):
     # even if it is not valid JSON — their own lenient parsers handle recovery.
     calls = {"n": 0}
 
-    def once(*, endpoint, model, system_prompt, user_prompt):
+    def once(*, endpoint, model, system_prompt, user_prompt, **_):
         calls["n"] += 1
         return "not json but non-empty"
 

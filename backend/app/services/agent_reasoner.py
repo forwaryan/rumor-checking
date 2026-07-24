@@ -75,13 +75,6 @@ You must use only the supplied retrieval hits and event context.
 
 Return one JSON object with this schema:
 {
-  "event": {
-    "title": "string or null",
-    "summary": "string or null",
-    "source_name": "string or null",
-    "published_at": "ISO-8601 / YYYY-MM-DD / null",
-    "anchor_result_id": "string or null"
-  },
   "claims": [
     {
       "claim": "string",
@@ -91,26 +84,39 @@ Return one JSON object with this schema:
       "truth_probability": 0-100,
       "probability_basis": "evidence|prior",
       "evidence_result_ids": ["result_id"],
-      "notes": "string"
+      "notes": "string (≤60 Chinese chars)"
     }
   ],
+  "event": {
+    "title": "string or null (≤30 chars)",
+    "summary": "string or null (≤60 chars)",
+    "source_name": "string or null",
+    "published_at": "ISO-8601 / YYYY-MM-DD / null",
+    "anchor_result_id": "string or null"
+  },
   "scenarios": [
     {
       "label": "string — a distinct way the whole message could be true/false",
       "probability": 0-100,
       "basis": "evidence|prior",
-      "summary": "string"
+      "summary": "string (≤50 chars)"
     }
   ],
   "timeline": [
     {
       "node_type": "origin|amplification|peak|turn|clarification",
       "result_id": "string",
-      "summary": "string or null",
-      "why_selected": "string"
+      "summary": "string or null (≤50 chars)",
+      "why_selected": "string (≤40 chars)"
     }
   ]
 }
+
+Output the keys in EXACTLY this order: claims first, then event, scenarios, timeline.
+The claims are the most important output — emit them first so they are complete even
+if the response is long. Keep every free-text field within its char cap; do not write
+long paragraphs. Think briefly, then output the JSON — a very long chain-of-thought
+risks the answer being cut off before the JSON is complete.
 
 Rules:
 - Use only supplied retrieval hits. Never invent result ids, evidence, or URLs.
@@ -353,6 +359,10 @@ class LlmAgentReasoner:
             # to the rule fallback: "usable" here means the same parser the code path
             # below relies on recovers an object carrying at least one claim.
             is_valid=self._synthesis_content_usable,
+            # Synthesis emits the largest JSON and reasoning models spend a long CoT
+            # before it (observed: 11k CoT chars + a partial body hitting the 200s
+            # deadline). Give this one call more wall-clock so the body completes.
+            timeout_multiplier=self.settings.llm_synthesis_timeout_multiplier,
         )
         payload = self._extract_json_payload(content)
         if payload is None:
@@ -539,6 +549,7 @@ class LlmAgentReasoner:
         system_prompt: str,
         user_prompt: str,
         is_valid: Optional[Any] = None,
+        timeout_multiplier: float = 1.0,
     ) -> str:
         model = self._reasoning_model()
         endpoint = f"{self.settings.base_url_for_model(model)}/chat/completions"
@@ -576,6 +587,7 @@ class LlmAgentReasoner:
                 model=model,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
+                timeout_multiplier=timeout_multiplier,
             )
             # Two distinct notions, kept separate so the trace never overclaims:
             #  - `retry`: does the loop try again? (only empties, or a failed
@@ -622,7 +634,9 @@ class LlmAgentReasoner:
             )
         return content
 
-    def _stream_completion(self, *, endpoint: str, model: str, system_prompt: str, user_prompt: str) -> str:
+    def _stream_completion(
+        self, *, endpoint: str, model: str, system_prompt: str, user_prompt: str, timeout_multiplier: float = 1.0
+    ) -> str:
         """Read an OpenAI-compatible SSE stream and return the concatenated answer.
 
         Streaming (not one-shot) because some gateway models only behave correctly
@@ -645,9 +659,14 @@ class LlmAgentReasoner:
         """
         is_reasoning = self.settings.is_reasoning_model(model)
         max_tokens = self.settings.llm_reasoning_max_tokens if is_reasoning else self.settings.llm_max_tokens
-        timeout_seconds = (
+        base_timeout = (
             self.settings.llm_reasoning_timeout_seconds if is_reasoning else self.settings.provider_timeout_seconds
         )
+        # Synthesis is the one heavy call — a long chain-of-thought (observed 11k+
+        # chars) can eat the base deadline before the JSON body is complete — so its
+        # caller passes a >1 multiplier to give it more wall-clock without slowing the
+        # short planner/investigation calls (which keep multiplier 1.0).
+        timeout_seconds = base_timeout * (timeout_multiplier if timeout_multiplier > 0 else 1.0)
         body: dict[str, Any] = {
             "model": model,
             "temperature": self._request_temperature(model),
