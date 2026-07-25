@@ -22,6 +22,8 @@ QUESTION_TRAILING_MARKERS = ("是真的吗", "属实吗", "是真是假", "真�
 SPLIT_PATTERN = re.compile(r"[。！？?!；;]")
 CLAUSE_SPLIT_PATTERN = re.compile(r"[，,、]")
 CONNECTOR_SPLIT_PATTERN = re.compile(r"(并且|而且|还说|还称|还传|并称|又说|又称|但是|不过|同时|随后|另称|另有)")
+_VERB_BOUNDARY_CHARS = "买购租建招设成开裁持投收"
+_VERB_BOUNDARY_RE = re.compile(f"(?<=[^{_VERB_BOUNDARY_CHARS}])[{_VERB_BOUNDARY_CHARS}](?=了|过|着|聘|募|的|入)")
 LEADING_CONNECTORS = (
     "并且",
     "而且",
@@ -248,10 +250,16 @@ class ClaimExtractor:
         if event.fallback_used and event.input_type in {"url_news", "url_unknown"}:
             self._push_claim("当前链接页面缺少完整正文或正式来源。", claims, seen)
 
+        last_subject: Optional[str] = None
         for fragment in fragments:
-            cleaned = self._normalize_fragment(fragment, context_subjects=self._event_subject_candidates(event), last_subject=None)
+            cleaned = self._normalize_fragment(fragment, context_subjects=self._event_subject_candidates(event), last_subject=last_subject)
             if not cleaned or len(cleaned) < 6 or self._looks_like_scaffolding(cleaned):
                 continue
+            # Track subject from successful claims for verb-boundary propagation
+            if last_subject is None:
+                subjects = self._extract_subject_candidates(cleaned)
+                if subjects and not subjects[0].startswith(("http", "www.")):
+                    last_subject = subjects[0]
             self._push_claim(cleaned, claims, seen)
             if len(claims) >= 6:
                 break
@@ -297,6 +305,10 @@ class ClaimExtractor:
         for text in source_texts:
             if not text:
                 continue
+            # Skip URL inputs — they are not claim text
+            if text.strip().startswith(("http://", "https://")):
+                continue
+                continue
             for sentence in SPLIT_PATTERN.split(text):
                 if not sentence.strip():
                     continue
@@ -325,7 +337,13 @@ class ClaimExtractor:
 
             pieces = CONNECTOR_SPLIT_PATTERN.split(part)
             if len(pieces) == 1:
-                clauses.append(part)
+                # No connector found — try splitting at verb boundaries when the
+                # fragment contains multiple "verb了" patterns (e.g. "买了...招了...").
+                verb_splits = self._split_at_verb_boundary(part)
+                if verb_splits:
+                    clauses.extend(verb_splits)
+                else:
+                    clauses.append(part)
                 continue
 
             current = pieces[0].strip()
@@ -339,6 +357,23 @@ class ClaimExtractor:
                     clauses.append(merged)
 
         return clauses or [fragment]
+
+    def _split_at_verb_boundary(self, text: str) -> List[str]:
+        """Split a clause at action-verb boundaries (买了/招了/建了 etc.) when
+        it contains multiple independent sub-facts without connectors."""
+        matches = list(_VERB_BOUNDARY_RE.finditer(text))
+        if len(matches) < 2:
+            return []
+        # Use the verb positions as split points; first segment includes the subject
+        bounds = [m.start() for m in matches]
+        segments = []
+        # First segment: everything up to the second verb (includes subject + first verb phrase)
+        segments.append(text[: bounds[1]].strip())
+        # Subsequent segments: each verb phrase
+        for i in range(1, len(bounds)):
+            end = bounds[i + 1] if i + 1 < len(bounds) else len(text)
+            segments.append(text[bounds[i] : end].strip())
+        return [s for s in segments if len(s) >= 4]
 
     def _push_claim(self, raw_text: str, claims: List[ClaimItem], seen: set[str]) -> None:
         normalized = re.sub(r"[。！？?!]+$", "", raw_text).strip()
@@ -375,7 +410,8 @@ class ClaimExtractor:
                     cleaned = self._replace_generic_subject(cleaned, anchor)
         elif not self._extract_subject_candidates(cleaned):
             anchor = last_subject or topic_subject
-            if anchor and any(marker in cleaned for marker in ACTION_MARKERS):
+            starts_with_verb = bool(cleaned) and cleaned[0] in _VERB_BOUNDARY_CHARS
+            if anchor and (starts_with_verb or any(marker in cleaned for marker in ACTION_MARKERS)):
                 cleaned = f"{anchor}{cleaned}"
 
         return cleaned if cleaned.endswith("。") else f"{cleaned}。"
