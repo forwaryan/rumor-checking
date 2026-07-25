@@ -394,6 +394,7 @@ export function deriveTraceSteps(events: AnalysisLiveEvent[]): TraceStep[] {
         emittedAt: event.emitted_at,
         query: event.type === "retrieval" ? event.query : undefined,
         results: event.type === "retrieval" ? event.results : undefined,
+        details: event.details?.length ? event.details : undefined,
       };
       step.subEvents.push(sub);
 

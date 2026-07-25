@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import re
+import time
+from dataclasses import dataclass
 from typing import List, Optional
 from urllib.parse import quote_plus, urlparse
 
@@ -19,6 +21,14 @@ logger = logging.getLogger(__name__)
 
 _BAIDU_URL = "https://www.baidu.com/s?wd={query}&rn={count}"
 _BING_URL = "https://cn.bing.com/search?q={query}&count={count}"
+
+
+@dataclass
+class _FetchMeta:
+    url: str
+    status_code: int
+    latency_ms: int
+    body_bytes: int
 
 # Single CJK characters too generic to anchor relevance on: question/filler words
 # that survive tokenization but carry no topic ("是真的吗" etc.). A result matching
@@ -81,18 +91,25 @@ class PlaywrightSearchProvider:
 
     def _drop_tokenization_junk(self, query_text: str, results: List[SearchResult]) -> List[SearchResult]:
         query_units = self._query_topical_units(query_text)
-        # With < 2 topical units (e.g. a single short entity) there is nothing to
-        # cross-check relevance against, so leave the results untouched.
         if len(query_units) < 2:
             return results
         kept = [r for r in results if not self._looks_like_tokenization_junk(query_units, r)]
         if not kept:
-            # Everything read as junk — rather than return nothing, keep the
-            # original set and let the downstream relevance/provenance layers judge.
             logger.info("playwright_junk_filter_kept_all query=%s count=%s", query_text, len(results))
             return results
         if len(kept) < len(results):
+            dropped_count = len(results) - len(kept)
+            dropped_titles = [r.title[:40] for r in results if self._looks_like_tokenization_junk(query_units, r)]
             logger.info("playwright_junk_filter_dropped query=%s kept=%s of=%s", query_text, len(kept), len(results))
+            emit_api_call(
+                stage_key=get_retrieval_stage_key() or "retrieval_initial",
+                call_type="filter",
+                status="completed",
+                title="相关性过滤",
+                summary=f"丢弃 {dropped_count} 条与检索词不相关的结果。",
+                details=[f"query={query_text}", f"kept={len(kept)}", f"dropped={dropped_count}"]
+                + [f"丢弃: {t}" for t in dropped_titles[:5]],
+            )
         return kept
 
     def _search_baidu(self, query_text: str) -> List[SearchResult]:
@@ -106,10 +123,10 @@ class PlaywrightSearchProvider:
             status="running",
             title="百度检索（HTTP 抓取）",
             summary="正在通过 HTTP 抓取百度搜索结果页。",
-            details=[f"query={query_text}"],
+            details=[f"url={url}", f"query={query_text}"],
         )
         try:
-            html = self._fetch_page(url)
+            html, meta = self._fetch_page(url)
             results = self._parse_baidu(query_text, html)
             emit_api_call(
                 stage_key=get_retrieval_stage_key() or "retrieval_initial",
@@ -117,7 +134,14 @@ class PlaywrightSearchProvider:
                 status="completed",
                 title="百度搜索完成",
                 summary=f"百度返回 {len(results)} 条结果。",
-                details=[f"query={query_text}", f"count={len(results)}"],
+                details=[
+                    f"query={query_text}",
+                    f"count={len(results)}",
+                    f"status={meta.status_code}",
+                    f"latency={meta.latency_ms}ms",
+                    f"size={meta.body_bytes}B",
+                    f"url={meta.url}",
+                ],
             )
             return results
         except Exception as e:
@@ -128,7 +152,7 @@ class PlaywrightSearchProvider:
                 status="error",
                 title="百度搜索失败",
                 summary=f"百度搜索出错,将尝试 Bing: {e}",
-                details=[f"query={query_text}"],
+                details=[f"query={query_text}", f"url={url}", f"error={e}"],
             )
             return []
 
@@ -143,10 +167,10 @@ class PlaywrightSearchProvider:
             status="running",
             title="Bing 检索（HTTP 抓取）",
             summary="正在通过 HTTP 抓取 Bing 搜索结果页。",
-            details=[f"query={query_text}"],
+            details=[f"url={url}", f"query={query_text}"],
         )
         try:
-            html = self._fetch_page(url)
+            html, meta = self._fetch_page(url)
             results = self._parse_bing(query_text, html)
             emit_api_call(
                 stage_key=get_retrieval_stage_key() or "retrieval_initial",
@@ -154,7 +178,14 @@ class PlaywrightSearchProvider:
                 status="completed",
                 title="Bing 搜索完成",
                 summary=f"Bing 返回 {len(results)} 条结果。",
-                details=[f"query={query_text}", f"count={len(results)}"],
+                details=[
+                    f"query={query_text}",
+                    f"count={len(results)}",
+                    f"status={meta.status_code}",
+                    f"latency={meta.latency_ms}ms",
+                    f"size={meta.body_bytes}B",
+                    f"url={meta.url}",
+                ],
             )
             return results
         except Exception as e:
@@ -165,13 +196,14 @@ class PlaywrightSearchProvider:
                 status="error",
                 title="Bing 搜索失败",
                 summary=f"Bing 搜索出错: {e}",
-                details=[f"query={query_text}"],
+                details=[f"query={query_text}", f"url={url}", f"error={e}"],
             )
             return []
 
-    def _fetch_page(self, url: str) -> str:
+    def _fetch_page(self, url: str) -> tuple[str, _FetchMeta]:
         import httpx
         read_timeout = max(float(self.settings.retrieval_timeout_seconds), 1.0)
+        t0 = time.monotonic()
         response = httpx.get(
             url,
             headers={
@@ -189,8 +221,16 @@ class PlaywrightSearchProvider:
             timeout=httpx.Timeout(read_timeout, connect=min(read_timeout, 5.0)),
             follow_redirects=True,
         )
+        latency_ms = int((time.monotonic() - t0) * 1000)
         response.raise_for_status()
-        return response.text
+        body = response.text
+        meta = _FetchMeta(
+            url=url,
+            status_code=response.status_code,
+            latency_ms=latency_ms,
+            body_bytes=len(body.encode("utf-8")),
+        )
+        return body, meta
 
     def _resolve_baidu_redirect(self, url: str) -> str:
         # Baidu wraps every hit in http://www.baidu.com/link?url=... which hides

@@ -670,6 +670,13 @@ export function AnalyzePage() {
                             <div key={`sub-${j}`} className={`exec-sub exec-sub--${sub.level ?? sub.status}`}>
                               <span className="exec-sub__title">{sub.title}</span>
                               {sub.summary && <span className="exec-sub__summary">{sub.summary}</span>}
+                              {sub.details && sub.details.length > 0 && (
+                                <div className="exec-sub__details">
+                                  {sub.details.map((d, di) => (
+                                    <span key={di} className="exec-sub__detail">{d}</span>
+                                  ))}
+                                </div>
+                              )}
                               {sub.results && sub.results.length > 0 && (
                                 <div className="exec-hits">
                                   {sub.results.map((hit, h) => (

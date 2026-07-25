@@ -96,6 +96,7 @@ export interface TraceSubEvent {
   emittedAt: string;
   query?: string;
   results?: RetrievalResultItem[];
+  details?: string[];
 }
 
 export interface TraceLlmCall {

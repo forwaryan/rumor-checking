@@ -799,6 +799,15 @@ a:hover { text-decoration: underline; }
 .exec-sub--error { border-left-color: var(--red); }
 .exec-sub__title { color: var(--ink); font-weight: 500; }
 .exec-sub__summary { display: block; color: var(--muted); margin-top: 0.1rem; }
+.exec-sub__details { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.25rem; }
+.exec-sub__detail {
+  font-size: 0.68rem;
+  background: var(--bg-secondary, #f3f4f6);
+  color: var(--muted);
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  font-family: var(--font-mono, monospace);
+}
 
 /* Per-query retrieval hits: the actual search results (title/snippet/url/source)
    surfaced under each 检索 sub-event for full observability of what was returned. */
