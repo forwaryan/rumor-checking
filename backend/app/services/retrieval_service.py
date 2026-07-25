@@ -576,6 +576,7 @@ class RetrievalService:
             "zdic.net", "guoxuedashi", "hgcha.com", "chagushici.com",
             "shidianguji.com", "gxdq.com",
             "beijing-time.org", "time.org", "-time.com", "shijian.cc",
+            "mergeimage.org",
         )
         if any(d in url for d in noise_domains):
             return True

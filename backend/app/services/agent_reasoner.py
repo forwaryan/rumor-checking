@@ -768,11 +768,22 @@ class LlmAgentReasoner:
             "retrieval_hits": [self._serialize_result(item) for item in retrieval_bundle.canonical_results[:8]],
         }
         if fetched_bodies:
-            # Full-body text for some hits, keyed by the SAME result_id the model
-            # must cite in evidence_result_ids — richer grounding, same ids.
+            # Strip any residual HTML and cap body length so the prompt stays within
+            # token budget. The fetch tool stores raw extractor output which may
+            # contain HTML when the extractor couldn't parse the page cleanly.
+            import re as _re
+            _html_tag = _re.compile(r"<[^>]+>")
+            _ws = _re.compile(r"\s+")
+
+            def _clean_body(body: str) -> str:
+                text = _html_tag.sub(" ", body)
+                text = _ws.sub(" ", text).strip()
+                return text[:2000]
+
             context["fetched_full_text"] = [
-                {"result_id": rid, "full_text": body}
+                {"result_id": rid, "full_text": _clean_body(body)}
                 for rid, body in fetched_bodies.items()
+                if body.strip()
             ]
         note = (
             "Some hits include fetched_full_text (full page body). Use it as stronger grounding, "

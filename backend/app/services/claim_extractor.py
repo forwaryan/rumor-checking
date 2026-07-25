@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from backend.app.models.schemas import ClaimItem, ClaimSourceType, NormalizedEvent
+from backend.app.services.contract_utils import INPUT_PLACEHOLDER_SOURCE_NAMES
 from backend.app.services.entity_anchor import extract_subject_anchors
 from backend.app.services.question_intent import rewrite_broad_trend_question_as_claim
 
@@ -94,7 +95,7 @@ SUBJECT_SUFFIX_PATTERN = re.compile(
     r"[A-Za-z0-9一-龥]{2,24}(?:市场监管局|监管局|交通局|教育局|生态环境局|运营公司|公司|集团|生物|平台|中学|学校|大学|学院|医院|警方|公安|政府|化工厂|门店|品牌)"
 )
 SUBJECT_BEFORE_ACTION_PATTERN = re.compile(
-    r"([A-Za-z0-9一-龥]{2,24}?)(?=(?:明天|今晚|下周|本周|近期|近日|已经|已|将|会|正在)?(?:全线|全面)?(?:停航|停运|停课|裁员|脑出血|去世|死亡|核查|回应|通报|检修|整改|恢复|救治|辟谣|抽检|入院))"
+    r"([A-Za-z0-9一-龥]{2,24}?)(?=(?:明天|今晚|下周|本周|近期|近日|已经|已|将|会|正在)?(?:全线|全面)?(?:在[一-龥]{2,6})?(?:停航|停运|停课|裁员|脑出血|去世|死亡|核查|回应|通报|检修|整改|恢复|救治|辟谣|抽检|入院|买了|买下|招了|招聘|开设|设立|投资|收购|建设|建了|租了|持有))"
 )
 TIME_PATTERN = re.compile(
     r"\d{4}[-/年]\d{1,2}[-/月]\d{1,2}日?|\d{1,2}月\d{1,2}日(?:上午|下午|凌晨|晚上|晚间|中午)?|明天|今晚|今早|今天|今日|昨天|昨日|下周|本周|近日|近期"
@@ -502,7 +503,10 @@ class ClaimExtractor:
             seen.add(cleaned)
             ordered.append(cleaned)
 
-        for candidate in [event.source_name, *(event.keywords or [])]:
+        source_name = event.source_name
+        if source_name in INPUT_PLACEHOLDER_SOURCE_NAMES:
+            source_name = None
+        for candidate in [source_name, *(event.keywords or [])]:
             push(candidate)
         combined = " ".join(filter(None, [event.title, event.summary, event.raw_input]))
         for candidate in self._extract_subject_candidates(combined):
