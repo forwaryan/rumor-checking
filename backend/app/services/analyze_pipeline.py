@@ -7,6 +7,7 @@ from backend.app.services.claim_extractor import ClaimExtractor
 from backend.app.services.content_check_builder import ContentCheckBuilder
 from backend.app.services.input_normalizer import InputNormalizer
 from backend.app.services.per_claim_retriever import enrich_retrieval_for_claims
+from backend.app.services.page_fetcher import set_page_fetch_cache
 from backend.app.services.pipeline_trace_builder import PipelineTraceBuilder
 from backend.app.services.progress import emit_log, emit_stage
 from backend.app.services.provider_enricher import ProviderEnricher
@@ -26,6 +27,8 @@ class AnalyzePipeline:
             cache_root=self.settings.url_fetch_cache_dir,
             ttl_seconds=self.settings.url_fetch_cache_ttl_seconds,
         )
+        # Share the URL fetch cache with page_fetcher to avoid duplicate HTTP calls
+        set_page_fetch_cache(self.url_fetch_cache)
         self.agent_reasoner = LlmAgentReasoner()
         self.provider_enricher = ProviderEnricher()
         self.retriever = RetrievalService(agent_reasoner=self.agent_reasoner)
@@ -232,15 +235,6 @@ class AnalyzePipeline:
                 details=_claim_details(claim_extraction.claims),
             )
 
-            # --- Per-claim focused retrieval (deep_mode only) ---
-            if deep_mode:
-                retrieval_bundle = enrich_retrieval_for_claims(
-                    claims=claim_extraction.claims,
-                    retrieval_bundle=retrieval_bundle,
-                    retrieval_service=self.retriever,
-                    resolved_event=resolved_event,
-                )
-
             emit_stage(
                 stage_key="verdict_engine",
                 title="Claim 判定",
@@ -266,6 +260,30 @@ class AnalyzePipeline:
                     f"evidence_source={verdict.evidence_source}",
                 ],
             )
+
+            # --- Per-claim focused retrieval for weak claims (deep_mode only) ---
+            # Fires AFTER initial verdict so we know which specific claims lack evidence.
+            if deep_mode:
+                has_weak = any(
+                    cr.claim_type == "fact" and cr.verdict == "insufficient"
+                    for cr in verdict.claim_results
+                )
+                if has_weak:
+                    enriched_bundle = enrich_retrieval_for_claims(
+                        claims=claim_extraction.claims,
+                        retrieval_bundle=retrieval_bundle,
+                        retrieval_service=self.retriever,
+                        resolved_event=resolved_event,
+                    )
+                    if enriched_bundle is not retrieval_bundle:
+                        retrieval_bundle = enriched_bundle
+                        # Re-judge with enriched evidence
+                        verdict = self.verdict_engine.evaluate_with_source(
+                            request=request,
+                            event=event,
+                            claims=claim_extraction.claims,
+                            retrieval_bundle=retrieval_bundle,
+                        )
 
             emit_stage(
                 stage_key="timeline_builder",

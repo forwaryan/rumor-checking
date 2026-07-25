@@ -56,12 +56,10 @@ def _claim_needs_retrieval(
 ) -> bool:
     """Decide whether a claim warrants its own retrieval round.
 
-    Only fact-type claims with weak initial evidence (grade C or D) qualify.
+    Only fact-type claims qualify. We rely on the caller (pipeline) to gate
+    on whether there are actually weak verdicts — here we just filter to facts.
     """
-    if claim.claim_type != "fact":
-        return False
-    grade = bundle.evidence_grade
-    return grade in ("C", "D")
+    return claim.claim_type == "fact"
 
 
 def enrich_retrieval_for_claims(

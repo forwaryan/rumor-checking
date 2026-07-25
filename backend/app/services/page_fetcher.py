@@ -5,11 +5,14 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Dict, List
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 import httpx
 
 from backend.app.services.retrieval_models import SearchResult, TIER_WEIGHTS
+
+if TYPE_CHECKING:
+    from backend.app.services.url_fetch_cache import UrlFetchCache
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +20,16 @@ _TAG_RE = re.compile(r"<[^>]+>")
 _WHITESPACE_RE = re.compile(r"\s+")
 _DIGIT_RE = re.compile(r"\d")
 _CHINESE_SEG_RE = re.compile(r"[一-鿿]{20,}")
+
+# Module-level cache reference, set by the pipeline at startup so repeated
+# calls within the same request don't re-fetch the same URLs.
+_cache: Optional["UrlFetchCache"] = None
+
+
+def set_page_fetch_cache(cache: Optional["UrlFetchCache"]) -> None:
+    """Inject a UrlFetchCache instance so page fetches can be deduplicated."""
+    global _cache
+    _cache = cache
 
 
 def _strip_tags(html: str) -> str:
@@ -33,42 +46,33 @@ def _extract_key_paragraphs(text: str, max_chars: int = 800) -> str:
     - Score by: contains digits, contains substantial Chinese text, not too short
     - Return top-2 paragraphs up to max_chars total
     """
-    # Split on double newline or single newline; keep segments > 40 chars
     raw_segments = re.split(r"\n\n+|\n", text)
     paragraphs = [seg.strip() for seg in raw_segments if len(seg.strip()) > 40]
 
     if not paragraphs:
-        # Fallback: split on long whitespace gaps (nav bars often have short tokens)
         raw_segments = re.split(r"\s{3,}", text)
         paragraphs = [seg.strip() for seg in raw_segments if len(seg.strip()) > 40]
 
     if not paragraphs:
-        # Ultimate fallback: return first max_chars of raw text
         return text[:max_chars]
 
     def _score(para: str) -> float:
         score = 0.0
-        # Contains digits/numbers (strong signal for fact-checking)
         if _DIGIT_RE.search(para):
             score += 3.0
-        # Contains substantial Chinese text (real content, not navigation)
         if _CHINESE_SEG_RE.search(para):
             score += 2.0
-        # Length bonus: longer paragraphs are more likely to be content
         score += min(len(para) / 200.0, 2.0)
-        # Penalty for very short paragraphs (likely headers/nav)
         if len(para) < 60:
             score -= 1.0
         return score
 
     scored = sorted(paragraphs, key=_score, reverse=True)
 
-    # Take top-2 paragraphs, respecting max_chars
     selected: list[str] = []
     total = 0
     for para in scored[:2]:
         if total + len(para) > max_chars:
-            # Trim the last paragraph to fit
             remaining = max_chars - total
             if remaining > 40:
                 selected.append(para[:remaining])
@@ -77,6 +81,39 @@ def _extract_key_paragraphs(text: str, max_chars: int = 800) -> str:
         total += len(para)
 
     return "\n\n".join(selected) if selected else text[:max_chars]
+
+
+def _fetch_single_page(url: str) -> Optional[str]:
+    """Fetch one page, using the module-level cache when available."""
+    # Check cache first
+    if _cache is not None:
+        try:
+            cached = _cache.read(url=url)
+            if cached is not None and cached.body:
+                return _strip_tags(cached.body)
+        except Exception:
+            pass
+
+    # Live fetch
+    resp = httpx.get(
+        url,
+        timeout=10.0,
+        follow_redirects=True,
+        headers={"User-Agent": "Mozilla/5.0 (compatible; RumorCheck/1.0)"},
+    )
+    if resp.status_code != 200:
+        return None
+    text = _strip_tags(resp.text)
+
+    # Write to cache for deduplication within same request
+    if _cache is not None and text:
+        try:
+            from backend.app.models.schemas import MockFetchResult
+            _cache.write(url=url, result=MockFetchResult(status="ok", body=resp.text))
+        except Exception:
+            pass
+
+    return text
 
 
 def fetch_page_snippets(
@@ -90,7 +127,6 @@ def fetch_page_snippets(
     """
     if not results:
         return {}
-    # Only fetch pages for real search results (not mock/test data)
     real_results = [
         r for r in results
         if r.url
@@ -111,21 +147,10 @@ def fetch_page_snippets(
         bodies: Dict[str, str] = {}
         for result in top:
             try:
-                resp = httpx.get(
-                    result.url,
-                    timeout=10.0,
-                    follow_redirects=True,
-                    headers={
-                        "User-Agent": "Mozilla/5.0 (compatible; RumorCheck/1.0)",
-                    },
-                )
-                if resp.status_code != 200:
-                    continue
-                text = _strip_tags(resp.text)
+                text = _fetch_single_page(result.url)
                 if text:
                     bodies[result.result_id] = _extract_key_paragraphs(text)
             except Exception:
-                # Silently skip individual page failures
                 continue
 
         return bodies

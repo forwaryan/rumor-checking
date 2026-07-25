@@ -469,18 +469,17 @@ def extract_claims(ctx: ToolContext, state: AgentState) -> None:
 def per_claim_search(ctx: ToolContext, state: AgentState) -> None:
     """Per-claim targeted retrieval: for each weak fact claim, run a focused search
     using the claim text as query, then re-judge all claims with the enriched bundle."""
-    import re
-    from backend.app.services.retrieval_deduper import merge_search_results
+    from backend.app.services.per_claim_retriever import enrich_retrieval_for_claims
 
     verdict = state.verdict
-    if verdict is None or state.retrieval_bundle is None:
+    if verdict is None or state.retrieval_bundle is None or state.claim_extraction is None:
         return
 
-    weak_claims = [
-        cr for cr in verdict.claim_results
-        if cr.claim_type == "fact" and cr.verdict == "insufficient"
-    ]
-    if not weak_claims:
+    has_weak = any(
+        cr.claim_type == "fact" and cr.verdict == "insufficient"
+        for cr in verdict.claim_results
+    )
+    if not has_weak:
         emit_stage(
             stage_key="per_claim_retrieval",
             title="逐条补检索",
@@ -490,91 +489,35 @@ def per_claim_search(ctx: ToolContext, state: AgentState) -> None:
         )
         return
 
-    emit_stage(
-        stage_key="per_claim_retrieval",
-        title="逐条补检索",
-        status="running",
-        summary=f"有 {len(weak_claims)} 条 fact claim 证据不足，正在逐条补充检索。",
-        details=[f"weak_claims={len(weak_claims)}"],
-    )
-
-    all_new_results = []
-    searched = 0
-    max_searches = 3
-
-    for cr in weak_claims:
-        if searched >= max_searches:
-            break
-        query = _build_claim_query(cr.claim)
-        if not query:
-            continue
-        try:
-            follow_up_context = dict(state.request.request_context)
-            follow_up_context["force_retrieval_query"] = query
-            follow_up_context["retrieval_stage_key"] = "per_claim_retrieval"
-            bundle = ctx.retriever.retrieve_for_event(
-                state.resolved_event, request_context=follow_up_context
-            )
-            if bundle.canonical_results:
-                all_new_results.extend(bundle.canonical_results)
-            searched += 1
-        except Exception:
-            continue
-
-    if all_new_results:
-        existing = list(state.retrieval_bundle.canonical_results)
-        merged = merge_search_results(existing + all_new_results)
-        from dataclasses import replace as dc_replace
-        enriched = dc_replace(
-            state.retrieval_bundle,
-            canonical_results=tuple(merged),
-            raw_results=tuple(list(state.retrieval_bundle.raw_results) + all_new_results),
-        )
-        state.retrieval_bundle = enriched
-
-        # Re-judge with enriched evidence
-        re_verdict = ctx.verdict_engine.evaluate_with_source(
-            request=state.request,
-            event=state.final_event,
+    try:
+        enriched_bundle = enrich_retrieval_for_claims(
             claims=state.claim_extraction.claims,
             retrieval_bundle=state.retrieval_bundle,
+            retrieval_service=ctx.retriever,
+            resolved_event=state.resolved_event,
         )
-        state.verdict = re_verdict
-        emit_stage(
+
+        if enriched_bundle is not state.retrieval_bundle:
+            state.retrieval_bundle = enriched_bundle
+            # Re-judge with enriched evidence
+            re_verdict = ctx.verdict_engine.evaluate_with_source(
+                request=state.request,
+                event=state.final_event,
+                claims=state.claim_extraction.claims,
+                retrieval_bundle=state.retrieval_bundle,
+            )
+            state.verdict = re_verdict
+    except Exception as exc:
+        emit_log(
             stage_key="per_claim_retrieval",
-            title="逐条补检索",
-            status="completed",
-            summary=f"补检索了 {searched} 条 claim，新增 {len(all_new_results)} 条结果，已重新判定。",
-            details=[
-                f"new_results={len(all_new_results)}",
-                f"total_canonical={len(merged)}",
-                f"re_judged_claims={len(re_verdict.claim_results)}",
-            ],
-        )
-    else:
-        emit_stage(
-            stage_key="per_claim_retrieval",
-            title="逐条补检索",
-            status="warning",
-            summary="逐条补检索未找到新证据。",
-            details=[f"searched={searched}"],
+            level="warning",
+            title="逐条补检索失败",
+            summary="per_claim_search 异常，沿用已有证据继续。",
+            details=[f"error_type={exc.__class__.__name__}"],
         )
 
-    state.record("per_claim_search", f"逐条补检索完成, searched={searched}")
+    state.record("per_claim_search", "逐条补检索完成")
 
-
-def _build_claim_query(claim_text: str) -> str:
-    """Build a focused search query from a claim's text."""
-    import re
-    # Strip common filler and keep entities + action + numbers
-    text = claim_text.strip()
-    text = re.sub(r"(据称|据说|传闻|声称|有人说|网传)", "", text)
-    # Extract meaningful terms
-    terms = []
-    for term in re.findall(r"\d+(?:\.\d+)?[万亿千百十人名个条栋]?|[A-Za-z0-9]{2,}|[一-鿿]{2,6}", text):
-        if term not in terms and len(terms) < 8:
-            terms.append(term)
-    return " ".join(terms)
 
 
 def judge_claims(ctx: ToolContext, state: AgentState) -> None:
