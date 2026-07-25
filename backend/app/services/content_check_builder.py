@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Iterable, List, Optional
 
 import httpx
@@ -16,6 +17,40 @@ from backend.app.services.question_intent import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+_STOP_WORDS = frozenset("的了在是和与被把给让从到也都还就才又而且")
+_SPLIT_PATTERN = re.compile(r"[，。？！、；：""''（）\[\]{}【】\s,.\-?!;:\"'()\d买卖招了而且在是从到]+")
+
+
+def _extract_keywords(text: str) -> set[str]:
+    """Extract substantive 2+ char segments from Chinese text for relevance matching.
+    Splits on punctuation, digits, and common verbs/particles to isolate noun phrases."""
+    segments = _SPLIT_PATTERN.split(text)
+    tokens: set[str] = set()
+    for seg in segments:
+        seg = seg.strip()
+        if len(seg) < 2:
+            continue
+        if all(ch in _STOP_WORDS for ch in seg):
+            continue
+        tokens.add(seg)
+    return tokens
+
+
+def _filter_relevant_hits(original_input: str, hits: List[EvidenceItem]) -> List[EvidenceItem]:
+    """Keep only hits whose title contains at least 2 different keywords from the input.
+    A single common keyword (e.g. a company name) is too weak to confirm relevance."""
+    input_kws = _extract_keywords(original_input)
+    if not input_kws:
+        return []
+    relevant = []
+    for h in hits:
+        title = h.title
+        matched_count = sum(1 for kw in input_kws if kw in title)
+        if matched_count >= 2:
+            relevant.append(h)
+    return relevant
 
 
 def _trim_claim(text: str) -> str:
@@ -231,16 +266,25 @@ class ContentCheckBuilder:
         if not settings.llm_api_key:
             return None
 
+        # Only keep hits whose title shares at least one substantive keyword with
+        # the input — otherwise we risk "correcting" based on unrelated results.
+        relevant = _filter_relevant_hits(original_input, hits)
+        if len(relevant) < 2:
+            return None
+
         snippets_text = "\n".join(
-            f"- {h.title}" for h in hits[:8] if h.title.strip()
+            f"- {h.title}" for h in relevant[:8] if h.title.strip()
         )
         if not snippets_text.strip():
             return None
 
         system = (
             "你是一个事实核查助手。根据检索到的新闻标题，对比用户的原始说法，"
-            "用一句话指出原文哪里不准确、实际情况更接近什么。"
-            "只纠正有依据的部分，没有依据的不要猜。不超过80字。只输出纠正文本本身。"
+            "用一句话指出原文哪里不准确、实际情况更接近什么。\n"
+            "规则：\n"
+            "- 只纠正有依据的部分，没有依据的不要猜\n"
+            '- 如果新闻标题和用户说法明显不是同一件事，直接输出"无法纠正"\n'
+            "- 不超过80字，只输出纠正文本本身"
         )
         user = f"用户原文：{original_input}\n\n检索到的新闻标题：\n{snippets_text}"
 
@@ -280,6 +324,8 @@ class ContentCheckBuilder:
                     last = content.rsplit("\n", 1)[-1].strip()
                     content = last if len(last) <= 150 else ""
             if not content or len(content) > 150:
+                return None
+            if "无法纠正" in content:
                 return None
             return content
         except Exception as exc:
