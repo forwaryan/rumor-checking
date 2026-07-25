@@ -208,6 +208,7 @@ export interface ClaimResult {
   probability_basis?: ProbabilityBasis | null;
   evidence: Evidence[];
   notes: string;
+  correction?: string | null;
 }
 
 export interface InvestigationStep {

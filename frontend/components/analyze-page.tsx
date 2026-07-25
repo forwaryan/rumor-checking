@@ -510,6 +510,12 @@ export function AnalyzePage() {
                         )}
                       </div>
                       {claim.notes && <div className="claim-item__notes">{claim.notes}</div>}
+                      {claim.correction && (
+                        <div className="claim-item__correction">
+                          <span className="claim-item__correction-label">纠正</span>
+                          {claim.correction}
+                        </div>
+                      )}
                     </div>
                     );
                   })}

@@ -116,6 +116,7 @@ class ClaimResult(BaseModel):
     probability_basis: Optional[ProbabilityBasis] = None
     evidence: List[EvidenceItem] = Field(default_factory=list)
     notes: str
+    correction: Optional[str] = None
 
 
 class ReportProvenance(BaseModel):

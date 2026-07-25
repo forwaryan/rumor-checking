@@ -18,6 +18,7 @@ from backend.app.services.entity_anchor import (
     text_contains_subject_mismatch,
 )
 from backend.app.services.question_intent import detect_trend_topic, is_broad_trend_claim
+from backend.app.services.claim_correction import annotate_claim_corrections
 from backend.app.services.retrieval_models import RetrievalBundle
 
 CLAIM_NEGATION_MARKERS = (
@@ -265,6 +266,8 @@ class VerdictEngine:
                     notes=self._append_evidence_context(notes=notes, selected=selected),
                 )
             )
+
+        results = annotate_claim_corrections(results)
 
         return VerdictEvaluation(
             claim_results=results,

@@ -432,6 +432,19 @@ a:hover { text-decoration: underline; }
 .claim-item__verdict--conflicting { color: var(--blue); }
 
 .claim-item__notes { font-size: 0.8rem; color: var(--muted); margin-top: 0.25rem; }
+.claim-item__correction {
+  font-size: 0.8rem;
+  color: #b45309;
+  background: #fef3c7;
+  border-left: 3px solid #f59e0b;
+  padding: 0.3rem 0.5rem;
+  margin-top: 0.35rem;
+  border-radius: 3px;
+}
+.claim-item__correction-label {
+  font-weight: 600;
+  margin-right: 0.4rem;
+}
 
 .claim-item__tags {
   display: flex;
