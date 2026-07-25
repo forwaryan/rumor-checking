@@ -6,6 +6,7 @@ from backend.app.services.agent_reasoner import LlmAgentReasoner
 from backend.app.services.claim_extractor import ClaimExtractor
 from backend.app.services.content_check_builder import ContentCheckBuilder
 from backend.app.services.input_normalizer import InputNormalizer
+from backend.app.services.per_claim_retriever import enrich_retrieval_for_claims
 from backend.app.services.pipeline_trace_builder import PipelineTraceBuilder
 from backend.app.services.progress import emit_log, emit_stage
 from backend.app.services.provider_enricher import ProviderEnricher
@@ -230,6 +231,15 @@ class AnalyzePipeline:
                 summary="Claim 拆解完成。",
                 details=_claim_details(claim_extraction.claims),
             )
+
+            # --- Per-claim focused retrieval (deep_mode only) ---
+            if deep_mode:
+                retrieval_bundle = enrich_retrieval_for_claims(
+                    claims=claim_extraction.claims,
+                    retrieval_bundle=retrieval_bundle,
+                    retrieval_service=self.retriever,
+                    resolved_event=resolved_event,
+                )
 
             emit_stage(
                 stage_key="verdict_engine",

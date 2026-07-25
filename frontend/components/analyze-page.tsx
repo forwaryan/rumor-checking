@@ -72,6 +72,94 @@ function getLikelihoodLabel(likelihood: string): string {
   }
 }
 
+// --- LLM call observability helpers ---
+
+/** Extract model name from title like "调用 Agent synthesis (model=xxx)" */
+function extractModelFromTitle(title: string): string | null {
+  const match = title.match(/\(model=([^)]+)\)/);
+  return match ? match[1] : null;
+}
+
+/** Rough token estimate: for Chinese text ~1 token per char, for mixed divide by 4 */
+function estimateTokens(text: string | null): number | null {
+  if (!text) return null;
+  // Chinese characters are roughly 1-2 tokens each; ASCII ~4 chars per token.
+  // Use a blended heuristic: chars / 4 gives a rough token count.
+  return Math.ceil(text.length / 4);
+}
+
+/** Status label for LLM call badge */
+function getLlmStatusLabel(status: string): string {
+  switch (status) {
+    case "completed": return "completed";
+    case "warning": return "warning";
+    case "error": return "error";
+    default: return "running";
+  }
+}
+
+interface ParsedClaim {
+  claim: string;
+  verdict: string;
+}
+
+/** Try to parse the response text as a JSON object containing a claims array */
+function tryParseClaims(text: string | null): ParsedClaim[] | null {
+  if (!text) return null;
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return null;
+  try {
+    const parsed = JSON.parse(text.slice(start, end + 1));
+    if (parsed && typeof parsed === "object" && Array.isArray(parsed.claims) && parsed.claims.length > 0) {
+      return parsed.claims
+        .filter((c: unknown) => c && typeof c === "object" && typeof (c as Record<string, unknown>).claim === "string")
+        .map((c: Record<string, unknown>) => ({
+          claim: String(c.claim),
+          verdict: typeof c.verdict === "string" ? c.verdict : "unknown",
+        }));
+    }
+  } catch {
+    // not valid JSON
+  }
+  return null;
+}
+
+/** Header row showing model, status, and token estimate for an LLM call */
+function LlmCallMeta({ title, status, response }: { title: string; status: string; response: string | null }) {
+  const model = extractModelFromTitle(title);
+  const tokens = estimateTokens(response);
+  const statusLabel = getLlmStatusLabel(status);
+  return (
+    <div className="exec-llm__meta">
+      {model && <span className="exec-llm__meta-model">{model}</span>}
+      <span className={`exec-llm__meta-badge exec-llm__meta-badge--${statusLabel}`}>
+        {statusLabel === "completed" ? "completed" : statusLabel === "warning" ? "warning" : statusLabel === "error" ? "error" : "running"}
+      </span>
+      {tokens !== null && <span className="exec-llm__meta-tokens">~{tokens} tokens</span>}
+    </div>
+  );
+}
+
+/** Compact summary when response is a claims JSON array */
+function LlmClaimsSummary({ claims }: { claims: ParsedClaim[] }) {
+  return (
+    <div className="exec-llm__claims-summary">
+      <span className="exec-llm__claims-summary-count">产出 {claims.length} 条 claims:</span>
+      <span className="exec-llm__claims-summary-list">
+        {claims.map((c, i) => (
+          <span key={i} className="exec-llm__claims-summary-item">
+            <span className={`exec-llm__verdict-badge exec-llm__verdict-badge--${c.verdict}`}>
+              {c.verdict === "supported" ? "属实" : c.verdict === "refuted" ? "不实" : c.verdict === "conflicting" ? "矛盾" : "不足"}
+            </span>
+            <span className="exec-llm__claims-summary-text">{c.claim}</span>
+          </span>
+        ))}
+      </span>
+    </div>
+  );
+}
+
 // One prompt-or-response block with 人类可读 / 原始 JSON tabs.
 function LlmTextBlock({ stageKey, role, text }: { stageKey: string; role: "prompt" | "response" | "system"; text: string }) {
   const [view, setView] = useState<"human" | "json">("human");
@@ -672,19 +760,26 @@ export function AnalyzePage() {
                       {step.note && <div className="exec-step__note">{step.note}</div>}
                       {step.llmCalls.length > 0 && (
                         <div className="exec-step__llm">
-                          {step.llmCalls.map((call, k) => (
-                            <div key={`llm-${k}`} className="exec-llm">
-                              {call.system && (
-                                <LlmTextBlock stageKey={step.stageKey} role="system" text={call.system} />
-                              )}
-                              {call.prompt && (
-                                <LlmTextBlock stageKey={step.stageKey} role="prompt" text={call.prompt} />
-                              )}
-                              {call.response && (
-                                <LlmTextBlock stageKey={step.stageKey} role="response" text={call.response} />
-                              )}
-                            </div>
-                          ))}
+                          {step.llmCalls.map((call, k) => {
+                            const parsedClaims = tryParseClaims(call.response);
+                            return (
+                              <div key={`llm-${k}`} className="exec-llm">
+                                <LlmCallMeta title={call.title} status={call.status} response={call.response} />
+                                {call.system && (
+                                  <LlmTextBlock stageKey={step.stageKey} role="system" text={call.system} />
+                                )}
+                                {call.prompt && (
+                                  <LlmTextBlock stageKey={step.stageKey} role="prompt" text={call.prompt} />
+                                )}
+                                {call.response && (
+                                  <LlmTextBlock stageKey={step.stageKey} role="response" text={call.response} />
+                                )}
+                                {parsedClaims && parsedClaims.length > 0 && (
+                                  <LlmClaimsSummary claims={parsedClaims} />
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                       {step.subEvents.length > 0 && (

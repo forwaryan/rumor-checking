@@ -831,6 +831,100 @@ a:hover { text-decoration: underline; }
   overflow-y: auto;
 }
 
+/* === LLM call metadata header === */
+.exec-llm__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  background: rgba(0,0,0,0.02);
+  border-radius: var(--radius);
+  font-size: 0.72rem;
+  flex-wrap: wrap;
+}
+
+.exec-llm__meta-model {
+  font-weight: 600;
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.7rem;
+}
+
+.exec-llm__meta-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.exec-llm__meta-badge--completed { background: var(--green-bg); color: var(--green); }
+.exec-llm__meta-badge--warning { background: var(--amber-bg); color: var(--amber); }
+.exec-llm__meta-badge--error { background: var(--red-bg); color: var(--red); }
+.exec-llm__meta-badge--running { background: var(--blue-bg); color: var(--blue); }
+
+.exec-llm__meta-tokens {
+  color: var(--muted);
+  font-size: 0.68rem;
+  margin-left: auto;
+}
+
+/* === Claims summary from LLM response === */
+.exec-llm__claims-summary {
+  padding: 0.4rem 0.5rem;
+  border-radius: var(--radius);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-size: 0.72rem;
+  line-height: 1.6;
+}
+
+.exec-llm__claims-summary-count {
+  font-weight: 600;
+  color: var(--ink);
+  margin-right: 0.3rem;
+}
+
+.exec-llm__claims-summary-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.3rem;
+}
+
+.exec-llm__claims-summary-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+
+.exec-llm__claims-summary-text {
+  color: var(--ink);
+  font-size: 0.72rem;
+  word-break: break-word;
+}
+
+/* Verdict badges for parsed claims */
+.exec-llm__verdict-badge {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  font-size: 0.62rem;
+  font-weight: 700;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.exec-llm__verdict-badge--supported { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-border); }
+.exec-llm__verdict-badge--refuted { background: var(--red-bg); color: var(--red); border: 1px solid var(--red-border); }
+.exec-llm__verdict-badge--insufficient { background: rgba(0,0,0,0.04); color: var(--muted); border: 1px solid var(--border); }
+.exec-llm__verdict-badge--conflicting { background: var(--amber-bg); color: var(--amber); border: 1px solid var(--amber-border); }
+.exec-llm__verdict-badge--unknown { background: rgba(0,0,0,0.04); color: var(--muted); border: 1px solid var(--border); }
+
 .exec-step__subs { display: flex; flex-direction: column; gap: 0.25rem; margin-top: 0.4rem; }
 
 .exec-sub {

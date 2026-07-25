@@ -18,6 +18,7 @@ _SIMPLE_TOOLS = {
     planner_mod.ENRICH: tools.enrich,
     planner_mod.EXTRACT: tools.extract_claims,
     planner_mod.JUDGE: tools.judge_claims,
+    planner_mod.PER_CLAIM_SEARCH: tools.per_claim_search,
     planner_mod.TIMELINE: tools.build_timeline,
     planner_mod.FINALIZE: tools.finalize_report,
 }

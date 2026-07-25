@@ -6,7 +6,8 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Dict, List, Optional
+import re
+from typing import Dict, List, Optional, Set
 
 import httpx
 
@@ -43,10 +44,11 @@ def annotate_claim_corrections(
     claim_lines = []
     for idx, (i, cr) in enumerate(candidates):
         snippets = " | ".join(e.title for e in cr.evidence[:3] if e.title.strip())
-        # Include page body content if available for richer context
+        # Include page body content from ALL available pages for richer context
         extra_context = ""
         if page_bodies:
-            for e in cr.evidence[:2]:
+            chars_remaining = 400
+            for e in cr.evidence[:5]:
                 body_text = page_bodies.get(e.url, "")
                 if not body_text:
                     # Try matching by looking through page_bodies keys
@@ -54,9 +56,10 @@ def annotate_claim_corrections(
                         if body:
                             body_text = body
                             break
-                if body_text:
-                    extra_context += f"\n   page_text: {body_text[:200]}"
-                    break
+                if body_text and chars_remaining > 0:
+                    chunk = body_text[:chars_remaining]
+                    extra_context += f"\n   page_text: {chunk}"
+                    chars_remaining -= len(chunk)
         claim_lines.append(
             f"{idx+1}. claim: {cr.claim}\n   evidence: {snippets}{extra_context}"
         )
@@ -68,6 +71,7 @@ def annotate_claim_corrections(
     system = (
         "你是事实核查助手。对每条claim，对比它的evidence，判断claim中的数字/细节是否和evidence不一致。\n"
         "如果不一致，输出结构化纠正；如果一致或无法判断，输出null。\n"
+        "actual字段中的数字必须直接来自evidence或page_text，不得推断或编造。如果evidence中没有具体数字，actual应描述证据显示的定性信息（如'大规模招聘'而非具体数字）。\n"
         '返回JSON数组，每项对应一条claim，格式：[{"correction": {"original": "用户说的", "actual": "证据显示的", "source": "来源标题"}} 或 {"correction": null}]\n'
         "original: claim中不准确的部分(不超过20字)。actual: evidence显示的实际情况(不超过30字)。source: 依据的来源标题(不超过20字)。"
     )
@@ -111,7 +115,8 @@ def annotate_claim_corrections(
         if not corrections or len(corrections) != len(candidates):
             return claim_results
 
-        # Apply corrections
+        # Apply corrections with number-grounding validation
+        evidence_numbers = _extract_evidence_numbers(candidates, page_bodies)
         updated = list(claim_results)
         for (i, _cr), corr in zip(candidates, corrections):
             if corr and isinstance(corr, dict):
@@ -120,6 +125,13 @@ def annotate_claim_corrections(
                 actual = corr.get("actual", "")
                 source = corr.get("source", "")
                 if original and actual:
+                    # Verify numbers in actual are grounded in evidence
+                    if not _actual_is_grounded(actual, evidence_numbers.get(i, set())):
+                        logger.debug(
+                            "discarding correction for claim %d: "
+                            "'actual' number not found in evidence", i
+                        )
+                        continue
                     updated[i] = updated[i].model_copy(
                         update={"correction": {
                             "original": original[:40],
@@ -134,9 +146,73 @@ def annotate_claim_corrections(
         return claim_results
 
 
+# Chinese number mapping for cross-referencing
+_CHINESE_NUM_MAP = {
+    "零": 0, "一": 1, "二": 2, "三": 3, "四": 4,
+    "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10,
+    "百": 100, "千": 1000, "万": 10000, "亿": 100000000,
+}
+
+_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?(?:[万亿千百十])?")
+
+
+def _extract_numbers_from_text(text: str) -> Set[str]:
+    """Extract all numbers (digit-based and Chinese-unit suffixed) from text."""
+    if not text:
+        return set()
+    nums = set()
+    for m in _NUMBER_RE.finditer(text):
+        nums.add(m.group())
+        # Also add the raw numeric part stripped of Chinese unit suffix
+        raw = re.sub(r"[万亿千百十]", "", m.group())
+        if raw:
+            nums.add(raw)
+    return nums
+
+
+def _extract_evidence_numbers(
+    candidates: List[tuple],
+    page_bodies: Optional[Dict[str, str]],
+) -> Dict[int, Set[str]]:
+    """For each candidate (by original index), extract all numbers found in its
+    evidence titles and page bodies."""
+    result: Dict[int, Set[str]] = {}
+    for i, cr in candidates:
+        pool = set()
+        # Numbers from evidence titles
+        for e in cr.evidence:
+            pool |= _extract_numbers_from_text(e.title)
+        # Numbers from page bodies
+        if page_bodies:
+            for e in cr.evidence:
+                body = page_bodies.get(e.url, "")
+                if body:
+                    pool |= _extract_numbers_from_text(body[:800])
+            # Also scan all page_bodies values (for cross-ref)
+            for body in page_bodies.values():
+                if body:
+                    pool |= _extract_numbers_from_text(body[:400])
+        result[i] = pool
+    return result
+
+
+def _actual_is_grounded(actual: str, evidence_numbers: Set[str]) -> bool:
+    """Check if numbers mentioned in the 'actual' field appear in the evidence.
+    If actual contains no numbers at all (purely qualitative), it passes.
+    If it contains numbers, at least one must appear in evidence_numbers."""
+    actual_numbers = _extract_numbers_from_text(actual)
+    if not actual_numbers:
+        # No numbers in actual — qualitative statement, always OK
+        return True
+    if not evidence_numbers:
+        # actual has numbers but evidence has none — hallucination
+        return False
+    # At least one number in actual must appear in evidence
+    return bool(actual_numbers & evidence_numbers)
+
+
 def _parse_corrections(content: str) -> Optional[List[Optional[Dict[str, str]]]]:
     """Extract a JSON array of structured correction objects from LLM output."""
-    import re
 
     def _extract_item(item: object) -> Optional[Dict[str, str]]:
         if not isinstance(item, dict):

@@ -138,6 +138,7 @@ const STAGE_LABEL: Record<string, string> = {
   investigation_plan: "调查决策",
   investigation_retrieval: "补充检索",
   investigation_fetch: "抓取正文",
+  per_claim_retrieval: "逐条补检索",
   agent_planner: "Agent 规划",
   agent_orchestrator: "Agent 编排",
   agent_synthesis: "综合判断",

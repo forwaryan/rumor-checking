@@ -16,6 +16,7 @@ SYNTHESIZE = "synthesize"
 ENRICH = "enrich"
 EXTRACT = "extract_claims"
 JUDGE = "judge_claims"
+PER_CLAIM_SEARCH = "per_claim_search"
 TIMELINE = "build_timeline"
 FINALIZE = "finalize_report"
 DONE = "done"
@@ -69,6 +70,10 @@ def legal_actions(state: AgentState) -> List[str]:
         return [EXTRACT]
     if JUDGE not in done:
         return [JUDGE]
+    # After judging: if weak claims exist, do per-claim targeted retrieval then
+    # re-judge; otherwise skip straight to timeline.
+    if PER_CLAIM_SEARCH not in done and _has_weak_claims(state):
+        return [PER_CLAIM_SEARCH]
     if TIMELINE not in done:
         return [TIMELINE]
     if FINALIZE not in done:
@@ -93,6 +98,17 @@ def _can_fetch(state: AgentState) -> bool:
         r.url and r.result_id not in state.fetched_bodies and r.url not in state.fetched_urls
         for r in bundle.canonical_results
     )
+
+
+def _has_weak_claims(state: AgentState) -> bool:
+    """True when there are fact claims with insufficient evidence after judging."""
+    if state.verdict is None:
+        return False
+    weak = sum(
+        1 for cr in state.verdict.claim_results
+        if cr.claim_type == "fact" and cr.verdict == "insufficient"
+    )
+    return weak > 0
 
 
 class RulePlanner:

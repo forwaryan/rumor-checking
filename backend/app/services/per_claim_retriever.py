@@ -1,0 +1,185 @@
+"""Per-claim focused retrieval.
+
+After the claim extractor produces atomic claims, this module fires targeted
+search queries for fact-type claims whose initial evidence is weak (grade C/D).
+Results are merged back into the main retrieval bundle so the verdict engine
+has richer, more focused evidence.
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+from dataclasses import replace
+from typing import List
+
+from backend.app.models.schemas import ClaimItem, NormalizedEvent
+from backend.app.services.progress import emit_log, emit_stage
+from backend.app.services.retrieval_deduper import merge_search_results
+from backend.app.services.retrieval_models import RetrievalBundle, SearchResult
+
+logger = logging.getLogger(__name__)
+
+# Maximum number of per-claim queries to avoid excessive latency.
+MAX_PER_CLAIM_QUERIES = 3
+
+# Chinese filler / question words to strip when building focused queries.
+_FILLER_RE = re.compile(
+    r"(据称|据悉|据说|据了解|有人说|有消息称|网传|传闻|疑似|可能|或许|大概|"
+    r"已经|正在|即将|是否|是不是|有没有|请问|想问|听说|"
+    r"一个|这个|那个|某个|的话|来说|而言|其实|确实|当然)"
+)
+# Keep entities, actions, numbers by stripping only pure filler.
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def _build_focused_query(claim_text: str) -> str:
+    """Strip filler words from claim text to produce a focused search query.
+
+    Keeps entities, actions, and numbers — strips hedging/question language
+    that dilutes SERP relevance.
+    """
+    query = _FILLER_RE.sub(" ", claim_text)
+    query = _WHITESPACE_RE.sub(" ", query).strip()
+    # If stripping removed too much, fall back to the raw claim.
+    if len(query) < 6:
+        query = claim_text.strip()
+    # Cap query length so SERP engines don't truncate unpredictably.
+    if len(query) > 80:
+        query = query[:80].rsplit(" ", 1)[0] or query[:80]
+    return query
+
+
+def _claim_needs_retrieval(
+    claim: ClaimItem,
+    bundle: RetrievalBundle,
+) -> bool:
+    """Decide whether a claim warrants its own retrieval round.
+
+    Only fact-type claims with weak initial evidence (grade C or D) qualify.
+    """
+    if claim.claim_type != "fact":
+        return False
+    grade = bundle.evidence_grade
+    return grade in ("C", "D")
+
+
+def enrich_retrieval_for_claims(
+    claims: List[ClaimItem],
+    retrieval_bundle: RetrievalBundle,
+    retrieval_service: "RetrievalService",  # noqa: F821 — forward ref to avoid circular import
+    resolved_event: NormalizedEvent,
+) -> RetrievalBundle:
+    """Run per-claim focused retrieval and merge results into the bundle.
+
+    Parameters
+    ----------
+    claims:
+        The full claim list from the extractor (all types).
+    retrieval_bundle:
+        The current best retrieval bundle (after initial + follow-up).
+    retrieval_service:
+        The RetrievalService instance used to execute queries.
+    resolved_event:
+        The resolved event needed by retrieve_for_event.
+
+    Returns
+    -------
+    RetrievalBundle with any newly found results merged in. If nothing new was
+    found or all per-claim retrievals fail, the original bundle is returned.
+    """
+    # Filter to fact claims that need focused retrieval.
+    candidates = [c for c in claims if _claim_needs_retrieval(c, retrieval_bundle)]
+    if not candidates:
+        emit_stage(
+            stage_key="per_claim_retrieval",
+            title="逐 Claim 补充检索",
+            status="skipped",
+            summary="初始证据质量充足或无事实型 claim，跳过逐条检索。",
+            details=[f"evidence_grade={retrieval_bundle.evidence_grade}"],
+        )
+        return retrieval_bundle
+
+    # Cap the number of per-claim queries.
+    candidates = candidates[:MAX_PER_CLAIM_QUERIES]
+
+    emit_stage(
+        stage_key="per_claim_retrieval",
+        title="逐 Claim 补充检索",
+        status="running",
+        summary=f"正在为 {len(candidates)} 条弱证据 claim 执行定向检索。",
+        details=[f"claim_{i}={c.claim[:40]}" for i, c in enumerate(candidates)],
+    )
+
+    new_results: List[SearchResult] = []
+    queries_executed = 0
+    queries_failed = 0
+
+    for claim in candidates:
+        focused_query = _build_focused_query(claim.claim)
+        emit_log(
+            stage_key="per_claim_retrieval",
+            title="Per-claim query",
+            summary=f"执行定向检索: {focused_query[:60]}",
+            details=[f"original_claim={claim.claim[:60]}"],
+        )
+        try:
+            per_claim_context = {
+                "force_retrieval_query": focused_query,
+                "retrieval_stage_key": "per_claim_retrieval",
+            }
+            per_claim_bundle = retrieval_service.retrieve_for_event(
+                resolved_event, request_context=per_claim_context
+            )
+            queries_executed += 1
+            if per_claim_bundle.canonical_results:
+                new_results.extend(per_claim_bundle.canonical_results)
+        except Exception as exc:
+            queries_failed += 1
+            logger.warning(
+                "Per-claim retrieval failed for claim=%s: %s",
+                claim.claim[:40],
+                exc,
+            )
+            # Graceful degradation: continue with remaining claims.
+            continue
+
+    if not new_results:
+        emit_stage(
+            stage_key="per_claim_retrieval",
+            title="逐 Claim 补充检索",
+            status="completed",
+            summary="定向检索未发现新结果。",
+            details=[
+                f"queries_executed={queries_executed}",
+                f"queries_failed={queries_failed}",
+            ],
+        )
+        return retrieval_bundle
+
+    # Merge new results with existing canonical results, deduplicated.
+    all_results = list(retrieval_bundle.canonical_results) + new_results
+    merged_canonical = merge_search_results(all_results)
+
+    enriched_bundle = replace(
+        retrieval_bundle,
+        canonical_results=merged_canonical,
+        raw_results=tuple(list(retrieval_bundle.raw_results) + new_results),
+    )
+
+    emit_stage(
+        stage_key="per_claim_retrieval",
+        title="逐 Claim 补充检索",
+        status="completed",
+        summary=f"定向检索补充了 {len(new_results)} 条新结果，合并去重后共 {len(merged_canonical)} 条。",
+        details=[
+            f"queries_executed={queries_executed}",
+            f"queries_failed={queries_failed}",
+            f"new_results={len(new_results)}",
+            f"merged_total={len(merged_canonical)}",
+            f"evidence_grade_before={retrieval_bundle.evidence_grade}",
+            f"evidence_grade_after={enriched_bundle.evidence_grade}",
+        ],
+    )
+
+    return enriched_bundle
