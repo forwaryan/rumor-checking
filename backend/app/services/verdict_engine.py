@@ -273,7 +273,14 @@ class VerdictEngine:
                 )
             )
 
-        results = annotate_claim_corrections(results, page_bodies=page_bodies)
+        results = annotate_claim_corrections(
+            results,
+            page_bodies=page_bodies,
+            all_evidence_titles=[
+                r.title for r in (retrieval_bundle.canonical_results if retrieval_bundle else [])
+                if r.title.strip()
+            ],
+        )
 
         return VerdictEvaluation(
             claim_results=results,
@@ -671,8 +678,6 @@ class VerdictEngine:
         distinct_quantities = set()
         claim_quantity_supported = False
         for item in evidence_pool:
-            if item.source_tier not in HIGH_TRUST_SOURCE_TIERS:
-                continue
             haystack = self._normalize_claim(f"{item.title} {item.snippet} {item.source_name}")
             quantity_tokens = set(self._extract_quantity_tokens(haystack))
             if not quantity_tokens:
@@ -682,16 +687,31 @@ class VerdictEngine:
             if quantity_tokens & claim_quantity_tokens:
                 claim_quantity_supported = True
 
-        if len(evidence_with_quantities) < 2 or len(distinct_quantities) < 2 or not claim_quantity_supported:
-            return None
-        if not any(tokens.isdisjoint(claim_quantity_tokens) for _, tokens in evidence_with_quantities):
+        if len(evidence_with_quantities) < 1 or not distinct_quantities:
             return None
 
-        selected = [item for item, _ in evidence_with_quantities[:2]]
+        # If evidence contains different numbers from the claim on the same topic
+        evidence_numbers = distinct_quantities - claim_quantity_tokens
+        if not evidence_numbers:
+            return None
+
+        # At least one source has a number that differs from the claim
+        has_different = any(
+            tokens.isdisjoint(claim_quantity_tokens) and tokens
+            for _, tokens in evidence_with_quantities
+        )
+        if not has_different:
+            return None
+
+        # Sort by tier for best evidence selection
+        selected = sorted(
+            [item for item, _ in evidence_with_quantities],
+            key=lambda item: TIER_PRIORITY.get(item.source_tier, 99),
+        )[:2]
         return (
             "conflicting",
             "medium",
-            "高可信来源对同一数量细节给出了不一致说法，当前应保持冲突态。",
+            "检索到的来源给出了与该说法不同的具体数字，当前应保持冲突态。",
             selected,
         )
 

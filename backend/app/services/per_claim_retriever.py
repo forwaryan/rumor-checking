@@ -31,20 +31,35 @@ _FILLER_RE = re.compile(
 )
 # Keep entities, actions, numbers by stripping only pure filler.
 _WHITESPACE_RE = re.compile(r"\s+")
+_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?[万亿千百十人名个条栋]?")
 
 
 def _build_focused_query(claim_text: str) -> str:
     """Strip filler words from claim text to produce a focused search query.
 
     Keeps entities, actions, and numbers — strips hedging/question language
-    that dilutes SERP relevance.
+    that dilutes SERP relevance. For claims with numbers, constructs a
+    number-focused query to find the real figure.
     """
     query = _FILLER_RE.sub(" ", claim_text)
     query = _WHITESPACE_RE.sub(" ", query).strip()
-    # If stripping removed too much, fall back to the raw claim.
+
+    # If claim contains numbers, build a number-verification query:
+    # extract the subject + action + "多少/人数/数量" to find the actual number
+    numbers = _NUMBER_RE.findall(claim_text)
+    if numbers:
+        import re as _re
+        # Subject: leading entity before first structural word (在/买/招...)
+        subject_m = _re.match(r"([一-鿿]+?)(?=在|[买购租建招设开裁投收持])", claim_text)
+        subject = subject_m.group(1) if subject_m else ""
+        places = _re.findall(r"在([一-鿿]{2,4}?)(?=[买购租建招设开裁投收持了]|$)", claim_text)
+        terms = [t for t in [subject] + places + numbers if t and len(t) >= 2]
+        terms = list(dict.fromkeys(terms))
+        if len(terms) >= 2:
+            return " ".join(terms[:5])
+
     if len(query) < 6:
         query = claim_text.strip()
-    # Cap query length so SERP engines don't truncate unpredictably.
     if len(query) > 80:
         query = query[:80].rsplit(" ", 1)[0] or query[:80]
     return query

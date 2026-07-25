@@ -138,6 +138,14 @@ def source_name_from_url(url: str) -> Optional[str]:
     return host[4:] if host.startswith("www.") else host
 
 
+# Placeholder source names produced by default_source_name when the input has no
+# real publisher. These are UI labels for provenance, never real-world subjects —
+# downstream subject extraction must not treat them as claim subjects.
+INPUT_PLACEHOLDER_SOURCE_NAMES = frozenset(
+    {"用户提供文本", "用户提供链接", "用户问题输入"}
+)
+
+
 def default_source_name(input_type: InternalInputType) -> str:
     if input_type in {"url_news", "url_unknown"}:
         return "用户提供链接"

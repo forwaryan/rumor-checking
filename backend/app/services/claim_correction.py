@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 def annotate_claim_corrections(
     claim_results: List[ClaimResult],
     page_bodies: Optional[Dict[str, str]] = None,
+    all_evidence_titles: Optional[List[str]] = None,
 ) -> List[ClaimResult]:
     """For each claim that has evidence, call a lightweight LLM to generate a
     per-claim structured correction if the evidence contradicts the claim's specifics
@@ -32,13 +33,22 @@ def annotate_claim_corrections(
     if not settings.llm_api_key:
         return claim_results
 
-    # Only process claims that have evidence and are fact-type
+    # Only process fact-type claims. Include claims even without bound evidence
+    # if we have all_evidence_titles (the pool may have relevant numbers).
     candidates = [
         (i, cr) for i, cr in enumerate(claim_results)
-        if cr.evidence and cr.claim_type == "fact"
+        if cr.claim_type == "fact" and (cr.evidence or all_evidence_titles)
     ]
     if not candidates:
         return claim_results
+
+    # Build a "pool" context line with ALL retrieval titles containing numbers
+    # so the LLM can see what evidence actually says (not just the 2 bound hits).
+    pool_context = ""
+    if all_evidence_titles:
+        number_titles = [t for t in all_evidence_titles if _NUMBER_RE.search(t)]
+        if number_titles:
+            pool_context = "\n\n全部检索结果（含数字）：\n" + "\n".join(f"- {t}" for t in number_titles[:10])
 
     # Build a single batch prompt for all candidates
     claim_lines = []
@@ -75,7 +85,7 @@ def annotate_claim_corrections(
         '返回JSON数组，每项对应一条claim，格式：[{"correction": {"original": "用户说的", "actual": "证据显示的", "source": "来源标题"}} 或 {"correction": null}]\n'
         "original: claim中不准确的部分(不超过20字)。actual: evidence显示的实际情况(不超过30字)。source: 依据的来源标题(不超过20字)。"
     )
-    user = f"待核查claims:\n{claims_block}"
+    user = f"待核查claims:\n{claims_block}{pool_context}"
 
     # Use a non-reasoning model
     model = "DeepSeek-V4-Flash"
