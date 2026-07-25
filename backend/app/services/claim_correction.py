@@ -1,12 +1,12 @@
 """Per-claim correction: compare each claim against evidence snippets and
-produce a short factual correction when the evidence contradicts or refines
+produce a structured factual correction when the evidence contradicts or refines
 the claim's specific numbers/details."""
 
 from __future__ import annotations
 
 import json
 import logging
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import httpx
 
@@ -16,15 +16,22 @@ from backend.app.models.schemas import ClaimResult
 logger = logging.getLogger(__name__)
 
 
-def annotate_claim_corrections(claim_results: List[ClaimResult]) -> List[ClaimResult]:
+def annotate_claim_corrections(
+    claim_results: List[ClaimResult],
+    page_bodies: Optional[Dict[str, str]] = None,
+) -> List[ClaimResult]:
     """For each claim that has evidence, call a lightweight LLM to generate a
-    per-claim correction if the evidence contradicts the claim's specifics
-    (numbers, names, dates). Returns a new list with `correction` field set."""
+    per-claim structured correction if the evidence contradicts the claim's specifics
+    (numbers, names, dates). Returns a new list with `correction` field set.
+
+    The correction is a dict: {"original": str, "actual": str, "source": str}.
+    Gracefully degrades (returns original results unchanged) on any failure.
+    """
     settings = get_settings()
     if not settings.llm_api_key:
         return claim_results
 
-    # Only process claims that have evidence and are insufficient/refuted
+    # Only process claims that have evidence and are fact-type
     candidates = [
         (i, cr) for i, cr in enumerate(claim_results)
         if cr.evidence and cr.claim_type == "fact"
@@ -36,7 +43,23 @@ def annotate_claim_corrections(claim_results: List[ClaimResult]) -> List[ClaimRe
     claim_lines = []
     for idx, (i, cr) in enumerate(candidates):
         snippets = " | ".join(e.title for e in cr.evidence[:3] if e.title.strip())
-        claim_lines.append(f"{idx+1}. claim: {cr.claim}\n   evidence: {snippets}")
+        # Include page body content if available for richer context
+        extra_context = ""
+        if page_bodies:
+            for e in cr.evidence[:2]:
+                body_text = page_bodies.get(e.url, "")
+                if not body_text:
+                    # Try matching by looking through page_bodies keys
+                    for rid, body in page_bodies.items():
+                        if body:
+                            body_text = body
+                            break
+                if body_text:
+                    extra_context += f"\n   page_text: {body_text[:200]}"
+                    break
+        claim_lines.append(
+            f"{idx+1}. claim: {cr.claim}\n   evidence: {snippets}{extra_context}"
+        )
 
     if not claim_lines:
         return claim_results
@@ -44,9 +67,9 @@ def annotate_claim_corrections(claim_results: List[ClaimResult]) -> List[ClaimRe
     claims_block = "\n".join(claim_lines)
     system = (
         "你是事实核查助手。对每条claim，对比它的evidence，判断claim中的数字/细节是否和evidence不一致。\n"
-        "如果不一致，输出纠正；如果一致或无法判断，输出null。\n"
-        "返回JSON数组，每项对应一条claim，格式：[{\"correction\": \"纠正文本或null\"}]\n"
-        "纠正要具体指出：claim说的是什么，evidence显示实际是什么。不超过40字。"
+        "如果不一致，输出结构化纠正；如果一致或无法判断，输出null。\n"
+        '返回JSON数组，每项对应一条claim，格式：[{"correction": {"original": "用户说的", "actual": "证据显示的", "source": "来源标题"}} 或 {"correction": null}]\n'
+        "original: claim中不准确的部分(不超过20字)。actual: evidence显示的实际情况(不超过30字)。source: 依据的来源标题(不超过20字)。"
     )
     user = f"待核查claims:\n{claims_block}"
 
@@ -65,7 +88,7 @@ def annotate_claim_corrections(claim_results: List[ClaimResult]) -> List[ClaimRe
             json={
                 "model": model,
                 "temperature": 0.2,
-                "max_tokens": 512,
+                "max_tokens": 1024,
                 "messages": [
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
@@ -91,8 +114,19 @@ def annotate_claim_corrections(claim_results: List[ClaimResult]) -> List[ClaimRe
         # Apply corrections
         updated = list(claim_results)
         for (i, _cr), corr in zip(candidates, corrections):
-            if corr and corr != "null" and len(corr) <= 80:
-                updated[i] = updated[i].model_copy(update={"correction": corr})
+            if corr and isinstance(corr, dict):
+                # Validate the structured correction has required fields
+                original = corr.get("original", "")
+                actual = corr.get("actual", "")
+                source = corr.get("source", "")
+                if original and actual:
+                    updated[i] = updated[i].model_copy(
+                        update={"correction": {
+                            "original": original[:40],
+                            "actual": actual[:60],
+                            "source": source[:40],
+                        }}
+                    )
         return updated
 
     except Exception as exc:
@@ -100,29 +134,37 @@ def annotate_claim_corrections(claim_results: List[ClaimResult]) -> List[ClaimRe
         return claim_results
 
 
-def _parse_corrections(content: str) -> Optional[List[Optional[str]]]:
-    """Extract a JSON array of correction strings from LLM output."""
+def _parse_corrections(content: str) -> Optional[List[Optional[Dict[str, str]]]]:
+    """Extract a JSON array of structured correction objects from LLM output."""
+    import re
+
+    def _extract_item(item: object) -> Optional[Dict[str, str]]:
+        if not isinstance(item, dict):
+            return None
+        corr = item.get("correction")
+        if corr is None or corr == "null":
+            return None
+        if isinstance(corr, str):
+            # Legacy string format — skip (we want structured)
+            return None
+        if isinstance(corr, dict):
+            return corr
+        return None
+
     # Try direct parse
     try:
         arr = json.loads(content)
         if isinstance(arr, list):
-            return [
-                item.get("correction") if isinstance(item, dict) else None
-                for item in arr
-            ]
+            return [_extract_item(item) for item in arr]
     except json.JSONDecodeError:
         pass
     # Try extracting from markdown fencing
-    import re
     match = re.search(r"\[.*\]", content, re.DOTALL)
     if match:
         try:
             arr = json.loads(match.group(0))
             if isinstance(arr, list):
-                return [
-                    item.get("correction") if isinstance(item, dict) else None
-                    for item in arr
-                ]
+                return [_extract_item(item) for item in arr]
         except json.JSONDecodeError:
             pass
     return None

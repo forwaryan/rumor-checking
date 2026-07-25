@@ -69,7 +69,25 @@ Rules:
 - `follow_up_query` should be 4 to 10 concise search terms derived from the selected hit. If no stable anchor exists, return null.
 - Output JSON only.
 """.strip()
-SYNTHESIS_SYSTEM_PROMPT = """
+# NOTE: SYNTHESIS_SYSTEM_PROMPT (original full-output version) kept as backup.
+# It required claims + event + scenarios + timeline, causing V4-Flash truncation.
+# Replaced by CLAIMS_ONLY_SYSTEM_PROMPT below for production use.
+#
+# SYNTHESIS_SYSTEM_PROMPT = """
+# You are the evidence-grounded synthesis stage for a rumor-checking backend.
+# You must use only the supplied retrieval hits and event context.
+#
+# Return one JSON object with this schema:
+# {
+#   "claims": [...],
+#   "event": { "title": ..., "summary": ..., "source_name": ..., "published_at": ..., "anchor_result_id": ... },
+#   "scenarios": [{ "label": ..., "probability": 0-100, "basis": ..., "summary": ... }],
+#   "timeline": [{ "node_type": ..., "result_id": ..., "summary": ..., "why_selected": ... }]
+# }
+# (Full original prompt omitted for brevity — see git history for complete text.)
+# """
+
+CLAIMS_ONLY_SYSTEM_PROMPT = """
 You are the evidence-grounded synthesis stage for a rumor-checking backend.
 You must use only the supplied retrieval hits and event context.
 
@@ -86,86 +104,36 @@ Return one JSON object with this schema:
       "evidence_result_ids": ["result_id"],
       "notes": "string (≤60 Chinese chars)"
     }
-  ],
-  "event": {
-    "title": "string or null (≤30 chars)",
-    "summary": "string or null (≤60 chars)",
-    "source_name": "string or null",
-    "published_at": "ISO-8601 / YYYY-MM-DD / null",
-    "anchor_result_id": "string or null"
-  },
-  "scenarios": [
-    {
-      "label": "string — a distinct way the whole message could be true/false",
-      "probability": 0-100,
-      "basis": "evidence|prior",
-      "summary": "string (≤50 chars)"
-    }
-  ],
-  "timeline": [
-    {
-      "node_type": "origin|amplification|peak|turn|clarification",
-      "result_id": "string",
-      "summary": "string or null (≤50 chars)",
-      "why_selected": "string (≤40 chars)"
-    }
   ]
 }
 
-Output the keys in EXACTLY this order: claims first, then event, scenarios, timeline.
-The claims are the most important output — emit them first so they are complete even
-if the response is long. Keep every free-text field within its char cap; do not write
-long paragraphs. Think briefly, then output the JSON — a very long chain-of-thought
-risks the answer being cut off before the JSON is complete.
+Think briefly, then output the JSON. Keep notes within the char cap.
 
 Rules:
 - Use only supplied retrieval hits. Never invent result ids, evidence, or URLs.
-- Claims must be atomic and directly checkable. Prefer 1 to 4 claims, but splitting a
-  core+detail pair (see CLAIM DECOMPOSITION) may take you up to 6 — that is fine.
-- CLAIM DECOMPOSITION — split a verified core from an unverified detail (read carefully):
-  - A rumor often glues a checkable CORE fact to a specific QUANTIFIER or QUALIFIER
-    (an exact count, an exact headcount, a role/scope restriction, a precise date).
-    When the hits support the core but NOT the specific detail, DO NOT emit one bundled
-    claim and mark the whole thing insufficient — that buries a real supported fact under
-    one unproven modifier. Instead emit TWO atomic claims:
-      1. the CORE (evidence supports it → `supported`), and
-      2. the DETAIL alone (no evidence for the exact number/scope → `insufficient`).
-  - Example: input "买了三栋楼、招了5000研发". If hits confirm 购置办公楼 and 5000招聘名额
-    but not "三栋" or "研发岗", emit: (a) "购置了办公楼" supported, (b) "办公楼数量为三栋"
-    insufficient, (c) "招聘名额约5000" supported, (d) "招聘岗位均为研发" insufficient.
-  - Keep each split claim self-contained (name the subject in every claim; never rely on
-    "它/该数量" back-references). The core claim carries its own evidence_result_ids.
-- PROBABILITY (independent of verdict — read carefully):
-  - `truth_probability` = your best estimate of P(this claim is literally true), 0-100.
-  - `probability_basis` = "evidence" ONLY if the supplied hits actually bear on this claim;
-    otherwise "prior" (you are using world knowledge / common sense, not the hits).
-  - You MUST still give a number even with zero relevant evidence — use your prior and mark
-    basis="prior". Example: a well-known company plausibly owns buildings (high prior), but a
-    very specific unverified combo (a named city + an exact count + an exact headcount) is
-    individually unlikely and unsupported → low probability, basis="prior".
-  - Probability does NOT change the verdict. A claim can be `insufficient` (no evidence) yet
-    still carry, say, truth_probability 15 with basis="prior". Keep the two independent.
-- `scenarios`: 2 to 4 MUTUALLY EXCLUSIVE ways the WHOLE input could turn out (e.g. 基本属实 /
-  部分属实但细节被夸大失真 / 暂无法证实 / 纯属虚构). Their `probability` values MUST sum to ~100.
-  Set basis="evidence" for a scenario grounded in the hits, else "prior".
-- CRITICAL — how to pick each verdict (follow this decision procedure exactly):
-  1. Find hits that are about the SAME subject AND the SAME action/topic as the claim.
-  2. If there are NONE (the hits are about other topics, other companies, or you find yourself
-     writing "没提到/未找到/没有相关信息/not mentioned" in notes) → verdict = `insufficient`.
-     Never write `refuted` to mean "I could not find supporting evidence". Not finding proof is
-     NOT the same as finding disproof.
-  3. Use `refuted` ONLY when a hit EXPLICITLY denies/debunks/contradicts THIS claim's action for
-     THIS subject (e.g. an official statement "我们没有造游轮" / a debunk of this exact event).
-     A denial about a different topic by the same entity (e.g. "京东辟谣稳定币传闻" for a claim
-     about 京东造游轮) is NOT a refutation → `insufficient`.
-  4. Use `supported` only with evidence that directly affirms the claim (respect scope, see below).
-  5. Use `conflicting` when reputable hits both affirm and deny the SAME claim.
-- Scope/quantifier discipline: if a claim uses an absolute scope ("all / only / every / none / 都是/全部/仅/无一例外/清一色"), it is `supported` ONLY when the evidence explicitly covers the ENTIRE scope. If the evidence supports just part of it (e.g. the claim says "all roles are R&D" but the evidence lists R&D AND non-R&D roles such as management/operations/QA), you MUST NOT mark it `supported` — use `insufficient` (or `refuted` if the evidence directly contradicts the absolute), and state in `notes` that the evidence only covers part of the claimed scope.
-- If the question is about a broad pattern and the hits support that pattern across multiple incidents, you may answer at the pattern level instead of forcing one person.
-- Do not emit `supported`, `refuted`, or `conflicting` without at least one valid `evidence_result_id`.
-- Timeline nodes must reference supplied result ids and should be chronological when possible.
+- Claims must be atomic and directly checkable. Prefer 1 to 4 claims, up to 6 if splitting.
+- CLAIM DECOMPOSITION — split a verified core from an unverified detail:
+  - When the hits support the core but NOT a specific quantifier/qualifier, emit TWO claims:
+    1. the CORE (supported), and 2. the DETAIL alone (insufficient).
+  - Keep each split claim self-contained (name the subject; no back-references).
+- PROBABILITY (independent of verdict):
+  - `truth_probability` = P(this claim is literally true), 0-100.
+  - `probability_basis` = "evidence" ONLY if hits bear on this claim; else "prior".
+  - You MUST give a number even with zero evidence — use prior.
+  - Probability does NOT change the verdict. Keep the two independent.
+- CRITICAL verdict decision procedure:
+  1. Find hits about the SAME subject AND action as the claim.
+  2. If NONE → `insufficient`. Not finding proof ≠ disproof.
+  3. `refuted` ONLY when a hit EXPLICITLY contradicts THIS claim for THIS subject.
+  4. `supported` only with evidence that directly affirms the claim (respect scope).
+  5. `conflicting` when reputable hits both affirm and deny the SAME claim.
+- Scope discipline: absolute-scope claims need full-scope evidence for `supported`.
+- Do not emit `supported`/`refuted`/`conflicting` without at least one valid evidence_result_id.
 - Output JSON only.
 """.strip()
+
+# Keep the old constant name as an alias so any external references still resolve.
+SYNTHESIS_SYSTEM_PROMPT = CLAIMS_ONLY_SYSTEM_PROMPT
 INVESTIGATION_PLAN_SYSTEM_PROMPT = """
 You are the investigation-planning stage for a rumor-checking backend.
 You see the current event context and a compact snapshot of the evidence gathered so far.
@@ -348,7 +316,7 @@ class LlmAgentReasoner:
         content = self._request_completion(
             stage_key="agent_synthesis",
             title="调用 Agent synthesis",
-            system_prompt=SYNTHESIS_SYSTEM_PROMPT,
+            system_prompt=CLAIMS_ONLY_SYSTEM_PROMPT,
             user_prompt=self._build_synthesis_prompt(
                 request=request,
                 event=event,

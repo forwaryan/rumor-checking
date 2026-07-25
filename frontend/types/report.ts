@@ -199,6 +199,12 @@ export interface Evidence {
   source_tier: SourceTier;
 }
 
+export interface ClaimCorrection {
+  original: string;
+  actual: string;
+  source: string;
+}
+
 export interface ClaimResult {
   claim: string;
   claim_type: ClaimType;
@@ -208,7 +214,7 @@ export interface ClaimResult {
   probability_basis?: ProbabilityBasis | null;
   evidence: Evidence[];
   notes: string;
-  correction?: string | null;
+  correction?: ClaimCorrection | null;
 }
 
 export interface InvestigationStep {

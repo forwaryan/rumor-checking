@@ -446,6 +446,38 @@ a:hover { text-decoration: underline; }
   margin-right: 0.4rem;
 }
 
+/* === Correction comparison table === */
+.correction-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.25rem;
+  font-size: 0.78rem;
+}
+.correction-table__key {
+  white-space: nowrap;
+  padding: 0.2rem 0.5rem 0.2rem 0;
+  color: var(--muted);
+  font-weight: 500;
+  vertical-align: top;
+  width: 3.5rem;
+}
+.correction-table__val {
+  padding: 0.2rem 0;
+  word-break: break-all;
+}
+.correction-table__val--original {
+  text-decoration: line-through;
+  color: var(--red);
+}
+.correction-table__val--actual {
+  color: var(--green);
+  font-weight: 500;
+}
+.correction-table__val--source {
+  color: var(--muted);
+  font-style: italic;
+}
+
 .claim-item__tags {
   display: flex;
   flex-wrap: wrap;

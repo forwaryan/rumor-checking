@@ -19,6 +19,7 @@ from backend.app.services.entity_anchor import (
 )
 from backend.app.services.question_intent import detect_trend_topic, is_broad_trend_claim
 from backend.app.services.claim_correction import annotate_claim_corrections
+from backend.app.services.page_fetcher import fetch_page_snippets
 from backend.app.services.retrieval_models import RetrievalBundle
 
 CLAIM_NEGATION_MARKERS = (
@@ -222,6 +223,11 @@ class VerdictEngine:
             retrieval_bundle=retrieval_bundle,
         )
 
+        # Fetch page content for top results to enrich correction context
+        page_bodies: dict[str, str] = {}
+        if retrieval_bundle and retrieval_bundle.canonical_results:
+            page_bodies = fetch_page_snippets(retrieval_bundle.canonical_results)
+
         results: List[ClaimResult] = []
         for claim in claims:
             if claim.claim_type in {"opinion", "prediction", "unverifiable"}:
@@ -267,7 +273,7 @@ class VerdictEngine:
                 )
             )
 
-        results = annotate_claim_corrections(results)
+        results = annotate_claim_corrections(results, page_bodies=page_bodies)
 
         return VerdictEvaluation(
             claim_results=results,

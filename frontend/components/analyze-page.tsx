@@ -513,7 +513,24 @@ export function AnalyzePage() {
                       {claim.correction && (
                         <div className="claim-item__correction">
                           <span className="claim-item__correction-label">纠正</span>
-                          {claim.correction}
+                          <table className="correction-table">
+                            <tbody>
+                              <tr>
+                                <td className="correction-table__key">原文说</td>
+                                <td className="correction-table__val correction-table__val--original">{claim.correction.original}</td>
+                              </tr>
+                              <tr>
+                                <td className="correction-table__key">实际是</td>
+                                <td className="correction-table__val correction-table__val--actual">{claim.correction.actual}</td>
+                              </tr>
+                              {claim.correction.source && (
+                                <tr>
+                                  <td className="correction-table__key">依据</td>
+                                  <td className="correction-table__val correction-table__val--source">{claim.correction.source}</td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
                         </div>
                       )}
                     </div>
