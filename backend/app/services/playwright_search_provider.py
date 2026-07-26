@@ -35,6 +35,18 @@ class _FetchMeta:
 # only these is not on-topic.
 _GENERIC_QUERY_CHARS = set("的了吗呢啊是不有和与或在为对吗真假事件消息新闻网传")
 
+# Multi-char segments too common to serve as compound match units. These appear in
+# almost any Chinese article and carry no subject/topic signal. A result matching
+# ONLY these (with no entity/action compound) is still noise.
+_GENERIC_COMPOUND_STOPWORDS = {
+    "最近", "近日", "近期", "目前", "现在", "如今", "已经", "之后",
+    "今天", "昨天", "当前", "关于", "有关", "所有", "一些", "很多",
+    "可能", "应该", "一个", "这个", "那个", "其中", "的是", "这是",
+    "而且", "但是", "因为", "所以", "如果", "虽然", "不过", "然而",
+    "其他", "什么", "怎么", "为什么", "哪些", "大家", "他们", "我们",
+    "自己", "之前", "以后", "以来", "的人", "的事", "表示", "进行",
+}
+
 
 def _source_name_from_url(url: str) -> str:
     hostname = urlparse(url).netloc.lower()
@@ -67,39 +79,58 @@ class PlaywrightSearchProvider:
             results = self._search_bing(query_text)
         return self._drop_tokenization_junk(query_text, results)
 
-    def _query_topical_units(self, query_text: str) -> set[str]:
-        """Topical match units of a query: multi-char alnum tokens and individual
-        CJK characters, minus generic function words. A result must overlap these
-        to count as on-topic."""
-        units: set[str] = set()
-        for token in re.findall(r"[A-Za-z0-9%]{2,}", query_text):
-            units.add(token.lower())
-        for char in re.findall(r"[一-鿿]", query_text):
-            if char not in _GENERIC_QUERY_CHARS:
-                units.add(char)
-        return units
+    def _query_topical_units(self, query_text: str) -> tuple[set[str], set[str]]:
+        """Extract topical units at two granularities:
 
-    def _looks_like_tokenization_junk(self, query_units: set[str], result: SearchResult) -> bool:
-        """A result is tokenization junk when it overlaps the query on at most one
-        topical unit — the shape Bing cn produces when it collapses a multi-word
-        Chinese query down to a single high-IDF character (returning 京-the-character
-        pages for "京东造游轮"). Genuinely relevant results touch two or more
-        distinct query units."""
+        - compound: 2-char CJK bigrams and alphanumeric tokens like "30%".
+          These carry moderate-to-strong topical signal (e.g. "美团", "裁员").
+        - single: individual CJK characters minus generic function words.
+          These supplement compound matches but are too weak on their own.
+
+        Returns (compound_units, single_char_units).
+        """
+        compound: set[str] = set()
+        singles: set[str] = set()
+        # Alphanumeric tokens (percentages, English names)
+        for token in re.findall(r"[A-Za-z0-9%]{2,}", query_text):
+            compound.add(token.lower())
+        # CJK bigrams from content chars only (skip function-word chars)
+        cjk_chars = [c for c in re.findall(r"[一-鿿]", query_text) if c not in _GENERIC_QUERY_CHARS]
+        for i in range(len(cjk_chars) - 1):
+            bigram = cjk_chars[i] + cjk_chars[i + 1]
+            if bigram not in _GENERIC_COMPOUND_STOPWORDS:
+                compound.add(bigram)
+        # Single CJK chars for fallback scoring
+        for char in cjk_chars:
+            singles.add(char)
+        return compound, singles
+
+    def _looks_like_tokenization_junk(self, compound_units: set[str], single_units: set[str], result: SearchResult) -> bool:
+        """A result is junk when it fails to match the query's core subject.
+
+        Matching strategy (ordered):
+        1. If any compound unit (entity like "美团", number like "30%") appears → keep.
+        2. Otherwise, require ≥3 single-char hits to survive — 2 single chars
+           is too easy to satisfy by coincidence (e.g. '裁' + '近' matching an
+           unrelated layoff article).
+        """
         haystack = f"{result.title} {result.snippet}".lower()
-        matched = sum(1 for unit in query_units if unit in haystack)
-        return matched < 2
+        if any(unit in haystack for unit in compound_units):
+            return False
+        matched_singles = sum(1 for unit in single_units if unit in haystack)
+        return matched_singles < 3
 
     def _drop_tokenization_junk(self, query_text: str, results: List[SearchResult]) -> List[SearchResult]:
-        query_units = self._query_topical_units(query_text)
-        if len(query_units) < 2:
+        compound_units, single_units = self._query_topical_units(query_text)
+        if not compound_units and len(single_units) < 2:
             return results
-        kept = [r for r in results if not self._looks_like_tokenization_junk(query_units, r)]
+        kept = [r for r in results if not self._looks_like_tokenization_junk(compound_units, single_units, r)]
         if not kept:
             logger.info("playwright_junk_filter_kept_all query=%s count=%s", query_text, len(results))
             return results
         if len(kept) < len(results):
             dropped_count = len(results) - len(kept)
-            dropped_titles = [r.title[:40] for r in results if self._looks_like_tokenization_junk(query_units, r)]
+            dropped_titles = [r.title[:40] for r in results if self._looks_like_tokenization_junk(compound_units, single_units, r)]
             logger.info("playwright_junk_filter_dropped query=%s kept=%s of=%s", query_text, len(kept), len(results))
             emit_api_call(
                 stage_key=get_retrieval_stage_key() or "retrieval_initial",

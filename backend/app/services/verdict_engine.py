@@ -456,7 +456,11 @@ class VerdictEngine:
                 confidence = self._confidence_from_high_trust_hits(high_trust_hits)
                 return "supported", confidence, "检索到与该说法高度相关的公开来源，当前更倾向于判定为成立。", supporting[:2]
             return "insufficient", "low", "找到了一些相关来源，但可信度还不足以强判。", supporting[:2]
-        return "insufficient", "low", "检索结果与该说法的语义重合仍不足，先保持保守。", relevant[:2]
+        if relevant:
+            return "insufficient", "low", "检索到了相关主体的公开报道，但其内容未直接涉及该具体说法，无法判定。", relevant[:2]
+        if subject_anchors:
+            return "insufficient", "low", f"已联网检索，未找到直接提及「{'、'.join(subject_anchors[:2])}」与该说法相关的公开报道。", []
+        return "insufficient", "low", "检索结果与该说法的语义重合仍不足，先保持保守。", []
 
     def _subject_anchors_for_claim(self, *, claim_text: str, event: NormalizedEvent) -> List[str]:
         if is_broad_trend_claim(claim_text):

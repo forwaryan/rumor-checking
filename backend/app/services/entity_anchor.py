@@ -40,6 +40,8 @@ ENTITY_SUFFIXES = (
 )
 ACTION_MARKERS = (
     "裁员",
+    "裁了",
+    "裁掉",
     "去世",
     "死亡",
     "脑出血",

@@ -141,7 +141,7 @@ def test_enrich_produces_timeline_and_scenarios(monkeypatch):
         _search_result("r3", title="官方回应", snippet="未予证实"),
     )
     result_map = {sr.result_id: sr for sr in bundle.canonical_results}
-    claims = [_claim("拼多多买了5栋楼。", "insufficient")]
+    claims = [_claim("拼多多买了5栋楼。", "supported")]
 
     resp = json.dumps({
         "event": {"title": "拼多多雄安买楼传闻", "summary": "网传拼多多在雄安买入多栋办公楼"},
@@ -174,7 +174,7 @@ def test_enrich_degrades_on_failure(monkeypatch):
     r = _reasoner()
     bundle = _bundle(_search_result("r1"))
     result_map = {"r1": bundle.canonical_results[0]}
-    claims = [_claim("某事。", "insufficient")]
+    claims = [_claim("某事。", "supported")]
 
     monkeypatch.setattr(r, "_request_completion", lambda **kw: "")
 
@@ -200,7 +200,7 @@ def test_enrich_handles_partial_response(monkeypatch):
     r = _reasoner()
     bundle = _bundle(_search_result("r1"))
     result_map = {"r1": bundle.canonical_results[0]}
-    claims = [_claim("某事。", "insufficient")]
+    claims = [_claim("某事。", "supported")]
 
     # Only scenarios, no timeline or event
     resp = json.dumps({

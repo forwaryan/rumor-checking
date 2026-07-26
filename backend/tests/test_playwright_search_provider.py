@@ -180,3 +180,30 @@ def test_short_query_skips_junk_filter(monkeypatch):
     results = p.search("京")
     assert [r.result_id for r in results] == ["x"]
 
+
+def test_subject_mismatch_dropped_by_compound_filter(monkeypatch):
+    """A result about a DIFFERENT company's layoffs should be dropped even if
+    individual characters like '裁' or '近' match."""
+    p = _provider()
+    on_topic = _result("meituan", "美团回应裁员传闻", "美团否认大规模裁员", query="美团最近裁了30%的产品")
+    off_topic = _result("other", "知名互联网电商企业被曝技术部裁员80%", "股价大跌近80%", query="美团最近裁了30%的产品")
+    monkeypatch.setattr(p, "_search_baidu", lambda q: [on_topic, off_topic])
+
+    results = p.search("美团最近裁了30%的产品")
+    ids = [r.result_id for r in results]
+    assert "meituan" in ids
+    assert "other" not in ids
+
+
+def test_compound_filter_still_keeps_subject_related_hits(monkeypatch):
+    """Results about the correct subject (even if predicate differs) survive."""
+    p = _provider()
+    rider_news = _result("riders", "美团骑手收入引热议", "呼吁大家理性看待", query="美团最近裁了30%的产品")
+    layoff_news = _result("layoff", "美团产品经理大规模裁员", "30%产品岗被裁", query="美团最近裁了30%的产品")
+    monkeypatch.setattr(p, "_search_baidu", lambda q: [rider_news, layoff_news])
+
+    results = p.search("美团最近裁了30%的产品")
+    ids = [r.result_id for r in results]
+    assert "riders" in ids
+    assert "layoff" in ids
+
