@@ -191,21 +191,26 @@ _NUMBER_RE = re.compile(r"\d+(?:\.\d+)?(?:[万亿千百十])?")
 
 def _parse_chinese_numeral(text: str) -> Optional[int]:
     """Parse a contiguous Chinese-numeral run into an int (万/亿 close a section).
-    Returns None if the run contains nothing numeric. Best-effort: mixed or
-    malformed runs degrade to a partial value rather than raising."""
+    Returns None unless the run contains an actual digit word (一二三…): a run of
+    bare unit chars alone ("万" in 万元/万达, "十" in 十字路口, "千" in 千米) is NOT a
+    number and must not enter the grounding pool, or a hallucinated "10000人" would
+    ground against the "万" in an unrelated "万元营收". Best-effort: mixed/malformed
+    runs degrade to a partial value rather than raising."""
     total = 0      # accumulated value of closed sections (>= 万)
     section = 0    # value of the section currently being built
     cur = 0        # pending single digit awaiting a unit
-    seen = False
+    has_digit = False  # a real digit word (not a bare unit) appeared
     for ch in text:
         if ch in _CN_DIGITS:
             cur = _CN_DIGITS[ch]
-            seen = True
+            has_digit = True
         elif ch in _CN_UNITS:
             unit = _CN_UNITS[ch]
-            seen = True
             if unit >= 10000:  # 万/亿 close and scale the whole section so far
-                section = section + (cur or 1)
+                # Default to 1 only when the section is genuinely empty ("万"=1万);
+                # if 千/百/十 already built a section value, adding 1 would corrupt it
+                # (一千万 must be 1000*10000, not 1001*10000).
+                section = section + cur if (section or cur) else 1
                 total += section * unit
                 section = 0
                 cur = 0
@@ -214,7 +219,7 @@ def _parse_chinese_numeral(text: str) -> Optional[int]:
                 cur = 0
         else:
             return None
-    if not seen:
+    if not has_digit:
         return None
     return total + section + cur
 

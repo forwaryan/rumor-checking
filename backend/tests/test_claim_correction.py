@@ -95,6 +95,26 @@ def test_chinese_numeral_parser():
     assert p("三千五百") == 3500
     assert p("九十九") == 99
     assert p("abc") is None  # non-numeric run
+    # Multi-level compounds must not double-count the leading section.
+    assert p("一千万") == 10_000_000
+    assert p("两亿三千万") == 230_000_000
+    assert p("一万零一") == 10_001
+    # Bare unit chars with NO digit word are NOT numbers (万元/十字路口/千米).
+    assert p("万") is None
+    assert p("十") is None
+    assert p("千") is None
+
+
+def test_bare_scale_units_do_not_pollute_grounding_pool():
+    # Regression: a bare "万" in "万元营收" must not inject 10000 into the pool, or a
+    # hallucinated "10000人" would ground against unrelated revenue wording.
+    from backend.app.services.claim_correction import (
+        _extract_numbers_from_text as f,
+        _actual_is_grounded as g,
+    )
+    assert f("公司万元营收增长") == set() or "10000" not in f("公司万元营收增长")
+    assert f("万达广场十字路口") == set() or not (f("万达广场十字路口") & {"10000", "10"})
+    assert g("实际10000人", f("公司万元营收增长")) is False
 
 
 def test_number_extraction_bridges_chinese_and_arabic():
