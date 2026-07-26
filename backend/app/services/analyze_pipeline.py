@@ -263,27 +263,31 @@ class AnalyzePipeline:
 
             # --- Per-claim focused retrieval for weak claims (deep_mode only) ---
             # Fires AFTER initial verdict so we know which specific claims lack evidence.
+            # Iterates up to 3 times: search → re-judge → check if still weak → repeat.
             if deep_mode:
-                has_weak = any(
-                    cr.claim_type == "fact" and cr.verdict == "insufficient"
-                    for cr in verdict.claim_results
-                )
-                if has_weak:
+                for _iteration in range(3):
+                    has_weak = any(
+                        cr.claim_type == "fact" and cr.verdict == "insufficient"
+                        for cr in verdict.claim_results
+                    )
+                    if not has_weak:
+                        break
                     enriched_bundle = enrich_retrieval_for_claims(
                         claims=claim_extraction.claims,
                         retrieval_bundle=retrieval_bundle,
                         retrieval_service=self.retriever,
                         resolved_event=resolved_event,
+                        iteration=_iteration,
                     )
-                    if enriched_bundle is not retrieval_bundle:
-                        retrieval_bundle = enriched_bundle
-                        # Re-judge with enriched evidence
-                        verdict = self.verdict_engine.evaluate_with_source(
-                            request=request,
-                            event=event,
-                            claims=claim_extraction.claims,
-                            retrieval_bundle=retrieval_bundle,
-                        )
+                    if enriched_bundle is retrieval_bundle:
+                        break
+                    retrieval_bundle = enriched_bundle
+                    verdict = self.verdict_engine.evaluate_with_source(
+                        request=request,
+                        event=event,
+                        claims=claim_extraction.claims,
+                        retrieval_bundle=retrieval_bundle,
+                    )
 
             emit_stage(
                 stage_key="timeline_builder",

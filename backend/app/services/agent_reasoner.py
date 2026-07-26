@@ -67,7 +67,7 @@ Rules:
 - If the question is broad, ambiguous, or trend-like, do not force a single anchor. Return null.
 - Only choose a result when the title/snippet clearly matches the same event the user is asking about.
 - `follow_up_query` should be 4 to 10 concise search terms derived from the selected hit. If no stable anchor exists, return null.
-- Output JSON only.
+- Output a single raw JSON object ONLY: no markdown, no ```json code fences, no prose before or after. Escape every double-quote that appears inside a string value as \\".
 """.strip()
 # NOTE: SYNTHESIS_SYSTEM_PROMPT (original full-output version) kept as backup.
 # It required claims + event + scenarios + timeline, causing V4-Flash truncation.
@@ -129,7 +129,7 @@ Rules:
   5. `conflicting` when reputable hits both affirm and deny the SAME claim.
 - Scope discipline: absolute-scope claims need full-scope evidence for `supported`.
 - Do not emit `supported`/`refuted`/`conflicting` without at least one valid evidence_result_id.
-- Output JSON only.
+- Output a single raw JSON object ONLY: no markdown, no ```json code fences, no prose before or after. Escape every double-quote that appears inside a string value as \\".
 """.strip()
 
 # Keep the old constant name as an alias so any external references still resolve.
@@ -153,7 +153,7 @@ Rules:
 - `follow_up_query` should be 4 to 10 concise search terms. If you would not continue, return null.
 - If the evidence is already strong and independently corroborated, set should_continue to false.
 - Never invent facts. Base the decision only on the supplied snapshot.
-- Output JSON only.
+- Output a single raw JSON object ONLY: no markdown, no ```json code fences, no prose before or after. Escape every double-quote that appears inside a string value as \\".
 """.strip()
 NEXT_ACTION_SYSTEM_PROMPT = """
 You are the planner for a rumor-checking investigation agent.
@@ -181,7 +181,7 @@ Rules:
   its full text would likely settle the claim. Use sparingly (each fetch is a live HTTP round).
 - Prefer "synthesize" when evidence is already strong and independently corroborated, or when
   further searching is unlikely to help.
-- Output JSON only.
+- Output a single raw JSON object ONLY: no markdown, no ```json code fences, no prose before or after. Escape every double-quote that appears inside a string value as \\".
 """.strip()
 QUERY_TERMS_SYSTEM_PROMPT = """
 You turn a rumor/claim into effective web-search queries for a rumor-checking backend.
@@ -200,7 +200,7 @@ Rules:
   action is 造/布局 游轮/邮轮 — the query must center on that subject, not generic "游轮".
 - primary_query must be search terms, NOT the original sentence. Drop filler like 而且/早在/就打算.
 - Include obvious aliases that help retrieval (brand names, parent company, person behind it).
-- Output JSON only.
+- Output a single raw JSON object ONLY: no markdown, no ```json code fences, no prose before or after. Escape every double-quote that appears inside a string value as \\".
 """.strip()
 
 
@@ -331,6 +331,10 @@ class LlmAgentReasoner:
             # before it (observed: 11k CoT chars + a partial body hitting the 200s
             # deadline). Give this one call more wall-clock so the body completes.
             timeout_multiplier=self.settings.llm_synthesis_timeout_multiplier,
+            # Opt-in: route only synthesis to LLM_SYNTHESIS_MODEL (e.g. a reasoning
+            # model that produces correct claim splits) while the short planner /
+            # investigation calls stay on the fast default.
+            model=self._synthesis_model(),
         )
         payload = self._extract_json_payload(content)
         if payload is None:
@@ -518,8 +522,9 @@ class LlmAgentReasoner:
         user_prompt: str,
         is_valid: Optional[Any] = None,
         timeout_multiplier: float = 1.0,
+        model: Optional[str] = None,
     ) -> str:
-        model = self._reasoning_model()
+        model = model or self._reasoning_model()
         endpoint = f"{self.settings.base_url_for_model(model)}/chat/completions"
         # An empty completion is always retryable — the caller can't parse it either
         # way — and empties happen to BOTH families on this gateway: reasoning models
@@ -612,8 +617,14 @@ class LlmAgentReasoner:
 
         Two model families need different handling:
 
-        - **Fast models**: pin response_format=json_object, a modest token budget,
-          and the short provider timeout. They answer immediately.
+        - **Fast models**: a modest token budget and the short provider timeout.
+          They answer immediately. We do NOT pin response_format=json_object:
+          measured on this gateway, json_object pushes V4-Flash's first token from
+          ~1s to ~21s and makes it slow-trickle until the wall-clock deadline cuts
+          it off mid-JSON (the truncated-synthesis + truncated-planner failure).
+          Prompts already instruct "output JSON only" and the lenient parser
+          recovers a fenced/sliced block, so the constraint bought nothing but the
+          stall.
         - **Reasoning models**: emit a long chain-of-thought in `reasoning_content`
           BEFORE any `content` (observed: 124s of CoT, then a clean ```json answer,
           finish=stop). They need a large token budget (else the CoT eats it and no
@@ -645,10 +656,10 @@ class LlmAgentReasoner:
                 {"role": "user", "content": user_prompt},
             ],
         }
-        # json_object stalls reasoning models; they still return a fenced ```json
-        # block that loads_lenient_json recovers, so only pin it for fast models.
-        if not is_reasoning:
-            body["response_format"] = {"type": "json_object"}
+        # No response_format=json_object for EITHER family: it stalls reasoning
+        # models into zero output, and on this gateway it also makes fast models
+        # slow-trickle to the deadline and truncate. Both are prompted to "output
+        # JSON only" and the caller's lenient parser recovers a fenced/sliced block.
 
         parts: list[str] = []
         char_budget = max_tokens * _STREAM_CHARS_PER_TOKEN
@@ -724,6 +735,16 @@ class LlmAgentReasoner:
         if self.model_override:
             return self.model_override
         return self.settings.llm_search_model.strip() or self.settings.llm_model.strip()
+
+    def _synthesis_model(self) -> str:
+        """Model for the one heavy synthesis call. A per-request picker override
+        always wins. Otherwise, if LLM_SYNTHESIS_MODEL is set, synthesis routes
+        there (opt-in — typically a slower reasoning model that produces correct
+        claim splits) while planner/investigation stay on the fast default. Unset
+        keeps synthesis on the same model as everything else."""
+        if self.model_override:
+            return self.model_override
+        return self.settings.llm_synthesis_model.strip() or self._reasoning_model()
 
     def _request_temperature(self, model: str) -> float:
         return self.settings.llm_temperature

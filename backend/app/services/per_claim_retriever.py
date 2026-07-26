@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import replace
-from typing import List
+from typing import List, Optional
 
 from backend.app.models.schemas import ClaimItem, NormalizedEvent
 from backend.app.services.progress import emit_log, emit_stage
@@ -33,13 +33,25 @@ _FILLER_RE = re.compile(
 _WHITESPACE_RE = re.compile(r"\s+")
 _NUMBER_RE = re.compile(r"\d+(?:\.\d+)?[万亿千百十人名个条栋]?")
 
+# Query variant suffixes for multi-round diversification.
+# Each iteration appends different angle-keywords to avoid searching the same
+# terms repeatedly and surface different source types.
+_QUERY_ANGLES = [
+    [],                                    # Round 1: plain subject+number
+    ["真实数量", "实际", "官方数据"],       # Round 2: look for official/real numbers
+    ["官方回应", "辟谣", "通报"],           # Round 3: look for official denials/responses
+]
 
-def _build_focused_query(claim_text: str) -> str:
+
+def _build_focused_query(claim_text: str, iteration: int = 0) -> str:
     """Strip filler words from claim text to produce a focused search query.
 
     Keeps entities, actions, and numbers — strips hedging/question language
     that dilutes SERP relevance. For claims with numbers, constructs a
     number-focused query to find the real figure.
+
+    Different iterations produce different query angles to avoid repeating the
+    same search and surface diverse sources.
     """
     query = _FILLER_RE.sub(" ", claim_text)
     query = _WHITESPACE_RE.sub(" ", query).strip()
@@ -56,12 +68,25 @@ def _build_focused_query(claim_text: str) -> str:
         terms = [t for t in [subject] + places + numbers if t and len(t) >= 2]
         terms = list(dict.fromkeys(terms))
         if len(terms) >= 2:
-            return " ".join(terms[:5])
+            base = " ".join(terms[:4])
+            # Add angle suffix for later iterations
+            angle_idx = min(iteration, len(_QUERY_ANGLES) - 1)
+            angle_terms = _QUERY_ANGLES[angle_idx]
+            if angle_terms:
+                base = f"{base} {angle_terms[0]}"
+            return base
 
     if len(query) < 6:
         query = claim_text.strip()
     if len(query) > 80:
         query = query[:80].rsplit(" ", 1)[0] or query[:80]
+
+    # Add angle suffix for later iterations (non-number claims)
+    angle_idx = min(iteration, len(_QUERY_ANGLES) - 1)
+    angle_terms = _QUERY_ANGLES[angle_idx]
+    if angle_terms and len(query) < 70:
+        query = f"{query} {angle_terms[0]}"
+
     return query
 
 
@@ -82,6 +107,7 @@ def enrich_retrieval_for_claims(
     retrieval_bundle: RetrievalBundle,
     retrieval_service: "RetrievalService",  # noqa: F821 — forward ref to avoid circular import
     resolved_event: NormalizedEvent,
+    iteration: int = 0,
 ) -> RetrievalBundle:
     """Run per-claim focused retrieval and merge results into the bundle.
 
@@ -95,6 +121,9 @@ def enrich_retrieval_for_claims(
         The RetrievalService instance used to execute queries.
     resolved_event:
         The resolved event needed by retrieve_for_event.
+    iteration:
+        The current iteration index (0-based). Later iterations use different
+        query angles to avoid repeating the same searches.
 
     Returns
     -------
@@ -129,7 +158,7 @@ def enrich_retrieval_for_claims(
     queries_failed = 0
 
     for claim in candidates:
-        focused_query = _build_focused_query(claim.claim)
+        focused_query = _build_focused_query(claim.claim, iteration=iteration)
         emit_log(
             stage_key="per_claim_retrieval",
             title="Per-claim query",

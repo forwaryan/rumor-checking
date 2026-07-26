@@ -211,3 +211,262 @@ def test_empty_evidence_without_live_search_keeps_generic_note():
         assert claim_result.verdict == "insufficient"
         assert "已联网检索" not in claim_result.notes
         assert "缺少可核验的证据链" in claim_result.notes
+
+
+# ---------------------------------------------------------------------------
+# Quantitative conflict detection tests
+# ---------------------------------------------------------------------------
+
+
+def test_quantitative_conflict_detection():
+    """When the claim says '6000人' but evidence says '2000人', the verdict
+    should be 'conflicting' because the numbers disagree."""
+    engine = VerdictEngine()
+    event = NormalizedEvent(
+        summary="拼多多在雄安招了6000人",
+        keywords=["拼多多", "雄安"],
+        input_type="text_news",
+        raw_input="拼多多在雄安招了6000人",
+    )
+    claims = [ClaimItem(claim="拼多多在雄安招了6000人。", claim_type="fact")]
+    evidence = [
+        EvidenceItem(
+            title="拼多多雄安研发中心招聘2000人",
+            url="https://news.example.com/pdd-xiongan",
+            source_name="财经日报",
+            published_at="2026-03-10T10:00:00+08:00",
+            snippet="拼多多雄安研发中心目前招聘规模为2000人，并非此前传闻数字。",
+            relevance_reason="同一主题但数字不同。",
+            source_tier="A",
+        ),
+    ]
+
+    result = engine.evaluate(
+        request=AnalyzeRequest(raw_input="拼多多在雄安招了6000人", input_type="text", mock_evidence=evidence),
+        event=event,
+        claims=claims,
+    )
+
+    claim_result = result[0][0]
+    assert claim_result.verdict == "conflicting"
+
+
+# ---------------------------------------------------------------------------
+# Supported verdict with high-trust source tests
+# ---------------------------------------------------------------------------
+
+
+def test_supported_verdict_with_high_trust_source():
+    """When evidence from a high-trust source (tier S/A) directly supports the
+    claim, the verdict should be 'supported'."""
+    engine = VerdictEngine()
+    event = NormalizedEvent(
+        summary="晨星生物裁员40%",
+        keywords=["晨星生物", "裁员"],
+        input_type="text_news",
+        raw_input="晨星生物裁员40%",
+    )
+    claims = [ClaimItem(claim="晨星生物裁员40%。", claim_type="fact")]
+    bundle = RetrievalBundle(
+        query="晨星生物 裁员 40%",
+        provider_name="kimi",
+        canonical_results=(
+            SearchResult(
+                case_id="test",
+                query="晨星生物 裁员 40%",
+                result_id="r1",
+                title="晨星生物宣布裁员40%",
+                url="https://news.example.com/chenxing",
+                source_name="财经日报",
+                published_at="2026-03-12T10:00:00+08:00",
+                snippet="晨星生物公司今日宣布裁员40%，涉及多个部门。",
+                source_tier="S",
+            ),
+            SearchResult(
+                case_id="test",
+                query="晨星生物 裁员 40%",
+                result_id="r2",
+                title="晨星生物大规模裁员已证实",
+                url="https://news.example.com/chenxing-2",
+                source_name="人民网",
+                published_at="2026-03-13T10:00:00+08:00",
+                snippet="多家媒体证实晨星生物确实裁员40%，员工已收到通知。",
+                source_tier="A",
+            ),
+        ),
+    )
+
+    result = engine.evaluate_with_source(
+        request=AnalyzeRequest(raw_input="晨星生物裁员40%", input_type="text"),
+        event=event,
+        claims=claims,
+        retrieval_bundle=bundle,
+    )
+
+    assert result.claim_results[0].verdict == "supported"
+    assert result.claim_results[0].confidence in {"high", "medium"}
+
+
+# ---------------------------------------------------------------------------
+# Refuted verdict tests
+# ---------------------------------------------------------------------------
+
+
+def test_refuted_verdict_with_negation_evidence():
+    """When high-trust evidence contains negation markers against the claim,
+    the verdict should be 'refuted'."""
+    engine = VerdictEngine()
+    event = NormalizedEvent(
+        summary="滨海地铁明天全线停运",
+        keywords=["滨海地铁", "停运"],
+        input_type="text_news",
+        raw_input="滨海地铁明天全线停运",
+    )
+    claims = [ClaimItem(claim="滨海地铁明天全线停运。", claim_type="fact")]
+    evidence = [
+        EvidenceItem(
+            title="滨海地铁辟谣全线停运传闻",
+            url="https://metro.example.cn/notice",
+            source_name="滨海地铁官方",
+            published_at="2026-03-10T20:00:00+08:00",
+            snippet="滨海地铁运营公司辟谣称全线停运系谣言，目前所有线路正常运行。",
+            relevance_reason="官方辟谣。",
+            source_tier="S",
+        ),
+    ]
+
+    result = engine.evaluate(
+        request=AnalyzeRequest(raw_input="滨海地铁明天全线停运", input_type="text", mock_evidence=evidence),
+        event=event,
+        claims=claims,
+    )
+
+    claim_result = result[0][0]
+    assert claim_result.verdict == "refuted"
+    assert claim_result.confidence in {"high", "medium"}
+
+
+# ---------------------------------------------------------------------------
+# Insufficient verdict (no matching evidence) tests
+# ---------------------------------------------------------------------------
+
+
+def test_insufficient_verdict_no_matching_evidence():
+    """When no evidence matches the claim, the verdict should be 'insufficient'."""
+    engine = VerdictEngine()
+    event = NormalizedEvent(
+        summary="某公司计划迁址西安",
+        keywords=["某公司", "迁址"],
+        input_type="text_news",
+        raw_input="某公司计划迁址西安",
+    )
+    claims = [ClaimItem(claim="某公司计划迁址西安。", claim_type="fact")]
+    # Evidence on a completely unrelated topic
+    evidence = [
+        EvidenceItem(
+            title="上海房价最新数据",
+            url="https://housing.example.com/data",
+            source_name="住房数据中心",
+            published_at="2026-03-01T08:00:00+08:00",
+            snippet="2026年上海住宅均价小幅波动，整体平稳。",
+            relevance_reason="不相关。",
+            source_tier="A",
+        ),
+    ]
+
+    result = engine.evaluate(
+        request=AnalyzeRequest(raw_input="某公司计划迁址西安", input_type="text", mock_evidence=evidence),
+        event=event,
+        claims=claims,
+    )
+
+    claim_result = result[0][0]
+    assert claim_result.verdict == "insufficient"
+
+
+# ---------------------------------------------------------------------------
+# coarse_truth_probability mapping tests
+# ---------------------------------------------------------------------------
+
+
+def test_coarse_truth_probability_supported_high():
+    """supported/high should map to 90."""
+    from backend.app.services.verdict_engine import coarse_truth_probability
+
+    probability, basis = coarse_truth_probability("supported", "high")
+    assert probability == 90.0
+    assert basis == "evidence"
+
+
+def test_coarse_truth_probability_refuted_high():
+    """refuted/high should map to 10."""
+    from backend.app.services.verdict_engine import coarse_truth_probability
+
+    probability, basis = coarse_truth_probability("refuted", "high")
+    assert probability == 10.0
+    assert basis == "evidence"
+
+
+def test_coarse_truth_probability_insufficient():
+    """insufficient should map to 50 with prior basis."""
+    from backend.app.services.verdict_engine import coarse_truth_probability
+
+    probability, basis = coarse_truth_probability("insufficient", "low")
+    assert probability == 50.0
+    assert basis == "prior"
+
+
+# ---------------------------------------------------------------------------
+# Non-fact claims get insufficient with appropriate notes
+# ---------------------------------------------------------------------------
+
+
+def test_non_fact_claims_get_insufficient():
+    """Opinion, prediction, and unverifiable claims should always get
+    'insufficient' verdict with appropriate notes."""
+    engine = VerdictEngine()
+    event = NormalizedEvent(
+        summary="某事件讨论",
+        keywords=[],
+        input_type="text_news",
+        raw_input="某事件讨论",
+    )
+
+    test_cases = [
+        ("opinion", "这次公司明显在甩锅。", "评价性说法"),
+        ("prediction", "预计该公司明年会继续裁员。", "未来判断"),
+        ("unverifiable", "据内部员工透露有问题。", "公开资料难以直接核验"),
+    ]
+
+    for claim_type, claim_text, expected_note_fragment in test_cases:
+        claims = [ClaimItem(claim=claim_text, claim_type=claim_type)]
+        bundle = RetrievalBundle(
+            query="test",
+            provider_name="kimi",
+            canonical_results=(
+                SearchResult(
+                    case_id="test",
+                    query="test",
+                    result_id="r1",
+                    title="相关报道",
+                    url="https://example.com/article",
+                    source_name="某新闻",
+                    published_at="2026-03-10T10:00:00+08:00",
+                    snippet="相关内容报道。",
+                    source_tier="A",
+                ),
+            ),
+        )
+
+        result = engine.evaluate_with_source(
+            request=AnalyzeRequest(raw_input="某事件讨论", input_type="text"),
+            event=event,
+            claims=claims,
+            retrieval_bundle=bundle,
+        )
+
+        assert result.claim_results[0].verdict == "insufficient", f"Failed for {claim_type}"
+        assert result.claim_results[0].confidence == "low", f"Failed for {claim_type}"
+        assert expected_note_fragment in result.claim_results[0].notes, (
+            f"Failed for {claim_type}: expected '{expected_note_fragment}' in '{result.claim_results[0].notes}'"
+        )

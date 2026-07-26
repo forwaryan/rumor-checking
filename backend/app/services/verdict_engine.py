@@ -19,6 +19,7 @@ from backend.app.services.entity_anchor import (
 )
 from backend.app.services.question_intent import detect_trend_topic, is_broad_trend_claim
 from backend.app.services.claim_correction import annotate_claim_corrections
+from backend.app.services.llm_verdict import llm_judge_claims
 from backend.app.services.page_fetcher import fetch_page_snippets
 from backend.app.services.retrieval_models import RetrievalBundle
 
@@ -272,6 +273,8 @@ class VerdictEngine:
                     notes=self._append_evidence_context(notes=notes, selected=selected),
                 )
             )
+
+        results = llm_judge_claims(results)
 
         results = annotate_claim_corrections(
             results,
@@ -676,7 +679,6 @@ class VerdictEngine:
 
         evidence_with_quantities: List[Tuple[EvidenceItem, set[str]]] = []
         distinct_quantities = set()
-        claim_quantity_supported = False
         for item in evidence_pool:
             haystack = self._normalize_claim(f"{item.title} {item.snippet} {item.source_name}")
             quantity_tokens = set(self._extract_quantity_tokens(haystack))
@@ -684,23 +686,23 @@ class VerdictEngine:
                 continue
             evidence_with_quantities.append((item, quantity_tokens))
             distinct_quantities.update(quantity_tokens)
-            if quantity_tokens & claim_quantity_tokens:
-                claim_quantity_supported = True
 
         if len(evidence_with_quantities) < 1 or not distinct_quantities:
             return None
 
-        # If evidence contains different numbers from the claim on the same topic
+        # Evidence contains numbers different from the claim's numbers
         evidence_numbers = distinct_quantities - claim_quantity_tokens
         if not evidence_numbers:
             return None
 
-        # At least one source has a number that differs from the claim
-        has_different = any(
-            tokens.isdisjoint(claim_quantity_tokens) and tokens
+        # At least one source has a number that differs from the claim — either
+        # the source contains ONLY different numbers (disjoint) or it explicitly
+        # presents a different number alongside the claim's number (correction).
+        has_conflict = any(
+            (tokens - claim_quantity_tokens)
             for _, tokens in evidence_with_quantities
         )
-        if not has_different:
+        if not has_conflict:
             return None
 
         # Sort by tier for best evidence selection

@@ -585,6 +585,17 @@ export function getTopLineAssessment(report: Report): TopLineAssessment {
   };
 }
 
+export function formatProbability(value?: number | null): string | null {
+  if (typeof value !== "number" || Number.isNaN(value)) return null;
+  return `${Math.round(value)}%`;
+}
+
+export function getBasisLabel(basis?: string | null): string | null {
+  if (basis === "evidence") return "有证据";
+  if (basis === "prior") return "凭常识";
+  return null;
+}
+
 export function validateInput(input: string, inputType: InputType) {
   const trimmed = input.trim();
 

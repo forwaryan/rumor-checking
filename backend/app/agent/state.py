@@ -61,6 +61,10 @@ class AgentState:
     agent_synthesized: bool = False
     synthesis_attempted: bool = False
     investigation_rounds: int = 0
+    # Per-claim search iterations: tracks how many search→judge cycles have run
+    # so the planner can decide when to stop iterating.
+    per_claim_iterations: int = 0
+    max_per_claim_iterations: int = 3
 
     # Full-body pages fetched by the fetch_url tool, keyed by the canonical
     # SearchResult.result_id they enrich (grounding-safe: no new evidence ids).

@@ -43,9 +43,15 @@ def repair_unescaped_inner_quotes(json_text: str) -> str:
             return True
         if following == ",":
             # A structural comma is followed by the next key/element; a comma that
-            # is part of the string's prose is followed by ordinary text.
+            # is part of the string's prose is followed by ordinary text. A comma
+            # then a closer (`}`/`]`) is a trailing comma after a real closing
+            # quote, so that still closes the string.
             after_comma, _ = _next_nonspace(pos + 1)
-            return after_comma in ('"', "{", "[", "-") or after_comma.isdigit() or after_comma in ("t", "f", "n")
+            return (
+                after_comma in ('"', "{", "[", "-", "}", "]", "")
+                or after_comma.isdigit()
+                or after_comma in ("t", "f", "n")
+            )
         return False
 
     while i < n:
@@ -78,11 +84,132 @@ def repair_unescaped_inner_quotes(json_text: str) -> str:
     return "".join(out)
 
 
+def _recover_truncated_json(text: str) -> Optional[str]:
+    """Rebuild a parseable object from JSON that was cut off mid-stream.
+
+    LLM completions on this gateway are frequently truncated part-way through a
+    value (e.g. synthesis stops at `..."claims":[{obj},{obj},{obj3_incomplete`).
+    We walk the text tracking string state and a stack of open `{`/`[`, and each
+    time a nested container closes we record a checkpoint: the prefix up to there,
+    plus closers for whatever is still open, is a valid object. Returning the last
+    such checkpoint recovers every COMPLETE element before the cut (e.g. the two
+    finished claims) and discards the partial tail. Returns None when no nested
+    element ever completed."""
+    stack: list[str] = []
+    in_string = False
+    escape = False
+    best_cut: Optional[int] = None
+    best_stack: list[str] = []
+    for i, ch in enumerate(text):
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch in "{[":
+            stack.append(ch)
+        elif ch in "}]":
+            if stack:
+                stack.pop()
+            # A container just closed. If we're still inside an outer container,
+            # this prefix + closers is a candidate recovery (a complete element,
+            # like one finished claim object, sits just before here).
+            if stack:
+                best_cut = i + 1
+                best_stack = list(stack)
+    if best_cut is None:
+        return None
+    closers = "".join("}" if opener == "{" else "]" for opener in reversed(best_stack))
+    return text[:best_cut] + closers
+
+
+def repair_structural_defects(json_text: str) -> str:
+    """Fix common non-quote JSON defects that models (e.g. GLM) emit.
+
+    Walks the text tracking string state so prose is never touched, and repairs
+    only structural (outside-string) defects plus illegal control chars inside
+    strings:
+
+    - trailing commas before `}` / `]`  ->  dropped
+    - a fullwidth comma `，` used as an element/pair separator (outside a string)
+      ->  ASCII `,`  (a `，` *inside* a string is normal Chinese text, kept)
+    - a literal newline / tab / carriage return *inside* a string  ->  escaped
+      (strict JSON forbids raw control chars in strings)
+
+    Unescaped inner double-quotes are handled separately by
+    ``repair_unescaped_inner_quotes``; this function leaves quotes alone."""
+    out: list[str] = []
+    in_string = False
+    i = 0
+    n = len(json_text)
+
+    def _next_nonspace_outside(idx: int) -> str:
+        while idx < n and json_text[idx] in " \t\r\n":
+            idx += 1
+        return json_text[idx] if idx < n else ""
+
+    while i < n:
+        char = json_text[i]
+        if in_string:
+            if char == "\\":
+                out.append(char)
+                if i + 1 < n:
+                    out.append(json_text[i + 1])
+                    i += 2
+                    continue
+                i += 1
+                continue
+            if char == '"':
+                out.append(char)
+                in_string = False
+                i += 1
+                continue
+            if char == "\n":
+                out.append("\\n")
+            elif char == "\t":
+                out.append("\\t")
+            elif char == "\r":
+                out.append("\\r")
+            else:
+                out.append(char)
+            i += 1
+            continue
+        # outside a string
+        if char == '"':
+            out.append(char)
+            in_string = True
+            i += 1
+            continue
+        if char == "，":
+            # A fullwidth comma outside any string is a mis-typed separator.
+            out.append(",")
+            i += 1
+            continue
+        if char == ",":
+            # Drop a trailing comma that is immediately followed by a closer.
+            if _next_nonspace_outside(i + 1) in ("}", "]"):
+                i += 1
+                continue
+            out.append(char)
+            i += 1
+            continue
+        out.append(char)
+        i += 1
+    return "".join(out)
+
+
 def loads_lenient_json(text: str) -> Optional[dict[str, Any]]:
     """Parse a JSON object from an LLM response, tolerating common defects.
 
     Tries, in order: the text as-is, a ```json fenced block, the outermost
     {...} slice, and finally each of those with unescaped inner quotes repaired.
+    If none parse, a last resort rebuilds a valid object from a mid-stream
+    truncation, keeping every complete element before the cut.
     Returns the first dict that parses, or None."""
     stripped = text.strip()
     candidates: list[str] = [stripped]
@@ -96,8 +223,23 @@ def loads_lenient_json(text: str) -> Optional[dict[str, Any]]:
     if brace_start != -1 and brace_end != -1 and brace_end > brace_start:
         candidates.append(stripped[brace_start : brace_end + 1])
 
+    # Last resort: the completion was cut mid-JSON (no matching close brace), so
+    # rebuild a valid object from the complete elements that precede the cut.
+    if brace_start != -1:
+        recovered = _recover_truncated_json(stripped[brace_start:])
+        if recovered is not None:
+            candidates.append(recovered)
+
     for candidate in candidates:
-        for attempt in (candidate, repair_unescaped_inner_quotes(candidate)):
+        # Try the candidate as-is, then with each repair, then with both stacked —
+        # a single response can carry inner-quote AND structural defects at once.
+        attempts = (
+            candidate,
+            repair_unescaped_inner_quotes(candidate),
+            repair_structural_defects(candidate),
+            repair_structural_defects(repair_unescaped_inner_quotes(candidate)),
+        )
+        for attempt in attempts:
             try:
                 parsed = json.loads(attempt)
             except json.JSONDecodeError:

@@ -143,3 +143,146 @@ def test_question_resolver_builds_subject_anchored_follow_up_query():
     assert "晨星生物" in resolution.follow_up_query
     assert "裁员" in resolution.follow_up_query
     assert "40%" in resolution.follow_up_query
+
+
+# ---------------------------------------------------------------------------
+# Verb-boundary splitting tests
+# ---------------------------------------------------------------------------
+
+
+def test_verb_boundary_splitting_produces_two_claims():
+    """A compound sentence with two verb-boundary actions (买了 + 招了) should
+    be split into two separate claims."""
+    extractor = ClaimExtractor()
+    event = NormalizedEvent(
+        summary="拼多多在雄安买了5栋楼招了6000研发人员",
+        input_type="text_news",
+        raw_input="拼多多在雄安买了5栋楼招了6000研发人员",
+    )
+
+    claims = extractor.extract(event)
+
+    assert len(claims) >= 2
+    claim_texts = " ".join(item.claim for item in claims)
+    assert "买了5栋楼" in claim_texts or "买了" in claim_texts
+    assert "招了6000研发人员" in claim_texts or "招了" in claim_texts
+
+
+def test_verb_boundary_subject_propagation():
+    """The second claim produced by verb-boundary splitting should inherit the
+    subject '拼多多' from the first segment."""
+    extractor = ClaimExtractor()
+    event = NormalizedEvent(
+        summary="拼多多在雄安买了5栋楼招了6000研发人员",
+        input_type="text_news",
+        raw_input="拼多多在雄安买了5栋楼招了6000研发人员",
+    )
+
+    claims = extractor.extract(event)
+
+    # The second claim (verb-boundary segment starting with "招了") should have
+    # the subject "拼多多" prepended since it starts with a verb boundary char.
+    verb_claims = [item for item in claims if "招了" in item.claim]
+    assert verb_claims, "Expected a claim containing '招了'"
+    # Subject propagation means "拼多多" should appear in the claim text
+    assert "拼多多" in verb_claims[0].claim
+
+
+# ---------------------------------------------------------------------------
+# Classification tests
+# ---------------------------------------------------------------------------
+
+
+def test_classify_opinion_markers():
+    """Claims containing opinion markers should be classified as 'opinion'."""
+    extractor = ClaimExtractor()
+    assert extractor.classify("这次学校明显在隐瞒真相。") == "opinion"
+    assert extractor.classify("我觉得这件事有问题。") == "opinion"
+    assert extractor.classify("公司甩锅给供应商。") == "opinion"
+
+
+def test_classify_prediction_markers():
+    """Claims containing prediction markers should be classified as 'prediction'."""
+    extractor = ClaimExtractor()
+    assert extractor.classify("该公司可能下个月裁员。") == "prediction"
+    assert extractor.classify("预计明年产量会恢复。") == "prediction"
+    assert extractor.classify("大概率会继续停产。") == "prediction"
+
+
+def test_classify_fact_by_default():
+    """Claims without opinion/prediction/unverifiable markers default to 'fact'."""
+    extractor = ClaimExtractor()
+    assert extractor.classify("拼多多在雄安买了5栋楼。") == "fact"
+    assert extractor.classify("北川中学下周停课一个月。") == "fact"
+
+
+# ---------------------------------------------------------------------------
+# Noisy prefix stripping tests
+# ---------------------------------------------------------------------------
+
+
+def test_noisy_prefix_stripping():
+    """Noisy prefixes like '网传' should be stripped during normalization."""
+    extractor = ClaimExtractor()
+    event = NormalizedEvent(
+        summary="网传拼多多在雄安买了办公楼",
+        input_type="text_news",
+        raw_input="网传拼多多在雄安买了办公楼",
+    )
+
+    claims = extractor.extract(event)
+
+    assert claims
+    # The resulting claim should not start with "网传"
+    for item in claims:
+        assert not item.claim.startswith("网传")
+    # The core content should be preserved
+    assert any("拼多多" in item.claim for item in claims)
+
+
+# ---------------------------------------------------------------------------
+# Question trailing removal tests
+# ---------------------------------------------------------------------------
+
+
+def test_question_trailing_removal():
+    """Trailing question markers like '是真的吗' should be removed."""
+    extractor = ClaimExtractor()
+    event = NormalizedEvent(
+        summary="拼多多在雄安买楼是真的吗",
+        input_type="question_only",
+        raw_input="拼多多在雄安买楼是真的吗",
+    )
+
+    claims = extractor.extract(event)
+
+    assert claims
+    for item in claims:
+        assert "是真的吗" not in item.claim
+
+
+# ---------------------------------------------------------------------------
+# Continuation marker subject injection tests
+# ---------------------------------------------------------------------------
+
+
+def test_continuation_marker_subject_injection():
+    """A claim starting with a continuation marker like '其余' should get the
+    subject from context prepended."""
+    extractor = ClaimExtractor()
+    event = NormalizedEvent(
+        title="滨海地铁停运传闻",
+        summary="滨海地铁3号线夜间检修，其余线路正常运营。",
+        keywords=["滨海地铁"],
+        source_name="滨海地铁运营公司",
+        input_type="text_news",
+        raw_input="滨海地铁3号线夜间检修，其余线路正常运营。",
+    )
+
+    claims = extractor.extract(event)
+
+    # Find the claim that originally started with "其余"
+    continuation_claims = [item for item in claims if "其余线路正常运营" in item.claim]
+    assert continuation_claims, "Expected a claim about '其余线路正常运营'"
+    # The subject should be injected from context
+    assert "滨海地铁" in continuation_claims[0].claim

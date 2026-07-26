@@ -57,7 +57,10 @@ class _StreamCtx:
         return False
 
 
-def test_fast_model_pins_json_object_and_short_budget(monkeypatch):
+def test_fast_model_drops_json_object_and_uses_short_budget(monkeypatch):
+    # json_object makes V4-Flash slow-trickle to the deadline and truncate on this
+    # gateway, so we no longer pin it for fast models either. The fast model keeps
+    # its modest max_tokens budget.
     cap = _Capture(_sse({"content": '{"ok": true}'}))
     monkeypatch.setattr(httpx, "stream", cap)
     r = _reasoner(llm_model="fast-x", llm_max_tokens=4096, provider_timeout_seconds=30.0)
@@ -69,7 +72,7 @@ def test_fast_model_pins_json_object_and_short_budget(monkeypatch):
         user_prompt="usr",
     )
     assert out == '{"ok": true}'
-    assert cap.sent_json["response_format"] == {"type": "json_object"}
+    assert "response_format" not in cap.sent_json
     assert cap.sent_json["max_tokens"] == 4096
 
 
@@ -301,12 +304,47 @@ def test_nonempty_completion_accepted_without_validator(monkeypatch):
 
 def test_synthesis_content_usable_rejects_truncated_and_claimless():
     r = _reasoner(llm_model="fast-x")
-    # Truncated fragment the lenient parser cannot recover into an object.
+    # A cut before ANY nested element closes has nothing to recover.
     assert r._synthesis_content_usable('{ "event": { "summary": "拼') is False
     # Parseable but carries no claims -> not usable for synthesis.
     assert r._synthesis_content_usable('{"event": {"title": "x"}, "claims": []}') is False
     # A well-formed object with at least one claim is usable.
     assert r._synthesis_content_usable('{"claims": [{"claim": "c"}]}') is True
+
+
+def test_synthesis_content_usable_accepts_recoverable_truncation():
+    # After the lenient parser learned to salvage complete elements, a stream cut
+    # mid-third-claim is usable — the two finished claims are recovered rather than
+    # dropping the whole run to the rule fallback.
+    r = _reasoner(llm_model="fast-x")
+    frag = (
+        '{"claims": [{"claim": "拼多多买了5栋楼", "verdict": "insufficient"}, '
+        '{"claim": "拼多多招了6000研发", "verdict": "insufficient"}, '
+        '{"claim": "拼多多在雄安扩招", "truth_probability":'
+    )
+    assert r._synthesis_content_usable(frag) is True
+
+
+def test_synthesis_model_defaults_to_the_reasoning_model_when_unset():
+    # LLM_SYNTHESIS_MODEL blank -> synthesis uses the same model as everything else.
+    r = _reasoner(llm_model="fast-x", llm_synthesis_model="")
+    assert r._synthesis_model() == "fast-x"
+
+
+def test_synthesis_model_routes_only_synthesis_when_set():
+    # Set -> synthesis goes to the opt-in model, planner/investigation stay on fast.
+    r = _reasoner(llm_model="fast-x", llm_synthesis_model="think-x")
+    assert r._synthesis_model() == "think-x"
+    assert r._reasoning_model() == "fast-x"
+
+
+def test_per_request_override_wins_over_synthesis_model():
+    # A validated per-request picker override applies to every stage, including
+    # synthesis, regardless of LLM_SYNTHESIS_MODEL.
+    r = _reasoner(llm_model="fast-x", llm_synthesis_model="think-x")
+    r.model_override = "picked-x"
+    assert r._synthesis_model() == "picked-x"
+    assert r._reasoning_model() == "picked-x"
 
 
 def _capture_outcomes(r, monkeypatch, *, content, is_valid=None):

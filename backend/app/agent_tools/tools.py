@@ -495,18 +495,11 @@ def per_claim_search(ctx: ToolContext, state: AgentState) -> None:
             retrieval_bundle=state.retrieval_bundle,
             retrieval_service=ctx.retriever,
             resolved_event=state.resolved_event,
+            iteration=state.per_claim_iterations,
         )
 
         if enriched_bundle is not state.retrieval_bundle:
             state.retrieval_bundle = enriched_bundle
-            # Re-judge with enriched evidence
-            re_verdict = ctx.verdict_engine.evaluate_with_source(
-                request=state.request,
-                event=state.final_event,
-                claims=state.claim_extraction.claims,
-                retrieval_bundle=state.retrieval_bundle,
-            )
-            state.verdict = re_verdict
     except Exception as exc:
         emit_log(
             stage_key="per_claim_retrieval",
@@ -516,7 +509,49 @@ def per_claim_search(ctx: ToolContext, state: AgentState) -> None:
             details=[f"error_type={exc.__class__.__name__}"],
         )
 
-    state.record("per_claim_search", "逐条补检索完成")
+    state.record("per_claim_search", f"逐条补检索完成 (iteration {state.per_claim_iterations + 1})")
+
+
+def re_judge_claims(ctx: ToolContext, state: AgentState) -> None:
+    """Re-judge claims with enriched evidence after per-claim search."""
+    if state.retrieval_bundle is None or state.claim_extraction is None:
+        return
+
+    emit_stage(
+        stage_key="verdict_engine",
+        title="Claim 重判",
+        status="running",
+        summary=f"第 {state.per_claim_iterations + 1} 轮重判：结合新证据重新为每条 claim 打 verdict。",
+        details=[f"iteration={state.per_claim_iterations + 1}"],
+    )
+    try:
+        re_verdict = ctx.verdict_engine.evaluate_with_source(
+            request=state.request,
+            event=state.final_event,
+            claims=state.claim_extraction.claims,
+            retrieval_bundle=state.retrieval_bundle,
+        )
+        state.verdict = re_verdict
+        emit_stage(
+            stage_key="verdict_engine",
+            title="Claim 重判",
+            status="completed",
+            summary="重判完成。",
+            details=[
+                f"claim_results={len(re_verdict.claim_results)}",
+                f"evidence_grade={re_verdict.evidence_grade}",
+                f"iteration={state.per_claim_iterations + 1}",
+            ],
+        )
+    except Exception as exc:
+        emit_log(
+            stage_key="verdict_engine",
+            level="warning",
+            title="Claim 重判失败",
+            summary="re_judge 异常，沿用已有 verdict 继续。",
+            details=[f"error_type={exc.__class__.__name__}"],
+        )
+    state.record("re_judge_claims", f"Claim 重判完成 (iteration {state.per_claim_iterations + 1})")
 
 
 

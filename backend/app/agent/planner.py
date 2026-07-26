@@ -17,6 +17,7 @@ ENRICH = "enrich"
 EXTRACT = "extract_claims"
 JUDGE = "judge_claims"
 PER_CLAIM_SEARCH = "per_claim_search"
+RE_JUDGE = "re_judge_claims"
 TIMELINE = "build_timeline"
 FINALIZE = "finalize_report"
 DONE = "done"
@@ -24,7 +25,7 @@ DONE = "done"
 # Actions the LLM planner is allowed to arbitrate between. Everything else is a
 # forced data-dependency step (e.g. cannot judge before extracting), so we never
 # spend an LLM call on it — only genuine branch points are delegated.
-_LLM_DECIDABLE = {INVESTIGATE, FETCH_URL, SYNTHESIZE}
+_LLM_DECIDABLE = {INVESTIGATE, FETCH_URL, SYNTHESIZE, PER_CLAIM_SEARCH, TIMELINE}
 
 
 def legal_actions(state: AgentState) -> List[str]:
@@ -70,10 +71,19 @@ def legal_actions(state: AgentState) -> List[str]:
         return [EXTRACT]
     if JUDGE not in done:
         return [JUDGE]
-    # After judging: if weak claims exist, do per-claim targeted retrieval then
-    # re-judge; otherwise skip straight to timeline.
-    if PER_CLAIM_SEARCH not in done and _has_weak_claims(state):
-        return [PER_CLAIM_SEARCH]
+    # After judging: if weak claims exist AND we haven't exhausted iterations,
+    # do per-claim targeted retrieval then re-judge; repeat until convergence or
+    # max iterations reached. The LLM planner can choose to stop early (TIMELINE)
+    # if it judges further searching won't help.
+    if _has_weak_claims(state) and _can_iterate(state):
+        if PER_CLAIM_SEARCH not in done:
+            # After at least one iteration, offer the LLM a choice to stop.
+            if state.per_claim_iterations > 0:
+                return [PER_CLAIM_SEARCH, TIMELINE]
+            return [PER_CLAIM_SEARCH]
+        # After per-claim search, re-judge with enriched evidence
+        if RE_JUDGE not in done:
+            return [RE_JUDGE]
     if TIMELINE not in done:
         return [TIMELINE]
     if FINALIZE not in done:
@@ -109,6 +119,11 @@ def _has_weak_claims(state: AgentState) -> bool:
         if cr.claim_type == "fact" and cr.verdict == "insufficient"
     )
     return weak > 0
+
+
+def _can_iterate(state: AgentState) -> bool:
+    """True when the per-claim search loop hasn't reached its iteration cap."""
+    return state.per_claim_iterations < state.max_per_claim_iterations
 
 
 class RulePlanner:

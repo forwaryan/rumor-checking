@@ -19,12 +19,17 @@ _SIMPLE_TOOLS = {
     planner_mod.EXTRACT: tools.extract_claims,
     planner_mod.JUDGE: tools.judge_claims,
     planner_mod.PER_CLAIM_SEARCH: tools.per_claim_search,
+    planner_mod.RE_JUDGE: tools.re_judge_claims,
     planner_mod.TIMELINE: tools.build_timeline,
     planner_mod.FINALIZE: tools.finalize_report,
 }
 
+# Actions that form the iterating loop — after RE_JUDGE, these are cleared from
+# done_actions so the planner can re-enter the search→judge cycle.
+_ITERATING_ACTIONS = {planner_mod.PER_CLAIM_SEARCH, planner_mod.RE_JUDGE}
+
 # Hard ceiling on loop iterations; the real stop condition is planner -> DONE.
-_MAX_STEPS = 24
+_MAX_STEPS = 32
 
 
 class AgentRunner:
@@ -49,6 +54,13 @@ class AgentRunner:
                 break
             self._dispatch(action, state)
             state.done_actions.append(action)
+            # After RE_JUDGE, clear iteration markers so the planner can
+            # re-enter the search→judge cycle if still needed.
+            if action == planner_mod.RE_JUDGE:
+                state.per_claim_iterations += 1
+                for iterating_action in _ITERATING_ACTIONS:
+                    while iterating_action in state.done_actions:
+                        state.done_actions.remove(iterating_action)
 
         if state.report is None:
             raise RuntimeError("agent_runner_finished_without_report")
