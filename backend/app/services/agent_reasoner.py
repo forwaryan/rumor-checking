@@ -243,6 +243,74 @@ Rules:
 - Include an entry ONLY for claims you want to downgrade (keep:false). Omit the rest.
 - Output a single raw JSON object ONLY: no markdown, no ```json code fences, no prose before or after. Escape every double-quote that appears inside a string value as \\".
 """.strip()
+ENRICHMENT_SYSTEM_PROMPT = """
+You are the evidence-grounded enrichment stage for a rumor-checking backend.
+You have already seen the claims and verdicts for this event. Now produce a
+structured event summary, possible scenarios, and a timeline.
+
+Return one JSON object with this schema:
+{
+  "event": {
+    "title": "concise event title (≤30 Chinese chars)",
+    "summary": "one-sentence grounded summary of what happened"
+  },
+  "scenarios": [
+    {
+      "label": "short scenario name",
+      "probability": 0-100,
+      "basis": "evidence|prior",
+      "summary": "one-sentence explanation"
+    }
+  ],
+  "timeline": [
+    {
+      "node_type": "origin|amplification|peak|turn|clarification",
+      "result_id": "the retrieval hit's result_id",
+      "summary": "what this node represents",
+      "why_selected": "why this hit is a timeline milestone"
+    }
+  ]
+}
+
+Rules:
+- scenarios: 2-4 mutually exclusive whole-message interpretations. Probabilities must sum to ~100.
+  Always include a "claim is essentially true" and "claim is false/exaggerated" scenario.
+  basis = "evidence" only when hits bear directly on it; else "prior".
+- timeline: pick 2-5 retrieval hits that represent key propagation milestones.
+  Each node_type appears at most once. Only use result_ids from the supplied hits.
+  If fewer than 2 hits qualify as milestones, return an empty timeline array.
+- event: refine the title and summary based on what the evidence actually shows.
+  Keep it factual and grounded — do not editorialise.
+- Output a single raw JSON object ONLY: no markdown, no ```json code fences, no prose before or after. Escape every double-quote that appears inside a string value as \\".
+""".strip()
+
+CRITIC_REFINE_SYSTEM_PROMPT = """
+You are the targeted re-verdict stage for a rumor-checking backend.
+The critic already flagged specific claims whose verdicts were NOT justified by
+their cited evidence. You now re-judge ONLY those claims using the FULL evidence
+pool (not just their originally cited hits).
+
+Return one JSON object with this schema:
+{
+  "refined_claims": [
+    {
+      "index": <int>,
+      "verdict": "supported|refuted|insufficient|conflicting",
+      "confidence": "high|medium|low",
+      "evidence_result_ids": ["result_id"],
+      "notes": "string (≤60 Chinese chars)"
+    }
+  ]
+}
+
+Rules:
+- Only re-judge the claims listed. Do not add or remove claims.
+- Use the same verdict decision procedure as synthesis: evidence must directly
+  affirm/contradict the claim for supported/refuted. Without clear grounding, stay insufficient.
+- evidence_result_ids must come from the supplied retrieval hits. Do not invent ids.
+- Output a single raw JSON object ONLY: no markdown, no ```json code fences, no prose before or after. Escape every double-quote that appears inside a string value as \\".
+""".strip()
+
 QUERY_TERMS_SYSTEM_PROMPT = """
 You turn a rumor/claim into effective web-search queries for a rumor-checking backend.
 The raw user text is often a colloquial assertion, not good search input.
@@ -449,23 +517,40 @@ class LlmAgentReasoner:
         # Purely subtractive, so it can never manufacture a stronger conclusion.
         claim_results = self._critique_claim_results(claim_results)
 
+        # Critic-triggered refinement: if the critic downgraded any claims, give
+        # them one chance to re-verdict against the full evidence pool. This closes
+        # the gap where the agent path had no recovery after a critic downgrade.
+        claim_results = self._refine_after_critic(
+            claim_results, retrieval_bundle=retrieval_bundle, fetched_bodies=fetched_bodies,
+        )
+
         # Structured number correction: for claims whose specific numbers/details
         # the evidence contradicts or refines, attach a {original, actual, source}
         # correction so the user sees the real figure, not just a bare "refuted".
         # Number-grounded (actual must appear in evidence) and degrades to no-op.
         claim_results = self._annotate_corrections(claim_results, retrieval_bundle, fetched_bodies)
 
+        # Second-phase enrichment: produce timeline, scenarios, and refined event
+        # in a SEPARATE lighter call to avoid the truncation the old all-in-one
+        # prompt caused on V4-Flash. Degrades to empty timeline/scenarios on failure.
+        enrichment = self._enrich_synthesis(
+            request=request,
+            event=synthesized_event,
+            claim_results=claim_results,
+            retrieval_bundle=retrieval_bundle,
+            fetched_bodies=fetched_bodies,
+            result_map=result_map,
+        )
+
         evidence_source: EvidenceSourceType = "retrieval_mock" if retrieval_bundle.provider_name == "mock" else "retrieval_live"
         evidence_pool = retrieval_bundle.to_evidence_items()
-        timeline_nodes = self._build_timeline_nodes(
-            result_map=result_map,
-            timeline_payload=payload.get("timeline"),
-        )
+        timeline_nodes = enrichment["timeline_nodes"]
         claim_items = [ClaimItem(claim=item.claim, claim_type=item.claim_type) for item in claim_results]
         timeline_source = "retrieval" if timeline_nodes else "none"
-        possibilities = self._build_scenarios(payload.get("scenarios"))
+        possibilities = enrichment["possibilities"]
+        final_event = enrichment["event"] or synthesized_event
         return AgentSynthesis(
-            event=synthesized_event,
+            event=final_event,
             claim_extraction=ClaimExtraction(
                 claims=claim_items,
                 source="provider",
@@ -1245,6 +1330,181 @@ class LlmAgentReasoner:
             details=[f"downgraded_indices={sorted(i for i in downgrade_indices if any(idx == i for idx, _ in checkable))}"],
         )
         return revised
+
+    def _refine_after_critic(
+        self,
+        claim_results: list[ClaimResult],
+        *,
+        retrieval_bundle: RetrievalBundle,
+        fetched_bodies: Optional[dict[str, str]],
+    ) -> list[ClaimResult]:
+        """Re-verdict claims that the critic downgraded, using the full evidence pool.
+
+        The critic can only downgrade (monotonic); this gives downgraded claims ONE
+        chance to find proper grounding in the full hit set rather than just their
+        originally cited evidence. Returns input unchanged when nothing was downgraded
+        or when the LLM call fails."""
+        if not self.enabled:
+            return claim_results
+        downgraded = [
+            (i, cr) for i, cr in enumerate(claim_results)
+            if cr.verdict == "insufficient" and "核查复检" in (cr.notes or "")
+        ]
+        if not downgraded:
+            return claim_results
+
+        result_map = {r.result_id: r for r in retrieval_bundle.canonical_results}
+        hits_context = [self._serialize_result(r) for r in retrieval_bundle.canonical_results[:8]]
+        claims_block = json.dumps(
+            [{"index": i, "claim": cr.claim} for i, cr in downgraded],
+            ensure_ascii=False, indent=2,
+        )
+        user_prompt = (
+            "Re-judge ONLY the following claims that the critic flagged as lacking grounding.\n"
+            "Use the full evidence pool below.\n\n"
+            f"Flagged claims:\n{claims_block}\n\n"
+            f"Full evidence pool:\n{json.dumps(hits_context, ensure_ascii=False, indent=2)}"
+        )
+
+        content = self._request_completion(
+            stage_key="agent_synthesis",
+            title="调用 Agent critic refinement",
+            system_prompt=CRITIC_REFINE_SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+            is_valid=self._json_with_key_usable("refined_claims"),
+        )
+        payload = self._extract_json_payload(content)
+        if payload is None:
+            return claim_results
+
+        refined_list = payload.get("refined_claims")
+        if not isinstance(refined_list, list):
+            return claim_results
+
+        valid_indices = {i for i, _ in downgraded}
+        revised = list(claim_results)
+        refined_count = 0
+        for item in refined_list:
+            if not isinstance(item, dict):
+                continue
+            idx = item.get("index")
+            if not isinstance(idx, (int, float)) or int(idx) not in valid_indices:
+                continue
+            idx = int(idx)
+            verdict = self._normalize_verdict(item.get("verdict"))
+            confidence = self._normalize_confidence(item.get("confidence"))
+            evidence_ids = self._normalize_string_list(item.get("evidence_result_ids"))
+            selected_evidence = self._evidence_from_ids(
+                result_map=result_map, evidence_ids=evidence_ids, verdict=verdict,
+            )
+            if verdict != "insufficient" and not selected_evidence:
+                continue
+            notes = self._clean_optional_string(item.get("notes")) or revised[idx].notes
+            revised[idx] = revised[idx].model_copy(
+                update={
+                    "verdict": verdict,
+                    "confidence": confidence,
+                    "evidence": selected_evidence or revised[idx].evidence,
+                    "notes": notes,
+                }
+            )
+            refined_count += 1
+
+        if refined_count:
+            emit_log(
+                stage_key="agent_synthesis",
+                title="Critic refinement 完成",
+                summary=f"对 {len(downgraded)} 条被下调的 claim 重新判定，{refined_count} 条获得新 verdict。",
+                details=[f"{revised[i].claim[:20]}→{revised[i].verdict}" for i, _ in downgraded],
+            )
+        return revised
+
+    def _enrich_synthesis(
+        self,
+        *,
+        request: AnalyzeRequest,
+        event: NormalizedEvent,
+        claim_results: list[ClaimResult],
+        retrieval_bundle: RetrievalBundle,
+        fetched_bodies: Optional[dict[str, str]],
+        result_map: dict[str, SearchResult],
+    ) -> dict[str, Any]:
+        """Second-phase enrichment: timeline, scenarios, and event refinement.
+
+        Run as a separate lighter LLM call AFTER claims are decided, so it cannot
+        truncate and lose the claims. Degrades to empty timeline/scenarios on failure,
+        which is acceptable (the verdict is the core product)."""
+        empty: dict[str, Any] = {"timeline_nodes": [], "possibilities": [], "event": None}
+
+        claims_summary = json.dumps(
+            [{"claim": cr.claim, "verdict": cr.verdict} for cr in claim_results],
+            ensure_ascii=False,
+        )
+        hits_context = [self._serialize_result(r) for r in retrieval_bundle.canonical_results[:8]]
+        context = {
+            "raw_input": request.raw_input,
+            "event_title": event.title,
+            "event_summary": event.summary,
+            "claims_and_verdicts": claims_summary,
+            "retrieval_hits": hits_context,
+        }
+        user_prompt = (
+            "Produce timeline, scenarios, and a refined event title/summary.\n"
+            "Context JSON:\n"
+            f"{json.dumps(context, ensure_ascii=False, indent=2)}"
+        )
+
+        content = self._request_completion(
+            stage_key="agent_synthesis",
+            title="调用 Agent enrichment (timeline/scenarios)",
+            system_prompt=ENRICHMENT_SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+        )
+        payload = self._extract_json_payload(content)
+        if payload is None:
+            emit_log(
+                stage_key="agent_synthesis",
+                level="warning",
+                title="Agent enrichment 无法解析",
+                summary="enrichment 返回不可解析，跳过 timeline/scenarios。",
+                details=[],
+            )
+            return empty
+
+        timeline_nodes = self._build_timeline_nodes(
+            result_map=result_map,
+            timeline_payload=payload.get("timeline"),
+        )
+        possibilities = self._build_scenarios(payload.get("scenarios"))
+
+        refined_event = None
+        raw_event = payload.get("event")
+        if isinstance(raw_event, dict):
+            title = self._clean_optional_string(raw_event.get("title"))
+            summary = self._clean_optional_string(raw_event.get("summary"))
+            if title or summary:
+                refined_event = event.model_copy(
+                    update={
+                        k: v for k, v in [("title", title), ("summary", summary)] if v
+                    }
+                )
+
+        enriched = {
+            "timeline_nodes": timeline_nodes,
+            "possibilities": possibilities,
+            "event": refined_event,
+        }
+        if timeline_nodes or possibilities:
+            emit_log(
+                stage_key="agent_synthesis",
+                title="Agent enrichment 完成",
+                summary=(
+                    f"timeline={len(timeline_nodes)} nodes, scenarios={len(possibilities)} items"
+                    + (", event title refined" if refined_event else "")
+                ),
+                details=[],
+            )
+        return enriched
 
     def _annotate_corrections(
         self,
