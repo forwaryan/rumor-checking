@@ -409,6 +409,7 @@ class VerdictEngine:
                 claim_terms=claim_terms,
                 claim_is_negative=claim_is_negative,
                 full_scope_claim=full_scope_claim,
+                subject_anchors=subject_anchors,
             )
             if matched_segment:
                 relevant.append(item)
@@ -615,10 +616,12 @@ class VerdictEngine:
         claim_terms: List[str],
         claim_is_negative: bool,
         full_scope_claim: bool,
+        subject_anchors: List[str] | None = None,
     ) -> Tuple[bool, bool, bool]:
         matched_segment = False
         segment_supports = False
         segment_refutes = False
+        anchor_cores = self._anchor_cores(subject_anchors) if subject_anchors else None
         for segment in re.split(r"[。！？!?；;\n]", segment_text):
             haystack = self._normalize_claim(segment)
             overlap = self._overlap_terms(claim_terms, haystack)
@@ -629,6 +632,8 @@ class VerdictEngine:
                     continue
             matched_segment = True
             if self._disclaims_subject(segment) or self._disclaims_subject(haystack):
+                continue
+            if anchor_cores and not any(core in segment for core in anchor_cores):
                 continue
             evidence_is_negative = self._contains_evidence_refutation(haystack)
             if not evidence_is_negative and self._is_context_only_segment(haystack):
@@ -641,13 +646,29 @@ class VerdictEngine:
                 segment_refutes = True
         return matched_segment, segment_supports, segment_refutes
 
+    @staticmethod
+    def _anchor_cores(anchors: List[str]) -> List[str]:
+        cores = []
+        for anchor in anchors:
+            core = anchor[:4] if len(anchor) > 4 else anchor
+            if len(core) >= 2:
+                cores.append(core)
+        return cores
+
     def _overlap_terms(self, claim_terms: List[str], haystack: str) -> List[str]:
         return [term for term in claim_terms if term in haystack]
 
     def _has_sufficient_overlap(self, claim_terms: List[str], overlap: List[str]) -> bool:
-        if any(len(term) >= 3 or term in STRONG_OVERLAP_TERMS or any(char.isdigit() for char in term) for term in overlap):
+        if any(len(term) >= 3 or term in STRONG_OVERLAP_TERMS or self._is_strong_numeric_term(term) for term in overlap):
             return True
         return len(overlap) >= 2 or (len(claim_terms) <= 2 and bool(overlap))
+
+    def _is_strong_numeric_term(self, term: str) -> bool:
+        if not any(ch.isdigit() for ch in term):
+            return False
+        if re.fullmatch(r"\d+", term):
+            return False
+        return True
 
     def _is_context_only_segment(self, haystack: str) -> bool:
         return any(marker in haystack for marker in CONTEXT_ONLY_MARKERS) and not any(
@@ -659,7 +680,7 @@ class VerdictEngine:
         return any(marker in lowered for marker in SUBJECT_DISCLAIMER_MARKERS)
 
     def _has_negative_claim_refutation_overlap(self, overlap: List[str]) -> bool:
-        return any(len(term) >= 3 or any(char.isdigit() for char in term) for term in overlap)
+        return any(len(term) >= 3 or self._is_strong_numeric_term(term) for term in overlap)
 
     def _confidence_from_high_trust_hits(self, items: List[EvidenceItem]) -> str:
         if len(items) >= 2 or any(item.source_tier == DECISIVE_HIGH_CONFIDENCE_TIER for item in items):
