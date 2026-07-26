@@ -474,6 +474,26 @@ def test_scale_unit_stays_attached_to_digit_in_query():
     assert "10" not in terms  # not stripped to a bare, wrong magnitude
 
 
+def test_ambiguous_verb_chars_do_not_cause_junk_subclaim_splits():
+    # 收/成 fire inside common words (营收 / 达成 / 3成) with no word boundary, so
+    # they used to cut clauses mid-word into junk sub-queries like "收降3". They are
+    # dropped from the verb table; a revenue+layoff sentence has only one real action
+    # verb (裁) here, so it must NOT be split into bogus sub-facts.
+    svc = RetrievalService(settings=replace(get_settings(), retrieval_provider="playwright"))
+    text = "某公司营收降3成裁员1万人"
+    event = NormalizedEvent(summary=text, title=text, input_type="text_news", raw_input=text)
+    plan = svc._build_query_plan(event, request_context={"mode": "deep"})
+    subs = [s.query for s in plan if s.label.startswith("subclaim_")]
+    # No sub-query may be a mid-word fragment starting with the dropped verb chars.
+    assert not any(q.split()[-1].startswith(("收降", "成")) for q in subs if q.split())
+    # And a genuine two-action rumor must still split cleanly.
+    text2 = "拼多多在雄安买了5栋楼招了6000研发人员"
+    ev2 = NormalizedEvent(summary=text2, title=text2, input_type="text_news", raw_input=text2)
+    subs2 = [s for s in svc._build_query_plan(ev2, request_context={"mode": "deep"})
+             if s.label.startswith("subclaim_")]
+    assert len(subs2) == 2
+
+
 def test_retrieval_service_emits_structured_results_for_each_query(tmp_path: Path):
     # Observability: every retrieval event must carry the actual hits (title,
     # snippet, url, source, tier) so the frontend can show what each search

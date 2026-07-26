@@ -780,7 +780,11 @@ class RetrievalService:
     # Action verbs that start a new sub-fact ("买了…楼" vs "招了…研发人员"). Splitting
     # on these separates the bundled facts without needing a digit, so Chinese
     # numerals (三栋 / 五千) don't defeat the split.
-    _SUBCLAIM_VERBS = "买购租建招设成开裁持投收"
+    # Deliberately EXCLUDES 收 and 成: with no Chinese word boundaries these fire
+    # inside common 2-char words (营收 / 年收入 / 完成 / 达成 / 3成), cutting a clause
+    # mid-word and producing junk sub-queries like "收降3". 收购 still splits on 购
+    # and 建成 on 建, so dropping the two ambiguous chars loses little real coverage.
+    _SUBCLAIM_VERBS = "买购租建招设开裁持投"
     _SUBCLAIM_VERB_RE = re.compile(f"[{_SUBCLAIM_VERBS}]")
 
     def _subclaim_anchor_terms(self, text: str) -> list[str]:
