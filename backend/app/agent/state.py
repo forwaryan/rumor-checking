@@ -118,6 +118,10 @@ class AgentState:
     # Accumulated token usage from all LLM calls this run.
     token_usage: TokenUsage = field(default_factory=TokenUsage)
 
+    # Hard ceiling on total tokens for this run. 0 means unlimited.
+    # When exceeded, legal_actions forces early synthesis/finalize.
+    max_token_budget: int = 0
+
     # Cooperative cancellation flag. The runner checks this before each step;
     # external code (e.g. SSE disconnect handler) sets it to abort the loop.
     cancelled: bool = False

@@ -55,12 +55,13 @@ def test_critic_downgrades_unfaithful_supported_claim(monkeypatch):
     resp = json.dumps({"revisions": [{"index": 1, "keep": False, "reason": "证据只提到员工超600人"}]})
     _patch(r, resp, monkeypatch)
 
-    out = r._critique_claim_results(claims)
+    out, downgraded_indices = r._critique_claim_results(claims)
     assert out[0].verdict == "supported"  # untouched
     assert out[1].verdict == "insufficient"  # downgraded
     assert out[1].confidence == "low"
     assert "核查复检" in out[1].notes
     assert "证据只提到员工超600人" in out[1].notes
+    assert 1 in downgraded_indices
 
 
 def test_critic_is_monotonic_ignores_keep_true_and_bad_upgrades(monkeypatch):
@@ -72,8 +73,9 @@ def test_critic_is_monotonic_ignores_keep_true_and_bad_upgrades(monkeypatch):
     resp = json.dumps({"revisions": [{"index": 0, "keep": True, "reason": "looks fine"}]})
     fake = _patch(r, resp, monkeypatch)
 
-    out = r._critique_claim_results(claims)
+    out, downgraded_indices = r._critique_claim_results(claims)
     assert out[0].verdict == "insufficient"
+    assert len(downgraded_indices) == 0
     # An insufficient-only claim set has nothing decisive to check -> no LLM call.
     assert fake.calls == 0
 
@@ -83,8 +85,9 @@ def test_critic_disabled_flag_short_circuits(monkeypatch):
     claims = [_claim("某事属实。", "supported", evidence=[_ev()])]
     fake = _patch(r, json.dumps({"revisions": [{"index": 0, "keep": False}]}), monkeypatch)
 
-    out = r._critique_claim_results(claims)
+    out, downgraded_indices = r._critique_claim_results(claims)
     assert out[0].verdict == "supported"  # unchanged
+    assert len(downgraded_indices) == 0
     assert fake.calls == 0  # never called when disabled
 
 
@@ -93,8 +96,9 @@ def test_critic_unparseable_response_keeps_original(monkeypatch):
     claims = [_claim("某事属实。", "supported", evidence=[_ev()])]
     _patch(r, "not json at all", monkeypatch)
 
-    out = r._critique_claim_results(claims)
+    out, downgraded_indices = r._critique_claim_results(claims)
     assert out[0].verdict == "supported"  # preserved on parse failure
+    assert len(downgraded_indices) == 0
 
 
 def test_critic_skips_when_no_evidence(monkeypatch):
@@ -103,8 +107,9 @@ def test_critic_skips_when_no_evidence(monkeypatch):
     claims = [_claim("某事属实。", "supported", evidence=[])]
     fake = _patch(r, json.dumps({"revisions": []}), monkeypatch)
 
-    out = r._critique_claim_results(claims)
+    out, downgraded_indices = r._critique_claim_results(claims)
     assert out[0].verdict == "supported"
+    assert len(downgraded_indices) == 0
     assert fake.calls == 0
 
 
@@ -118,11 +123,12 @@ def test_critic_emits_completion_log_even_when_nothing_downgraded(monkeypatch):
     events: list[dict] = []
     token = set_progress_callback(lambda ev: events.append(ev))
     try:
-        out = r._critique_claim_results(claims)
+        out, downgraded_indices = r._critique_claim_results(claims)
     finally:
         reset_progress_callback(token)
 
     assert out[0].verdict == "supported"  # unchanged (monotonic)
+    assert len(downgraded_indices) == 0
     completions = [e for e in events if e.get("title") == "Synthesis critic 完成"]
     assert len(completions) == 1
     assert "全部与所引证据一致" in completions[0].get("summary", "")

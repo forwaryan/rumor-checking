@@ -519,13 +519,16 @@ class LlmAgentReasoner:
         # Verify pass: a second LLM read checks each decisive verdict against its
         # OWN cited evidence and can only downgrade unfaithful calls to insufficient.
         # Purely subtractive, so it can never manufacture a stronger conclusion.
-        claim_results = self._critique_claim_results(claim_results)
+        claim_results, critic_downgraded_indices = self._critique_claim_results(claim_results)
 
         # Critic-triggered refinement: if the critic downgraded any claims, give
         # them one chance to re-verdict against the full evidence pool. This closes
         # the gap where the agent path had no recovery after a critic downgrade.
         claim_results = self._refine_after_critic(
-            claim_results, retrieval_bundle=retrieval_bundle, fetched_bodies=fetched_bodies,
+            claim_results,
+            downgraded_indices=critic_downgraded_indices,
+            retrieval_bundle=retrieval_bundle,
+            fetched_bodies=fetched_bodies,
         )
 
         # Structured number correction: for claims whose specific numbers/details
@@ -537,14 +540,21 @@ class LlmAgentReasoner:
         # Second-phase enrichment: produce timeline, scenarios, and refined event
         # in a SEPARATE lighter call to avoid the truncation the old all-in-one
         # prompt caused on V4-Flash. Degrades to empty timeline/scenarios on failure.
-        enrichment = self._enrich_synthesis(
-            request=request,
-            event=synthesized_event,
-            claim_results=claim_results,
-            retrieval_bundle=retrieval_bundle,
-            fetched_bodies=fetched_bodies,
-            result_map=result_map,
-        )
+        try:
+            enrichment = self._enrich_synthesis(
+                request=request,
+                event=synthesized_event,
+                claim_results=claim_results,
+                retrieval_bundle=retrieval_bundle,
+                fetched_bodies=fetched_bodies,
+                result_map=result_map,
+            )
+        except Exception as exc:
+            logger.warning(
+                "enrich_synthesis_failed error_type=%s error=%s",
+                exc.__class__.__name__, str(exc)[:200],
+            )
+            enrichment = {"timeline_nodes": [], "possibilities": [], "event": None}
 
         evidence_source: EvidenceSourceType = "retrieval_mock" if retrieval_bundle.provider_name == "mock" else "retrieval_live"
         evidence_pool = retrieval_bundle.to_evidence_items()
@@ -705,7 +715,7 @@ class LlmAgentReasoner:
         # dispatch vocabulary is valid to plan (a later step like synthesize is not
         # in allowed_actions *yet* but becomes legal after the earlier steps run);
         # the caller re-checks each head against legal_actions before running it.
-        known = {a for a in _KNOWN_ACTION_NAMES}
+        known = _KNOWN_ACTION_NAMES
         actions: list[str] = []
         for item in raw_actions:
             name = self._clean_optional_string(item)
@@ -963,8 +973,6 @@ class LlmAgentReasoner:
                         reasoning_chars += len(thought)
                         collected += len(thought)
         except httpx.ReadTimeout:
-            # A stalled/runaway stream: keep whatever arrived; the caller's lenient
-            # JSON parser may still recover a usable object from the partial content.
             truncated = True
             logger.warning(
                 "llm_stream_read_timeout model=%s content_chars=%s reasoning_chars=%s",
@@ -972,6 +980,12 @@ class LlmAgentReasoner:
                 len("".join(parts)),
                 reasoning_chars,
             )
+        except (httpx.HTTPStatusError, httpx.TransportError) as exc:
+            logger.warning(
+                "llm_stream_network_error model=%s error_type=%s error=%s",
+                model, type(exc).__name__, str(exc)[:200],
+            )
+            return ""
         if truncated:
             logger.warning(
                 "llm_stream_truncated model=%s reasoning=%s content_chars=%s reasoning_chars=%s char_budget=%s",
@@ -1051,12 +1065,8 @@ class LlmAgentReasoner:
             "retrieval_hits": [self._serialize_result(item) for item in retrieval_bundle.canonical_results[:8]],
         }
         if fetched_bodies:
-            # Strip any residual HTML and cap body length so the prompt stays within
-            # token budget. The fetch tool stores raw extractor output which may
-            # contain HTML when the extractor couldn't parse the page cleanly.
-            import re as _re
-            _html_tag = _re.compile(r"<[^>]+>")
-            _ws = _re.compile(r"\s+")
+            _html_tag = re.compile(r"<[^>]+>")
+            _ws = re.compile(r"\s+")
 
             def _clean_body(body: str) -> str:
                 text = _html_tag.sub(" ", body)
@@ -1244,16 +1254,16 @@ class LlmAgentReasoner:
             )
         return claim_results
 
-    def _critique_claim_results(self, claim_results: list[ClaimResult]) -> list[ClaimResult]:
+    def _critique_claim_results(self, claim_results: list[ClaimResult]) -> tuple[list[ClaimResult], set[int]]:
         """Second-pass verify: re-check each decisive verdict against its own cited
         evidence and downgrade any the critic finds unfaithful to "insufficient".
 
         Monotonic by construction — the critic can ONLY downgrade, never upgrade —
         so a critic failure or garbage response can never strengthen a verdict.
-        Returns the input unchanged when disabled, when there is nothing decisive to
-        check, or when the critic is unavailable/unparseable."""
+        Returns (input unchanged, empty set) when disabled, when there is nothing
+        decisive to check, or when the critic is unavailable/unparseable."""
         if not self.enabled or not self.settings.agent_synthesis_critic_enabled:
-            return claim_results
+            return claim_results, set()
 
         # Only claims that make a decisive, evidence-backed assertion are worth
         # checking; insufficient/unsupported claims are already cautious.
@@ -1263,7 +1273,7 @@ class LlmAgentReasoner:
             if cr.verdict in {"supported", "refuted", "conflicting"} and cr.evidence
         ]
         if not checkable:
-            return claim_results
+            return claim_results, set()
 
         payload_claims = [
             {
@@ -1299,11 +1309,11 @@ class LlmAgentReasoner:
                 summary="critic 返回不可解析，保留原判定。",
                 details=[],
             )
-            return claim_results
+            return claim_results, set()
 
         revisions = payload.get("revisions")
         if not isinstance(revisions, list):
-            return claim_results
+            return claim_results, set()
         downgrade_indices = {
             int(item.get("index"))
             for item in revisions
@@ -1348,12 +1358,13 @@ class LlmAgentReasoner:
             ),
             details=[f"downgraded_indices={sorted(i for i in downgrade_indices if any(idx == i for idx, _ in checkable))}"],
         )
-        return revised
+        return revised, downgrade_indices
 
     def _refine_after_critic(
         self,
         claim_results: list[ClaimResult],
         *,
+        downgraded_indices: set[int],
         retrieval_bundle: RetrievalBundle,
         fetched_bodies: Optional[dict[str, str]],
     ) -> list[ClaimResult]:
@@ -1367,7 +1378,7 @@ class LlmAgentReasoner:
             return claim_results
         downgraded = [
             (i, cr) for i, cr in enumerate(claim_results)
-            if cr.verdict == "insufficient" and "核查复检" in (cr.notes or "")
+            if i in downgraded_indices
         ]
         if not downgraded:
             return claim_results
@@ -1583,7 +1594,8 @@ class LlmAgentReasoner:
     def _guard_overbroad_claim_verdict(
         self,
         *,
-        claim_text: str,        verdict: str,
+        claim_text: str,
+        verdict: str,
         confidence: str,
         notes: str,
         evidence: list[SearchResult],

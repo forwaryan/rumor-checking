@@ -37,12 +37,39 @@ def legal_actions(state: AgentState) -> List[str]:
     """
     done = state.done_actions
 
+    # Token budget enforcement: when the budget is exhausted, force the shortest
+    # path to a report. Skip optional evidence-gathering and go straight to
+    # synthesis/finalize. The mandatory prefix (normalize, search) still runs
+    # because you can't produce any report without them.
+    budget_exhausted = _budget_exhausted(state)
+
     if NORMALIZE not in done:
         return [NORMALIZE]
     if SEARCH not in done:
         return [SEARCH]
     if RESOLVE not in done:
         return [RESOLVE]
+
+    if budget_exhausted:
+        # Fast-path: skip all optional evidence gathering.
+        if FOLLOW_UP not in done:
+            return [FOLLOW_UP]  # Still runs (cheap, no LLM) but the next call will skip investigate
+        if SYNTHESIZE not in done:
+            return [SYNTHESIZE]
+        if state.agent_synthesized:
+            return [FINALIZE] if FINALIZE not in done else [DONE]
+        if ENRICH not in done:
+            return [ENRICH]
+        if EXTRACT not in done:
+            return [EXTRACT]
+        if JUDGE not in done:
+            return [JUDGE]
+        if TIMELINE not in done:
+            return [TIMELINE]
+        if FINALIZE not in done:
+            return [FINALIZE]
+        return [DONE]
+
     if FOLLOW_UP not in done:
         return [FOLLOW_UP]
 
@@ -110,6 +137,13 @@ def _can_fetch(state: AgentState) -> bool:
         r.url and r.result_id not in state.fetched_bodies and r.url not in state.fetched_urls
         for r in bundle.canonical_results
     )
+
+
+def _budget_exhausted(state: AgentState) -> bool:
+    """True when the token budget is set and has been exceeded."""
+    if state.max_token_budget <= 0:
+        return False
+    return state.token_usage.total_tokens >= state.max_token_budget
 
 
 def _has_weak_claims(state: AgentState) -> bool:
@@ -252,10 +286,14 @@ def _evidence_snapshot(state: AgentState) -> dict:
     # Token budget awareness — lets the planner consider cost when deciding
     # whether another investigation round is worth it.
     if state.token_usage.call_count > 0:
-        snapshot["token_usage"] = {
+        usage_info: dict = {
             "total_tokens": state.token_usage.total_tokens,
             "call_count": state.token_usage.call_count,
         }
+        if state.max_token_budget > 0:
+            usage_info["budget"] = state.max_token_budget
+            usage_info["remaining"] = max(0, state.max_token_budget - state.token_usage.total_tokens)
+        snapshot["token_usage"] = usage_info
     return snapshot
 
 

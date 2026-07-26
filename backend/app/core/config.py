@@ -104,6 +104,8 @@ class Settings:
     agent_max_extra_rounds: int
     agent_orchestrator_enabled: bool
     agent_max_url_fetches: int
+    agent_tool_max_retries: int
+    agent_max_token_budget: int
     llm_api_key: str | None
     llm_base_url: str
     llm_model_base_urls: dict[str, str]
@@ -210,6 +212,8 @@ def get_settings() -> Settings:
         agent_max_extra_rounds=max(_as_int(os.getenv("AGENT_MAX_EXTRA_ROUNDS"), 1), 0),
         agent_orchestrator_enabled=_as_bool(os.getenv("AGENT_ORCHESTRATOR_ENABLED"), default=False),
         agent_max_url_fetches=max(_as_int(os.getenv("AGENT_MAX_URL_FETCHES"), 1), 0),
+        agent_tool_max_retries=max(_as_int(os.getenv("AGENT_TOOL_MAX_RETRIES"), 2), 0),
+        agent_max_token_budget=max(_as_int(os.getenv("AGENT_MAX_TOKEN_BUDGET"), 0), 0),
         llm_api_key=os.getenv("LLM_API_KEY") or os.getenv("KIMI_API_KEY"),
         llm_base_url=(os.getenv("LLM_BASE_URL") or os.getenv("KIMI_BASE_URL") or "https://api.openai.com/v1").rstrip("/"),
         llm_model_base_urls=_parse_model_base_urls(os.getenv("LLM_MODEL_BASE_URLS")),
