@@ -16,7 +16,7 @@
 - 页面启动时通过 `GET /api/v1/health` 判断后端状态，并拉 `GET /api/v1/models` 填充模型下拉
 - 示例卡片只负责填充稳定输入样例，不再读取本地 demo payload
 - provenance 当前只消费 `backend_live`、`backend_mock`，缺失 provenance 时按 `unknown` 保守展示
-- 展示逻辑已收敛到单一组件 `components/analyze-page.tsx`（早期十余个面板组件已移除）
+- 展示逻辑按职责拆成一组聚焦组件：`components/analyze-page.tsx` 只做编排与状态机，判定卡片、逐条核查、证据、可能性、时间线、执行 trace 各自是独立组件（`verdict-card` / `claim-list` / `evidence-list` / `possibilities-section` / `search-input` / `timeline-section` / `trace-timeline`）
 
 ## 当前不再保留的路径
 
@@ -44,8 +44,10 @@ npm run dev
 默认地址：
 
 ```text
-http://127.0.0.1:3020
+http://127.0.0.1:3000
 ```
+
+> 裸 `next dev` 使用 Next 默认端口 3000；如需固定为 3020，可改 `dev` 脚本为 `next dev -p 3020`。
 
 如果仓库通过 `\\wsl.localhost\...` 挂到 Windows 下运行，优先使用：
 
@@ -70,7 +72,7 @@ powershell -ExecutionPolicy Bypass -File .\frontend\run-local-windows-checks.ps1
 ## 目录说明
 
 - `app/`：页面入口、根布局与全局样式（移动端优先，约 300 行）
-- `components/`：`analyze-page.tsx` 单一页面组件（搜索态 + 结果态）
+- `components/`：`analyze-page.tsx` 编排组件 + 各展示组件（verdict-card / claim-list / evidence-list / possibilities-section / search-input / timeline-section / trace-timeline）
 - `lib/`：API client、解析与展示辅助逻辑
 - `types/`：前端消费的 `Report` 类型
 

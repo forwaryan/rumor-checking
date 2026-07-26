@@ -1,12 +1,16 @@
 # 当前代码结构与项目架构说明
 
-更新时间：2026-07-23（Asia/Shanghai）
+更新时间：2026-07-26（Asia/Shanghai）
 
 这份文档只讲三件事：
 
 1. 现在这套代码是怎么分层的。
 2. 现在这个项目的主架构是怎么跑的。
 3. 用一个真实能在当前代码里跑通的例子，把整条链路讲清楚。
+
+<p align="center">
+  <img src="assets/hero.png" alt="较真核查：从信息洪流中分辨真伪" width="720">
+</p>
 
 ---
 
@@ -78,7 +82,7 @@ rumor-checking/
 | [backend/app/core](../backend/app/core) | 读取配置、安装异常处理、配置日志 | [backend/app/core/config.py](../backend/app/core/config.py) |
 | [backend/app/models](../backend/app/models) | 定义 `AnalyzeRequest`、`Report` 等结构 | [backend/app/models/schemas.py](../backend/app/models/schemas.py) |
 | [backend/app/services](../backend/app/services) | 实现输入标准化、检索、判定、时间线、报告组装 | [backend/app/services/analyze_pipeline.py](../backend/app/services/analyze_pipeline.py) |
-| [frontend/components](../frontend/components) | 把最终 `Report` 和流式事件拆成多个 UI 面板 | [frontend/components/analyze-page.tsx](../frontend/components/analyze-page.tsx) |
+| [frontend/components](../frontend/components) | 把最终 `Report` 和流式事件拆成多个 UI 组件（判定卡片、逐条核查、证据、可能性、时间线、trace 等） | [frontend/components/analyze-page.tsx](../frontend/components/analyze-page.tsx) |
 | [frontend/lib](../frontend/lib) | 前端请求后端、解析 NDJSON、整理展示逻辑 | [frontend/lib/api-client.ts](../frontend/lib/api-client.ts) |
 | [contracts](../contracts) | 固定共享协议，避免前后端各说各话 | [contracts/report.schema.json](../contracts/report.schema.json) |
 | [evals/minimal_v1](../evals/minimal_v1) | 提供 mock 检索和最小回归样例 | [evals/minimal_v1/retrieval_cases.json](../evals/minimal_v1/retrieval_cases.json) |
@@ -131,37 +135,46 @@ flowchart LR
 
 ### 5.2 前端核心文件
 
-当前前端已从早期的“多面板工作台”（十余个组件）**收敛为单一页面组件**。核心文件如下：
+前端早期是「多面板工作台」，中途一度收敛成单文件，**当前又按职责拆回了一组聚焦组件**：`AnalyzePage` 只做状态机与编排（输入、流式事件、报告状态、两态切换），把每个展示区块交给独立组件。核心文件如下：
 
 | 文件 | 当前职责 |
 | --- | --- |
 | [frontend/app/page.tsx](../frontend/app/page.tsx) | 页面入口，只挂载 `AnalyzePage` |
-| [frontend/app/layout.tsx](../frontend/app/layout.tsx) | 根布局与站点标题（“较真核查”） |
+| [frontend/app/layout.tsx](../frontend/app/layout.tsx) | 根布局与站点标题（「较真核查」） |
 | [frontend/app/globals.css](../frontend/app/globals.css) | 全站样式，移动端优先，约 300 行 |
-| [frontend/components/analyze-page.tsx](../frontend/components/analyze-page.tsx) | **唯一的页面组件**：搜索态 / 结果态两个视图，内联判定卡片、逐条核查、证据、时间线、执行 trace，并维护输入、流式事件、报告状态 |
-| [frontend/lib/api-client.ts](../frontend/lib/api-client.ts) | 请求 `/health`、`/analyze`、`/analyze/stream`，并解析后端返回 |
-| [frontend/lib/report-utils.ts](../frontend/lib/report-utils.ts) | 展示层二次整理，例如 verdict 标签、置信度格式化、证据收集 |
+| [frontend/components/analyze-page.tsx](../frontend/components/analyze-page.tsx) | **编排组件**：搜索态 / 结果态两个视图，维护输入、流式事件、报告状态，按顺序组合下面各展示组件 |
+| [frontend/components/search-input.tsx](../frontend/components/search-input.tsx) | 搜索态：居中输入框 + 示例卡片 + 后端状态点 |
+| [frontend/components/verdict-card.tsx](../frontend/components/verdict-card.tsx) | 结果态打头的整体判定卡片（色块 + 一句话结论 + 整体真假混杂逻辑） |
+| [frontend/components/claim-list.tsx](../frontend/components/claim-list.tsx) | 逐条核查（可折叠），每条带 verdict + 为真概率 + basis |
+| [frontend/components/evidence-list.tsx](../frontend/components/evidence-list.tsx) | 证据来源与未被引用的检索命中（可折叠） |
+| [frontend/components/possibilities-section.tsx](../frontend/components/possibilities-section.tsx) | 「可能性分布」与「更可能的答案」区块 |
+| [frontend/components/timeline-section.tsx](../frontend/components/timeline-section.tsx) | 传播时间线（可折叠） |
+| [frontend/components/trace-timeline.tsx](../frontend/components/trace-timeline.tsx) | 底部执行过程 trace（默认折叠），每步「干了什么/输入/输出/结论」 |
+| [frontend/lib/api-client.ts](../frontend/lib/api-client.ts) | 请求 `/health`、`/models`、`/analyze`、`/analyze/stream`，解析 NDJSON |
+| [frontend/lib/report-utils.ts](../frontend/lib/report-utils.ts) | 展示层二次整理：verdict 标签、置信度格式化、证据收集 |
 | [frontend/lib/report-high-score.ts](../frontend/lib/report-high-score.ts) | 整体可信度、评分拆解等派生指标 |
+| [frontend/lib/trace-steps.ts](../frontend/lib/trace-steps.ts) | 把流式事件聚合成可观测执行时间线 |
 | [frontend/lib/agent-run.ts](../frontend/lib/agent-run.ts) | 从流式事件派生 agent 调查动作视图 |
 | [frontend/lib/demo-cases.ts](../frontend/lib/demo-cases.ts) | 提供搜索态的示例输入卡片 |
 | [frontend/types/report.ts](../frontend/types/report.ts) | 前端侧 `Report`、`AnalysisLiveEvent` 类型定义 |
 
 ### 5.3 前端结构图
 
-早期把 `Report` 拆给十几个面板组件；现在这些展示逻辑全部内联在 `AnalyzePage` 里，按“搜索态 / 结果态”两个分支渲染，结果态内部再分区块。
+`AnalyzePage` 是一个轻量状态机，按「搜索态 / 结果态」两个分支渲染；结果态再把 `Report` 的不同切片分发给各展示组件。
 
 ```mermaid
 flowchart TD
-    PAGE["app/page.tsx"] --> ANALYZE["AnalyzePage（单组件）"]
+    PAGE["app/page.tsx"] --> ANALYZE["AnalyzePage（编排组件）"]
 
-    ANALYZE --> IDLE["搜索态：输入框 + 示例 + 服务状态点"]
+    ANALYZE --> IDLE["SearchInput（搜索态）"]
     ANALYZE --> RESULT["结果态"]
 
-    RESULT --> VERDICT["判定卡片（色块 + 一句话结论）"]
-    RESULT --> CLAIMS["逐条核查（可折叠）"]
-    RESULT --> EVIDENCE["证据来源（可折叠）"]
-    RESULT --> TIMELINE["传播时间线（可折叠）"]
-    RESULT --> TRACE["执行过程 trace（默认折叠）"]
+    RESULT --> VERDICT["VerdictCard 判定卡片"]
+    RESULT --> POSS["PossibilitiesSection 可能性 / 更可能的答案"]
+    RESULT --> CLAIMS["ClaimList 逐条核查"]
+    RESULT --> EVIDENCE["EvidenceList 证据来源"]
+    RESULT --> TIMELINE["TimelineSection 传播时间线"]
+    RESULT --> TRACE["TraceTimeline 执行过程（默认折叠）"]
 
     ANALYZE --> CLIENT["api-client.ts"]
     CLIENT --> STREAM["/api/v1/analyze/stream"]
@@ -189,9 +202,9 @@ sequenceDiagram
 
 前端这层最值得讲给面试官的点是：
 
-- `AnalyzePage` 其实就是一个轻量状态机，搜索态和结果态是它的两个视图。
+- `AnalyzePage` 是一个轻量状态机（搜索态 / 结果态两个视图），展示逻辑按职责拆给一组聚焦组件，它只负责编排。
 - `api-client.ts` 读的是 **NDJSON 流**，不是等到最后一次性读 JSON。
-- 执行过程 trace 直接内联在结果态底部（默认折叠），流式事件仍能让后端每个阶段被追溯。
+- 执行过程 trace 是结果态底部一个独立组件（`TraceTimeline`，默认折叠），流式事件仍能让后端每个阶段被追溯。
 
 ---
 
@@ -281,7 +294,14 @@ flowchart TD
 Planner 可插拔，这是"agent 为主又不破坏基线"的关键取舍：
 
 - `RulePlanner`（默认）：永远取第一个合法动作，复刻固定 pipeline 顺序。在 `off + mock` 上产出与旧链路**逐字节一致**的 `Report`（`backend/tests/test_agent_orchestrator.py` 的 parity 测试保证）。
-- `LlmPlanner`（配置 LLM 时启用）：只在真实岔路口调用 LLM；其余强制步骤不浪费 LLM 调用。非法/失败选择一律退回 `RulePlanner`。岔路口的候选动作：`investigate`（补一轮检索）/ `fetch_url`（抓取最权威证据的全文）/ `synthesize`（直接综合）。`fetch_url` 始终排在规则默认动作之后，`RulePlanner`（取第一个）永不选它 → parity 不受影响。
+- `LlmPlanner`（配置 LLM 时启用）：只在真实岔路口调用 LLM；其余强制步骤不浪费 LLM 调用。非法/失败选择一律退回 `RulePlanner`。当前岔路口的候选动作：`investigate`（补一轮检索）/ `fetch_url`（抓取最权威证据的全文）/ `synthesize`（直接综合）/ `per_claim_search`（对弱 claim 定向补搜）/ `build_timeline`。`fetch_url` 等自主动作始终排在规则默认动作之后，`RulePlanner`（取第一个）永不选它 → parity 不受影响。
+- **序列规划器**：`LlmPlanner` 优先调用 `agent_reasoner.plan_action_sequence` 一次规划一串动作（带证据快照 `_evidence_snapshot` 作为上下文），缓存后逐步执行，而不是每步都单独问 LLM；序列不可用时回退单步决策。
+
+`agent-loop` 概念示意（搜索 → 判定 → 取证 → 再搜的迭代循环，中枢由 planner 编排）：
+
+<p align="center">
+  <img src="assets/agent-loop.png" alt="搜索-判定-取证-再搜的迭代 agent 循环" width="620">
+</p>
 
 ```mermaid
 flowchart TD
@@ -291,15 +311,23 @@ flowchart TD
     RUN --> PLAN["Planner.next_action(state)"]
     PLAN --> LEGAL["legal_actions(state)"]
     LEGAL -->|唯一合法| TOOL["执行该工具"]
-    LEGAL -->|岔路 & 配置 LLM| LLM["LlmPlanner 调 LLM 决策"]
-    LLM --> TOOL
+    LEGAL -->|岔路 & 配置 LLM| SEQ["LlmPlanner 序列规划 / 单步决策"]
+    SEQ --> TOOL
     TOOL --> STATE["写回 AgentState"]
+    STATE -->|弱 claim 且未达迭代上限| REJUDGE["per_claim_search → re_judge_claims"]
+    REJUDGE --> PLAN
     STATE -->|未完成| PLAN
     STATE -->|finalize| REPORT["Report"]
     RUN -->|抛错| PIPE
 ```
 
-配合的能力开关：`LIGHTWEIGHT_AGENT_ENABLED`（证据弱时让 LLM planner 追加 1 轮定向检索）、`AGENT_MAX_URL_FETCHES`（允许 planner 抓取几次证据全文，默认 1、0=关）、以及开 LLM 时 `agent_reasoner.synthesize` 接管 grounded verdict（判定必须带证据，否则降级 `insufficient`）。
+**多轮迭代 + 合成校验（近期强化）**：
+
+- **搜-判-再搜循环**：证据弱的 claim 会触发 `per_claim_search`（定向补搜）→ `re_judge_claims`（重判）循环，由 `AgentState.per_claim_iterations` 计数、`max_per_claim_iterations`（默认 3）封顶，避免无限迭代。
+- **合成 critic**：开 LLM 时 `agent_reasoner.synthesize` 的结果会再经一道 `SYNTHESIS_CRITIC` 校验（`agent_synthesis_critic_enabled`），**只能把未被证据支撑的判定下调为 `insufficient`，永不上调**——critic 失败或返回垃圾都不可能加强判定（单调安全）。
+- **LLM 补判 verdict**：fast/规则路径下，`verdict_engine` 会对「规则判 insufficient 但其实有证据」的事实类 claim 调用 `llm_verdict.llm_judge_claims` 做补判，同样只升级、不降级，失败即优雅退回规则结果。
+
+配合的能力开关：`LIGHTWEIGHT_AGENT_ENABLED`（证据弱时让 LLM planner 追加定向检索）、`AGENT_MAX_URL_FETCHES`（允许 planner 抓取几次证据全文，默认 1、0=关）、以及开 LLM 时 `agent_reasoner.synthesize` 接管 grounded verdict（判定必须带证据，否则降级 `insufficient`）。
 
 ---
 
@@ -651,7 +679,7 @@ sequenceDiagram
 
 如果你要自己继续深入，推荐按这个顺序读：
 
-1. [frontend/components/analyze-page.tsx](../frontend/components/analyze-page.tsx)
+1. [frontend/components/analyze-page.tsx](../frontend/components/analyze-page.tsx)（编排与状态机，再看它组合的 verdict-card / claim-list / trace-timeline 等展示组件）
 2. [frontend/lib/api-client.ts](../frontend/lib/api-client.ts)
 3. [backend/app/api/v1/endpoints/analyze.py](../backend/app/api/v1/endpoints/analyze.py)
 4. [backend/app/services/analyze_pipeline.py](../backend/app/services/analyze_pipeline.py)

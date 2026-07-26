@@ -137,11 +137,11 @@ sequenceDiagram
 
 ### 5.2 前端关键文件
 
-前端已从早期的“多面板工作台”**收敛为单一页面组件**，展示逻辑全部内联在 `AnalyzePage` 里。
+前端把展示逻辑按职责拆成一组聚焦组件：`AnalyzePage` 只做编排与状态机，各展示区块是独立组件。
 
 | 文件 | 职责 | 你讲项目时可以怎么说 |
 | --- | --- | --- |
-| `frontend/components/analyze-page.tsx` | **唯一页面组件**：搜索态/结果态两个视图，内联判定卡片、逐条核查、证据、时间线、执行 trace，并串起提交、流式消费、结果落盘 | 这里是页面状态机的核心 |
+| `frontend/components/analyze-page.tsx` | **编排组件**：搜索态/结果态两个视图，串起提交、流式消费、结果落盘，并按顺序组合各展示组件（verdict-card / claim-list / evidence-list / possibilities-section / timeline-section / trace-timeline / search-input） | 这里是页面状态机的核心 |
 | `frontend/lib/api-client.ts` | `analyzeReportStream()` 解析 NDJSON | 前端不是等一个 JSON，而是在读一个事件流 |
 | `frontend/lib/report-utils.ts` | verdict 标签、置信度格式化、证据收集等展示层整理 | 结果页只是消费结构化 report |
 | `frontend/types/report.ts` | 定义 `AnalysisLiveEvent`、`Report` 等类型 | 前后端不是随便传字符串，而是走类型化契约 |

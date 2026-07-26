@@ -2,7 +2,7 @@
 
 本目录只保留运行时缓存和少量本地数据落点。
 
-根目录 [evals/README.md](/home/forwaryan/mianshi/rumor-checking/evals/README.md) 仍是正式评测资产入口；这里不再承载独立的方案草稿或演示文档。
+根目录 [evals/README.md](../evals/README.md) 仍是正式评测资产入口；这里不再承载独立的方案草稿或演示文档。
 
 当前真实检索缓存会写到 `data/cache/retrieval/`，默认格式为 `data/cache/retrieval/<provider>/<cache_key>.json`。
 Agent `fetch_url` 抓到的正文缓存会写到 `data/cache/url_fetch/`，默认格式为 `data/cache/url_fetch/<cache_key>.json`。

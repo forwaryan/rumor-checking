@@ -7,7 +7,7 @@
 ## Go / No-Go
 
 - `Go / 讲 mock demo + 边界`：页面能打开，后端可用，`expired-yogurt` 可跑，来源标签正常
-- `Go / 讲 real live`：真实 Kimi 检索已联调通过，但需按 real-live 配方配置且时延高，讲的时候要如实标注"非默认、需配置、慢"
+- `Go / 讲 real live`：真实检索（推荐 `playwright`）已联调通过，但需按 real-live 配方配置且时延高，讲的时候要如实标注"非默认、需配置、慢"
 - `No-Go / 讲交互式演示`：后端起不来，或页面无法跑出真实 `Report`
 
 ## 1. 先决定今天走哪条路径
@@ -86,7 +86,7 @@ Invoke-WebRequest -Method Post -Uri http://127.0.0.1:8000/api/v1/analyze/stream 
 
 ## 5. 前端页面检查
 
-[ ] 页面能打开：`http://127.0.0.1:3020`
+[ ] 页面能打开：`http://127.0.0.1:3000`（裸 `next dev` 默认端口；Windows 脚本走 `-Port 3020`）
 
 [ ] 页面顶部能看到后端状态
 
@@ -108,15 +108,16 @@ Invoke-WebRequest -Method Post -Uri http://127.0.0.1:8000/api/v1/analyze/stream 
 
 ## 7. real live 路径（真实联网，非默认）
 
-[ ] 如果要走真实检索，把 `backend/.env` 显式切到已联调通过的配方：
+[ ] 如果要走真实检索，把 `backend/.env` 显式切到当前推荐的 playwright 配方：
 
-- `ANALYSIS_PROVIDER=kimi` 且填好 `KIMI_API_KEY`
+- `RETRIEVAL_PROVIDER=playwright`、`RETRIEVAL_FALLBACK_TO_MOCK=true`（纯 httpx 抓百度/Bing，无需浏览器二进制）
 - `AGENT_ORCHESTRATOR_ENABLED=true`
-- `RETRIEVAL_PROVIDER=kimi`、`RETRIEVAL_FALLBACK_TO_MOCK=false`
-- `KIMI_SEARCH_MODEL=moonshot-v1-32k`（8k 会因 web 正文超 token 报 400）
-- `RETRIEVAL_TIMEOUT_SECONDS=45`（默认 12s 会 ReadTimeout）
+- 判定层可选：`ANALYSIS_PROVIDER=kimi` + `LLM_API_KEY`/`LLM_BASE_URL`/`LLM_MODEL`（模型/端点/密钥只放 git 忽略的 `backend/.env`）
+- `RETRIEVAL_TIMEOUT_SECONDS`（默认 12s，单条抓取读超时；多条 query 已并发，单轮约等于最慢一条）
 
-[ ] 演示者知道：这条路已联调通过并会标 `backend_live + retrieval_live`，但时延高（单次可超 120s），不适合无缓存的快速演示
+> 注：早期 `RETRIEVAL_PROVIDER=kimi`（模型内建 `$web_search`）依赖供应商内建搜索，当前网关无此能力，真实联网优先走 `playwright`。
+
+[ ] 演示者知道：这条路会标 `backend_live + retrieval_live`；fast 档约 0.2–0.3s，deep 档因 LLM synthesis 首调可达几分钟，不适合无缓存的快速演示
 
 ## 8. 当前不再保留的保底链路
 

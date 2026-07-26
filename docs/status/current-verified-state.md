@@ -1,6 +1,6 @@
 # 当前已核验状态
 
-更新时间：2026-07-23（Asia/Shanghai）；概率与情形分布特性于同日追加
+更新时间：2026-07-26（Asia/Shanghai）
 
 这份文档只保留已经被当前代码核验过的事实，用来约束 README 和现行运行文档的口径。
 
@@ -15,6 +15,7 @@
 - `backend/app/agent/{state,planner,runner}.py`
 - `backend/app/agent_tools/{base,tools}.py`
 - `backend/app/services/agent_reasoner.py`
+- `backend/app/services/llm_verdict.py`
 - `backend/app/services/retrieval_service.py`
 - `backend/app/services/retrieval_models.py`
 - `backend/app/services/timeline_builder.py`
@@ -22,7 +23,7 @@
 - `backend/app/services/report_builder.py`
 - `backend/app/services/content_check_builder.py`
 - `backend/app/models/schemas.py`
-- `frontend/components/analyze-page.tsx`
+- `frontend/components/*.tsx`（analyze-page 编排 + verdict-card / claim-list / evidence-list / possibilities-section / search-input / timeline-section / trace-timeline）
 - `frontend/lib/agent-run.ts`
 - `frontend/lib/trace-steps.ts`
 - `frontend/lib/api-client.ts`
@@ -91,15 +92,19 @@
 - 由 `AGENT_ORCHESTRATOR_ENABLED` 控制，**默认 `false`**。开关关闭时走原来的固定 `AnalyzePipeline`。
 - Planner 可插拔：
   - `RulePlanner`（默认）复刻固定 pipeline 的顺序，在 `off + mock` 路径上产出与旧链路**逐字节一致**的 `Report`（由 `backend/tests/test_agent_orchestrator.py` 的 parity 测试保证）。
-  - `LlmPlanner`（配置了 LLM 时启用）在真实岔路口调用 LLM 决策，带非法动作护栏，失败即退回 `RulePlanner`。当前岔路口的候选动作：`investigate`（补一轮检索）、`fetch_url`（抓取高价值证据全文）、`synthesize`（直接综合）。
-- `fetch_url` 自主动作：LLM 可选择抓取当前证据里最权威（high-trust/非聚合/高 tier）来源的正文，按**同一 `result_id`** 挂靠喂给 synthesis（grounding 安全，不新增证据源）；由 `AGENT_MAX_URL_FETCHES` 限制（默认 1，0=关），带去重与抓取失败降级。`fetch_url` 在 `legal_actions` 里始终排在规则默认动作之后，所以 `RulePlanner`（取首个）永不选它 → off+mock parity 不受影响。
+  - `LlmPlanner`（配置了 LLM 时启用）在真实岔路口调用 LLM 决策，带非法动作护栏，失败即退回 `RulePlanner`。当前岔路口的候选动作（`planner._LLM_DECIDABLE`）：`investigate`（补一轮检索）、`fetch_url`（抓取高价值证据全文）、`synthesize`（直接综合）、`per_claim_search`（对弱 claim 定向补搜）、`build_timeline`。
+  - **序列规划器**：`LlmPlanner` 优先调用 `agent_reasoner.plan_action_sequence`（带 `_evidence_snapshot` 证据快照）一次规划一串动作、缓存后逐步执行，序列不可用时回退单步决策。
+- **多轮搜-判-再搜循环**：证据弱的 claim 触发 `per_claim_search` → `re_judge_claims`（`agent_tools.tools` + `planner.RE_JUDGE`），由 `AgentState.per_claim_iterations` 计数、`max_per_claim_iterations`（默认 3）封顶。
+- **合成 critic**：开 LLM 时 synthesis 结果再经 `SYNTHESIS_CRITIC`（`agent_synthesis_critic_enabled`）校验，**只能下调未被证据支撑的判定、永不上调**（`backend/tests/test_synthesis_critic.py` 锁定单调性）。
+- `fetch_url` 自主动作：LLM 可选择抓取当前证据里最权威（high-trust/非聚合/高 tier）来源的正文，按**同一 `result_id`** 挂靠喂给 synthesis（grounding 安全，不新增证据源）；由 `AGENT_MAX_URL_FETCHES` 限制（默认 1，0=关），带去重与抓取失败降级。`fetch_url` 等自主动作在 `legal_actions` 里始终排在规则默认动作之后，所以 `RulePlanner`（取首个）永不选它 → off+mock parity 不受影响。
 - runner 抛错时自动回退固定 pipeline，不影响可交付性。
-- 前端保留了从 `stage`/`log` 事件派生 agent 调查动作的逻辑（`frontend/lib/agent-run.ts`）。前端重写为单页产品界面后，早期的独立调查过程面板组件已移除，执行过程改为内联在结果页底部的可折叠 trace 区块；非 agent 路径下 trace 仍照常展示流水线事件。
+- 前端保留了从 `stage`/`log` 事件派生 agent 调查动作的逻辑（`frontend/lib/agent-run.ts`）。当前前端是**一组聚焦组件**（`analyze-page` 编排 + verdict-card / claim-list / evidence-list / possibilities-section / search-input / timeline-section / trace-timeline），执行过程是结果页底部的独立可折叠 `TraceTimeline` 组件；非 agent 路径下 trace 仍照常展示流水线事件。
 
 ### 7. Grounded verdict 与诚实兜底
 
 - 开 LLM 时，`agent_reasoner.synthesize` 接管 verdict：任何 `supported/refuted/conflicting` 判定必须带有效证据（`evidence_result_id`），否则降级为 `insufficient`（`backend/tests/test_agent_grounded_verdict.py` 锁定）。
 - 当 LLM 启用但最终落到规则引擎时，provenance 会带显式 `fallback_reason=llm_synthesis_unavailable_rule_fallback`，不伪装成正常 LLM 结论。
+- **LLM 补判 verdict（`backend/app/services/llm_verdict.py`）**：规则引擎判 `insufficient` 但其实有证据的事实类 claim，会走 `llm_judge_claims` 补判——**只从 insufficient 升级、永不降级**，任何失败都优雅退回规则结果（graceful degradation），并 emit `llm_verdict` stage 便于观测。它在 `verdict_engine.evaluate_with_source` 内接在规则结果之后、纠错标注之前。
 
 ### 8. LLM 供应商可配置（已切到新模型），联网检索现状
 
@@ -127,7 +132,7 @@
 
 - 真实 live retrieval 的进一步降延迟：检索层已把一轮 query plan 的多条 query 改为并发抓取（`retrieve_for_event` 内用线程池并行执行 cache-miss 的网络请求），单轮检索墙钟时间从"多条 query 串行相加"降到"最慢单条"；`playwright` 抓取超时也已改为读取 `RETRIEVAL_TIMEOUT_SECONDS`（默认 12s，含独立 connect 超时），死连接会快速失败而非吊满窗口。当前剩余的冷启动开销主要来自 LLM 判定/synthesis 首次调用，不再是检索串行
 - 公开 HTML 之外的 URL 抽取扩展
-- agent planner 更强的自主性（当前可在 investigate/fetch_url/synthesize 岔路口决策，但还不能自主换角度重搜或动态扩大工具集合）
+- agent planner 更强的自主性：当前已支持序列规划（`plan_action_sequence`）、多轮搜-判-再搜循环（`per_claim_search`→`re_judge_claims`，上限 3 轮）与 investigate/fetch_url/synthesize/timeline 岔路口决策；仍未做的是自主换角度重搜的更强策略与动态扩大工具集合
 - 若未来确实需要 replay，是否公开接口和如何冻结术语体系
 
 ## 使用规则

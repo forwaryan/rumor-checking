@@ -7,4 +7,4 @@
 - `minimal_v1/`
   - 面向当前实现的最小开发测试集
 
-使用时优先看 [minimal_v1/README.md](/home/forwaryan/mianshi/rumor-checking/evals/minimal_v1/README.md)。
+使用时优先看 [minimal_v1/README.md](minimal_v1/README.md)。
