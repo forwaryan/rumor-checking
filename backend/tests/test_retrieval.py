@@ -463,6 +463,39 @@ def test_decimal_and_percent_not_truncated_in_query():
     assert "5%" not in terms
 
 
+def test_placeholder_source_name_not_folded_into_query():
+    # Regression: a plain-text input has no real publisher, so default_source_name
+    # returns the UI placeholder "用户提供文本". It used to be appended to the search
+    # query ("…50% 的产品 … 用户提供文本 官方 回应"), dragging in unrelated hits.
+    # Placeholders are provenance labels, never search terms.
+    from backend.app.services.input_normalizer import InputNormalizer
+
+    svc = RetrievalService(settings=replace(get_settings(), retrieval_provider="playwright"))
+    event = InputNormalizer().normalize(
+        AnalyzeRequest(raw_input="美团最近裁员了50%的产品", input_type="text")
+    )
+    assert event.source_name == "用户提供文本"  # placeholder is still the provenance label
+
+    plan = svc._build_query_plan(event, request_context={"mode": "fast"})
+    assert plan  # sanity
+    for spec in plan:
+        assert "用户提供文本" not in spec.query
+
+
+def test_temporal_adverb_stripped_from_keyword_subject():
+    # Regression: the action-lookahead keyword pattern grabbed the temporal adverb
+    # ("美团最近" before 裁员). Left attached, the subject anchor demanded the literal
+    # "美团最近", so a real "美团回应裁员" article failed the subject gate. The subject
+    # keyword must be the entity alone.
+    from backend.app.services.input_normalizer import InputNormalizer
+
+    event = InputNormalizer().normalize(
+        AnalyzeRequest(raw_input="美团最近裁员了50%的产品", input_type="text")
+    )
+    assert "美团" in event.keywords
+    assert "美团最近" not in event.keywords
+
+
 def test_scale_unit_stays_attached_to_digit_in_query():
     # A single scale-unit char (亿/万/千/百) must ride with its digit: "10亿" is a
     # different figure from "10". The Chinese {2,} rule used to strip the lone unit,

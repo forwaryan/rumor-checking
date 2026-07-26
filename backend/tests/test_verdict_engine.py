@@ -251,6 +251,43 @@ def test_quantitative_conflict_detection():
     assert claim_result.verdict == "conflicting"
 
 
+def test_quantitative_conflict_ignores_subject_mismatched_source():
+    """A number from a different subject must not manufacture a conflict.
+
+    Regression: a '美团裁员50%' claim was flipped to 'conflicting' by a
+    'Meta 裁员20%' article. The subject gate already drops that article as
+    off-topic, so its 20% must never be weighed against the claim's 50%."""
+    engine = VerdictEngine()
+    event = NormalizedEvent(
+        summary="美团最近裁员了50%的产品",
+        keywords=["美团", "裁员"],
+        input_type="text_news",
+        raw_input="美团最近裁员了50%的产品",
+    )
+    claims = [ClaimItem(claim="美团最近裁员了50%的产品。", claim_type="fact")]
+    evidence = [
+        EvidenceItem(
+            title="AI抢饭碗!Meta被曝拟裁员20%:1.58万人面临失业",
+            url="https://www.163.com/dy/article/meta-layoff.html",
+            source_name="www.163.com",
+            published_at="2026-07-26T19:44:00+08:00",
+            snippet="Meta被曝拟裁员20%，约1.58万人面临失业。",
+            relevance_reason="",
+            source_tier="B",
+        ),
+    ]
+
+    result = engine.evaluate(
+        request=AnalyzeRequest(raw_input="美团最近裁员了50%的产品", input_type="text", mock_evidence=evidence),
+        event=event,
+        claims=claims,
+    )
+
+    claim_result = result[0][0]
+    assert claim_result.verdict == "insufficient"
+    assert claim_result.verdict != "conflicting"
+
+
 # ---------------------------------------------------------------------------
 # Supported verdict with high-trust source tests
 # ---------------------------------------------------------------------------

@@ -10,7 +10,7 @@ from typing import Any, Optional
 from backend.app.core.config import Settings, get_settings
 from backend.app.core.exceptions import AppError
 from backend.app.models.schemas import NormalizedEvent
-from backend.app.services.contract_utils import ensure_datetime_string
+from backend.app.services.contract_utils import ensure_datetime_string, INPUT_PLACEHOLDER_SOURCE_NAMES
 from backend.app.services.mock_retriever import MockRetriever
 from backend.app.services.question_intent import detect_trend_topic, is_broad_trend_question
 from backend.app.services.question_text import clean_question_term, strip_question_tail
@@ -835,7 +835,7 @@ class RetrievalService:
                     ),
                     RetrievalQuerySpec(
                         label="follow_up_official",
-                        query=self._extend_query(base_query, *OFFICIAL_QUERY_TERMS, event.source_name),
+                        query=self._extend_query(base_query, *OFFICIAL_QUERY_TERMS, self._real_source_name(event.source_name)),
                         rationale="补抓候选事件的官方回应、通报与说明。",
                         claim_hint=base_query,
                     ),
@@ -852,7 +852,7 @@ class RetrievalService:
         if not primary_query:
             return []
 
-        keyword_query = self._build_term_query(event.title, event.summary, " ".join(event.keywords[:5]), event.source_name)
+        keyword_query = self._build_term_query(event.title, event.summary, " ".join(event.keywords[:5]), self._real_source_name(event.source_name))
         first_clause_query = self._build_term_query(*self._extract_claim_clauses(event.title, event.summary))
 
         # LLM-driven query construction: the raw sentence is a poor search query
@@ -870,7 +870,7 @@ class RetrievalService:
             # fold them into one extra query to widen recall.
             alias_query = self._build_term_query(*llm_terms.aliases[:4])
 
-        official_query = self._extend_query(keyword_query or primary_query, *OFFICIAL_QUERY_TERMS, event.source_name)
+        official_query = self._extend_query(keyword_query or primary_query, *OFFICIAL_QUERY_TERMS, self._real_source_name(event.source_name))
         propagation_query = self._extend_query(keyword_query or primary_query, *PROPAGATION_QUERY_TERMS)
 
         if event.input_type == "question_only":
@@ -886,7 +886,7 @@ class RetrievalService:
                     ]
                 )
             rewritten_query = self._rewrite_question_query(event.raw_input)
-            official_query = self._extend_query(rewritten_query or primary_query, *OFFICIAL_QUERY_TERMS, event.source_name)
+            official_query = self._extend_query(rewritten_query or primary_query, *OFFICIAL_QUERY_TERMS, self._real_source_name(event.source_name))
             propagation_query = self._extend_query(rewritten_query or primary_query, *PROPAGATION_QUERY_TERMS)
             primary_label = "question_raw" if self.settings.uses_agent_retrieval else "question_core"
             return self._dedupe_query_plan(
@@ -986,6 +986,14 @@ class RetrievalService:
                     )
                 )
         return query_plan[:5]
+
+    def _real_source_name(self, source_name: Optional[str]) -> Optional[str]:
+        # default_source_name emits UI placeholders ("用户提供文本") for inputs with
+        # no real publisher. Those are provenance labels, never search terms — folding
+        # them into a query drags in unrelated hits, so drop them before query build.
+        if source_name and source_name in INPUT_PLACEHOLDER_SOURCE_NAMES:
+            return None
+        return source_name
 
     def _build_primary_query(self, event: NormalizedEvent) -> str:
         if event.input_type == "question_only":

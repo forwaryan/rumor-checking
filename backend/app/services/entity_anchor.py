@@ -76,6 +76,29 @@ GENERIC_SUBJECT_ANCHORS = {
     "这件事",
     "相关事件",
 }
+# Temporal adverbs the action-prefix capture greedily swallows into the subject
+# (e.g. "美团最近裁员" -> "美团最近"). Left attached, the anchor demands the literal
+# substring "美团最近", so a real "美团回应裁员" article fails the subject gate and
+# gets dropped as off-topic. Strip them from both ends of every candidate.
+TEMPORAL_ADVERBS = (
+    "最近",
+    "近日",
+    "近期",
+    "日前",
+    "目前",
+    "现在",
+    "如今",
+    "眼下",
+    "当前",
+    "今日",
+    "今天",
+    "昨日",
+    "昨天",
+    "此前",
+    "早前",
+    "刚刚",
+    "近来",
+)
 SUBJECT_MISMATCH_MARKERS = (
     "未点名",
     "没有点名",
@@ -109,10 +132,26 @@ def _normalize_anchor_text(text: str) -> str:
     return _collapse_whitespace(normalized)
 
 
+def _strip_temporal_adverbs(text: str) -> str:
+    cleaned = text
+    changed = True
+    while changed:
+        changed = False
+        for adverb in TEMPORAL_ADVERBS:
+            if cleaned.startswith(adverb) and len(cleaned) > len(adverb):
+                cleaned = cleaned[len(adverb):]
+                changed = True
+            if cleaned.endswith(adverb) and len(cleaned) > len(adverb):
+                cleaned = cleaned[: -len(adverb)]
+                changed = True
+    return cleaned
+
+
 def _clean_anchor_candidate(text: str) -> str:
     cleaned = _normalize_anchor_text(text)
     cleaned = cleaned.strip(" -_/|")
     cleaned = re.sub(r"^(关于|针对|有关)", "", cleaned).strip()
+    cleaned = _strip_temporal_adverbs(cleaned)
     return cleaned
 
 

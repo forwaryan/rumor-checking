@@ -15,7 +15,7 @@ from backend.app.services.contract_utils import (
     looks_like_url,
     source_name_from_url,
 )
-from backend.app.services.entity_anchor import extract_subject_anchors
+from backend.app.services.entity_anchor import _strip_temporal_adverbs, extract_subject_anchors
 from backend.app.services.url_content_extractor import UrlContentExtractor
 
 
@@ -177,6 +177,9 @@ def _extract_keywords(text: str) -> List[str]:
     ordered = []
     for item in candidates:
         cleaned = item.strip("，。！？:：；;【】")
+        # The action-lookahead pattern greedily grabs a leading temporal adverb
+        # ("美团最近" before 裁员); strip it so the keyword is the real subject.
+        cleaned = _strip_temporal_adverbs(cleaned)
         if cleaned and cleaned not in seen:
             seen.add(cleaned)
             ordered.append(cleaned)

@@ -416,9 +416,14 @@ class VerdictEngine:
                     refuting.append(item)
                 continue
 
+        # Only weigh a quantitative conflict against evidence we've already
+        # deemed on-topic for this claim (subject-anchor + term overlap). Scanning
+        # the raw pool let an unrelated source's number masquerade as a conflict —
+        # e.g. a "美团裁员50%" claim flipped to 各方矛盾 by a "Meta 裁员20%" article
+        # that the subject gate had already rejected.
         quantitative_conflict = self._detect_quantitative_conflict(
             claim_text=normalized_claim,
-            evidence_pool=evidence_pool,
+            evidence_pool=relevant,
         )
         if quantitative_conflict is not None:
             return quantitative_conflict
