@@ -20,6 +20,15 @@ from backend.tests.conftest import load_eval_fixture
 RETRIEVAL_CASES = load_eval_fixture("retrieval_cases.json")
 
 
+def _base_ids(results) -> set[str]:
+    # Combine namespaces per-query ids as "qN-<id>" so they're globally unique in
+    # the combined pool. Tests care about the underlying result, not which query
+    # surfaced it, so strip the query-position prefix before asserting membership.
+    import re
+
+    return {re.sub(r"^q\d+-", "", item.result_id) for item in results}
+
+
 def _case_by_id(case_id: str):
     return next(item for item in RETRIEVAL_CASES if item["case_id"] == case_id)
 
@@ -463,6 +472,106 @@ def test_decimal_and_percent_not_truncated_in_query():
     assert "5%" not in terms
 
 
+def test_merge_does_not_conflate_results_sharing_a_result_id():
+    # Regression: each query response numbers its own hits pw-1, pw-2, … so a
+    # combined multi-query pool has COLLIDING ids. merge_search_results used to key
+    # its union-find on result_id, so every "pw-1" was treated as the same node and
+    # unrelated articles cascade-merged into one group — this once collapsed 16 hits
+    # (including 4 官方辟谣) down to a single unrelated result. Distinct articles that
+    # merely share an id must stay distinct.
+    from backend.app.services.retrieval_deduper import merge_search_results
+
+    results = [
+        _make_result(
+            result_id="pw-1",
+            title="美团回应“产品岗裁员50%”:不实消息",
+            snippet="美团官方回应称产品岗裁员50%为不实消息。",
+            published_at="2026-07-20T09:00:00+08:00",
+            url="https://a.example.com/meituan-deny",
+        ),
+        _make_result(
+            result_id="pw-1",  # same id, totally different article
+            title="花旗中国被曝裁员赔偿N+6",
+            snippet="花旗中国被曝裁员，赔偿方案为N+6。",
+            published_at="2026-07-19T09:00:00+08:00",
+            url="https://b.example.com/citi-layoff",
+        ),
+        _make_result(
+            result_id="pw-2",  # same id as none above but collides in a bigger pool
+            title="Meta被曝拟裁员20%",
+            snippet="Meta被曝拟裁员20%，约1.58万人受影响。",
+            published_at="2026-07-18T09:00:00+08:00",
+            url="https://c.example.com/meta-layoff",
+        ),
+    ]
+
+    merged = merge_search_results(results)
+    # Three unrelated articles (different urls/titles) must remain three groups.
+    assert len(merged) == 3
+    titles = {m.title for m in merged}
+    assert "美团回应“产品岗裁员50%”:不实消息" in titles
+    assert "花旗中国被曝裁员赔偿N+6" in titles
+
+
+def test_combine_preserves_refutations_across_colliding_query_ids(tmp_path: Path):
+    # End-to-end guard for the same bug at the combine layer: the official-query
+    # bundle carries the decisive 官方辟谣 hits, but they used to vanish when merged
+    # with other queries' hits that reused pw-1/pw-2/… . After namespacing, the
+    # refutations must survive into the combined canonical set.
+    event = NormalizedEvent(
+        title="美团最近裁员了50%的产品",
+        summary="美团最近裁员了50%的产品",
+        keywords=[],
+        input_type="text_news",
+        raw_input="美团最近裁员了50%的产品",
+    )
+
+    class _PerQueryProvider:
+        name = "playwright"
+        enabled = True
+
+        def __init__(self):
+            self.calls = []
+
+        def search(self, query_text: str):
+            self.calls.append(query_text)
+            if "官方" in query_text:
+                return [
+                    _make_result(
+                        result_id="pw-1",
+                        title="美团回应“产品岗裁员50%”:不实消息",
+                        snippet="美团官方回应称产品岗裁员50%为不实消息。",
+                        published_at="2026-07-20T09:00:00+08:00",
+                        source_name="mp.weixin.qq.com",
+                        url="https://mp.weixin.qq.com/meituan-deny",
+                    )
+                ]
+            return [
+                _make_result(
+                    result_id="pw-1",  # collides with the refutation's id
+                    title="花旗中国被曝裁员赔偿N+6",
+                    snippet="花旗中国被曝裁员，赔偿方案为N+6。",
+                    published_at="2026-07-19T09:00:00+08:00",
+                    source_name="www.163.com",
+                    url="https://www.163.com/citi-layoff",
+                )
+            ]
+
+    provider = _PerQueryProvider()
+    service = RetrievalService(
+        settings=replace(get_settings(), retrieval_provider="playwright"),
+        provider=provider,
+        cache=RetrievalCache(cache_root=tmp_path, ttl_seconds=3600),
+    )
+
+    bundle = service.retrieve_for_event(event, request_context={"mode": "fast"})
+    titles = {item.title for item in bundle.canonical_results}
+    assert "美团回应“产品岗裁员50%”:不实消息" in titles
+    # ids in the combined bundle must be globally unique (no collision reaches synthesis)
+    ids = [item.result_id for item in bundle.canonical_results]
+    assert len(ids) == len(set(ids))
+
+
 def test_placeholder_source_name_not_folded_into_query():
     # Regression: a plain-text input has no real publisher, so default_source_name
     # returns the UI placeholder "用户提供文本". It used to be appended to the search
@@ -688,7 +797,7 @@ def test_retrieval_service_filters_obviously_off_topic_canonical_hits(tmp_path: 
 
     bundle = service.retrieve_for_event(event, request_context={"force_retrieval_query": "拼多多雄安新区招聘信息"})
 
-    canonical_ids = {item.result_id for item in bundle.canonical_results}
+    canonical_ids = _base_ids(bundle.canonical_results)
     assert "relevant-1" in canonical_ids
     assert "off-topic-1" not in canonical_ids
 
@@ -747,7 +856,7 @@ def test_retrieval_service_drops_navigational_brand_homepage(tmp_path: Path):
         request_context={"force_retrieval_query": "拼多多 雄安 购买 三栋楼 研发 5000 官方"},
     )
 
-    canonical_ids = {item.result_id for item in bundle.canonical_results}
+    canonical_ids = _base_ids(bundle.canonical_results)
     assert "real-article" in canonical_ids
     assert "homepage" not in canonical_ids
     assert "batch" not in canonical_ids
@@ -885,7 +994,7 @@ def test_retrieval_service_drops_brand_page_matching_only_a_generic_commerce_wor
         request_context={"force_retrieval_query": "拼多多 雄安 购买 办公楼 研发 招聘 官方"},
     )
 
-    canonical_ids = {item.result_id for item in bundle.canonical_results}
+    canonical_ids = _base_ids(bundle.canonical_results)
     assert "batch" not in canonical_ids
     assert "real-article" in canonical_ids
 
@@ -1175,10 +1284,10 @@ def test_retrieval_service_skip_cache_alias_bypasses_cached_bundle(tmp_path: Pat
     cached = service.retrieve_for_event(event)
 
     per_run_call_count = len(first.query_groups)
-    assert first.canonical_results[0].result_id == "real-1"
-    assert bypassed.canonical_results[0].result_id == "real-2"
+    assert _base_ids(first.canonical_results[:1]) == {"real-1"}
+    assert _base_ids(bypassed.canonical_results[:1]) == {"real-2"}
     assert bypassed.cache_status == "bypassed"
-    assert cached.canonical_results[0].result_id == "real-1"
+    assert _base_ids(cached.canonical_results[:1]) == {"real-1"}
     assert len(provider.calls) == per_run_call_count * 2
 
 

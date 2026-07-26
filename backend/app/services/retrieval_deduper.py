@@ -18,31 +18,43 @@ def merge_search_results(results: Sequence[SearchResult]) -> tuple[SearchResult,
     if not results:
         return ()
 
-    parent = {item.result_id: item.result_id for item in results}
+    # Key union-find on list POSITION, not result_id. result_id is only unique
+    # within a single query response (each numbers its hits pw-1, pw-2, …), so a
+    # combined multi-query pool has colliding ids. Keying on the id would treat
+    # every "pw-3" as the same node and cascade-merge unrelated articles into one
+    # group (a bug that once collapsed 16 hits — including 4 官方辟谣 — into 1).
+    results = list(results)
+    id_to_indices: dict[str, list[int]] = defaultdict(list)
+    for index, item in enumerate(results):
+        id_to_indices[item.result_id].append(index)
 
-    def find(result_id: str) -> str:
-        while parent[result_id] != result_id:
-            parent[result_id] = parent[parent[result_id]]
-            result_id = parent[result_id]
-        return result_id
+    parent = list(range(len(results)))
 
-    def union(left_id: str, right_id: str) -> None:
-        left_root = find(left_id)
-        right_root = find(right_id)
+    def find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def union(left_index: int, right_index: int) -> None:
+        left_root = find(left_index)
+        right_root = find(right_index)
         if left_root != right_root:
             parent[right_root] = left_root
 
-    for item in results:
-        if item.duplicate_of and item.duplicate_of in parent:
-            union(item.result_id, item.duplicate_of)
+    for index, item in enumerate(results):
+        # An explicit duplicate_of points at another result's id. Only honor it when
+        # the id is unambiguous in this pool; a collided id can't be resolved safely.
+        if item.duplicate_of and len(id_to_indices.get(item.duplicate_of, [])) == 1:
+            union(index, id_to_indices[item.duplicate_of][0])
 
-    for left, right in combinations(results, 2):
+    for (left_index, left), (right_index, right) in combinations(enumerate(results), 2):
         if classify_relation(left, right) is not None:
-            union(left.result_id, right.result_id)
+            union(left_index, right_index)
 
-    groups: dict[str, list[SearchResult]] = defaultdict(list)
-    for item in results:
-        groups[find(item.result_id)].append(item)
+    groups: dict[int, list[SearchResult]] = defaultdict(list)
+    for index, item in enumerate(results):
+        groups[find(index)].append(item)
 
     merged_results: list[SearchResult] = []
     for group_items in groups.values():

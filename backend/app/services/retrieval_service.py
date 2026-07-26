@@ -490,8 +490,15 @@ class RetrievalService:
         retrieved_at = None
         child_failures: list[str] = []
 
-        for bundle in query_bundles:
-            raw_results.extend(bundle.raw_results)
+        for position, bundle in enumerate(query_bundles):
+            # Each query numbers its own hits pw-1, pw-2, … so result_ids COLLIDE
+            # across queries in the combined pool. Downstream maps keyed by id
+            # (dedup union-find, synthesis result_map) then silently conflate
+            # unrelated articles — one such collision once collapsed 16 hits,
+            # including 4 官方辟谣, into a single unrelated result. Namespace each
+            # bundle's ids by query position so they're globally unique; genuine
+            # cross-query duplicates still merge via the URL/title relation.
+            raw_results.extend(self._namespace_bundle_results(bundle.raw_results, position))
             if matched_case_id is None and bundle.matched_case_id:
                 matched_case_id = bundle.matched_case_id
             if expected_origin_result_id is None and bundle.expected_origin_result_id:
@@ -527,6 +534,19 @@ class RetrievalService:
             query_failures=tuple(all_failures),
         )
         return combined
+
+    def _namespace_bundle_results(
+        self, results: tuple[SearchResult, ...], position: int
+    ) -> list[SearchResult]:
+        # Prefix every result_id with the query's position so ids are globally
+        # unique across the combined pool. Remap duplicate_of the same way so an
+        # intra-query duplicate link still points at its (renamed) target.
+        prefix = f"q{position}-"
+        renamed: list[SearchResult] = []
+        for item in results:
+            new_duplicate_of = f"{prefix}{item.duplicate_of}" if item.duplicate_of else item.duplicate_of
+            renamed.append(replace(item, result_id=f"{prefix}{item.result_id}", duplicate_of=new_duplicate_of))
+        return renamed
 
     def _filter_relevant_results(self, results: list[SearchResult]) -> list[SearchResult]:
         if not results:
