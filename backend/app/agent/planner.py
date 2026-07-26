@@ -236,10 +236,25 @@ def _evidence_snapshot(state: AgentState) -> dict:
             "high_trust_result_count": bundle.high_trust_result_count,
             "independent_high_trust_source_count": bundle.independent_high_trust_source_count,
             "conflict_signals": list(bundle.conflict_signals),
-            # Top results by content, not just counts: the planner needs to judge
-            # whether the *substance* of what was found actually settles the claim
-            # before it decides to search again vs. commit to synthesis.
             "top_results": _top_result_previews(bundle),
+        }
+    # Last step outcome gives the planner visibility into whether the previous
+    # action succeeded or failed, and why — enabling informed re-plan/skip.
+    if state.last_step_outcome is not None:
+        outcome = state.last_step_outcome
+        snapshot["last_step"] = {
+            "action": outcome.action,
+            "success": outcome.success,
+            "summary": outcome.summary,
+        }
+        if not outcome.success:
+            snapshot["last_step"]["error_type"] = outcome.error_type
+    # Token budget awareness — lets the planner consider cost when deciding
+    # whether another investigation round is worth it.
+    if state.token_usage.call_count > 0:
+        snapshot["token_usage"] = {
+            "total_tokens": state.token_usage.total_tokens,
+            "call_count": state.token_usage.call_count,
         }
     return snapshot
 

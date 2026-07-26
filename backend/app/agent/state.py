@@ -17,6 +17,33 @@ from backend.app.services.timeline_builder import TimelineBuild
 from backend.app.services.verdict_engine import VerdictEvaluation
 
 
+@dataclass(frozen=True)
+class StepOutcome:
+    """Result of a single dispatch step — success or failure with context."""
+
+    action: str
+    success: bool
+    summary: str = ""
+    error_type: Optional[str] = None
+    error_message: Optional[str] = None
+
+
+@dataclass
+class TokenUsage:
+    """Accumulated token usage across all LLM calls in one analysis run."""
+
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    call_count: int = 0
+
+    def add(self, prompt: int = 0, completion: int = 0, total: int = 0) -> None:
+        self.prompt_tokens += prompt
+        self.completion_tokens += completion
+        self.total_tokens += total or (prompt + completion)
+        self.call_count += 1
+
+
 @dataclass
 class AgentStep:
     """One recorded step in the investigation loop (for tracing/decisions)."""
@@ -81,6 +108,19 @@ class AgentState:
     report: Optional[Report] = None
     steps: List[AgentStep] = field(default_factory=list)
     done_actions: List[str] = field(default_factory=list)
+
+    # --- New harness fields ---
+
+    # Outcome of the most recent dispatch step. The planner reads this to make
+    # informed decisions after a failure (retry, skip, or re-plan).
+    last_step_outcome: Optional[StepOutcome] = None
+
+    # Accumulated token usage from all LLM calls this run.
+    token_usage: TokenUsage = field(default_factory=TokenUsage)
+
+    # Cooperative cancellation flag. The runner checks this before each step;
+    # external code (e.g. SSE disconnect handler) sets it to abort the loop.
+    cancelled: bool = False
 
     def record(self, action: str, summary: str = "", details: Optional[List[str]] = None) -> None:
         self.steps.append(AgentStep(action=action, summary=summary, details=details or []))

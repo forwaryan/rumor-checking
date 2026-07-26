@@ -390,6 +390,10 @@ class LlmAgentReasoner:
         # Optional per-request model override (validated against the whitelist by
         # the caller). None means use the configured default.
         self.model_override: Optional[str] = None
+        # Token usage callback: set by the runner to accumulate usage stats.
+        # Called with (prompt_tokens, completion_tokens, total_tokens) after each
+        # streamed completion. None means no tracking (standalone/test usage).
+        self._on_token_usage: Optional[Any] = None
 
     @property
     def enabled(self) -> bool:
@@ -910,6 +914,7 @@ class LlmAgentReasoner:
         collected = 0
         reasoning_chars = 0
         truncated = False
+        usage_data: Optional[dict] = None
         try:
             with httpx.stream(
                 "POST",
@@ -940,6 +945,10 @@ class LlmAgentReasoner:
                         chunk = json.loads(data)
                     except json.JSONDecodeError:
                         continue
+                    # Capture usage from the final chunk (OpenAI SSE format).
+                    chunk_usage = chunk.get("usage")
+                    if isinstance(chunk_usage, dict):
+                        usage_data = chunk_usage
                     choices = chunk.get("choices") or [{}]
                     delta = choices[0].get("delta") or {}
                     piece = delta.get("content")
@@ -972,6 +981,16 @@ class LlmAgentReasoner:
                 reasoning_chars,
                 char_budget,
             )
+        # Report token usage to the runner (if callback is set).
+        if usage_data and self._on_token_usage:
+            try:
+                self._on_token_usage(
+                    usage_data.get("prompt_tokens", 0),
+                    usage_data.get("completion_tokens", 0),
+                    usage_data.get("total_tokens", 0),
+                )
+            except Exception:
+                pass
         return "".join(parts).strip()
 
     def _reasoning_model(self) -> str:

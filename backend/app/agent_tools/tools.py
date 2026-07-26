@@ -713,6 +713,8 @@ def finalize_report(ctx: ToolContext, state: AgentState) -> None:
             f"mode={final_report.mode}",
             f"fallback_used={final_report.provenance.fallback_used}",
             f"retrieval_provider={final_report.provenance.retrieval_provider or 'unknown'}",
+            f"llm_calls={state.token_usage.call_count}",
+            f"total_tokens={state.token_usage.total_tokens}",
         ],
     )
     state.record("finalize_report", "报告组装完成")
