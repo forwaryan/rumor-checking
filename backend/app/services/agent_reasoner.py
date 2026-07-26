@@ -412,6 +412,7 @@ class LlmAgentReasoner:
                 retrieval_bundle=retrieval_bundle,
                 round_index=round_index,
             ),
+            is_valid=self._json_with_key_usable("should_continue"),
         )
         payload = self._extract_json_payload(content)
         if payload is None:
@@ -451,6 +452,7 @@ class LlmAgentReasoner:
                 "Context JSON:\n"
                 f"{json.dumps({'allowed_actions': allowed_actions, 'evidence_snapshot': evidence_snapshot}, ensure_ascii=False, indent=2)}"
             ),
+            is_valid=self._json_with_key_usable("next_action"),
         )
         payload = self._extract_json_payload(content)
         if payload is None:
@@ -1280,6 +1282,17 @@ class LlmAgentReasoner:
 
     def _extract_json_payload(self, content: str) -> Optional[dict[str, Any]]:
         return loads_lenient_json(content)
+
+    def _json_with_key_usable(self, key: str):
+        """Build an is_valid callback that accepts a completion only when the lenient
+        parser recovers a dict containing `key`. A truncated planner response (stream
+        cut before the decision field) fails this and triggers a retry instead of
+        silently giving up — which, for a planner, means prematurely ending the
+        investigation loop."""
+        def _check(content: str) -> bool:
+            payload = self._extract_json_payload(content)
+            return isinstance(payload, dict) and key in payload
+        return _check
 
     def _synthesis_content_usable(self, content: str) -> bool:
         """A synthesis completion is worth keeping only if the lenient parser can
