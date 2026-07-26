@@ -217,6 +217,7 @@ class VerdictEngine:
         event: NormalizedEvent,
         claims: List[ClaimItem],
         retrieval_bundle: RetrievalBundle | None = None,
+        completion_fn=None,
     ) -> VerdictEvaluation:
         evidence_pool, evidence_grade, evidence_source = self._resolve_evidence_pool(
             request=request,
@@ -274,7 +275,7 @@ class VerdictEngine:
                 )
             )
 
-        results = llm_judge_claims(results)
+        results = llm_judge_claims(results, completion_fn=completion_fn)
 
         results = annotate_claim_corrections(
             results,
@@ -283,6 +284,7 @@ class VerdictEngine:
                 r.title for r in (retrieval_bundle.canonical_results if retrieval_bundle else [])
                 if r.title.strip()
             ],
+            completion_fn=completion_fn,
         )
 
         return VerdictEvaluation(

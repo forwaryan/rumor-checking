@@ -21,6 +21,28 @@ LLM_SYNTHESIS_FALLBACK_REASON = "llm_synthesis_unavailable_rule_fallback"
 _FETCH_BODY_MAX_CHARS = 4000
 
 
+def _build_completion_fn(ctx: ToolContext):
+    """Build a completion_fn from the agent reasoner's streaming layer.
+
+    Returns None when the reasoner is disabled (zero-key path), so the verdict
+    engine and correction module fall back to their own httpx POST paths. When
+    the reasoner IS enabled, the returned callable routes through the reliable
+    retry/streaming layer that avoids the one-shot timeout on this gateway."""
+    reasoner = ctx.agent_reasoner
+    if not getattr(reasoner, "enabled", False):
+        return None
+
+    def _complete(system_prompt: str, user_prompt: str) -> str:
+        return reasoner._request_completion(
+            stage_key="verdict_engine",
+            title="LLM verdict/correction",
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+
+    return _complete
+
+
 def normalize(ctx: ToolContext, state: AgentState) -> None:
     request = state.request
     emit_stage(
@@ -530,6 +552,7 @@ def re_judge_claims(ctx: ToolContext, state: AgentState) -> None:
             event=state.final_event,
             claims=state.claim_extraction.claims,
             retrieval_bundle=state.retrieval_bundle,
+            completion_fn=_build_completion_fn(ctx),
         )
         state.verdict = re_verdict
         emit_stage(
@@ -568,6 +591,7 @@ def judge_claims(ctx: ToolContext, state: AgentState) -> None:
         event=state.final_event,
         claims=state.claim_extraction.claims,
         retrieval_bundle=state.retrieval_bundle,
+        completion_fn=_build_completion_fn(ctx),
     )
     state.verdict = verdict
     emit_stage(

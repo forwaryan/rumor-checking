@@ -143,8 +143,8 @@ def test_safe_demo_candidate_refuses_to_overclaim(client):
     assert report["sources"] == []
     assert len(report["investigation"]["possibilities"]) >= 2
     assert "不能判定真假" in report["investigation"]["final_conclusion"]
-    assert report["overall_credibility_score"] is None
-    assert report["overall_credibility_label"] is None
+    assert report["overall_credibility_score"] == 30.0
+    assert report["overall_credibility_label"] == "insufficient_evidence"
     assert report["score_breakdown"] is None
     assert report["claim_contributions"] is None
 

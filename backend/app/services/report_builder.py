@@ -589,8 +589,8 @@ class ReportBuilder:
         )
         if mode == "safe_mode" or not evidence:
             return ScoreComputation(
-                overall_score=None,
-                label=None,
+                overall_score=30.0,
+                label="insufficient_evidence",
                 breakdown=None,
                 claim_contributions=None,
                 timeline_confidence=timeline_confidence,

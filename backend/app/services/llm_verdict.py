@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 import httpx
 
@@ -50,16 +50,22 @@ _VALID_CONFIDENCES = {"high", "medium", "low"}
 def llm_judge_claims(
     claim_results: List[ClaimResult],
     settings: Optional[Settings] = None,
+    completion_fn: Optional[Callable[[str, str], str]] = None,
 ) -> List[ClaimResult]:
     """Re-judge insufficient fact claims using LLM.
 
     Only upgrades claims from "insufficient" to a stronger verdict when the
     LLM is confident. Returns a new list with updated verdicts where applicable.
     Gracefully degrades (returns original results) on any failure.
+
+    completion_fn: optional (system, user) -> content callable. When supplied,
+    LLM calls route through it (e.g. the agent reasoner's retry/streaming layer)
+    instead of the built-in one-shot httpx POST. Same gate logic as claim_correction:
+    when completion_fn is provided, the api key check is bypassed.
     """
     if settings is None:
         settings = get_settings()
-    if not settings.llm_api_key:
+    if completion_fn is None and not settings.llm_api_key:
         return claim_results
 
     candidates = [
@@ -82,7 +88,7 @@ def llm_judge_claims(
     updated = list(claim_results)
     upgraded_count = 0
     for i, cr in candidates:
-        result = _judge_single_claim(cr, settings)
+        result = _judge_single_claim(cr, settings, completion_fn=completion_fn)
         if result is not None:
             updated[i] = result
             upgraded_count += 1
@@ -119,6 +125,8 @@ def llm_judge_claims(
 def _judge_single_claim(
     claim_result: ClaimResult,
     settings: Settings,
+    *,
+    completion_fn: Optional[Callable[[str, str], str]] = None,
 ) -> Optional[ClaimResult]:
     """Ask LLM to judge a single claim against its evidence."""
     evidence_text = "\n".join(
@@ -127,32 +135,33 @@ def _judge_single_claim(
     )
     user_prompt = f"Claim: {claim_result.claim}\n\n证据:\n{evidence_text}"
 
-    model = _pick_fast_model(settings)
-    base_url = settings.base_url_for_model(model)
-
     try:
-        resp = httpx.post(
-            f"{base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {settings.llm_api_key}"},
-            json={
-                "model": model,
-                "temperature": 0.1,
-                "max_tokens": 256,
-                "messages": [
-                    {"role": "system", "content": _SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt},
-                ],
-            },
-            timeout=15.0,
-        )
-        if resp.status_code != 200:
-            return None
+        if completion_fn is not None:
+            content = (completion_fn(_SYSTEM_PROMPT, user_prompt) or "").strip()
+        else:
+            model = _pick_fast_model(settings)
+            base_url = settings.base_url_for_model(model)
+            resp = httpx.post(
+                f"{base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {settings.llm_api_key}"},
+                json={
+                    "model": model,
+                    "temperature": 0.1,
+                    "max_tokens": 256,
+                    "messages": [
+                        {"role": "system", "content": _SYSTEM_PROMPT},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                },
+                timeout=15.0,
+            )
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+            content = (data["choices"][0]["message"].get("content") or "").strip()
 
-        data = resp.json()
-        content = (data["choices"][0]["message"].get("content") or "").strip()
         if not content:
             return None
-
         return _parse_verdict_response(content, claim_result)
 
     except Exception as exc:
