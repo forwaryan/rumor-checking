@@ -118,6 +118,7 @@ class Settings:
     llm_reasoning_retries: int
     llm_synthesis_timeout_multiplier: float
     llm_synthesis_model: str
+    agent_synthesis_critic_enabled: bool
     llm_query_extraction_enabled: bool
     provider_timeout_seconds: float
     retrieval_provider: str
@@ -227,6 +228,7 @@ def get_settings() -> Settings:
         llm_reasoning_retries=max(_as_int(os.getenv("LLM_REASONING_RETRIES"), 2), 0),
         llm_synthesis_timeout_multiplier=max(_as_float(os.getenv("LLM_SYNTHESIS_TIMEOUT_MULTIPLIER"), 1.5), 1.0),
         llm_synthesis_model=(os.getenv("LLM_SYNTHESIS_MODEL") or "").strip(),
+        agent_synthesis_critic_enabled=_as_bool(os.getenv("AGENT_SYNTHESIS_CRITIC_ENABLED"), default=True),
         llm_query_extraction_enabled=_as_bool(os.getenv("LLM_QUERY_EXTRACTION_ENABLED"), default=False),
         provider_timeout_seconds=_as_float(os.getenv("PROVIDER_TIMEOUT_SECONDS"), 20.0),
         retrieval_provider=_normalize_retrieval_provider(os.getenv("RETRIEVAL_PROVIDER"), default="mock"),

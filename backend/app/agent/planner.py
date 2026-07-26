@@ -73,18 +73,20 @@ def legal_actions(state: AgentState) -> List[str]:
         return [JUDGE]
     # After judging: if weak claims exist AND we haven't exhausted iterations,
     # do per-claim targeted retrieval then re-judge; repeat until convergence or
-    # max iterations reached. The LLM planner can choose to stop early (TIMELINE)
-    # if it judges further searching won't help.
-    if _has_weak_claims(state) and _can_iterate(state):
-        if PER_CLAIM_SEARCH not in done:
-            # After at least one iteration, offer the LLM a choice to stop.
+    # max iterations reached. Re-entry is driven by two counters (never by
+    # mutating done_actions): a search leads its re-judge by exactly one, so
+    #   searches >  iterations  -> this round's search fired, re-judge is due
+    #   searches == iterations  -> a fresh round may start (offer PER_CLAIM_SEARCH)
+    # The whole loop is gated on TIMELINE not yet run: once the planner picks
+    # TIMELINE to stop early (or the rule path reaches it), the loop is closed.
+    if TIMELINE not in done:
+        if state.per_claim_searches > state.per_claim_iterations:
+            return [RE_JUDGE]
+        if _has_weak_claims(state) and _can_iterate(state):
+            # After at least one completed iteration, let the planner stop early.
             if state.per_claim_iterations > 0:
                 return [PER_CLAIM_SEARCH, TIMELINE]
             return [PER_CLAIM_SEARCH]
-        # After per-claim search, re-judge with enriched evidence
-        if RE_JUDGE not in done:
-            return [RE_JUDGE]
-    if TIMELINE not in done:
         return [TIMELINE]
     if FINALIZE not in done:
         return [FINALIZE]
@@ -140,34 +142,82 @@ class RulePlanner:
 class LlmPlanner:
     """Model-driven planner for the agent-first path.
 
-    At genuine branch points (more than one legal action, all LLM-decidable) it
-    asks the reasoner to choose. Everything else — forced data-dependency steps —
-    advances deterministically. Any missing/illegal LLM choice defers to the
-    wrapped RulePlanner, so the loop can never stall or pick an impossible step.
+    At a genuine branch point (more than one legal action, all LLM-decidable) it
+    asks the reasoner to propose an ORDERED plan of intended actions, caches it,
+    and consumes the head each step while that head is still legal. The cached plan
+    is a forward-looking *intent*, not an authority: every head is re-checked
+    against legal_actions before it runs, and the moment the plan diverges (head
+    illegal, or plan exhausted) it is discarded and a fresh one is requested. So
+    the model gets real plan-ahead leverage while legal_actions stays the absolute
+    safety gate. Any missing/illegal LLM output defers to the wrapped RulePlanner,
+    so the loop can never stall or pick an impossible step.
     """
 
     def __init__(self, agent_reasoner, fallback: Planner | None = None) -> None:
         self.agent_reasoner = agent_reasoner
         self.fallback = fallback or RulePlanner()
+        # The remaining tail of the current proposed plan (heads already consumed).
+        self._plan: list[str] = []
 
     def next_action(self, state: AgentState) -> str:
         options = legal_actions(state)
         if len(options) <= 1:
+            # A forced (data-dependency) step means the branch context is gone;
+            # drop any stale plan so we re-plan at the next real branch point.
+            self._plan = []
             return options[0]
         if not all(action in _LLM_DECIDABLE for action in options):
+            self._plan = []
             return self.fallback.next_action(state)
 
-        plan = None
+        # 1. Consume the cached plan while its head is a legal option.
+        while self._plan:
+            head = self._plan.pop(0)
+            if head in options:
+                return head
+            # Divergence: the cached plan no longer fits reality. Discard and re-plan.
+            self._plan = []
+            break
+
+        # 2. No usable cached plan — ask the reasoner for a fresh sequence.
+        plan = self._request_sequence(state, options)
+        if plan is not None and plan.actions and plan.actions[0] in options:
+            self._plan = list(plan.actions[1:])
+            return plan.actions[0]
+
+        # 3. Sequence planning unavailable — fall back to a single-step choice
+        #    (keeps reasoners that only implement plan_next_action working).
+        choice = self._request_single_step(state, options)
+        if choice is not None and choice in options:
+            return choice
+
+        # 4. Nothing usable from the LLM — defer to the deterministic rule path.
+        return self.fallback.next_action(state)
+
+    def _request_sequence(self, state: AgentState, options: list[str]):
+        planner = getattr(self.agent_reasoner, "plan_action_sequence", None)
+        if planner is None:
+            return None
         try:
-            plan = self.agent_reasoner.plan_next_action(
+            return planner(
                 evidence_snapshot=_evidence_snapshot(state),
                 allowed_actions=options,
             )
         except Exception:
-            plan = None
-        if plan is not None and plan.next_action in options:
-            return plan.next_action
-        return self.fallback.next_action(state)
+            return None
+
+    def _request_single_step(self, state: AgentState, options: list[str]) -> str | None:
+        planner = getattr(self.agent_reasoner, "plan_next_action", None)
+        if planner is None:
+            return None
+        try:
+            plan = planner(
+                evidence_snapshot=_evidence_snapshot(state),
+                allowed_actions=options,
+            )
+        except Exception:
+            return None
+        return plan.next_action if plan is not None else None
 
 
 def _evidence_snapshot(state: AgentState) -> dict:
@@ -186,5 +236,47 @@ def _evidence_snapshot(state: AgentState) -> dict:
             "high_trust_result_count": bundle.high_trust_result_count,
             "independent_high_trust_source_count": bundle.independent_high_trust_source_count,
             "conflict_signals": list(bundle.conflict_signals),
+            # Top results by content, not just counts: the planner needs to judge
+            # whether the *substance* of what was found actually settles the claim
+            # before it decides to search again vs. commit to synthesis.
+            "top_results": _top_result_previews(bundle),
         }
     return snapshot
+
+
+# How many evidence previews to include, and how much of each snippet, in the
+# planner snapshot. Bounded so the planner prompt stays small and fast.
+_SNAPSHOT_MAX_RESULTS = 5
+_SNAPSHOT_SNIPPET_CHARS = 160
+
+
+def _top_result_previews(bundle) -> list[dict]:
+    """Compact, content-bearing previews of the strongest canonical results.
+
+    Ranks high-trust, non-aggregator, higher-tier sources first (the same shape
+    fetch_url uses) so the planner sees the most decision-relevant evidence, then
+    trims each to a bounded preview so the prompt stays cheap."""
+    def rank(result):
+        return (
+            1 if result.is_high_trust else 0,
+            0 if result.is_aggregator_source else 1,
+            result.tier_weight,
+        )
+
+    ranked = sorted(bundle.canonical_results, key=rank, reverse=True)
+    previews: list[dict] = []
+    for result in ranked[:_SNAPSHOT_MAX_RESULTS]:
+        snippet = (result.snippet or "").strip()
+        if len(snippet) > _SNAPSHOT_SNIPPET_CHARS:
+            snippet = snippet[:_SNAPSHOT_SNIPPET_CHARS].rstrip() + "…"
+        previews.append(
+            {
+                "source_name": result.source_name or "未知来源",
+                "source_tier": result.source_tier,
+                "high_trust": result.is_high_trust,
+                "published_at": result.published_at or None,
+                "title": (result.title or "").strip() or None,
+                "snippet": snippet or None,
+            }
+        )
+    return previews

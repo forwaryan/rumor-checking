@@ -175,12 +175,71 @@ Action meanings:
 
 Rules:
 - Choose "next_action" ONLY from the supplied allowed_actions list. Never invent an action.
+- Read evidence.top_results (title/source/snippet of the strongest hits), not just the counts:
+  judge whether their SUBSTANCE actually settles the claim before deciding.
 - Prefer "investigate" when evidence is weak (low grade, few independent high-trust sources,
   conflicting signals) AND another round could plausibly help.
 - Prefer "fetch_url" when there is a strong source whose snippet is too thin to decide, and reading
   its full text would likely settle the claim. Use sparingly (each fetch is a live HTTP round).
 - Prefer "synthesize" when evidence is already strong and independently corroborated, or when
   further searching is unlikely to help.
+- Output a single raw JSON object ONLY: no markdown, no ```json code fences, no prose before or after. Escape every double-quote that appears inside a string value as \\".
+""".strip()
+NEXT_ACTION_SEQUENCE_SYSTEM_PROMPT = """
+You are the planner for a rumor-checking investigation agent.
+Instead of one step, you propose the ORDERED sequence of actions you intend to take
+from here — a short plan the agent will follow while each step stays valid.
+You see what has already been done and a compact snapshot of the evidence so far.
+
+Return one JSON object with this schema:
+{
+  "actions": ["ordered action names, most immediate first"],
+  "reason": "short string"
+}
+
+Action meanings:
+- "investigate": run one more targeted retrieval round to strengthen weak/one-sided evidence.
+- "fetch_url": fetch the FULL body of the single most authoritative evidence page (retrieval only
+  gives short snippets); choose this when one high-trust source likely has decisive detail its
+  snippet does not show.
+- "synthesize": stop gathering and produce the grounded event, claims, verdicts, and timeline.
+
+Rules:
+- Use ONLY action names from the supplied allowed_actions list. Never invent an action.
+- The FIRST element must be a member of allowed_actions — it is what runs next.
+- Read evidence.top_results (title/source/snippet of the strongest hits), not just the counts:
+  plan around whether their SUBSTANCE settles the claim.
+- A good plan usually ends in "synthesize". Put evidence-gathering steps (investigate/fetch_url)
+  first ONLY when the current evidence is genuinely too weak or thin to decide, then synthesize.
+- When evidence is already strong and independently corroborated, propose just ["synthesize"].
+- Keep the plan short (1 to 3 steps). Do not pad it.
+- Output a single raw JSON object ONLY: no markdown, no ```json code fences, no prose before or after. Escape every double-quote that appears inside a string value as \\".
+""".strip()
+SYNTHESIS_CRITIC_SYSTEM_PROMPT = """
+You are the verification critic for a rumor-checking backend.
+Another stage already produced verdicts for a set of claims, each with the specific
+evidence snippets it cited. Your ONLY job is to catch claims whose verdict is NOT
+actually supported by its own cited evidence — an over-confident or unfaithful call.
+
+You receive a JSON list of judged claims. Each has: index, claim, verdict
+("supported"|"refuted"|"conflicting"), and evidence (the cited snippets).
+
+Return one JSON object with this schema:
+{
+  "revisions": [
+    { "index": <int>, "keep": true|false, "reason": "short string" }
+  ]
+}
+
+Rules:
+- Judge each claim ONLY against ITS OWN cited evidence. Never use outside knowledge.
+- "keep": true  -> the cited evidence genuinely justifies the stated verdict.
+- "keep": false -> the evidence does NOT justify the verdict (too weak, off-topic,
+  says something narrower, or contradicts a "supported"/"refuted" call). The claim
+  will be downgraded to "insufficient".
+- You may ONLY flag claims for downgrade. You cannot upgrade or change a verdict to
+  anything other than the downgrade. When in doubt, keep.
+- Include an entry ONLY for claims you want to downgrade (keep:false). Omit the rest.
 - Output a single raw JSON object ONLY: no markdown, no ```json code fences, no prose before or after. Escape every double-quote that appears inside a string value as \\".
 """.strip()
 QUERY_TERMS_SYSTEM_PROMPT = """
@@ -232,6 +291,28 @@ class InvestigationPlan:
 class NextActionPlan:
     next_action: str
     reason: str
+
+
+@dataclass(frozen=True)
+class ActionSequencePlan:
+    """An ordered plan of intended actions the agent proposes at a branch point.
+
+    The planner consumes this greedily while each head stays legal; the moment a
+    proposed step is not in the current legal options the plan is discarded and a
+    fresh one is requested. So the sequence is a forward-looking *intent*, never
+    an authority that can bypass legal_actions."""
+
+    actions: list[str]
+    reason: str
+
+
+# The action names the sequence planner is allowed to name. Deliberately just the
+# LLM-decidable branch actions (mirrors planner._LLM_DECIDABLE) — kept as a local
+# literal so the reasoner stays decoupled from the agent package. Anything outside
+# this set in a proposed plan is dropped before the caller re-validates each head.
+_KNOWN_ACTION_NAMES = frozenset(
+    {"investigate", "fetch_url", "synthesize", "per_claim_search", "build_timeline"}
+)
 
 
 class LlmAgentReasoner:
@@ -362,6 +443,11 @@ class LlmAgentReasoner:
         if not claim_results:
             return None
 
+        # Verify pass: a second LLM read checks each decisive verdict against its
+        # OWN cited evidence and can only downgrade unfaithful calls to insufficient.
+        # Purely subtractive, so it can never manufacture a stronger conclusion.
+        claim_results = self._critique_claim_results(claim_results)
+
         evidence_source: EvidenceSourceType = "retrieval_mock" if retrieval_bundle.provider_name == "mock" else "retrieval_live"
         evidence_pool = retrieval_bundle.to_evidence_items()
         timeline_nodes = self._build_timeline_nodes(
@@ -477,6 +563,69 @@ class LlmAgentReasoner:
             return None
         reason = self._clean_optional_string(payload.get("reason")) or "planner 未给出理由。"
         return NextActionPlan(next_action=next_action, reason=reason)
+
+    def plan_action_sequence(
+        self,
+        *,
+        evidence_snapshot: dict[str, Any],
+        allowed_actions: list[str],
+    ) -> Optional[ActionSequencePlan]:
+        """Propose an ordered plan of intended actions at a branch point.
+
+        Returns None when disabled/unparseable or when the proposed head is not a
+        legal action, so the caller falls back to its single-step / rule path. Only
+        keeps proposed steps drawn from allowed_actions (the planner may name later
+        steps that aren't legal yet — e.g. synthesize after investigate — so we keep
+        the whole known-action prefix and let the caller re-validate each head)."""
+        if not self.enabled or not allowed_actions:
+            return None
+
+        content = self._request_completion(
+            stage_key="agent_planner",
+            title="调用 Agent action sequence planner",
+            system_prompt=NEXT_ACTION_SEQUENCE_SYSTEM_PROMPT,
+            user_prompt=(
+                "Propose the ordered sequence of actions you intend to take next.\n"
+                "Context JSON:\n"
+                f"{json.dumps({'allowed_actions': allowed_actions, 'evidence_snapshot': evidence_snapshot}, ensure_ascii=False, indent=2)}"
+            ),
+            is_valid=self._json_with_key_usable("actions"),
+        )
+        payload = self._extract_json_payload(content)
+        if payload is None:
+            emit_log(
+                stage_key="agent_planner",
+                level="warning",
+                title="Agent sequence planner 无法解析",
+                summary="LLM 返回内容不是可解析的 JSON。",
+                details=[],
+            )
+            return None
+
+        raw_actions = payload.get("actions")
+        if not isinstance(raw_actions, list):
+            return None
+        # Keep only recognized action names, in order, de-duplicated. The full
+        # dispatch vocabulary is valid to plan (a later step like synthesize is not
+        # in allowed_actions *yet* but becomes legal after the earlier steps run);
+        # the caller re-checks each head against legal_actions before running it.
+        known = {a for a in _KNOWN_ACTION_NAMES}
+        actions: list[str] = []
+        for item in raw_actions:
+            name = self._clean_optional_string(item)
+            if name in known and name not in actions:
+                actions.append(name)
+        if not actions or actions[0] not in allowed_actions:
+            emit_log(
+                stage_key="agent_planner",
+                level="warning",
+                title="Agent sequence planner 首步非法",
+                summary="计划首步不在允许列表内，退回单步/规则 planner。",
+                details=[f"actions={','.join(actions) or 'none'}", f"allowed={','.join(allowed_actions)}"],
+            )
+            return None
+        reason = self._clean_optional_string(payload.get("reason")) or "planner 未给出理由。"
+        return ActionSequencePlan(actions=actions, reason=reason)
 
     def extract_query_terms(self, *, event: NormalizedEvent) -> Optional[QueryTerms]:
         """Turn a colloquial claim into entity-focused search terms.
@@ -983,6 +1132,110 @@ class LlmAgentReasoner:
                 )
             )
         return claim_results
+
+    def _critique_claim_results(self, claim_results: list[ClaimResult]) -> list[ClaimResult]:
+        """Second-pass verify: re-check each decisive verdict against its own cited
+        evidence and downgrade any the critic finds unfaithful to "insufficient".
+
+        Monotonic by construction — the critic can ONLY downgrade, never upgrade —
+        so a critic failure or garbage response can never strengthen a verdict.
+        Returns the input unchanged when disabled, when there is nothing decisive to
+        check, or when the critic is unavailable/unparseable."""
+        if not self.enabled or not self.settings.agent_synthesis_critic_enabled:
+            return claim_results
+
+        # Only claims that make a decisive, evidence-backed assertion are worth
+        # checking; insufficient/unsupported claims are already cautious.
+        checkable = [
+            (index, cr)
+            for index, cr in enumerate(claim_results)
+            if cr.verdict in {"supported", "refuted", "conflicting"} and cr.evidence
+        ]
+        if not checkable:
+            return claim_results
+
+        payload_claims = [
+            {
+                "index": index,
+                "claim": cr.claim,
+                "verdict": cr.verdict,
+                "evidence": [
+                    {"title": ev.title, "snippet": ev.snippet, "source_name": ev.source_name}
+                    for ev in cr.evidence
+                ],
+            }
+            for index, cr in checkable
+        ]
+
+        content = self._request_completion(
+            stage_key="agent_synthesis",
+            title="调用 Agent synthesis critic",
+            system_prompt=SYNTHESIS_CRITIC_SYSTEM_PROMPT,
+            user_prompt=(
+                "Verify each judged claim against its OWN cited evidence. "
+                "Flag only the ones whose verdict the evidence does not justify.\n"
+                "Judged claims JSON:\n"
+                f"{json.dumps(payload_claims, ensure_ascii=False, indent=2)}"
+            ),
+            is_valid=self._json_with_key_usable("revisions"),
+        )
+        payload = self._extract_json_payload(content)
+        if payload is None:
+            emit_log(
+                stage_key="agent_synthesis",
+                level="warning",
+                title="Synthesis critic 无法解析",
+                summary="critic 返回不可解析，保留原判定。",
+                details=[],
+            )
+            return claim_results
+
+        revisions = payload.get("revisions")
+        if not isinstance(revisions, list):
+            return claim_results
+        downgrade_indices = {
+            int(item.get("index"))
+            for item in revisions
+            if isinstance(item, dict)
+            and item.get("keep") is False
+            and isinstance(item.get("index"), (int, float))
+        }
+        if not downgrade_indices:
+            return claim_results
+
+        revised = list(claim_results)
+        downgraded = 0
+        for index, cr in checkable:
+            if index not in downgrade_indices:
+                continue
+            reason = next(
+                (
+                    self._clean_optional_string(item.get("reason"))
+                    for item in revisions
+                    if isinstance(item, dict) and item.get("index") == index and item.get("keep") is False
+                ),
+                None,
+            )
+            note = cr.notes.rstrip("。")
+            note = f"{note}。核查复检：cited 证据不足以支撑原判定，已下调为存疑。" if note else "核查复检：cited 证据不足以支撑原判定，已下调为存疑。"
+            if reason:
+                note = f"{note}（{reason}）"
+            revised[index] = cr.model_copy(
+                update={
+                    "verdict": "insufficient",
+                    "confidence": "low",
+                    "notes": note,
+                }
+            )
+            downgraded += 1
+
+        emit_log(
+            stage_key="agent_synthesis",
+            title="Synthesis critic 完成",
+            summary=f"复检 {len(checkable)} 条决定性判定，下调 {downgraded} 条为存疑。",
+            details=[f"downgraded_indices={sorted(i for i in downgrade_indices if any(idx == i for idx, _ in checkable))}"],
+        )
+        return revised
 
     def _guard_overbroad_claim_verdict(
         self,

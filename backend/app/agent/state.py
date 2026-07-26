@@ -61,9 +61,13 @@ class AgentState:
     agent_synthesized: bool = False
     synthesis_attempted: bool = False
     investigation_rounds: int = 0
-    # Per-claim search iterations: tracks how many search→judge cycles have run
-    # so the planner can decide when to stop iterating.
+    # Per-claim search iterations: counts completed search→re-judge cycles
+    # (incremented after each re_judge) so the planner can decide when to stop.
     per_claim_iterations: int = 0
+    # Counts per-claim searches that have fired. It leads per_claim_iterations by
+    # exactly 1 while a round's search has run but its re-judge has not; that gap
+    # is how legal_actions re-enters the loop without ever mutating done_actions.
+    per_claim_searches: int = 0
     max_per_claim_iterations: int = 3
 
     # Full-body pages fetched by the fetch_url tool, keyed by the canonical

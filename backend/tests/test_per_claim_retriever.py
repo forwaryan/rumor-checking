@@ -167,3 +167,82 @@ def test_enrich_retrieval_skips_when_no_fact_claims(monkeypatch):
 
     # Should return the original bundle unchanged
     assert result is bundle
+
+
+def _fact(text):
+    return ClaimItem(claim=text, claim_type="fact")
+
+
+def _sr(result_id, source="News"):
+    return SearchResult(
+        case_id="c", query="q", result_id=result_id, title=f"t-{result_id}",
+        url=f"https://example.com/{result_id}", source_name=source,
+        published_at="2026-03-10T10:00:00+08:00", snippet="s", source_tier="A",
+    )
+
+
+def _base_bundle():
+    return RetrievalBundle(query="q", provider_name="live", canonical_results=(_sr("r0"),))
+
+
+def _event():
+    return NormalizedEvent(summary="e", input_type="text_news", raw_input="e")
+
+
+def test_per_claim_search_runs_concurrently_and_merges_in_order(monkeypatch):
+    import threading
+    import time
+
+    from backend.app.services import per_claim_retriever as mod
+
+    monkeypatch.setattr(mod, "emit_stage", lambda **k: None)
+    monkeypatch.setattr(mod, "emit_log", lambda **k: None)
+
+    active = {"now": 0, "max": 0}
+    lock = threading.Lock()
+    counter = {"n": 0}
+
+    class SlowService:
+        def retrieve_for_event(self, event, request_context):
+            with lock:
+                active["now"] += 1
+                active["max"] = max(active["max"], active["now"])
+                counter["n"] += 1
+                tag = counter["n"]
+            time.sleep(0.05)
+            with lock:
+                active["now"] -= 1
+            # A uniquely-identified hit per call so the deduped merge keeps all of them.
+            return RetrievalBundle(query="q", provider_name="live", canonical_results=(_sr(f"hit-{tag}"),))
+
+    claims = [_fact("拼多多在雄安买了5栋楼"), _fact("拼多多在雄安招了6000人"), _fact("拼多多迁总部到雄安")]
+    result = mod.enrich_retrieval_for_claims(
+        claims=claims, retrieval_bundle=_base_bundle(),
+        retrieval_service=SlowService(), resolved_event=_event(),
+    )
+    # If the three queries ran serially, max concurrency would be 1.
+    assert active["max"] >= 2, "per-claim queries did not run concurrently"
+    # The original result plus the three new hits, merged.
+    assert len(result.canonical_results) == 4
+
+
+def test_per_claim_search_degrades_when_one_query_fails(monkeypatch):
+    from backend.app.services import per_claim_retriever as mod
+
+    monkeypatch.setattr(mod, "emit_stage", lambda **k: None)
+    monkeypatch.setattr(mod, "emit_log", lambda **k: None)
+
+    class FlakyService:
+        def retrieve_for_event(self, event, request_context):
+            q = request_context["force_retrieval_query"]
+            if "6000" in q:
+                raise RuntimeError("network boom")
+            return RetrievalBundle(query=q, provider_name="live", canonical_results=(_sr(f"ok-{q[:4]}"),))
+
+    claims = [_fact("拼多多在雄安买了5栋楼"), _fact("拼多多在雄安招了6000人")]
+    result = mod.enrich_retrieval_for_claims(
+        claims=claims, retrieval_bundle=_base_bundle(),
+        retrieval_service=FlakyService(), resolved_event=_event(),
+    )
+    # The failing query is skipped; the surviving one still merges in.
+    assert len(result.canonical_results) == 2

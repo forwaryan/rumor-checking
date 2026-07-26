@@ -53,7 +53,107 @@ def test_legal_actions_after_failed_synthesis_runs_fallback_chain():
     assert legal_actions(state) == [planner_mod.ENRICH]
 
 
-# --- LlmPlanner arbitration + guard ------------------------------------------
+# --- counter-driven per-claim search→re-judge loop ---------------------------
+
+
+def _weak_verdict():
+    from backend.app.models.schemas import ClaimResult
+    from backend.app.services.verdict_engine import VerdictEvaluation
+
+    return VerdictEvaluation(
+        claim_results=[
+            ClaimResult(claim="c", claim_type="fact", verdict="insufficient", confidence="low", notes="")
+        ],
+        evidence=[],
+        evidence_grade="D",
+        evidence_source="retrieval_live",
+    )
+
+
+def _judged_state(**counters) -> AgentState:
+    state = _state_after(
+        "normalize", "search_news", "resolve_question", "follow_up_retrieval",
+        "investigate", "synthesize", "enrich", "extract_claims", "judge_claims",
+    )
+    state.verdict = _weak_verdict()
+    for key, value in counters.items():
+        setattr(state, key, value)
+    return state
+
+
+def test_loop_reentry_is_counter_driven_not_done_actions():
+    # A fresh round with a weak verdict offers a per-claim search.
+    fresh = _judged_state(per_claim_searches=0, per_claim_iterations=0)
+    assert legal_actions(fresh) == [planner_mod.PER_CLAIM_SEARCH]
+
+    # Search fired (counter leads by 1) -> re-judge is the only legal next step,
+    # even though PER_CLAIM_SEARCH is already in done_actions.
+    searched = _judged_state(per_claim_searches=1, per_claim_iterations=0)
+    searched.done_actions.append("per_claim_search")
+    assert legal_actions(searched) == [planner_mod.RE_JUDGE]
+
+    # Re-judge closed the gap; still weak and under cap -> a fresh round is
+    # offered again alongside the early-stop option.
+    reentered = _judged_state(per_claim_searches=1, per_claim_iterations=1)
+    reentered.done_actions.extend(["per_claim_search", "re_judge_claims"])
+    assert legal_actions(reentered) == [planner_mod.PER_CLAIM_SEARCH, planner_mod.TIMELINE]
+
+
+def test_loop_closes_at_iteration_cap():
+    capped = _judged_state(per_claim_searches=3, per_claim_iterations=3)
+    assert legal_actions(capped) == [planner_mod.TIMELINE]
+
+
+def test_loop_closes_once_timeline_ran_even_with_weak_claims():
+    # The planner may pick TIMELINE to stop early; once it has run, the loop must
+    # not re-open even though weak claims and iteration budget remain.
+    stopped = _judged_state(per_claim_searches=1, per_claim_iterations=1)
+    stopped.done_actions.extend(["per_claim_search", "re_judge_claims", "build_timeline"])
+    assert legal_actions(stopped) == [planner_mod.FINALIZE]
+
+
+# --- rich observation snapshot -----------------------------------------------
+
+
+def _bundle_with(*results):
+    from backend.app.services.retrieval_models import RetrievalBundle
+
+    return RetrievalBundle(query="q", provider_name="live", canonical_results=tuple(results))
+
+
+def _result(result_id, *, tier, source, title, snippet, high_trust_ok=True):
+    from backend.app.services.retrieval_models import SearchResult
+
+    return SearchResult(
+        case_id="c", query="q", result_id=result_id, title=title,
+        url=f"https://example.com/{result_id}", source_name=source,
+        published_at="2026-07-01", snippet=snippet, source_tier=tier,
+    )
+
+
+def test_snapshot_includes_ranked_trimmed_top_results():
+    from backend.app.agent.planner import _evidence_snapshot
+
+    weak = _result("r2", tier="C", source="微博", title="网友爆料", snippet="有人说")
+    strong = _result("r1", tier="S", source="新华社", title="官方通报", snippet="确认。" * 100)
+    state = _state_after("normalize", "search_news")
+    state.retrieval_bundle = _bundle_with(weak, strong)
+
+    top = _evidence_snapshot(state)["evidence"]["top_results"]
+    # High-trust S-tier ranks ahead of the low-trust C-tier hit.
+    assert top[0]["source_name"] == "新华社"
+    assert top[0]["high_trust"] is True
+    # Long snippets are trimmed with an ellipsis so the prompt stays bounded.
+    assert top[0]["snippet"].endswith("…")
+    assert len(top[0]["snippet"]) <= 161
+
+
+def test_snapshot_without_bundle_has_no_evidence_key():
+    from backend.app.agent.planner import _evidence_snapshot
+
+    snapshot = _evidence_snapshot(_state_after("normalize"))
+    assert "evidence" not in snapshot
+    assert snapshot["done_actions"] == ["normalize"]
 
 
 class _FakeReasoner:
@@ -114,6 +214,76 @@ def test_llm_planner_that_always_defers_matches_rule_planner():
     ]:
         state = _state_after(*done)
         assert llm.next_action(state) == rule.next_action(state)
+
+
+# --- LlmPlanner sequence proposal + legality gate ----------------------------
+
+
+class _SequenceReasoner:
+    """Reasoner that proposes a fixed action sequence once, then records reuse."""
+
+    def __init__(self, actions):
+        from backend.app.services.agent_reasoner import ActionSequencePlan
+
+        self._actions = actions
+        self._plan_cls = ActionSequencePlan
+        self.calls = 0
+
+    def plan_action_sequence(self, *, evidence_snapshot, allowed_actions):
+        self.calls += 1
+        if self._actions is None:
+            return None
+        return self._plan_cls(actions=list(self._actions), reason="seq")
+
+
+def test_llm_planner_consumes_cached_sequence_without_re_asking():
+    # Propose [investigate, synthesize]. At the first branch (investigate/synthesize)
+    # the head 'investigate' runs; the plan is cached so the next branch reuses
+    # 'synthesize' with NO second LLM call.
+    reasoner = _SequenceReasoner([planner_mod.INVESTIGATE, planner_mod.SYNTHESIZE])
+    planner = LlmPlanner(reasoner)
+
+    branch = _branch_state()
+    assert planner.next_action(branch) == planner_mod.INVESTIGATE
+    assert reasoner.calls == 1
+
+    # After investigate, the branch offers [synthesize, ...]; cached head is used.
+    after_investigate = _state_after(
+        "normalize", "search_news", "resolve_question", "follow_up_retrieval", "investigate"
+    )
+    assert planner.next_action(after_investigate) == planner_mod.SYNTHESIZE
+    assert reasoner.calls == 1  # no re-plan; served from cache
+
+
+def test_llm_planner_discards_plan_when_head_becomes_illegal():
+    # A cached plan whose head is not among the current branch options must be
+    # discarded and a fresh sequence requested (rather than served from cache).
+    reasoner = _SequenceReasoner([planner_mod.INVESTIGATE, planner_mod.SYNTHESIZE])
+    planner = LlmPlanner(reasoner)
+    # Prime a stale tail whose head (fetch_url) is illegal at this branch, which
+    # offers only [investigate, synthesize].
+    planner._plan = [planner_mod.FETCH_URL, planner_mod.SYNTHESIZE]
+
+    result = planner.next_action(_branch_state())
+    assert result == planner_mod.INVESTIGATE  # head of the freshly requested plan
+    assert reasoner.calls == 1  # stale plan discarded -> one re-plan happened
+
+
+def test_llm_planner_rejects_sequence_with_illegal_first_step():
+    # A proposed head not in the branch options is rejected; with no single-step
+    # method available the planner defers to the rule fallback (INVESTIGATE).
+    reasoner = _SequenceReasoner([planner_mod.FINALIZE, planner_mod.SYNTHESIZE])
+    planner = LlmPlanner(reasoner)
+    assert planner.next_action(_branch_state()) == planner_mod.INVESTIGATE
+
+
+def test_llm_planner_forced_step_clears_stale_plan():
+    reasoner = _SequenceReasoner([planner_mod.SYNTHESIZE])
+    planner = LlmPlanner(reasoner)
+    planner._plan = [planner_mod.SYNTHESIZE]  # simulate a leftover plan tail
+    # A forced single-option step must clear the cached plan.
+    assert planner.next_action(_state_after()) == planner_mod.NORMALIZE
+    assert planner._plan == []
 
 
 # --- full run with an LLM planner still yields a valid Report -----------------

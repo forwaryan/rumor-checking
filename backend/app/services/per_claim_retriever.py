@@ -10,11 +10,20 @@ from __future__ import annotations
 
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from backend.app.models.schemas import ClaimItem, NormalizedEvent
-from backend.app.services.progress import emit_log, emit_stage
+from backend.app.services.progress import (
+    emit_log,
+    emit_stage,
+    get_progress_callback,
+    reset_progress_callback,
+    reset_retrieval_stage_key,
+    set_progress_callback,
+    set_retrieval_stage_key,
+)
 from backend.app.services.retrieval_deduper import merge_search_results
 from backend.app.services.retrieval_models import RetrievalBundle, SearchResult
 
@@ -157,15 +166,25 @@ def enrich_retrieval_for_claims(
     queries_executed = 0
     queries_failed = 0
 
-    for claim in candidates:
-        focused_query = _build_focused_query(claim.claim, iteration=iteration)
-        emit_log(
-            stage_key="per_claim_retrieval",
-            title="Per-claim query",
-            summary=f"执行定向检索: {focused_query[:60]}",
-            details=[f"original_claim={claim.claim[:60]}"],
-        )
+    # Each per-claim query is an independent network round-trip, so fan them out
+    # concurrently instead of summing their latencies. ContextVar-based progress
+    # callbacks and the retrieval stage key don't cross threads, so rebind both
+    # inside each worker (mirrors RetrievalService._run_fetch). Results are keyed
+    # by candidate index and reassembled in order below so the merge stays
+    # deterministic regardless of completion order.
+    parent_callback = get_progress_callback()
+
+    def _run_claim_query(index: int, claim: ClaimItem) -> Tuple[int, Optional[List[SearchResult]], Optional[Exception]]:
+        callback_token = set_progress_callback(parent_callback) if parent_callback is not None else None
+        stage_token = set_retrieval_stage_key("per_claim_retrieval")
         try:
+            focused_query = _build_focused_query(claim.claim, iteration=iteration)
+            emit_log(
+                stage_key="per_claim_retrieval",
+                title="Per-claim query",
+                summary=f"执行定向检索: {focused_query[:60]}",
+                details=[f"original_claim={claim.claim[:60]}"],
+            )
             per_claim_context = {
                 "force_retrieval_query": focused_query,
                 "retrieval_stage_key": "per_claim_retrieval",
@@ -173,18 +192,35 @@ def enrich_retrieval_for_claims(
             per_claim_bundle = retrieval_service.retrieve_for_event(
                 resolved_event, request_context=per_claim_context
             )
-            queries_executed += 1
-            if per_claim_bundle.canonical_results:
-                new_results.extend(per_claim_bundle.canonical_results)
-        except Exception as exc:
+            return index, list(per_claim_bundle.canonical_results), None
+        except Exception as exc:  # noqa: BLE001 - degraded per-query, surfaced below
+            return index, None, exc
+        finally:
+            reset_retrieval_stage_key(stage_token)
+            if callback_token is not None:
+                reset_progress_callback(callback_token)
+
+    outcomes: dict[int, Tuple[Optional[List[SearchResult]], Optional[Exception]]] = {}
+    with ThreadPoolExecutor(max_workers=len(candidates)) as executor:
+        futures = [executor.submit(_run_claim_query, i, c) for i, c in enumerate(candidates)]
+        for future in futures:
+            index, results, exc = future.result()
+            outcomes[index] = (results, exc)
+
+    # Reassemble in candidate order for a deterministic merge.
+    for index, claim in enumerate(candidates):
+        results, exc = outcomes[index]
+        if exc is not None:
             queries_failed += 1
             logger.warning(
                 "Per-claim retrieval failed for claim=%s: %s",
                 claim.claim[:40],
                 exc,
             )
-            # Graceful degradation: continue with remaining claims.
             continue
+        queries_executed += 1
+        if results:
+            new_results.extend(results)
 
     if not new_results:
         emit_stage(
