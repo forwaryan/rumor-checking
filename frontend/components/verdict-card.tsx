@@ -7,9 +7,16 @@ import { getOverallCredibilityMeta } from "@/lib/report-high-score";
 function getOverallVerdict(report: Report): string {
   const supported = report.claim_results.filter(c => c.verdict === "supported").length;
   const refuted = report.claim_results.filter(c => c.verdict === "refuted").length;
+  const conflicting = report.claim_results.filter(c => c.verdict === "conflicting").length;
   const insufficient = report.claim_results.filter(c => c.verdict === "insufficient").length;
-  if (refuted > 0 && refuted >= supported) return "refuted";
-  if (supported > 0 && supported > refuted) return "supported";
+  // Mixed truth: when a message has BOTH supported and refuted components, it is
+  // half-true — the honest label is "真假混杂", not a clean "属实". This matters
+  // most when the user's headline number is refuted but a softened sub-claim is
+  // supported (e.g. "6000研发" refuted, "落地办公楼" supported).
+  if (conflicting > 0) return "conflicting";
+  if (supported > 0 && refuted > 0) return "conflicting";
+  if (refuted > 0) return "refuted";
+  if (supported > 0) return "supported";
   if (insufficient > 0) return "insufficient";
   return "insufficient";
 }

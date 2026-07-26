@@ -92,7 +92,7 @@ class UrlContentExtractor:
         final_url = str(response.url)
         source_name = source_name_from_url(final_url) or source_name
         content_type = response.headers.get("content-type", "").lower()
-        html = response.text[: self.settings.url_fetch_max_chars]
+        html = self._decode_response(response)[: self.settings.url_fetch_max_chars]
 
         if not self._looks_like_html(content_type, html):
             return MockFetchResult(
@@ -123,6 +123,55 @@ class UrlContentExtractor:
         )
         response.raise_for_status()
         return response
+
+    def _decode_response(self, response: httpx.Response) -> str:
+        """Decode the response body honoring the page's declared charset.
+
+        Chinese news sites (chinanews, sina, sohu, ...) frequently serve GBK /
+        GB2312 / GB18030 content but declare it only in an HTML <meta charset>
+        tag, not the HTTP Content-Type header. httpx's ``.text`` then defaults to
+        UTF-8 and produces mojibake. We prefer the HTTP-header charset, fall back
+        to the <meta> charset sniffed from the raw bytes, then GB18030 (a superset
+        of GBK that also decodes UTF-8-incompatible legacy pages), and finally
+        httpx's own best guess."""
+        raw = response.content
+        # 1. Explicit charset in the HTTP header wins.
+        header_charset = response.charset_encoding
+        if header_charset:
+            try:
+                return raw.decode(header_charset, errors="replace")
+            except (LookupError, UnicodeDecodeError):
+                pass
+        # 2. Sniff <meta charset=...> / <meta http-equiv content="...charset=..."> from bytes.
+        meta_charset = self._sniff_meta_charset(raw)
+        if meta_charset:
+            try:
+                return raw.decode(meta_charset, errors="replace")
+            except (LookupError, UnicodeDecodeError):
+                pass
+        # 3. Try UTF-8 strictly; if it fails, the page is very likely a GB-family
+        #    legacy encoding, so decode as GB18030 (superset of GBK/GB2312).
+        try:
+            return raw.decode("utf-8")
+        except UnicodeDecodeError:
+            try:
+                return raw.decode("gb18030", errors="replace")
+            except (LookupError, UnicodeDecodeError):
+                pass
+        # 4. Last resort: httpx's own detection.
+        return response.text
+
+    @staticmethod
+    def _sniff_meta_charset(raw: bytes) -> Optional[str]:
+        # Only the first ~2KB carries the <head> charset declaration.
+        head = raw[:2048].decode("ascii", errors="ignore").lower()
+        match = re.search(r'charset\s*=\s*["\']?\s*([a-z0-9_\-]+)', head)
+        if not match:
+            return None
+        charset = match.group(1).strip()
+        # Normalize common aliases that Python's codec registry doesn't know.
+        aliases = {"gb2312": "gb18030", "gbk": "gb18030", "utf8": "utf-8"}
+        return aliases.get(charset, charset)
 
     def _extract_from_html(
         self,

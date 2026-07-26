@@ -540,7 +540,9 @@ class RetrievalService:
         grounded = [
             item
             for item in results
-            if not self._is_noise_result(item) and not self._is_navigational_non_evidence(item)
+            if not self._is_noise_result(item)
+            and not self._is_navigational_non_evidence(item)
+            and not self._is_topically_disjoint(item)
         ]
         if len(grounded) <= 1:
             return grounded
@@ -639,6 +641,40 @@ class RetrievalService:
         if any(marker in text for marker in ("未提及", "未涉及", "不涉及", "无关", "another", "unrelated")):
             return False
         return True
+
+    def _is_topically_disjoint(self, result: SearchResult) -> bool:
+        """Hard filter: an English/non-CJK result returned for a CJK query that
+        shares none of the query's event terms.
+
+        A search engine that splits a Chinese phrase into single chars (or has no
+        real hits) will surface totally off-topic pages — e.g. English dictionary
+        entries for "Chauffeur" returned for a query about 拼多多雄安. These are
+        never evidence. Unlike the soft ``_result_matches_query`` filter, this
+        drops such results even when they are the entire batch: a dictionary entry
+        masquerading as evidence is worse than returning nothing.
+
+        Deliberately narrow — fires ONLY when the query is CJK-dominant but the
+        result title+snippet is essentially non-CJK (an English/foreign page) AND
+        shares no event-specific term. A Chinese result whose wording merely
+        differs from the query is left to the soft filter, so a live provider's
+        genuine (if loosely matched) hits are never hard-dropped."""
+        query = result.query or ""
+        event_terms = self._event_specific_terms(query)
+        if len(event_terms) < 2:
+            return False
+        # The query must be CJK-dominant for this filter to apply.
+        if not re.search(r"[一-鿿]", query):
+            return False
+        haystack = self._normalize_query(" ".join([result.title, result.snippet]))
+        if not haystack:
+            return False
+        # If the result text carries almost no CJK, it is a foreign-language page
+        # surfaced for a Chinese query — only keep it if it shares an event term.
+        cjk_chars = len(re.findall(r"[一-鿿]", haystack))
+        if cjk_chars >= 4:
+            # Enough Chinese content to be a plausible domestic hit; defer to soft filter.
+            return False
+        return not any(term in haystack for term in event_terms)
 
     def _relevance_stopwords(self) -> set[str]:
         return {
