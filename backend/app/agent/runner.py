@@ -1,37 +1,24 @@
 from __future__ import annotations
 
 import logging
-import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
 from backend.app.agent import planner as planner_mod
+from backend.app.agent.checkpoint import (
+    CheckpointStore,
+    restore_state,
+    snapshot_state,
+)
 from backend.app.agent.planner import Planner, RulePlanner
 from backend.app.agent.state import AgentState, StepOutcome
-from backend.app.agent_tools import tools
-from backend.app.agent_tools.base import HookContext, HookRegistry, ToolContext, get_tool_spec
+from backend.app.agent_tools import tools  # noqa: F401 — import triggers @tool registration
+from backend.app.agent_tools.base import HookContext, HookRegistry, PermissionGate, ToolContext, get_tool_spec, get_tool_fn
 from backend.app.models.schemas import AnalyzeRequest, Report
 from backend.app.services.progress import emit_log
 
 logger = logging.getLogger(__name__)
-
-# Actions with no return value that just mutate state.
-_SIMPLE_TOOLS = {
-    planner_mod.NORMALIZE: tools.normalize,
-    planner_mod.SEARCH: tools.search_news,
-    planner_mod.RESOLVE: tools.resolve_question,
-    planner_mod.FOLLOW_UP: tools.follow_up_retrieval,
-    planner_mod.INVESTIGATE: tools.investigate,
-    planner_mod.FETCH_URL: tools.fetch_url,
-    planner_mod.ENRICH: tools.enrich,
-    planner_mod.EXTRACT: tools.extract_claims,
-    planner_mod.JUDGE: tools.judge_claims,
-    planner_mod.PER_CLAIM_SEARCH: tools.per_claim_search,
-    planner_mod.RE_JUDGE: tools.re_judge_claims,
-    planner_mod.TIMELINE: tools.build_timeline,
-    planner_mod.FINALIZE: tools.finalize_report,
-}
 
 # Hard ceiling on loop iterations; the real stop condition is planner -> DONE.
 _MAX_STEPS = 32
@@ -66,10 +53,12 @@ class AgentRunner:
     first-class, pluggable decision rather than hard-coded control flow.
     """
 
-    def __init__(self, ctx: ToolContext, planner: Planner | None = None, hooks: HookRegistry | None = None) -> None:
+    def __init__(self, ctx: ToolContext, planner: Planner | None = None, hooks: HookRegistry | None = None, checkpoint_store: CheckpointStore | None = None, permission_gate: PermissionGate | None = None) -> None:
         self.ctx = ctx
         self.planner = planner or RulePlanner()
         self.hooks = hooks or HookRegistry()
+        self.checkpoint_store = checkpoint_store
+        self.permission_gate = permission_gate or PermissionGate()
         self._state: Optional[AgentState] = None
 
     def cancel(self) -> None:
@@ -77,7 +66,7 @@ class AgentRunner:
         if self._state is not None:
             self._state.cancelled = True
 
-    def run(self, request: AnalyzeRequest) -> Report:
+    def run(self, request: AnalyzeRequest, run_id: str | None = None) -> Report:
         state = AgentState(request=request)
         state.max_url_fetches = int(getattr(self.ctx.settings, "agent_max_url_fetches", 0) or 0)
         state.max_token_budget = int(getattr(self.ctx.settings, "agent_max_token_budget", 0) or 0)
@@ -89,7 +78,38 @@ class AgentRunner:
         if hasattr(reasoner, "_on_token_usage"):
             reasoner._on_token_usage = lambda p, c, t: state.token_usage.add(prompt=p, completion=c, total=t)
 
-        for _ in range(_MAX_STEPS):
+        return self._run_loop(state, run_id=run_id, step_offset=0)
+
+    def resume(self, run_id: str) -> Report:
+        """Resume a previously checkpointed run from its last successful step.
+
+        Raises RuntimeError if no checkpoint exists for the given run_id.
+        """
+        if self.checkpoint_store is None:
+            raise RuntimeError("cannot resume without a checkpoint store")
+        checkpoint = self.checkpoint_store.latest(run_id)
+        if checkpoint is None:
+            raise RuntimeError(f"no checkpoint found for run_id={run_id}")
+
+        state = restore_state(checkpoint)
+        state.cancelled = False
+        self._state = state
+
+        reasoner = self.ctx.agent_reasoner
+        if hasattr(reasoner, "_on_token_usage"):
+            reasoner._on_token_usage = lambda p, c, t: state.token_usage.add(prompt=p, completion=c, total=t)
+
+        emit_log(
+            stage_key="agent_runner",
+            level="info",
+            title="从检查点恢复",
+            summary=f"恢复自步骤 {checkpoint.step_index}（{checkpoint.action}），继续后续分析。",
+            details=[f"run_id={run_id}", f"done_actions={','.join(state.done_actions)}"],
+        )
+        return self._run_loop(state, run_id=run_id, step_offset=checkpoint.step_index + 1)
+
+    def _run_loop(self, state: AgentState, run_id: str | None, step_offset: int) -> Report:
+        for step_idx in range(step_offset, step_offset + _MAX_STEPS):
             if state.cancelled:
                 emit_log(
                     stage_key="agent_runner",
@@ -113,6 +133,13 @@ class AgentRunner:
                     state.per_claim_searches += 1
                 elif action == planner_mod.RE_JUDGE:
                     state.per_claim_iterations += 1
+                # Checkpoint after each successful step
+                if self.checkpoint_store is not None and run_id is not None:
+                    try:
+                        cp = snapshot_state(state, action, step_idx)
+                        self.checkpoint_store.save(run_id, cp)
+                    except Exception as exc:
+                        logger.warning("checkpoint_save_failed step=%s error=%s", action, str(exc)[:100])
             else:
                 if action in _CRITICAL_ACTIONS:
                     raise RuntimeError(
@@ -136,7 +163,6 @@ class AgentRunner:
         operations (e.g. multiple HTTP fetches writing to disjoint dict keys).
         """
         max_retries = int(getattr(self.ctx.settings, "agent_tool_max_retries", 0) or 0)
-        state_lock = threading.Lock()
 
         def _run_one(action: str) -> tuple[str, StepOutcome]:
             retries = min(_RETRY_POLICY.get(action, _DEFAULT_RETRIES), max_retries) if max_retries > 0 else _RETRY_POLICY.get(action, _DEFAULT_RETRIES)
@@ -159,6 +185,61 @@ class AgentRunner:
                     )
                 outcomes[idx] = outcome
         return outcomes
+
+    def spawn_sub(
+        self,
+        request: AnalyzeRequest,
+        *,
+        planner: Planner | None = None,
+        actions_subset: list[str] | None = None,
+        max_steps: int = 16,
+        inherit_budget: bool = True,
+    ) -> AgentState:
+        """Spawn a child sub-investigation with its own state.
+
+        The child uses the same ToolContext and dispatch logic but operates on
+        an isolated AgentState. Useful for:
+        - Per-claim parallel investigation (each claim gets its own retrieval)
+        - Recursive decomposition (break a complex event into sub-events)
+
+        Args:
+            request: The sub-task request (can be a focused query).
+            planner: Optional planner for the child; defaults to RulePlanner.
+            actions_subset: If given, limits the child to only these actions.
+            max_steps: Maximum loop iterations for the child.
+            inherit_budget: If True, child's token budget is the parent's remaining budget.
+
+        Returns:
+            The child's final AgentState (caller extracts what they need).
+        """
+        child_planner = planner or RulePlanner()
+
+        child_state = AgentState(request=request)
+        child_state.max_url_fetches = int(getattr(self.ctx.settings, "agent_max_url_fetches", 0) or 0)
+
+        if inherit_budget and self._state is not None and self._state.max_token_budget > 0:
+            remaining = max(0, self._state.max_token_budget - self._state.token_usage.total_tokens)
+            child_state.max_token_budget = remaining
+
+        for _ in range(max_steps):
+            if child_state.cancelled or (self._state and self._state.cancelled):
+                break
+            action = child_planner.next_action(child_state)
+            if action == planner_mod.DONE:
+                break
+            if actions_subset and action not in actions_subset:
+                child_state.done_actions.append(action)
+                continue
+            outcome = self._safe_dispatch(action, child_state)
+            child_state.last_step_outcome = outcome
+            if outcome.success:
+                child_state.done_actions.append(action)
+            else:
+                if action in _CRITICAL_ACTIONS:
+                    break
+                child_state.done_actions.append(action)
+
+        return child_state
 
     def _dispatch_with_retry(self, action: str, state: AgentState, max_retries: int | None = None) -> StepOutcome:
         """Dispatch with configurable retry and exponential backoff.
@@ -198,6 +279,23 @@ class AgentRunner:
 
     def _safe_dispatch(self, action: str, state: AgentState) -> StepOutcome:
         """Dispatch with try/except — non-critical failures become StepOutcome.success=False."""
+        # Permission check: if the tool requires permission and is denied, skip it.
+        spec = get_tool_spec(action)
+        if spec and not self.permission_gate.check(spec):
+            emit_log(
+                stage_key="agent_runner",
+                level="warning",
+                title=f"步骤 {action} 被拒绝",
+                summary=f"{action} 需要授权但被拒绝，跳过。",
+                details=[],
+            )
+            return StepOutcome(
+                action=action, success=False,
+                summary=f"{action} denied by permission gate",
+                error_type="PermissionDenied",
+                error_message="Tool requires permission but was denied",
+            )
+
         hook_ctx = HookContext(action=action, state=state, ctx=self.ctx)
         self.hooks.fire_pre(hook_ctx)
         try:
@@ -234,10 +332,7 @@ class AgentRunner:
             return outcome
 
     def _dispatch(self, action: str, state: AgentState) -> None:
-        if action == planner_mod.SYNTHESIZE:
-            tools.synthesize(self.ctx, state)
-            return
-        tool = _SIMPLE_TOOLS.get(action)
-        if tool is None:
+        tool_fn = get_tool_fn(action)
+        if tool_fn is None:
             raise RuntimeError(f"unknown_agent_action:{action}")
-        tool(self.ctx, state)
+        tool_fn(self.ctx, state)

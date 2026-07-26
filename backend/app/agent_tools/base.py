@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
@@ -41,6 +42,7 @@ class ToolSpec:
     critical: bool = False
     retries: int = 0
     parallelizable: bool = False
+    requires_permission: bool = False
 
 
 # Global registry populated by the @tool decorator.
@@ -54,6 +56,7 @@ def tool(
     critical: bool = False,
     retries: int = 0,
     parallelizable: bool = False,
+    requires_permission: bool = False,
 ) -> Callable:
     """Decorator that registers a tool function with metadata."""
 
@@ -64,6 +67,7 @@ def tool(
             critical=critical,
             retries=retries,
             parallelizable=parallelizable,
+            requires_permission=requires_permission,
         )
         _TOOL_REGISTRY[name] = (spec, fn)
         fn._tool_spec = spec
@@ -78,12 +82,62 @@ def get_tool_spec(name: str) -> Optional[ToolSpec]:
     return entry[0] if entry else None
 
 
+def get_tool_fn(name: str) -> Optional[Callable]:
+    """Look up a tool's callable by action name."""
+    entry = _TOOL_REGISTRY.get(name)
+    return entry[1] if entry else None
+
+
 def get_all_tool_specs() -> list[ToolSpec]:
     """Return all registered tool specs (for LLM planner context)."""
     return [spec for spec, _ in _TOOL_REGISTRY.values()]
 
 
-# --- Hook system ---
+# --- Permission system ---
+
+
+PermissionCallback = Callable[[str, ToolSpec], bool]
+
+
+class PermissionGate:
+    """Gates tool execution on first-use permission.
+
+    When a tool has `requires_permission=True`, the first time it's dispatched
+    in a run the gate checks with the registered callback. If denied, the tool
+    is skipped. Once approved, it's remembered for the rest of the run.
+    """
+
+    def __init__(self, callback: Optional[PermissionCallback] = None):
+        self._callback = callback
+        self._approved: set[str] = set()
+        self._denied: set[str] = set()
+        self._lock = threading.Lock()
+
+    def check(self, spec: ToolSpec) -> bool:
+        """Returns True if the tool is allowed to execute."""
+        if not spec.requires_permission:
+            return True
+        with self._lock:
+            if spec.name in self._approved:
+                return True
+            if spec.name in self._denied:
+                return False
+            if self._callback is None:
+                return True
+            try:
+                allowed = self._callback(spec.name, spec)
+            except Exception:
+                allowed = True
+            if allowed:
+                self._approved.add(spec.name)
+            else:
+                self._denied.add(spec.name)
+            return allowed
+
+    def reset(self) -> None:
+        with self._lock:
+            self._approved.clear()
+            self._denied.clear()
 
 
 @dataclass

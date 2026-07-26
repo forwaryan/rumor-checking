@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from backend.app.agent.state import AgentState
-from backend.app.agent_tools.base import ToolContext
+from backend.app.agent_tools.base import ToolContext, tool
 from backend.app.services.analyze_pipeline import (
     _GRADE_RANK,
     _bundle_quality,
@@ -12,6 +12,7 @@ from backend.app.services.analyze_pipeline import (
     _timeline_details,
 )
 from backend.app.services.progress import emit_log, emit_stage
+from backend.app.services.timeline_builder import TimelineBuild
 
 # Provenance fallback reason: LLM synthesis was expected (LLM enabled) but did
 # not produce a grounded result, so the rule engine answered instead.
@@ -43,6 +44,7 @@ def _build_completion_fn(ctx: ToolContext):
     return _complete
 
 
+@tool("normalize", description="标准化用户输入为结构化事件", critical=True, retries=2)
 def normalize(ctx: ToolContext, state: AgentState) -> None:
     request = state.request
     emit_stage(
@@ -68,6 +70,7 @@ def normalize(ctx: ToolContext, state: AgentState) -> None:
     state.record("normalize", "标准化输入完成", _event_details(normalized_event))
 
 
+@tool("search_news", description="联网检索与事件相关的新闻和证据", critical=True, retries=2)
 def search_news(ctx: ToolContext, state: AgentState) -> None:
     emit_stage(
         stage_key="retrieval_initial",
@@ -91,6 +94,7 @@ def search_news(ctx: ToolContext, state: AgentState) -> None:
     state.record("search_news", "首轮检索完成", _retrieval_bundle_details(bundle))
 
 
+@tool("resolve_question", description="消歧问题类输入，锚定具体事件")
 def resolve_question(ctx: ToolContext, state: AgentState) -> None:
     event = state.normalized_event
     bundle = state.initial_retrieval_bundle
@@ -116,6 +120,7 @@ def resolve_question(ctx: ToolContext, state: AgentState) -> None:
     state.record("resolve_question", summary, _question_resolution_details(resolution))
 
 
+@tool("follow_up_retrieval", description="基于消歧结果执行跟进检索")
 def follow_up_retrieval(ctx: ToolContext, state: AgentState) -> None:
     resolution = state.question_resolution
     if resolution is not None and resolution.follow_up_query:
@@ -154,6 +159,7 @@ def follow_up_retrieval(ctx: ToolContext, state: AgentState) -> None:
     state.record("follow_up_retrieval", "follow-up 阶段结束")
 
 
+@tool("investigate", description="LLM 决策：是否进行额外一轮定向检索", retries=1)
 def investigate(ctx: ToolContext, state: AgentState) -> None:
     """Optional evidence-driven extra retrieval rounds (LLM planner)."""
     if not ctx.settings.lightweight_agent_ready or not ctx.agent_reasoner.enabled:
@@ -289,6 +295,7 @@ def _pick_fetch_target(state: AgentState):
     return max(candidates, key=score)
 
 
+@tool("fetch_url", description="抓取高置信源全文以增强证据", retries=1)
 def fetch_url(ctx: ToolContext, state: AgentState) -> None:
     """Fetch the full body of a high-value evidence page to strengthen grounding.
 
@@ -382,6 +389,7 @@ def fetch_url(ctx: ToolContext, state: AgentState) -> None:
     state.record("fetch_url", "抓取证据正文", [f"result_id={target.result_id}"])
 
 
+@tool("synthesize", description="LLM 综合证据生成结构化判定")
 def synthesize(ctx: ToolContext, state: AgentState) -> bool:
     """Try the agent synthesis path. Returns True if it produced a result."""
     # "Attempted" only when the LLM reasoner is actually enabled — on the
@@ -436,6 +444,7 @@ def synthesize(ctx: ToolContext, state: AgentState) -> bool:
     return True
 
 
+@tool("enrich", description="补充事件时间线和可能性场景")
 def enrich(ctx: ToolContext, state: AgentState) -> None:
     emit_stage(
         stage_key="provider_enrichment",
@@ -466,6 +475,7 @@ def enrich(ctx: ToolContext, state: AgentState) -> None:
     state.record("enrich", summary, details)
 
 
+@tool("extract_claims", description="从事件和检索结果中抽取可核查声明")
 def extract_claims(ctx: ToolContext, state: AgentState) -> None:
     emit_stage(
         stage_key="claim_extraction",
@@ -488,6 +498,7 @@ def extract_claims(ctx: ToolContext, state: AgentState) -> None:
     state.record("extract_claims", "Claim 拆解完成", _claim_details(claim_extraction.claims))
 
 
+@tool("per_claim_search", description="对存疑声明进行定向补充检索", parallelizable=True)
 def per_claim_search(ctx: ToolContext, state: AgentState) -> None:
     """Per-claim targeted retrieval: for each weak fact claim, run a focused search
     using the claim text as query, then re-judge all claims with the enriched bundle."""
@@ -534,6 +545,7 @@ def per_claim_search(ctx: ToolContext, state: AgentState) -> None:
     state.record("per_claim_search", f"逐条补检索完成 (iteration {state.per_claim_iterations + 1})")
 
 
+@tool("re_judge_claims", description="对补充证据后的声明重新判定", retries=1)
 def re_judge_claims(ctx: ToolContext, state: AgentState) -> None:
     """Re-judge claims with enriched evidence after per-claim search."""
     if state.retrieval_bundle is None or state.claim_extraction is None:
@@ -578,6 +590,7 @@ def re_judge_claims(ctx: ToolContext, state: AgentState) -> None:
 
 
 
+@tool("judge_claims", description="基于证据对声明进行初次判定", retries=1)
 def judge_claims(ctx: ToolContext, state: AgentState) -> None:
     emit_stage(
         stage_key="verdict_engine",
@@ -609,7 +622,39 @@ def judge_claims(ctx: ToolContext, state: AgentState) -> None:
     state.record("judge_claims", "Claim 判定完成")
 
 
+@tool("build_timeline", description="构建事件传播时间线")
 def build_timeline(ctx: ToolContext, state: AgentState) -> None:
+    # If synthesis already produced a timeline (from LLM enrichment), keep it —
+    # the heuristic builder would overwrite with less relevant picks.
+    if state.timeline and state.timeline.nodes:
+        emit_stage(
+            stage_key="timeline_builder",
+            title="时间线构建",
+            status="completed",
+            summary="沿用 Agent 综合判断阶段已产出的时间线。",
+            details=_timeline_details(state.timeline.nodes, state.timeline.source, state.timeline.completeness, state.timeline.confidence),
+        )
+        state.record("build_timeline", "沿用已有时间线")
+        return
+
+    # When all claims are insufficient with no evidence, retrieval hits are
+    # unrelated — building a timeline from them produces misleading nodes.
+    verdict = state.verdict
+    if verdict and verdict.claim_results and all(
+        cr.verdict == "insufficient" and not cr.evidence
+        for cr in verdict.claim_results
+    ):
+        state.timeline = TimelineBuild(nodes=[], source="none", completeness=0, confidence=0)
+        emit_stage(
+            stage_key="timeline_builder",
+            title="时间线构建",
+            status="skipped",
+            summary="所有核查点均证据不足，跳过时间线构建以避免噪音。",
+            details=[],
+        )
+        state.record("build_timeline", "证据不足，跳过时间线")
+        return
+
     emit_stage(
         stage_key="timeline_builder",
         title="时间线构建",
@@ -631,6 +676,7 @@ def build_timeline(ctx: ToolContext, state: AgentState) -> None:
     state.record("build_timeline", "时间线构建完成")
 
 
+@tool("finalize_report", description="组装最终核查报告", critical=True, retries=2)
 def finalize_report(ctx: ToolContext, state: AgentState) -> None:
     from backend.app.services.analyze_pipeline import _report_details
 

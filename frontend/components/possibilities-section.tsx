@@ -55,6 +55,9 @@ export interface PossibilitiesDistributionProps {
 export function PossibilitiesDistribution({ possibilities, isOpen, onToggle }: PossibilitiesDistributionProps) {
   if (possibilities.length === 0) return null;
 
+  // Hide when all scenarios are purely speculative with no evidence backing
+  if (possibilities.every(p => p.basis === "prior" || !p.basis)) return null;
+
   return (
     <div className="section-card">
       <div className="section-card__header" onClick={onToggle}>

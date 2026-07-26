@@ -939,6 +939,8 @@ class RetrievalService:
                 ]
             )
 
+        numeric_fuzzy_query = self._build_numeric_fuzzy_query(primary_query)
+
         return self._dedupe_query_plan(
             [
                 RetrievalQuerySpec(
@@ -946,6 +948,15 @@ class RetrievalService:
                     query=primary_query,
                     rationale="围绕事件标题、摘要与关键词建立主检索 query。",
                     claim_hint=event.summary or primary_query,
+                ),
+                *(
+                    [RetrievalQuerySpec(
+                        label="event_numeric_fuzzy",
+                        query=numeric_fuzzy_query,
+                        rationale="去掉具体数字，用实体+动作检索，命中数字不同但同一事件的辟谣/报道。",
+                        claim_hint=event.summary or primary_query,
+                    )]
+                    if numeric_fuzzy_query else []
                 ),
                 RetrievalQuerySpec(
                     label="event_claim",
@@ -1064,6 +1075,23 @@ class RetrievalService:
 
     def _extend_query(self, base_query: str, *extra_terms: Optional[str]) -> str:
         return self._build_term_query(base_query, " ".join(term for term in extra_terms if term))
+
+    _NUMERIC_PERCENT_RE = re.compile(r"\d+(?:\.\d+)?%?")
+
+    def _build_numeric_fuzzy_query(self, query: str) -> str:
+        """Strip specific numbers/percentages from the query to catch same-event
+        articles that cite different figures (e.g. refutation says 50% when rumor
+        says 30%). Returns empty string if stripping leaves nothing useful or
+        nothing was stripped.
+        """
+        stripped = self._NUMERIC_PERCENT_RE.sub("", query)
+        terms = [t for t in stripped.split() if len(t) >= 2]
+        if not terms or terms == query.split():
+            return ""
+        result = " ".join(terms)
+        if len(result) < 4:
+            return ""
+        return result
 
     def _enrich_result(
         self,

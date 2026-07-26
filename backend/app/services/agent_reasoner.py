@@ -29,6 +29,19 @@ from backend.app.services.question_resolver import QuestionResolution
 from backend.app.services.retrieval_models import RetrievalBundle, SearchResult
 from backend.app.services.timeline_builder import TimelineBuild
 from backend.app.services.verdict_engine import VerdictEvaluation
+from backend.app.agent.structured_output import (
+    schema_validator,
+    InvestigationPlanSchema,
+    NextActionSchema,
+    ActionSequenceSchema,
+    CriticResponseSchema,
+    RefineResponseSchema,
+)
+from backend.app.agent.context_window import (
+    estimate_tokens,
+    build_evidence_budget,
+    truncate_to_budget,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -604,7 +617,7 @@ class LlmAgentReasoner:
                 retrieval_bundle=retrieval_bundle,
                 round_index=round_index,
             ),
-            is_valid=self._json_with_key_usable("should_continue"),
+            is_valid=schema_validator(InvestigationPlanSchema),
         )
         payload = self._extract_json_payload(content)
         if payload is None:
@@ -644,7 +657,7 @@ class LlmAgentReasoner:
                 "Context JSON:\n"
                 f"{json.dumps({'allowed_actions': allowed_actions, 'evidence_snapshot': evidence_snapshot}, ensure_ascii=False, indent=2)}"
             ),
-            is_valid=self._json_with_key_usable("next_action"),
+            is_valid=schema_validator(NextActionSchema),
         )
         payload = self._extract_json_payload(content)
         if payload is None:
@@ -695,7 +708,7 @@ class LlmAgentReasoner:
                 "Context JSON:\n"
                 f"{json.dumps({'allowed_actions': allowed_actions, 'evidence_snapshot': evidence_snapshot}, ensure_ascii=False, indent=2)}"
             ),
-            is_valid=self._json_with_key_usable("actions"),
+            is_valid=schema_validator(ActionSequenceSchema),
         )
         payload = self._extract_json_payload(content)
         if payload is None:
@@ -1048,6 +1061,22 @@ class LlmAgentReasoner:
         retrieval_bundle: RetrievalBundle,
         fetched_bodies: Optional[dict[str, str]] = None,
     ) -> str:
+        # Estimate available tokens for evidence based on model context
+        model = self._synthesis_model()
+        is_reasoning = self.settings.is_reasoning_model(model)
+        max_context = 64_000 if is_reasoning else 32_000
+        output_tokens = self.settings.llm_reasoning_max_tokens if is_reasoning else self.settings.llm_max_tokens
+        system_tokens = estimate_tokens(CLAIMS_ONLY_SYSTEM_PROMPT)
+        evidence_budget = build_evidence_budget(
+            system_prompt_tokens=system_tokens,
+            max_context=max_context,
+            output_tokens=output_tokens,
+        )
+
+        # Serialize retrieval hits with budget-aware truncation
+        raw_hits = [self._serialize_result(item) for item in retrieval_bundle.canonical_results[:8]]
+        hits = truncate_to_budget(raw_hits, budget_tokens=evidence_budget, key="snippet", min_items=3)
+
         context = {
             "raw_input": request.raw_input,
             "input_type": event.input_type,
@@ -1062,7 +1091,7 @@ class LlmAgentReasoner:
             "retrieval_query": retrieval_bundle.query,
             "retrieval_provider": retrieval_bundle.provider_name,
             "evidence_grade_hint": retrieval_bundle.evidence_grade,
-            "retrieval_hits": [self._serialize_result(item) for item in retrieval_bundle.canonical_results[:8]],
+            "retrieval_hits": hits,
         }
         if fetched_bodies:
             _html_tag = re.compile(r"<[^>]+>")
@@ -1298,7 +1327,7 @@ class LlmAgentReasoner:
                 "Judged claims JSON:\n"
                 f"{json.dumps(payload_claims, ensure_ascii=False, indent=2)}"
             ),
-            is_valid=self._json_with_key_usable("revisions"),
+            is_valid=schema_validator(CriticResponseSchema),
         )
         payload = self._extract_json_payload(content)
         if payload is None:
@@ -1401,7 +1430,7 @@ class LlmAgentReasoner:
             title="调用 Agent critic refinement",
             system_prompt=CRITIC_REFINE_SYSTEM_PROMPT,
             user_prompt=user_prompt,
-            is_valid=self._json_with_key_usable("refined_claims"),
+            is_valid=schema_validator(RefineResponseSchema),
         )
         payload = self._extract_json_payload(content)
         if payload is None:
@@ -1465,6 +1494,17 @@ class LlmAgentReasoner:
         truncate and lose the claims. Degrades to empty timeline/scenarios on failure,
         which is acceptable (the verdict is the core product)."""
         empty: dict[str, Any] = {"timeline_nodes": [], "possibilities": [], "event": None}
+
+        # When ALL claims are insufficient with no evidence AND retrieval grade
+        # is low (C or below), the hits are unrelated noise — skip enrichment to
+        # avoid fabricating timelines and scenarios from irrelevant articles.
+        all_insufficient_no_evidence = claim_results and all(
+            cr.verdict == "insufficient" and not cr.evidence
+            for cr in claim_results
+        )
+        low_grade = retrieval_bundle.evidence_grade in ("C", "D", "F", None)
+        if all_insufficient_no_evidence and low_grade:
+            return empty
 
         claims_summary = json.dumps(
             [{"claim": cr.claim, "verdict": cr.verdict} for cr in claim_results],

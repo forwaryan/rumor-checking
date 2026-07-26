@@ -592,7 +592,7 @@ export function formatProbability(value?: number | null): string | null {
 
 export function getBasisLabel(basis?: string | null): string | null {
   if (basis === "evidence") return "有证据";
-  if (basis === "prior") return "凭常识";
+  if (basis === "prior") return "无直接证据";
   return null;
 }
 

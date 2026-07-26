@@ -35,7 +35,7 @@ export function ClaimList({ claims, isOpen, onToggle }: ClaimListProps) {
                     {getVerdictLabel(claim.verdict)} · {formatConfidence(claim.confidence)}
                   </span>
                   {prob && (
-                    <span className="claim-item__prob" title={claim.probability_basis === "prior" ? "无检索证据，基于常识的先验估计" : "基于检索证据的估计"}>
+                    <span className="claim-item__prob" title={claim.probability_basis === "prior" ? "无直接检索证据，基于先验估计" : "基于检索证据的估计"}>
                       为真 {prob}{basisLabel ? ` · ${basisLabel}` : ""}
                     </span>
                   )}
