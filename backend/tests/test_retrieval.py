@@ -1249,7 +1249,7 @@ def test_pipeline_without_evidence_stays_safe_and_exposes_none_provenance(tmp_pa
     assert report.provenance.source_type == "backend_live"
     assert report.provenance.event_source == "input_normalized"
     assert report.provenance.evidence_source == "none"
-    assert report.provenance.timeline_source == "input_seed"
+    assert report.provenance.timeline_source == "none"
 
 def test_retrieval_service_skip_cache_alias_bypasses_cached_bundle(tmp_path: Path):
     event = _event_for_case("R01")

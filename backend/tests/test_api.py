@@ -425,7 +425,7 @@ def test_analyze_unmatched_text_input_stays_safe_without_evidence(client):
     assert report["sources"] == []
     assert all(item["verdict"] == "insufficient" for item in report["claim_results"])
     assert report["provenance"]["evidence_source"] == "none"
-    assert report["provenance"]["timeline_source"] == "input_seed"
+    assert report["provenance"]["timeline_source"] == "none"
 
 
 def test_analyze_ambiguous_question_lists_possibilities_without_overclaiming(client):

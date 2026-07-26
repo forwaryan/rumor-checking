@@ -289,21 +289,39 @@ class AnalyzePipeline:
                         retrieval_bundle=retrieval_bundle,
                     )
 
-            emit_stage(
-                stage_key="timeline_builder",
-                title="时间线构建",
-                status="running",
-                summary="正在从检索结果里挑选传播与澄清节点。",
-                details=[],
+            # Skip timeline when all claims are insufficient with no evidence —
+            # retrieval hits are unrelated noise, building a timeline from them
+            # produces misleading nodes.
+            all_insufficient_no_evidence = verdict.claim_results and all(
+                cr.verdict == "insufficient" and not cr.evidence
+                for cr in verdict.claim_results
             )
-            timeline = self.timeline_builder.build_with_source(event, retrieval_bundle=retrieval_bundle)
-            emit_stage(
-                stage_key="timeline_builder",
-                title="时间线构建",
-                status="completed",
-                summary="时间线节点已生成。",
-                details=_timeline_details(timeline.nodes, timeline.source, timeline.completeness, timeline.confidence),
-            )
+            if all_insufficient_no_evidence:
+                from backend.app.services.timeline_builder import TimelineBuild
+                timeline = TimelineBuild(nodes=[], source="none", completeness=0, confidence=0)
+                emit_stage(
+                    stage_key="timeline_builder",
+                    title="时间线构建",
+                    status="skipped",
+                    summary="所有核查点均证据不足，跳过时间线构建以避免噪音。",
+                    details=[],
+                )
+            else:
+                emit_stage(
+                    stage_key="timeline_builder",
+                    title="时间线构建",
+                    status="running",
+                    summary="正在从检索结果里挑选传播与澄清节点。",
+                    details=[],
+                )
+                timeline = self.timeline_builder.build_with_source(event, retrieval_bundle=retrieval_bundle)
+                emit_stage(
+                    stage_key="timeline_builder",
+                    title="时间线构建",
+                    status="completed",
+                    summary="时间线节点已生成。",
+                    details=_timeline_details(timeline.nodes, timeline.source, timeline.completeness, timeline.confidence),
+                )
 
         provenance = self._build_provenance(
             request=request,
