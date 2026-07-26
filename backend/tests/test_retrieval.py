@@ -437,6 +437,32 @@ def test_single_fact_rumor_gets_no_subclaim_queries():
     assert not any(s.label.startswith("subclaim_") for s in deep)
 
 
+def test_single_digit_quantity_survives_query_tokenization():
+    # A single Arabic digit ("5栋") must stay in the search terms. The old tokenizer
+    # required digits to be 2+ chars ([A-Za-z0-9]{2,}), silently dropping "5" so the
+    # "5 buildings" sub-fact could never retrieve targeted evidence and stalled at
+    # insufficient. Multi-digit figures like 6000 were unaffected, masking the bug.
+    svc = RetrievalService(settings=replace(get_settings(), retrieval_provider="playwright"))
+    text = "拼多多在雄安买了5栋楼招了6000研发人员"
+
+    term_query = svc._build_term_query(text)
+    assert "5" in term_query.split()  # single digit kept as its own term
+    assert "6000" in term_query.split()  # multi-digit still kept
+
+    # And the split sub-fact clause retains the quantity verbatim.
+    segments = svc._subclaim_action_segments(text)
+    assert any("5" in seg for seg in segments)
+
+
+def test_decimal_and_percent_not_truncated_in_query():
+    # Regression guard: the old pattern split "2.5%" into a bogus "5%". The digit-first
+    # pattern must keep decimals and percents whole.
+    svc = RetrievalService(settings=replace(get_settings(), retrieval_provider="playwright"))
+    terms = svc._build_term_query("京东Q3营收增长2.5%").split()
+    assert "2.5%" in terms
+    assert "5%" not in terms
+
+
 def test_retrieval_service_emits_structured_results_for_each_query(tmp_path: Path):
     # Observability: every retrieval event must carry the actual hits (title,
     # snippet, url, source, tier) so the frontend can show what each search

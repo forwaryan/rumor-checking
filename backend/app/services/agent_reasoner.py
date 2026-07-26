@@ -21,6 +21,7 @@ from backend.app.models.schemas import (
     TimelineNode,
 )
 from backend.app.services.claim_extractor import ClaimExtraction
+from backend.app.services.claim_correction import annotate_claim_corrections
 from backend.app.services.contract_utils import default_source_name, default_source_url, ensure_datetime_string, loads_lenient_json
 from backend.app.services.progress import emit_api_call, emit_log
 from backend.app.services.question_intent import is_broad_trend_question
@@ -447,6 +448,12 @@ class LlmAgentReasoner:
         # OWN cited evidence and can only downgrade unfaithful calls to insufficient.
         # Purely subtractive, so it can never manufacture a stronger conclusion.
         claim_results = self._critique_claim_results(claim_results)
+
+        # Structured number correction: for claims whose specific numbers/details
+        # the evidence contradicts or refines, attach a {original, actual, source}
+        # correction so the user sees the real figure, not just a bare "refuted".
+        # Number-grounded (actual must appear in evidence) and degrades to no-op.
+        claim_results = self._annotate_corrections(claim_results, retrieval_bundle, fetched_bodies)
 
         evidence_source: EvidenceSourceType = "retrieval_mock" if retrieval_bundle.provider_name == "mock" else "retrieval_live"
         evidence_pool = retrieval_bundle.to_evidence_items()
@@ -1200,8 +1207,6 @@ class LlmAgentReasoner:
             and item.get("keep") is False
             and isinstance(item.get("index"), (int, float))
         }
-        if not downgrade_indices:
-            return claim_results
 
         revised = list(claim_results)
         downgraded = 0
@@ -1232,10 +1237,69 @@ class LlmAgentReasoner:
         emit_log(
             stage_key="agent_synthesis",
             title="Synthesis critic 完成",
-            summary=f"复检 {len(checkable)} 条决定性判定，下调 {downgraded} 条为存疑。",
+            summary=(
+                f"复检 {len(checkable)} 条决定性判定，下调 {downgraded} 条为存疑。"
+                if downgraded
+                else f"复检 {len(checkable)} 条决定性判定，全部与所引证据一致，无需下调。"
+            ),
             details=[f"downgraded_indices={sorted(i for i in downgrade_indices if any(idx == i for idx, _ in checkable))}"],
         )
         return revised
+
+    def _annotate_corrections(
+        self,
+        claim_results: list[ClaimResult],
+        retrieval_bundle: RetrievalBundle | None,
+        fetched_bodies: Optional[dict[str, str]],
+    ) -> list[ClaimResult]:
+        """Attach structured number corrections to synthesized claims.
+
+        The fixed pipeline already runs this on its rule verdicts (verdict_engine);
+        the agent path builds verdicts inside synthesize and would otherwise skip it,
+        leaving `refuted`/`insufficient` numeric claims with no real figure attached.
+        Number-grounded and degrades to a no-op on any failure, so it is safe to run
+        unconditionally. Returns the input unchanged when there is nothing to ground."""
+        if not self.enabled or retrieval_bundle is None:
+            return claim_results
+        all_titles = [
+            r.title for r in retrieval_bundle.canonical_results if r.title.strip()
+        ]
+
+        def _complete(system_prompt: str, user_prompt: str) -> str:
+            # Route correction through the same retry/streaming layer synthesis uses,
+            # instead of claim_correction's bare one-shot POST. The default fast model
+            # (DeepSeek-V4-Flash) read-times-out on this gateway; the reasoning default
+            # completes reliably. Returns "" on failure so annotate degrades to no-op.
+            return self._request_completion(
+                stage_key="agent_synthesis",
+                title="调用数字纠正",
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+            )
+
+        try:
+            annotated = annotate_claim_corrections(
+                claim_results,
+                page_bodies=fetched_bodies,
+                all_evidence_titles=all_titles,
+                completion_fn=_complete,
+            )
+        except Exception as exc:  # pragma: no cover - defensive; annotate already guards
+            logger.debug("agent-path claim correction failed: %s", exc)
+            return claim_results
+        corrected = sum(1 for cr in annotated if cr.correction)
+        if corrected:
+            emit_log(
+                stage_key="agent_synthesis",
+                title="数字纠正完成",
+                summary=f"为 {corrected} 条 claim 附上了证据支持的正确数字/细节。",
+                details=[
+                    f"{cr.correction.get('original', '')}→{cr.correction.get('actual', '')}"
+                    for cr in annotated
+                    if cr.correction
+                ][:6],
+            )
+        return annotated
 
     def _guard_overbroad_claim_verdict(
         self,

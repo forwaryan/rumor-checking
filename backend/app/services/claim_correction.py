@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Dict, List, Optional, Set
+from typing import Callable, Dict, List, Optional, Set
 
 import httpx
 
@@ -21,6 +21,7 @@ def annotate_claim_corrections(
     claim_results: List[ClaimResult],
     page_bodies: Optional[Dict[str, str]] = None,
     all_evidence_titles: Optional[List[str]] = None,
+    completion_fn: Optional[Callable[[str, str], str]] = None,
 ) -> List[ClaimResult]:
     """For each claim that has evidence, call a lightweight LLM to generate a
     per-claim structured correction if the evidence contradicts the claim's specifics
@@ -28,9 +29,19 @@ def annotate_claim_corrections(
 
     The correction is a dict: {"original": str, "actual": str, "source": str}.
     Gracefully degrades (returns original results unchanged) on any failure.
+
+    completion_fn: optional (system, user) -> content callable. When supplied, the
+    LLM call is routed through it (e.g. the agent reasoner's retry/streaming layer)
+    instead of the built-in one-shot httpx POST. This lets callers whose default
+    model can actually complete the request avoid the fast-model timeout that the
+    bare POST path hits on some gateways. The rest of the logic (prompt, parsing,
+    number-grounding) is identical on both paths.
     """
     settings = get_settings()
-    if not settings.llm_api_key:
+    # The key gate only guards the built-in httpx path. When the caller injects a
+    # completion_fn, it owns the LLM transport (and its own auth), so a blank key
+    # here must not block it.
+    if completion_fn is None and not settings.llm_api_key:
         return claim_results
 
     # Only process fact-type claims. Include claims even without bound evidence
@@ -87,36 +98,39 @@ def annotate_claim_corrections(
     )
     user = f"待核查claims:\n{claims_block}{pool_context}"
 
-    # Use a non-reasoning model
-    model = "DeepSeek-V4-Flash"
-    for m in settings.available_models:
-        if not settings.is_reasoning_model(m):
-            model = m
-            break
-    base_url = settings.base_url_for_model(model)
-
     try:
-        resp = httpx.post(
-            f"{base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {settings.llm_api_key}"},
-            json={
-                "model": model,
-                "temperature": 0.2,
-                "max_tokens": 1024,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-            },
-            timeout=30.0,
-        )
-        if resp.status_code != 200:
-            logger.debug("claim correction LLM returned %d", resp.status_code)
-            return claim_results
+        if completion_fn is not None:
+            # Caller-supplied LLM layer (e.g. agent reasoner retry/streaming path).
+            content = (completion_fn(system, user) or "").strip()
+        else:
+            # Default one-shot path: pick a non-reasoning model for speed.
+            model = "DeepSeek-V4-Flash"
+            for m in settings.available_models:
+                if not settings.is_reasoning_model(m):
+                    model = m
+                    break
+            base_url = settings.base_url_for_model(model)
+            resp = httpx.post(
+                f"{base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {settings.llm_api_key}"},
+                json={
+                    "model": model,
+                    "temperature": 0.2,
+                    "max_tokens": 1024,
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                },
+                timeout=30.0,
+            )
+            if resp.status_code != 200:
+                logger.debug("claim correction LLM returned %d", resp.status_code)
+                return claim_results
+            data = resp.json()
+            msg = data["choices"][0]["message"]
+            content = (msg.get("content") or "").strip()
 
-        data = resp.json()
-        msg = data["choices"][0]["message"]
-        content = (msg.get("content") or "").strip()
         if not content:
             return claim_results
 
@@ -125,7 +139,14 @@ def annotate_claim_corrections(
         if not corrections or len(corrections) != len(candidates):
             return claim_results
 
-        # Apply corrections with number-grounding validation
+        # Apply corrections with number-grounding validation. The grounding pool
+        # must include the pool titles we actually showed the LLM (all_evidence_titles),
+        # not just each claim's bound evidence — decisive verdicts (esp. "refuted")
+        # frequently carry no bound evidence ids, so restricting grounding to
+        # cr.evidence would discard every correction whose figure lives in the pool.
+        pool_numbers: Set[str] = set()
+        for t in all_evidence_titles or []:
+            pool_numbers |= _extract_numbers_from_text(t)
         evidence_numbers = _extract_evidence_numbers(candidates, page_bodies)
         updated = list(claim_results)
         for (i, _cr), corr in zip(candidates, corrections):
@@ -136,7 +157,7 @@ def annotate_claim_corrections(
                 source = corr.get("source", "")
                 if original and actual:
                     # Verify numbers in actual are grounded in evidence
-                    if not _actual_is_grounded(actual, evidence_numbers.get(i, set())):
+                    if not _actual_is_grounded(actual, evidence_numbers.get(i, set()) | pool_numbers):
                         logger.debug(
                             "discarding correction for claim %d: "
                             "'actual' number not found in evidence", i

@@ -6,6 +6,7 @@ from dataclasses import replace
 from backend.app.core.config import get_settings
 from backend.app.models.schemas import ClaimResult, EvidenceItem
 from backend.app.services.agent_reasoner import LlmAgentReasoner
+from backend.app.services.progress import reset_progress_callback, set_progress_callback
 
 
 def _reasoner(critic_enabled: bool = True) -> LlmAgentReasoner:
@@ -105,3 +106,23 @@ def test_critic_skips_when_no_evidence(monkeypatch):
     out = r._critique_claim_results(claims)
     assert out[0].verdict == "supported"
     assert fake.calls == 0
+
+
+def test_critic_emits_completion_log_even_when_nothing_downgraded(monkeypatch):
+    # Observability: a critic that ran and found everything faithful must still
+    # leave a trace event, otherwise the verify layer is invisible when it agrees.
+    r = _reasoner()
+    claims = [_claim("拼多多在雄安买楼。", "supported", evidence=[_ev()])]
+    _patch(r, json.dumps({"revisions": [{"index": 0, "keep": True}]}), monkeypatch)
+
+    events: list[dict] = []
+    token = set_progress_callback(lambda ev: events.append(ev))
+    try:
+        out = r._critique_claim_results(claims)
+    finally:
+        reset_progress_callback(token)
+
+    assert out[0].verdict == "supported"  # unchanged (monotonic)
+    completions = [e for e in events if e.get("title") == "Synthesis critic 完成"]
+    assert len(completions) == 1
+    assert "全部与所引证据一致" in completions[0].get("summary", "")
