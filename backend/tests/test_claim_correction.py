@@ -82,3 +82,42 @@ def test_correction_no_op_when_completion_fn_returns_empty():
     claims = [_claim("某事。", "refuted", evidence=[_ev("标题2000")])]
     out = annotate_claim_corrections(claims, completion_fn=lambda system, user: "")
     assert out[0].correction is None
+
+
+def test_chinese_numeral_parser():
+    from backend.app.services.claim_correction import _parse_chinese_numeral as p
+    assert p("三千") == 3000
+    assert p("两千") == 2000
+    assert p("五万") == 50000
+    assert p("两千零五十") == 2050
+    assert p("一百二十三") == 123
+    assert p("一亿") == 100_000_000
+    assert p("三千五百") == 3500
+    assert p("九十九") == 99
+    assert p("abc") is None  # non-numeric run
+
+
+def test_number_extraction_bridges_chinese_and_arabic():
+    from backend.app.services.claim_correction import _extract_numbers_from_text as f
+    # Chinese numerals must yield their Arabic value so the two scripts cross-ground.
+    assert "3000" in f("员工突破三千人")
+    assert "2000" in f("约两千名员工")
+    assert "50000" in f("投资五万元")
+    # Arabic still works, with the Chinese-unit-stripped variant.
+    assert "2000" in f("突破2000人")
+
+
+def test_correction_grounds_across_number_scripts():
+    # The C fix: evidence written in Chinese numerals ("两千") must ground an Arabic
+    # correction ("2000"). Before the fix the pool had no digit form of 两千, so the
+    # correct figure was discarded as a hallucination.
+    claims = [_claim("某公司招了5000人。", "refuted", evidence=[_ev("官方通报：实际入职约两千人")])]
+    resp = json.dumps([
+        {"correction": {"original": "5000人", "actual": "实际约2000人", "source": "官方通报"}}
+    ])
+    out = annotate_claim_corrections(
+        claims, all_evidence_titles=["官方通报：实际入职约两千人"],
+        completion_fn=lambda system, user: resp,
+    )
+    assert out[0].correction is not None
+    assert "2000" in out[0].correction["actual"]

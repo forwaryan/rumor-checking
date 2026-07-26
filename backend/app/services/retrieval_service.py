@@ -629,7 +629,7 @@ class RetrievalService:
         stopwords = self._relevance_stopwords()
         terms: list[str] = []
         for token in self._normalize_query(query).split():
-            for chunk in re.findall(r"\d+(?:\.\d+)?%?|[A-Za-z]{2,}|[一-鿿]{2,}", token):
+            for chunk in re.findall(r"\d+(?:\.\d+)?[万亿千百]?%?|[A-Za-z]{2,}|[一-鿿]{2,}", token):
                 if chunk in generic or chunk in stopwords or chunk in terms:
                     continue
                 terms.append(chunk)
@@ -793,7 +793,7 @@ class RetrievalService:
         # then peel a trailing 在X place: keep both the full head and the tail token.
         head = re.sub(r"(最近|有个|有一个|据说|网传|听说)", "", head)
         terms: list[str] = []
-        for token in re.findall(r"\d+(?:\.\d+)?%?|[A-Za-z]{2,}|[一-鿿]{2,8}", head):
+        for token in re.findall(r"\d+(?:\.\d+)?[万亿千百]?%?|[A-Za-z]{2,}|[一-鿿]{2,8}", head):
             token = re.sub(r"[在了的和与并还]$", "", token)
             # If the token embeds a place after 在, split it: 拼多多在雄安 -> 拼多多, 雄安
             for part in re.split(r"在", token):
@@ -1004,7 +1004,7 @@ class RetrievalService:
         for text in texts:
             if not text:
                 continue
-            for term in re.findall(r"\d+(?:\.\d+)?%?|[A-Za-z]{2,}|[\u4e00-\u9fff]{2,12}", text):
+            for term in re.findall(r"\d+(?:\.\d+)?[万亿千百]?%?|[A-Za-z]{2,}|[\u4e00-\u9fff]{2,12}", text):
                 cleaned = term.strip()
                 if not cleaned or cleaned in seen:
                     continue

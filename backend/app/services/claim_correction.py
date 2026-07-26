@@ -177,18 +177,52 @@ def annotate_claim_corrections(
         return claim_results
 
 
-# Chinese number mapping for cross-referencing
-_CHINESE_NUM_MAP = {
-    "零": 0, "一": 1, "二": 2, "三": 3, "四": 4,
-    "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10,
-    "百": 100, "千": 1000, "万": 10000, "亿": 100000000,
-}
+# Chinese numeral cross-referencing. Evidence often writes figures as Chinese
+# numerals ("员工突破两千人") while the claim uses Arabic ("2000"), or vice versa.
+# To let number-grounding match across the two scripts, we parse contiguous
+# Chinese-numeral runs into their integer value and add that (as a string) to the
+# extracted number set alongside the literal Arabic digits.
+_CN_DIGITS = {"零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+_CN_UNITS = {"十": 10, "百": 100, "千": 1000, "万": 10000, "亿": 100000000}
+_CN_NUM_RE = re.compile(r"[零一二两三四五六七八九十百千万亿]{1,}")
 
 _NUMBER_RE = re.compile(r"\d+(?:\.\d+)?(?:[万亿千百十])?")
 
 
+def _parse_chinese_numeral(text: str) -> Optional[int]:
+    """Parse a contiguous Chinese-numeral run into an int (万/亿 close a section).
+    Returns None if the run contains nothing numeric. Best-effort: mixed or
+    malformed runs degrade to a partial value rather than raising."""
+    total = 0      # accumulated value of closed sections (>= 万)
+    section = 0    # value of the section currently being built
+    cur = 0        # pending single digit awaiting a unit
+    seen = False
+    for ch in text:
+        if ch in _CN_DIGITS:
+            cur = _CN_DIGITS[ch]
+            seen = True
+        elif ch in _CN_UNITS:
+            unit = _CN_UNITS[ch]
+            seen = True
+            if unit >= 10000:  # 万/亿 close and scale the whole section so far
+                section = section + (cur or 1)
+                total += section * unit
+                section = 0
+                cur = 0
+            else:              # 十/百/千 scale the pending digit into the section
+                section += (cur or 1) * unit
+                cur = 0
+        else:
+            return None
+    if not seen:
+        return None
+    return total + section + cur
+
+
 def _extract_numbers_from_text(text: str) -> Set[str]:
-    """Extract all numbers (digit-based and Chinese-unit suffixed) from text."""
+    """Extract all numbers from text as strings for cross-referencing: Arabic
+    digits (with optional Chinese scale suffix stripped) AND Chinese numerals
+    converted to their Arabic value, so "三千" and "3000" ground each other."""
     if not text:
         return set()
     nums = set()
@@ -198,6 +232,11 @@ def _extract_numbers_from_text(text: str) -> Set[str]:
         raw = re.sub(r"[万亿千百十]", "", m.group())
         if raw:
             nums.add(raw)
+    # Chinese-numeral runs (三千 / 两千零五十) -> their Arabic value as a string.
+    for m in _CN_NUM_RE.finditer(text):
+        value = _parse_chinese_numeral(m.group())
+        if value is not None:
+            nums.add(str(value))
     return nums
 
 

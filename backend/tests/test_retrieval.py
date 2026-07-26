@@ -463,6 +463,17 @@ def test_decimal_and_percent_not_truncated_in_query():
     assert "5%" not in terms
 
 
+def test_scale_unit_stays_attached_to_digit_in_query():
+    # A single scale-unit char (亿/万/千/百) must ride with its digit: "10亿" is a
+    # different figure from "10". The Chinese {2,} rule used to strip the lone unit,
+    # collapsing 10亿 -> 10 and destroying the magnitude.
+    svc = RetrievalService(settings=replace(get_settings(), retrieval_provider="playwright"))
+    terms = svc._build_term_query("小米投资10亿建厂年薪2000万").split()
+    assert "10亿" in terms
+    assert "2000万" in terms
+    assert "10" not in terms  # not stripped to a bare, wrong magnitude
+
+
 def test_retrieval_service_emits_structured_results_for_each_query(tmp_path: Path):
     # Observability: every retrieval event must carry the actual hits (title,
     # snippet, url, source, tier) so the frontend can show what each search
