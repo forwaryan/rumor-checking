@@ -9,12 +9,13 @@ function getOverallVerdict(report: Report): string {
   const refuted = report.claim_results.filter(c => c.verdict === "refuted").length;
   const conflicting = report.claim_results.filter(c => c.verdict === "conflicting").length;
   const insufficient = report.claim_results.filter(c => c.verdict === "insufficient").length;
-  // Mixed truth: when a message has BOTH supported and refuted components, it is
-  // half-true — the honest label is "真假混杂", not a clean "属实". This matters
-  // most when the user's headline number is refuted but a softened sub-claim is
-  // supported (e.g. "6000研发" refuted, "落地办公楼" supported).
   if (conflicting > 0) return "conflicting";
-  if (supported > 0 && refuted > 0) return "conflicting";
+  // When a message has both supported and refuted claims, the dominant verdict
+  // wins: if more/equal refuted, the message is overall exaggerated/false;
+  // only when supported outnumbers refuted is it "mixed truth".
+  if (supported > 0 && refuted > 0) {
+    return refuted >= supported ? "exaggerated" : "conflicting";
+  }
   if (refuted > 0) return "refuted";
   if (supported > 0) return "supported";
   if (insufficient > 0) return "insufficient";
@@ -25,6 +26,7 @@ function getVerdictDisplayLabel(verdict: string): string {
   switch (verdict) {
     case "supported": return "基本属实";
     case "refuted": return "不实信息";
+    case "exaggerated": return "夸大失实";
     case "insufficient": return "证据不足";
     case "conflicting": return "各方矛盾";
     default: return "待核查";
@@ -35,6 +37,7 @@ function getVerdictIcon(verdict: string): string {
   switch (verdict) {
     case "supported": return "✓";
     case "refuted": return "✗";
+    case "exaggerated": return "↑";
     case "insufficient": return "?";
     case "conflicting": return "!";
     default: return "·";

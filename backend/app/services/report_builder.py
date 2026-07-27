@@ -256,7 +256,10 @@ class ReportBuilder:
         elif trend_question and mode == "safe_mode":
             summary = safe_trend_summary(original_input) or "这更像一个范围问题，当前还不能直接下确定性结论。"
         elif supported_claims and refuted_claims:
-            summary = "这句话里同时有能被公开来源支持和被反驳的部分，当前更应按“真假混杂、部分被加料”来理解。"
+            if len(refuted_claims) >= len(supported_claims):
+                summary = "这句话的核心断言被公开来源否定，但其中部分背景事实确有依据，整体属于夸大失实。"
+            else:
+                summary = "这句话里同时有能被公开来源支持和被反驳的部分，当前更应按“真假混杂、部分被加料”来理解。"
         elif supported_claims and insufficient_claims and mode != "complete_mode":
             summary = "核心事件大体能对上，但句子里的部分追加细节仍缺公开证据，不能整句一起判真。"
         elif refuted_claims and insufficient_claims and mode != "complete_mode":

@@ -218,6 +218,7 @@ a:hover { text-decoration: underline; }
 
 .verdict-card--supported { border-color: var(--green-border); background: var(--green-bg); }
 .verdict-card--refuted { border-color: var(--red-border); background: var(--red-bg); }
+.verdict-card--exaggerated { border-color: var(--red-border); background: var(--red-bg); }
 .verdict-card--insufficient { border-color: var(--amber-border); background: var(--amber-bg); }
 .verdict-card--conflicting { border-color: var(--blue-border); background: var(--blue-bg); }
 
@@ -234,6 +235,7 @@ a:hover { text-decoration: underline; }
 
 .verdict-card__label--supported { color: var(--green); }
 .verdict-card__label--refuted { color: var(--red); }
+.verdict-card__label--exaggerated { color: var(--red); }
 .verdict-card__label--insufficient { color: var(--amber); }
 .verdict-card__label--conflicting { color: var(--blue); }
 
