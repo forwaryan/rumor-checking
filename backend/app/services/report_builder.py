@@ -57,6 +57,17 @@ TIMELINE_COMPLETENESS_WEIGHTS = {
 OFFICIAL_SOURCE_MARKERS = ("政府", "监管局", "教育局", "交通局", "公安", "医院", "学校", "官方", "company", "official")
 MAINSTREAM_SOURCE_MARKERS = ("日报", "晚报", "电视台", "新闻", "news", "时报", "finance")
 RESPONSE_MARKERS = ("回应", "否认", "辟谣", "澄清", "说明", "通报", "核查", "调查")
+# A claim whose PREDICATE denies/debunks the rumor. When such a claim is
+# `supported`, it is evidence the rumor is FALSE — so it must count as
+# anti-rumor, never toward confirming the rumor's core (the bug that made a
+# supported 「…辟谣」 claim read as 基本属实). Rumor-signal words (网传/传闻/爆料)
+# are deliberately excluded: they mark the rumor itself, not a denial of it.
+# Kept to unambiguous denial verbs so a neutral 官方回应/调查 claim doesn't flip.
+DEBUNK_MARKERS = ("辟谣", "否认", "不实", "不属实", "系谣言", "实为谣言", "造谣", "假消息", "假新闻", "谣言不实")
+
+
+def _claim_is_debunking(claim_text: str) -> bool:
+    return any(marker in (claim_text or "") for marker in DEBUNK_MARKERS)
 
 
 @dataclass(frozen=True)
@@ -249,18 +260,27 @@ class ReportBuilder:
         refuted_claims = [item for item in claim_results if item.verdict == "refuted"]
         insufficient_claims = [item for item in claim_results if item.verdict == "insufficient"]
         conflicting_claims = [item for item in claim_results if item.verdict == "conflicting"]
+        # A supported claim whose predicate DENIES the rumor ("…辟谣/否认/不实")
+        # is evidence the rumor is false, so it must never count as confirming the
+        # rumor's core. Split it out and weigh it against the rumor, like a
+        # refutation — otherwise a lone supported 「…辟谣」 reads as 基本属实.
+        debunk_claims = [item for item in supported_claims if _claim_is_debunking(item.claim)]
+        supported_core_claims = [item for item in supported_claims if item not in debunk_claims]
+        against_rumor_claims = refuted_claims + debunk_claims
         trend_question = is_broad_trend_question(original_input)
 
-        if trend_question and supported_claims:
+        if trend_question and supported_core_claims:
             summary = supported_trend_summary(original_input) or "当前公开来源更倾向于：最近确实有相关消息，但它不是单一事件。"
         elif trend_question and mode == "safe_mode":
             summary = safe_trend_summary(original_input) or "这更像一个范围问题，当前还不能直接下确定性结论。"
-        elif supported_claims and refuted_claims:
-            if len(refuted_claims) >= len(supported_claims):
+        elif supported_core_claims and against_rumor_claims:
+            if len(against_rumor_claims) >= len(supported_core_claims):
                 summary = "这句话的核心断言被公开来源否定，但其中部分背景事实确有依据，整体属于夸大失实。"
             else:
                 summary = "这句话里同时有能被公开来源支持和被反驳的部分，当前更应按“真假混杂、部分被加料”来理解。"
-        elif supported_claims and insufficient_claims and mode != "complete_mode":
+        elif debunk_claims and not supported_core_claims and not refuted_claims:
+            summary = "公开来源显示，相关说法已被官方辟谣或否认，当前更可能不属实。"
+        elif supported_core_claims and insufficient_claims and mode != "complete_mode":
             summary = "核心事件大体能对上，但句子里的部分追加细节仍缺公开证据，不能整句一起判真。"
         elif refuted_claims and insufficient_claims and mode != "complete_mode":
             summary = "主说法里有站不住的部分，但也可能混入了相近真实信息或二次加工细节，不能简单整句判假。"
@@ -811,8 +831,17 @@ class ReportBuilder:
         evidence: List[EvidenceItem],
     ) -> str:
         fact_results = [item for item in claim_results if item.claim_type == "fact"]
-        supported_count = sum(1 for item in fact_results if item.verdict == "supported")
-        refuted_count = sum(1 for item in fact_results if item.verdict == "refuted")
+        # A supported debunking claim ("…辟谣/否认/不实") denies the rumor, so it
+        # counts AGAINST the rumor — not as a supporting fact. Otherwise a lone
+        # supported 「…辟谣」 yields supported_count=1, refuted_count=0 and the
+        # rumor scores as credible when the evidence in fact debunks it.
+        supported_count = sum(
+            1 for item in fact_results if item.verdict == "supported" and not _claim_is_debunking(item.claim)
+        )
+        debunk_count = sum(
+            1 for item in fact_results if item.verdict == "supported" and _claim_is_debunking(item.claim)
+        )
+        refuted_count = sum(1 for item in fact_results if item.verdict == "refuted") + debunk_count
         conflicting_count = sum(1 for item in fact_results if item.verdict == "conflicting")
         decisive_count = sum(1 for item in fact_results if item.verdict in DECISIVE_VERDICTS)
         high_trust_count = sum(1 for item in evidence if item.source_tier in HIGH_TRUST_TIERS)
@@ -822,6 +851,10 @@ class ReportBuilder:
             return "mixed"
         if decisive_count == 0 or high_trust_count == 0:
             return "insufficient_evidence"
+        # Only debunking evidence is decisive (no confirming support): the rumor
+        # is contradicted, not confirmed — surface it as low credibility.
+        if refuted_count and not supported_count:
+            return "low_credibility"
         if overall_score >= 75.0:
             return "high_credibility"
         if overall_score >= 55.0:

@@ -238,16 +238,19 @@ def investigate(ctx: ToolContext, state: AgentState) -> None:
         adopted = _bundle_quality(candidate_bundle) > _bundle_quality(current_bundle)
         # Name the dimension that actually improved so the summary can't claim
         # "更强证据" while every visible metric reads unchanged. _bundle_quality
-        # ranks by (grade, independent high-trust count, canonical count), so an
-        # adoption can be driven by any one of the three.
+        # ranks by (grade, independent high-trust count, decisive count, canonical
+        # count), so an adoption can be driven by any one of the four.
         grade_up = _GRADE_RANK.get(candidate_bundle.evidence_grade, 0) > _GRADE_RANK.get(current_bundle.evidence_grade, 0)
         high_trust_up = candidate_bundle.independent_high_trust_source_count > current_bundle.independent_high_trust_source_count
+        decisive_up = candidate_bundle.decisive_result_count > current_bundle.decisive_result_count
         canonical_up = len(candidate_bundle.canonical_results) > len(current_bundle.canonical_results)
         if adopted:
             if grade_up:
                 summary = "补检索把证据等级提上去了，已采用。"
             elif high_trust_up:
                 summary = "补检索新增了高可信独立源，已采用。"
+            elif decisive_up:
+                summary = "补检索抓到了官方回应/辟谣等决定性来源，已采用。"
             elif canonical_up:
                 summary = "补检索多召回了相关结果（但证据等级/高可信源没变），已采用。"
             else:
@@ -264,6 +267,8 @@ def investigate(ctx: ToolContext, state: AgentState) -> None:
                 f"grade={current_bundle.evidence_grade}->{candidate_bundle.evidence_grade}",
                 f"independent_high_trust={current_bundle.independent_high_trust_source_count}"
                 f"->{candidate_bundle.independent_high_trust_source_count}",
+                f"decisive_results={current_bundle.decisive_result_count}"
+                f"->{candidate_bundle.decisive_result_count}",
                 f"canonical_results={len(current_bundle.canonical_results)}"
                 f"->{len(candidate_bundle.canonical_results)}",
             ],

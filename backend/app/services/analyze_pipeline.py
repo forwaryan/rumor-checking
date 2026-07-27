@@ -733,6 +733,8 @@ class AnalyzePipeline:
                     f"grade={current_bundle.evidence_grade}->{candidate_bundle.evidence_grade}",
                     f"independent_high_trust={current_bundle.independent_high_trust_source_count}"
                     f"->{candidate_bundle.independent_high_trust_source_count}",
+                    f"decisive_results={current_bundle.decisive_result_count}"
+                    f"->{candidate_bundle.decisive_result_count}",
                 ],
             )
             if adopted:
@@ -787,12 +789,13 @@ class AnalyzePipeline:
 _GRADE_RANK = {"A": 3, "B": 2, "C": 1, "D": 0}
 
 
-def _bundle_quality(bundle) -> tuple[int, int, int]:
+def _bundle_quality(bundle) -> tuple[int, int, int, int]:
     if bundle is None:
-        return (-1, -1, -1)
+        return (-1, -1, -1, -1)
     return (
         _GRADE_RANK.get(bundle.evidence_grade, 0),
         bundle.independent_high_trust_source_count,
+        bundle.decisive_result_count,
         len(bundle.canonical_results),
     )
 

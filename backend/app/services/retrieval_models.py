@@ -451,6 +451,21 @@ class RetrievalBundle:
         return sum(1 for item in self.canonical_results if item.is_official_source)
 
     @property
+    def decisive_result_count(self) -> int:
+        """Results that can actually settle a claim: official sources, or hits
+        carrying a response/clarification signal (回应/否认/辟谣/核查/不实/澄清/通报).
+
+        Used as an adopt-gate tiebreaker so a follow-up round that finally
+        surfaces the official response or debunking isn't discarded just because
+        its grade and high-trust counts happen to tie the weaker original bundle
+        (which is exactly what dropped the decisive 辟谣/官方回应 sources before)."""
+        return sum(
+            1
+            for item in self.canonical_results
+            if item.is_official_source or item.has_response_signal
+        )
+
+    @property
     def mainstream_result_count(self) -> int:
         return sum(1 for item in self.canonical_results if item.is_mainstream_source)
 

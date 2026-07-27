@@ -4,9 +4,25 @@ import type { Report, ReportProvenanceState } from "@/types/report";
 import { collectEvidence } from "@/lib/report-utils";
 import { getOverallCredibilityMeta } from "@/lib/report-high-score";
 
+// A supported claim whose predicate DENIES the rumor ("…辟谣/否认/不实") is
+// evidence the rumor is FALSE. It must not be counted as a confirming
+// ("supported") claim, or a lone "官方已辟谣" reads as 基本属实. Mirror of the
+// backend DEBUNK_MARKERS / _claim_is_debunking in report_builder.py.
+const DEBUNK_MARKERS = ["辟谣", "否认", "不实", "不属实", "系谣言", "实为谣言", "造谣", "假消息", "假新闻", "谣言不实"];
+
+function isDebunkingClaim(claim: string): boolean {
+  return DEBUNK_MARKERS.some(marker => (claim || "").includes(marker));
+}
+
 function getOverallVerdict(report: Report): string {
-  const supported = report.claim_results.filter(c => c.verdict === "supported").length;
-  const refuted = report.claim_results.filter(c => c.verdict === "refuted").length;
+  const supported = report.claim_results.filter(
+    c => c.verdict === "supported" && !isDebunkingClaim(c.claim)
+  ).length;
+  // A supported debunking claim counts against the rumor, alongside refutations.
+  const debunk = report.claim_results.filter(
+    c => c.verdict === "supported" && isDebunkingClaim(c.claim)
+  ).length;
+  const refuted = report.claim_results.filter(c => c.verdict === "refuted").length + debunk;
   const conflicting = report.claim_results.filter(c => c.verdict === "conflicting").length;
   const insufficient = report.claim_results.filter(c => c.verdict === "insufficient").length;
   if (conflicting > 0) return "conflicting";
