@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
 from backend.app.agent import planner as planner_mod
@@ -109,6 +108,12 @@ class AgentRunner:
         return self._run_loop(state, run_id=run_id, step_offset=checkpoint.step_index + 1)
 
     def _run_loop(self, state: AgentState, run_id: str | None, step_offset: int) -> Report:
+        # Overall wall-clock budget across the whole loop. Per-call timeouts only
+        # bound one step; without this, 32 slow steps accumulate into the chronic
+        # deep-path timeout. When it passes we don't abort — we set time_exhausted
+        # so the planner forces the shortest path to a report (soft landing).
+        wall_clock = float(getattr(self.ctx.settings, "agent_wall_clock_seconds", 0.0) or 0.0)
+        deadline = time.monotonic() + wall_clock if wall_clock > 0 else None
         for step_idx in range(step_offset, step_offset + _MAX_STEPS):
             if state.cancelled:
                 emit_log(
@@ -119,6 +124,16 @@ class AgentRunner:
                     details=[f"done_actions={','.join(state.done_actions)}"],
                 )
                 break
+
+            if deadline is not None and not state.time_exhausted and time.monotonic() >= deadline:
+                state.time_exhausted = True
+                emit_log(
+                    stage_key="agent_runner",
+                    level="warning",
+                    title="分析超时软着陆",
+                    summary=f"已超过整体时限 {wall_clock:.0f}s，跳过剩余取证，直接用现有证据出结论。",
+                    details=[f"done_actions={','.join(state.done_actions)}"],
+                )
 
             action = self.planner.next_action(state)
             if action == planner_mod.DONE:
@@ -151,101 +166,11 @@ class AgentRunner:
             raise RuntimeError("agent_runner_finished_without_report")
         return state.report
 
-    def run_parallel(self, actions: list[str], state: AgentState) -> list[StepOutcome]:
-        """Execute multiple independent actions in parallel.
-
-        Used for fan-out patterns (e.g. per-claim search). Each action runs in its
-        own thread against the shared state. Returns outcomes in input order.
-        Non-critical failures do not crash the run.
-
-        IMPORTANT: callers must ensure the actions are truly independent — they
-        must not read/write the same state fields. Use this only for parallelizable
-        operations (e.g. multiple HTTP fetches writing to disjoint dict keys).
-        """
-        max_retries = int(getattr(self.ctx.settings, "agent_tool_max_retries", 0) or 0)
-
-        def _run_one(action: str) -> tuple[str, StepOutcome]:
-            retries = min(_RETRY_POLICY.get(action, _DEFAULT_RETRIES), max_retries) if max_retries > 0 else _RETRY_POLICY.get(action, _DEFAULT_RETRIES)
-            outcome = self._dispatch_with_retry(action, state, max_retries=retries)
-            return action, outcome
-
-        outcomes: list[StepOutcome] = [StepOutcome(action=a, success=False, summary="not_started") for a in actions]
-        with ThreadPoolExecutor(max_workers=min(len(actions), 4)) as pool:
-            futures = {pool.submit(_run_one, a): i for i, a in enumerate(actions)}
-            for future in as_completed(futures):
-                idx = futures[future]
-                try:
-                    _, outcome = future.result()
-                except Exception as exc:
-                    outcome = StepOutcome(
-                        action=actions[idx], success=False,
-                        summary=f"parallel dispatch error: {exc.__class__.__name__}",
-                        error_type=exc.__class__.__name__,
-                        error_message=str(exc)[:200],
-                    )
-                outcomes[idx] = outcome
-        return outcomes
-
-    def spawn_sub(
-        self,
-        request: AnalyzeRequest,
-        *,
-        planner: Planner | None = None,
-        actions_subset: list[str] | None = None,
-        max_steps: int = 16,
-        inherit_budget: bool = True,
-    ) -> AgentState:
-        """Spawn a child sub-investigation with its own state.
-
-        The child uses the same ToolContext and dispatch logic but operates on
-        an isolated AgentState. Useful for:
-        - Per-claim parallel investigation (each claim gets its own retrieval)
-        - Recursive decomposition (break a complex event into sub-events)
-
-        Args:
-            request: The sub-task request (can be a focused query).
-            planner: Optional planner for the child; defaults to RulePlanner.
-            actions_subset: If given, limits the child to only these actions.
-            max_steps: Maximum loop iterations for the child.
-            inherit_budget: If True, child's token budget is the parent's remaining budget.
-
-        Returns:
-            The child's final AgentState (caller extracts what they need).
-        """
-        child_planner = planner or RulePlanner()
-
-        child_state = AgentState(request=request)
-        child_state.max_url_fetches = int(getattr(self.ctx.settings, "agent_max_url_fetches", 0) or 0)
-
-        if inherit_budget and self._state is not None and self._state.max_token_budget > 0:
-            remaining = max(0, self._state.max_token_budget - self._state.token_usage.total_tokens)
-            child_state.max_token_budget = remaining
-
-        for _ in range(max_steps):
-            if child_state.cancelled or (self._state and self._state.cancelled):
-                break
-            action = child_planner.next_action(child_state)
-            if action == planner_mod.DONE:
-                break
-            if actions_subset and action not in actions_subset:
-                child_state.done_actions.append(action)
-                continue
-            outcome = self._safe_dispatch(action, child_state)
-            child_state.last_step_outcome = outcome
-            if outcome.success:
-                child_state.done_actions.append(action)
-            else:
-                if action in _CRITICAL_ACTIONS:
-                    break
-                child_state.done_actions.append(action)
-
-        return child_state
-
     def _dispatch_with_retry(self, action: str, state: AgentState, max_retries: int | None = None) -> StepOutcome:
         """Dispatch with configurable retry and exponential backoff.
 
         Retry count resolution:
-        - Explicit max_retries argument wins (used by run_parallel).
+        - Explicit max_retries argument wins when provided by the caller.
         - Otherwise: if AGENT_TOOL_MAX_RETRIES > 0, use min(declared, settings_max).
         - If AGENT_TOOL_MAX_RETRIES == 0 (default), no retries — matches original behavior.
         """

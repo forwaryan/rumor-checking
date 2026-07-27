@@ -61,6 +61,7 @@ def analyze_stream(payload: AnalyzeRequest, request: Request) -> StreamingRespon
                 }
             )
             pipeline = AnalyzePipeline()
+            payload.request_context.setdefault("run_id", run_id)
             report = pipeline.analyze(payload)
             push_event(
                 {

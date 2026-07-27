@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from backend.app.core.config import get_settings
 from backend.app.models.schemas import AnalyzeRequest, Report, ReportProvenance, RetrievalDiagnostics
 from backend.app.services.agent_reasoner import LlmAgentReasoner
@@ -17,6 +19,8 @@ from backend.app.services.retrieval_service import RetrievalService
 from backend.app.services.timeline_builder import TimelineBuilder
 from backend.app.services.url_fetch_cache import UrlFetchCache
 from backend.app.services.verdict_engine import VerdictEngine
+
+logger = logging.getLogger(__name__)
 
 
 class AnalyzePipeline:
@@ -39,8 +43,89 @@ class AnalyzePipeline:
         self.report_builder = ReportBuilder()
         self.content_check_builder = ContentCheckBuilder()
         self.pipeline_trace_builder = PipelineTraceBuilder()
+        self._verdict_cache = None
+        self._verdict_cache_built = False
 
     def analyze(self, request: AnalyzeRequest) -> Report:
+        """Cache-wrapped entrypoint. When the verdict cache is enabled and a
+        fresh result exists for this input's fingerprint, return it without
+        re-running the pipeline. Disabled by default: a rumor's truth status can
+        change as news breaks, so live-checking must opt in with a short TTL."""
+        cache = self._get_verdict_cache()
+        if cache is None or request.request_context.get("skip_verdict_cache"):
+            return self._analyze_uncached(request)
+
+        from backend.app.agent.verdict_cache import fingerprint
+        fp = fingerprint(request.raw_input)
+        cached = cache.get(fp)
+        if cached is not None:
+            restored = self._report_from_cache(cached)
+            if restored is not None:
+                emit_log(
+                    stage_key="verdict_cache",
+                    title="命中裁定缓存",
+                    summary=f"相同传闻在 {cached.age_seconds/60:.0f} 分钟前已核查，直接复用结论。",
+                    details=[f"fingerprint={fp}", f"verdict={cached.verdict}"],
+                )
+                return restored
+
+        report = self._analyze_uncached(request)
+        self._store_verdict(cache, fp, request, report)
+        return report
+
+    def _get_verdict_cache(self):
+        if not self.settings.agent_verdict_cache_enabled:
+            return None
+        if not self._verdict_cache_built:
+            from backend.app.agent.verdict_cache import DiskVerdictCache
+            self._verdict_cache = DiskVerdictCache(
+                self.settings.project_root / "data" / "cache" / "verdicts",
+                ttl_seconds=self.settings.agent_verdict_cache_ttl_seconds,
+            )
+            self._verdict_cache_built = True
+        return self._verdict_cache
+
+    def _report_from_cache(self, cached) -> "Report | None":
+        raw = cached.metadata.get("report_json")
+        if not raw:
+            return None
+        try:
+            return Report.model_validate_json(raw)
+        except Exception as exc:
+            logger.warning("verdict_cache_restore_failed error=%s", str(exc)[:120])
+            return None
+
+    def _store_verdict(self, cache, fp: str, request: AnalyzeRequest, report: Report) -> None:
+        """Persist only decisive results. Caching insufficient/safe-mode reports
+        would pin a 'we don't know yet' answer for the whole TTL even as evidence
+        arrives — exactly the case where a re-check is most valuable."""
+        try:
+            if report.mode == "safe_mode":
+                return
+            verdict = report.overall_credibility_label or report.mode
+            from backend.app.agent.verdict_cache import CachedVerdict
+            import json as _json
+            cache.put(CachedVerdict(
+                fingerprint=fp,
+                raw_input=request.raw_input,
+                verdict=str(verdict),
+                confidence="",
+                claim_results_json=_json.dumps(
+                    [cr.model_dump(mode="json") for cr in report.claim_results],
+                    ensure_ascii=False,
+                ),
+                cached_at=self._now_ts(),
+                ttl_seconds=self.settings.agent_verdict_cache_ttl_seconds,
+                metadata={"report_json": report.model_dump_json()},
+            ))
+        except Exception as exc:
+            logger.warning("verdict_cache_store_failed error=%s", str(exc)[:120])
+
+    def _now_ts(self) -> float:
+        import time
+        return time.time()
+
+    def _analyze_uncached(self, request: AnalyzeRequest) -> Report:
         if request.request_context.get("force_error"):
             raise RuntimeError("forced_error_for_testing")
 
@@ -374,6 +459,7 @@ class AnalyzePipeline:
             report=report,
         )
         final_report = report.model_copy(update={"content_check": content_check, "pipeline_trace": pipeline_trace})
+        final_report = _apply_clarification_note(self.settings, final_report, question_resolution)
         emit_stage(
             stage_key="report_build",
             title="生成报告",
@@ -449,7 +535,7 @@ class AnalyzePipeline:
     def _run_agent_orchestrator(self, request: AnalyzeRequest):
         from backend.app.agent.planner import LlmPlanner, RulePlanner
         from backend.app.agent.runner import AgentRunner
-        from backend.app.agent_tools.base import ToolContext
+        from backend.app.agent_tools.base import HookRegistry, ToolContext
 
         ctx = ToolContext(
             settings=self.settings,
@@ -469,14 +555,30 @@ class AnalyzePipeline:
         )
         use_llm_planner = self.settings.llm_enabled and self.agent_reasoner.enabled
         planner = LlmPlanner(self.agent_reasoner) if use_llm_planner else RulePlanner()
+
+        run_id = self._agent_run_id(request)
+        checkpoint_store = self._build_checkpoint_store()
+        hooks, trace_exporter = self._build_trace_hooks(run_id)
+
         emit_log(
             stage_key="agent_orchestrator",
             title="Agent 编排启动",
             summary="Agent orchestrator 接管本次分析。",
-            details=[f"planner={'llm' if use_llm_planner else 'rule'}"],
+            details=[
+                f"planner={'llm' if use_llm_planner else 'rule'}",
+                f"checkpoint={'on' if checkpoint_store else 'off'}",
+                f"trace={'on' if trace_exporter else 'off'}",
+            ],
+        )
+        runner = AgentRunner(
+            ctx,
+            planner=planner,
+            hooks=hooks or HookRegistry(),
+            checkpoint_store=checkpoint_store,
         )
         try:
-            return AgentRunner(ctx, planner=planner).run(request)
+            report = self._run_or_resume_agent(runner, request, run_id, checkpoint_store)
+            return report
         except Exception as exc:
             emit_log(
                 stage_key="agent_orchestrator",
@@ -486,6 +588,72 @@ class AnalyzePipeline:
                 details=[f"error_type={exc.__class__.__name__}"],
             )
             return None
+        finally:
+            self._export_trace(trace_exporter)
+
+    def _agent_run_id(self, request: AnalyzeRequest) -> str:
+        """The run_id used for checkpoint keying and trace export. Reuses the
+        SSE run_id the API layer stamps into request_context so a resumed run
+        keys on the same id; falls back to a fresh id for the non-stream path."""
+        existing = request.request_context.get("run_id")
+        if isinstance(existing, str) and existing.strip():
+            return existing.strip()
+        from uuid import uuid4
+        return uuid4().hex
+
+    def _build_checkpoint_store(self):
+        if not self.settings.agent_checkpoint_enabled:
+            return None
+        from backend.app.agent.checkpoint import DiskCheckpointStore
+        return DiskCheckpointStore(self.settings.agent_checkpoint_dir)
+
+    def _build_trace_hooks(self, run_id: str):
+        if not self.settings.agent_trace_enabled:
+            return None, None
+        from backend.app.agent.trace import TraceExporter
+        from backend.app.agent_tools.base import HookRegistry
+        exporter = TraceExporter(run_id=run_id, metadata={"path": "agent_orchestrator"})
+        hooks = HookRegistry()
+        hooks.add_pre(exporter.pre_hook)
+        hooks.add_post(exporter.post_hook)
+        return hooks, exporter
+
+    def _run_or_resume_agent(self, runner, request: AnalyzeRequest, run_id: str, checkpoint_store):
+        """Resume from the last checkpoint when one exists for this run_id;
+        otherwise run fresh. Resume is what turns a mid-run timeout/crash into a
+        continuation instead of a full re-run."""
+        if checkpoint_store is not None and checkpoint_store.latest(run_id) is not None:
+            try:
+                return runner.resume(run_id)
+            except Exception as exc:
+                emit_log(
+                    stage_key="agent_orchestrator",
+                    level="warning",
+                    title="检查点恢复失败",
+                    summary="无法从检查点恢复，改为重新运行。",
+                    details=[f"error_type={exc.__class__.__name__}", f"run_id={run_id}"],
+                )
+        return runner.run(request, run_id=run_id)
+
+    def _export_trace(self, trace_exporter) -> None:
+        if trace_exporter is None:
+            return
+        try:
+            record = trace_exporter.finalize()
+            path = self.settings.agent_trace_dir / f"{record.run_id}.json"
+            trace_exporter.export_to_file(path)
+            emit_log(
+                stage_key="agent_orchestrator",
+                title="Agent trace 已导出",
+                summary=f"编排耗时 {record.duration_ms:.0f}ms，共 {record.span_count if hasattr(record, 'span_count') else len(record.spans)} 步。",
+                details=[
+                    f"total_tokens={record.total_tokens}",
+                    f"success={record.success_count}",
+                    f"failure={record.failure_count}",
+                ],
+            )
+        except Exception as exc:
+            logger.warning("agent_trace_export_failed error=%s", str(exc)[:120])
 
     def _run_investigation(self, *, request, event, retrieval_bundle, deep_mode: bool):
         if not deep_mode:
@@ -665,7 +833,26 @@ def _question_resolution_details(question_resolution) -> list[str]:
         details.append(f"selected_result={question_resolution.selected_result.title}")
     else:
         details.append("selected_result=none")
+    # Only surface the ambiguity signal when the clarification feature is on, so
+    # default-OFF stays a full no-op (no leak into the pipeline trace either).
+    if getattr(question_resolution, "needs_clarification", False) and get_settings().agent_clarification_enabled:
+        details.append(f"needs_clarification=true candidates={len(question_resolution.candidates)}")
     return details
+
+
+def _apply_clarification_note(settings, report: Report, question_resolution) -> Report:
+    """Prepend an ambiguity notice to the report's risks when the resolver mapped
+    the question to several distinct events and had to guess. Gated by
+    AGENT_CLARIFICATION_ENABLED (default OFF) so the guessing behaviour is
+    unchanged unless the feature is switched on. No-op when there is no ambiguity."""
+    if not getattr(settings, "agent_clarification_enabled", False):
+        return report
+    if question_resolution is None:
+        return report
+    note = question_resolution.clarification_note()
+    if not note:
+        return report
+    return report.model_copy(update={"risks": [note, *report.risks]})
 
 
 def _claim_details(claims) -> list[str]:

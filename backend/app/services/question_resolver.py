@@ -78,16 +78,66 @@ TIME_TOKEN_PATTERN = re.compile(
 )
 EVENT_SOURCE = "retrieval_resolved"
 
+# Ambiguity detection thresholds. A runner-up event triggers a clarification
+# prompt only when it scores within CLOSE_SCORE_RATIO of the top pick AND clears
+# CLARIFY_MIN_SCORE (so weak noise never competes). Two titles count as the SAME
+# event — not a distinct alternative — when their CJK-bigram overlap coefficient
+# reaches SAME_EVENT_OVERLAP_MIN, which keeps ordinary multi-outlet coverage from
+# tripping a false "which one did you mean?". Kept deliberately conservative:
+# better to occasionally miss an ambiguity than to nag on every well-covered story.
+_CLOSE_SCORE_RATIO = 0.75
+_CLARIFY_MIN_SCORE = 14
+_SAME_EVENT_OVERLAP_MIN = 0.5
+_CLARIFY_MAX_CANDIDATES = 3
+
 
 @dataclass(frozen=True)
 class QuestionResolution:
     event: NormalizedEvent
     follow_up_query: Optional[str]
     selected_result: Optional[SearchResult]
+    # When the question maps to several distinct, similarly-scored events, the
+    # resolver still anchors to the best guess (so a report is always produced)
+    # but flags the ambiguity here and lists the competing events so the caller
+    # can ask the user which one they meant instead of silently committing.
+    needs_clarification: bool = False
+    candidates: tuple[SearchResult, ...] = ()
+
+    def clarification_note(self) -> Optional[str]:
+        """A user-facing line naming the competing events, or None when there is
+        no ambiguity. Rendered into the report's risks so the reader can tell us
+        which event they meant instead of trusting a silent guess."""
+        if not self.needs_clarification or len(self.candidates) < 2:
+            return None
+        labels = []
+        for item in self.candidates[:_CLARIFY_MAX_CANDIDATES]:
+            title = (item.title or "").strip()
+            source = (item.source_name or "").strip()
+            label = f"{title}（{source}）" if source else title
+            if label:
+                labels.append(label)
+        if len(labels) < 2:
+            return None
+        joined = "；".join(labels)
+        return f"你的问题可能指向多个不同事件：{joined}。当前按最匹配的一条给出结论，如需核查其他事件请补充说明。"
 
 
 def _collapse_whitespace(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
+
+
+_CJK_ONLY_RE = re.compile(r"[一-鿿]+")
+
+
+def _cjk_bigrams(text: str) -> set[str]:
+    """Set of adjacent-CJK-character bigrams in a title, ignoring punctuation,
+    latin, and digits. Used to compare whether two titles describe the same event
+    (high bigram overlap) or different ones (low overlap)."""
+    bigrams: set[str] = set()
+    for run in _CJK_ONLY_RE.findall(text or ""):
+        for i in range(len(run) - 1):
+            bigrams.add(run[i : i + 2])
+    return bigrams
 
 
 def _normalize_text(value: Optional[str]) -> str:
@@ -264,6 +314,10 @@ class QuestionResolver:
         if selected_result is None:
             return QuestionResolution(event=event, follow_up_query=None, selected_result=None)
 
+        needs_clarification, clarification_candidates = self._detect_ambiguity(
+            event.raw_input, selected_result, retrieval_bundle.canonical_results
+        )
+
         summary = self._build_resolved_summary(event.raw_input, selected_result)
         keywords = _merge_keywords(
             _extract_query_focus_terms(summary),
@@ -285,13 +339,18 @@ class QuestionResolver:
             event=resolved_event,
             follow_up_query=self._build_follow_up_query(summary, selected_result),
             selected_result=selected_result,
+            needs_clarification=needs_clarification,
+            candidates=clarification_candidates,
         )
 
-    def _select_result(
+    def _score_candidates(
         self,
         question: str,
         candidates: Sequence[SearchResult],
-    ) -> Optional[SearchResult]:
+    ) -> List[tuple[int, int, str, int, SearchResult]]:
+        """Score every candidate against the question and return them sorted
+        best-first. Both _select_result and ambiguity detection consume this so
+        the two never drift out of sync."""
         question_terms = _extract_terms(question)
         subject_anchors = extract_subject_anchors(question)
         scored: List[tuple[int, int, str, int, SearchResult]] = []
@@ -321,17 +380,82 @@ class QuestionResolver:
                 score += 3
             scored.append((score, overlap, item.effective_published_at, item.tier_weight, item))
 
+        scored.sort(key=lambda row: (row[0], row[1], row[2], row[3]), reverse=True)
+        return scored
+
+    def _select_result(
+        self,
+        question: str,
+        candidates: Sequence[SearchResult],
+    ) -> Optional[SearchResult]:
+        scored = self._score_candidates(question, candidates)
         if not scored:
             return None
         has_high_trust = any(item.is_high_trust for item in candidates)
         if not has_high_trust:
             return None
-        score, overlap, _, _, selected = max(scored, key=lambda item: (item[0], item[1], item[2], item[3]))
+        score, overlap, _, _, selected = scored[0]
         if score < 10:
             return None
         if overlap < 2:
             return None
         return selected
+
+    def _detect_ambiguity(
+        self,
+        question: str,
+        selected: SearchResult,
+        candidates: Sequence[SearchResult],
+    ) -> tuple[bool, tuple[SearchResult, ...]]:
+        """Flag when the question plausibly maps to more than one *distinct* event.
+
+        We still anchor to `selected` (a report is always produced), but if a
+        runner-up scores within CLOSE_SCORE_RATIO of the top AND describes a
+        different event (not just the same event from another outlet), the caller
+        should ask the user which one they meant. Precision-biased: same-event
+        duplicates share heavy title overlap and are filtered out, so common
+        multi-outlet coverage does not trip a false clarification."""
+        scored = self._score_candidates(question, candidates)
+        if len(scored) < 2:
+            return False, ()
+        top_score = scored[0][0]
+        if top_score <= 0:
+            return False, ()
+
+        distinct: List[SearchResult] = [selected]
+        for cand_score, _, _, _, item in scored[1:]:
+            if cand_score < _CLARIFY_MIN_SCORE:
+                break
+            if cand_score < top_score * _CLOSE_SCORE_RATIO:
+                break  # sorted desc — everything after is even further behind
+            if all(self._events_are_distinct(item, kept) for kept in distinct):
+                distinct.append(item)
+            if len(distinct) >= _CLARIFY_MAX_CANDIDATES:
+                break
+
+        if len(distinct) < 2:
+            return False, ()
+        return True, tuple(distinct)
+
+    def _events_are_distinct(self, a: SearchResult, b: SearchResult) -> bool:
+        """True when two hits describe different events, not one event covered twice.
+
+        Compares titles by CJK character-bigram overlap coefficient
+        (shared / smaller-set), which is stable for Chinese: same-event coverage
+        from different outlets shares most bigrams (e.g. 美团/裁员/员工/受影响) even
+        when phrasing differs, while different events sharing only the subject
+        (美团裁员 vs 美团收购) overlap little. Heavy overlap ⇒ same event.
+        Deliberately biased toward "same" (no nag) when the signal is thin."""
+        ba = _cjk_bigrams(a.title or "")
+        bb = _cjk_bigrams(b.title or "")
+        if len(ba) < 2 or len(bb) < 2:
+            # Too little CJK title signal to compare reliably. Bias toward "same
+            # event" (return False → no clarification) so thin/latin/numeric
+            # titles from different outlets don't trip a false ambiguity prompt.
+            return False
+        shared = ba & bb
+        overlap_coeff = len(shared) / min(len(ba), len(bb))
+        return overlap_coeff < _SAME_EVENT_OVERLAP_MIN
 
     def _build_resolved_summary(self, question: str, selected_result: SearchResult) -> str:
         base_claim = _question_claim(question)

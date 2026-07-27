@@ -40,6 +40,7 @@ from backend.app.agent.structured_output import (
 from backend.app.agent.context_window import (
     estimate_tokens,
     build_evidence_budget,
+    compact_to_budget,
     truncate_to_budget,
 )
 
@@ -407,6 +408,12 @@ class LlmAgentReasoner:
         # Called with (prompt_tokens, completion_tokens, total_tokens) after each
         # streamed completion. None means no tracking (standalone/test usage).
         self._on_token_usage: Optional[Any] = None
+        # Lazily-built per-model token-bucket limiter; None when rate limiting is
+        # disabled. Guards the gateway from high-concurrency bursts (a slow
+        # reasoning model already holds a connection for minutes — piling more on
+        # is what trips the 300s gateway cutoff).
+        self._rate_limiter: Optional[Any] = None
+        self._rate_limiter_built = False
 
     @property
     def enabled(self) -> bool:
@@ -783,6 +790,25 @@ class LlmAgentReasoner:
             return None
         return QueryTerms(entities=entities, keywords=keywords, primary_query=primary_query, aliases=aliases)
 
+    def _acquire_rate_limit(self, model: str) -> None:
+        """Block until a token is available for this model's bucket. No-op when
+        rate limiting is disabled. On timeout we log and proceed rather than
+        fail the run — the downstream call has its own wall-clock deadline."""
+        if not getattr(self.settings, "agent_rate_limit_enabled", False):
+            return
+        if not self._rate_limiter_built:
+            from backend.app.agent.rate_limiter import RateLimiter
+            self._rate_limiter = RateLimiter(
+                default_rate=self.settings.agent_rate_limit_per_second,
+                default_capacity=self.settings.agent_rate_limit_burst,
+            )
+            self._rate_limiter_built = True
+        if self._rate_limiter is None:
+            return
+        acquired = self._rate_limiter.acquire(model, timeout=30.0)
+        if not acquired:
+            logger.warning("rate_limit_acquire_timeout model=%s", model)
+
     def _request_completion(
         self,
         *,
@@ -825,6 +851,7 @@ class LlmAgentReasoner:
                     f"prompt={_full_text(user_prompt)}",
                 ],
             )
+            self._acquire_rate_limit(model)
             content = self._stream_completion(
                 endpoint=endpoint,
                 model=model,
@@ -877,6 +904,26 @@ class LlmAgentReasoner:
             )
         return content
 
+    def _system_content(self, system_prompt: str) -> Any:
+        """Shape the system message so a cache-aware gateway can reuse the long,
+        fixed per-stage prompt across calls.
+
+        Default OFF: returns the plain string, byte-identical to the un-cached
+        body, because gateway support for cache_control is not guaranteed on this
+        deployment. When AGENT_PROMPT_CACHE_ENABLED is set, wrap the prompt in the
+        OpenAI-compatible content-part form carrying an ephemeral cache_control
+        marker; a gateway that ignores the field simply reads the text back, so
+        enabling it can only help or be a no-op — it can't corrupt the request."""
+        if not getattr(self.settings, "agent_prompt_cache_enabled", False):
+            return system_prompt
+        return [
+            {
+                "type": "text",
+                "text": system_prompt,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
+
     def _stream_completion(
         self, *, endpoint: str, model: str, system_prompt: str, user_prompt: str, timeout_multiplier: float = 1.0
     ) -> str:
@@ -922,7 +969,7 @@ class LlmAgentReasoner:
             "stream": True,
             "max_tokens": max_tokens,
             "messages": [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": self._system_content(system_prompt)},
                 {"role": "user", "content": user_prompt},
             ],
         }
@@ -1018,6 +1065,18 @@ class LlmAgentReasoner:
                 )
             except Exception:
                 pass
+        # Prompt-cache visibility: OpenAI-compatible gateways report reused input
+        # tokens under prompt_tokens_details.cached_tokens. Log it only when the
+        # feature is on and the gateway actually returned a hit, so we can confirm
+        # the cache is engaging rather than silently being ignored.
+        if usage_data and getattr(self.settings, "agent_prompt_cache_enabled", False):
+            details = usage_data.get("prompt_tokens_details")
+            cached = details.get("cached_tokens") if isinstance(details, dict) else None
+            if cached:
+                logger.info(
+                    "llm_prompt_cache_hit model=%s cached_tokens=%s prompt_tokens=%s",
+                    model, cached, usage_data.get("prompt_tokens", 0),
+                )
         return "".join(parts).strip()
 
     def _reasoning_model(self) -> str:
@@ -1075,7 +1134,12 @@ class LlmAgentReasoner:
 
         # Serialize retrieval hits with budget-aware truncation
         raw_hits = [self._serialize_result(item) for item in retrieval_bundle.canonical_results[:8]]
-        hits = truncate_to_budget(raw_hits, budget_tokens=evidence_budget, key="snippet", min_items=3)
+        if getattr(self.settings, "agent_evidence_compaction_enabled", False):
+            # Degrade overflow hits to stubs instead of dropping the tail, so a
+            # low-ranked debunking/official hit still reaches synthesis.
+            hits = compact_to_budget(raw_hits, budget_tokens=evidence_budget, key="snippet", min_items=3)
+        else:
+            hits = truncate_to_budget(raw_hits, budget_tokens=evidence_budget, key="snippet", min_items=3)
 
         context = {
             "raw_input": request.raw_input,

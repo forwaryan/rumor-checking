@@ -235,55 +235,8 @@ def test_budget_snapshot_includes_remaining():
 
 
 # ============================================================
-# P2: Parallel dispatch + Tool registry
+# P2: Tool registry
 # ============================================================
-
-
-def test_parallel_dispatch_runs_multiple_actions(monkeypatch):
-    """run_parallel executes actions concurrently and returns outcomes in order."""
-    call_log = []
-
-    def tracked_dispatch(self, action, state):
-        call_log.append(action)
-
-    monkeypatch.setattr(AgentRunner, "_dispatch", tracked_dispatch)
-
-    ctx = MagicMock(spec=ToolContext)
-    ctx.settings = replace(get_settings(), agent_tool_max_retries=0)
-    ctx.agent_reasoner = MagicMock()
-    ctx.agent_reasoner.enabled = False
-
-    runner = AgentRunner(ctx, planner=RulePlanner())
-    state = AgentState(request=_request())
-    outcomes = runner.run_parallel(["action_a", "action_b", "action_c"], state)
-
-    assert len(outcomes) == 3
-    assert all(o.success for o in outcomes)
-    assert set(call_log) == {"action_a", "action_b", "action_c"}
-
-
-def test_parallel_dispatch_partial_failure(monkeypatch):
-    """One failing action in parallel doesn't crash the others."""
-
-    def selective_dispatch(self, action, state):
-        if action == "action_b":
-            raise ValueError("b failed")
-
-    monkeypatch.setattr(AgentRunner, "_dispatch", selective_dispatch)
-
-    ctx = MagicMock(spec=ToolContext)
-    ctx.settings = replace(get_settings(), agent_tool_max_retries=0)
-    ctx.agent_reasoner = MagicMock()
-    ctx.agent_reasoner.enabled = False
-
-    runner = AgentRunner(ctx, planner=RulePlanner())
-    state = AgentState(request=_request())
-    outcomes = runner.run_parallel(["action_a", "action_b", "action_c"], state)
-
-    assert outcomes[0].success
-    assert not outcomes[1].success
-    assert "b failed" in (outcomes[1].error_message or "")
-    assert outcomes[2].success
 
 
 def test_tool_decorator_registers_spec():

@@ -4,8 +4,8 @@ from __future__ import annotations
 import json
 
 from backend.app.agent.context_window import (
-    ContextBudget,
     build_evidence_budget,
+    compact_to_budget,
     estimate_json_tokens,
     estimate_tokens,
     truncate_to_budget,
@@ -103,43 +103,48 @@ def test_truncate_zero_budget_returns_min_items():
     assert len(result) == 3
 
 
-# --- ContextBudget ---
+# --- compact_to_budget ---
 
 
-def test_context_budget_basic():
-    budget = ContextBudget(max_context_tokens=32000, reserved_output_tokens=4096)
-    assert budget.available_input_tokens == 32000 - 4096
-    assert budget.used_tokens == 0
-    assert budget.remaining_tokens == 32000 - 4096
+def test_compact_keeps_more_items_than_truncate_as_stubs():
+    """At a budget too small for all items at full snippet length, compaction
+    keeps overflow items as stubs instead of dropping them like truncate does —
+    so a low-ranked debunking hit still reaches synthesis."""
+    # CJK content so the token estimate (1.5/char) actually consumes the budget;
+    # a run of ASCII 'X' collapses to ~1 word token and would never overflow.
+    items = [
+        {"title": f"标题{i}", "snippet": "证" * 400, "source": f"来源{i}", "result_id": f"r{i}"}
+        for i in range(8)
+    ]
+    budget = 1400
+    compacted = compact_to_budget(items, budget_tokens=budget, key="snippet", min_items=3)
+    truncated = truncate_to_budget(items, budget_tokens=budget, key="snippet", min_items=3)
+    assert len(compacted) > len(truncated)
+    # Every kept item retains its identifying fields even when the snippet is a stub.
+    for item in compacted:
+        assert "title" in item and "source" in item
 
 
-def test_context_budget_allocate():
-    budget = ContextBudget(max_context_tokens=32000, reserved_output_tokens=4096)
-    budget.allocate("system", 2000)
-    budget.allocate("evidence", 5000)
-    assert budget.used_tokens == 7000
-    assert budget.remaining_tokens == 32000 - 4096 - 7000
+def test_compact_stubs_shrink_the_snippet_not_drop_the_item():
+    items = [
+        {"title": f"标题{i}", "snippet": "证" * 400, "source": f"来源{i}", "result_id": f"r{i}"}
+        for i in range(6)
+    ]
+    compacted = compact_to_budget(
+        items, budget_tokens=900, key="snippet", min_items=2, max_chars_per_item=200, stub_chars=40
+    )
+    # Later (overflow) items should have shorter snippets than the min_items head.
+    if len(compacted) > 2:
+        assert len(compacted[-1]["snippet"]) <= len(compacted[0]["snippet"])
 
 
-def test_context_budget_can_fit():
-    budget = ContextBudget(max_context_tokens=10000, reserved_output_tokens=4096)
-    budget.allocate("system", 3000)
-    # remaining = 10000 - 4096 - 3000 = 2904
-    assert budget.can_fit(2000) is True
-    assert budget.can_fit(5000) is False
-
-
-def test_context_budget_section_budget():
-    budget = ContextBudget(max_context_tokens=32000, reserved_output_tokens=4096)
-    budget.allocate("system", 2000)
-    # remaining = 32000 - 4096 - 2000 = 25904
-    # default_fraction=0.5 → 12952
-    section_b = budget.section_budget("evidence", default_fraction=0.5)
-    assert section_b == int(25904 * 0.5)
+def test_compact_empty_and_zero_budget():
+    assert compact_to_budget([], budget_tokens=1000) == []
+    items = _make_items(5)
+    assert len(compact_to_budget(items, budget_tokens=0, min_items=3)) == 3
 
 
 # --- build_evidence_budget ---
-
 
 def test_build_evidence_budget():
     budget = build_evidence_budget(

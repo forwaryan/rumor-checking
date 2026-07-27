@@ -94,45 +94,72 @@ def truncate_to_budget(
     return result
 
 
-class ContextBudget:
-    """Manages token allocation across prompt sections.
+def compact_to_budget(
+    items: list[dict],
+    *,
+    budget_tokens: int,
+    key: str = "snippet",
+    min_items: int = 2,
+    max_chars_per_item: int = 200,
+    stub_chars: int = 40,
+) -> list[dict]:
+    """Fit evidence within a token budget by *degrading resolution* before dropping.
 
-    Allocates a fixed model context into sections (system, evidence, user prompt)
-    and provides guardrails to prevent any section from overflowing.
+    truncate_to_budget drops whole tail items once the budget is spent — which can
+    silently lose a debunking/official hit that happened to rank last. This variant
+    instead keeps overflow items as compact stubs: the `key` field is shortened to
+    stub_chars (or emptied) so the model still sees the hit's title/source/date and
+    can weigh its existence, even when there's no room for its full snippet.
+
+    Order of preference per item past min_items: full → stub → key-emptied → drop.
+    Returns a new list (does not mutate the input).
     """
+    if not items:
+        return []
+    if budget_tokens <= 0:
+        return items[:min_items]
 
-    def __init__(self, max_context_tokens: int, *, reserved_output_tokens: int = 4096):
-        self.max_context_tokens = max_context_tokens
-        self.reserved_output_tokens = reserved_output_tokens
-        self._sections: dict[str, int] = {}
+    def _shaped(item: dict, limit: int | None) -> dict:
+        shaped = dict(item)
+        text = shaped.get(key, "")
+        if not isinstance(text, str):
+            return shaped
+        if limit is None:
+            shaped[key] = ""
+        elif len(text) > limit:
+            shaped[key] = text[:limit].rstrip() + "…"
+        return shaped
 
-    @property
-    def available_input_tokens(self) -> int:
-        return self.max_context_tokens - self.reserved_output_tokens
+    result: list[dict] = []
+    running_tokens = 0
+    for i, item in enumerate(items):
+        full = _shaped(item, max_chars_per_item)
+        full_tokens = estimate_json_tokens(full)
+        if i < min_items:
+            result.append(full)
+            running_tokens += full_tokens
+            continue
+        if running_tokens + full_tokens <= budget_tokens:
+            result.append(full)
+            running_tokens += full_tokens
+            continue
+        # Full form overflows — try progressively cheaper forms before dropping.
+        stub = _shaped(item, stub_chars)
+        stub_tokens = estimate_json_tokens(stub)
+        if running_tokens + stub_tokens <= budget_tokens:
+            result.append(stub)
+            running_tokens += stub_tokens
+            continue
+        bare = _shaped(item, None)
+        bare_tokens = estimate_json_tokens(bare)
+        if running_tokens + bare_tokens <= budget_tokens:
+            result.append(bare)
+            running_tokens += bare_tokens
+            continue
+        # Even a title/source-only stub won't fit — stop; nothing cheaper remains.
+        break
 
-    @property
-    def used_tokens(self) -> int:
-        return sum(self._sections.values())
-
-    @property
-    def remaining_tokens(self) -> int:
-        return max(0, self.available_input_tokens - self.used_tokens)
-
-    def allocate(self, section: str, tokens: int) -> None:
-        self._sections[section] = tokens
-
-    def can_fit(self, tokens: int) -> bool:
-        return self.remaining_tokens >= tokens
-
-    def section_budget(self, section: str, default_fraction: float = 0.5) -> int:
-        """How many tokens a section can use, given what's already allocated."""
-        already = self._sections.get(section, 0)
-        if already > 0:
-            return already
-        return int(self.remaining_tokens * default_fraction)
-
-
-# Default context sizes for common model families.
+    return result
 # The runner picks based on settings.is_reasoning_model().
 MODEL_CONTEXT_SIZES = {
     "fast": 32_000,

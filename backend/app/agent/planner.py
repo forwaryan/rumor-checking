@@ -37,11 +37,12 @@ def legal_actions(state: AgentState) -> List[str]:
     """
     done = state.done_actions
 
-    # Token budget enforcement: when the budget is exhausted, force the shortest
-    # path to a report. Skip optional evidence-gathering and go straight to
-    # synthesis/finalize. The mandatory prefix (normalize, search) still runs
-    # because you can't produce any report without them.
-    budget_exhausted = _budget_exhausted(state)
+    # Token budget / wall-clock enforcement: when either the token budget is
+    # exhausted OR the runner has flagged the overall deadline as passed, force
+    # the shortest path to a report. Skip optional evidence-gathering and go
+    # straight to synthesis/finalize. The mandatory prefix (normalize, search)
+    # still runs because you can't produce any report without them.
+    budget_exhausted = _budget_exhausted(state) or state.time_exhausted
 
     if NORMALIZE not in done:
         return [NORMALIZE]

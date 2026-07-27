@@ -111,6 +111,27 @@ def _claim_needs_retrieval(
     return claim.claim_type == "fact"
 
 
+def _namespace_batch(results: List[SearchResult], batch: int) -> List[SearchResult]:
+    """Prefix every result_id in one batch with b{batch}- so ids are unique
+    across batches that were each numbered from q0- independently.
+
+    duplicate_of is rewritten with the same prefix so intra-batch references stay
+    consistent; cross-batch dedup then relies on the URL/title relation, which is
+    exactly what result_id collisions were suppressing.
+    """
+    prefix = f"b{batch}-"
+    namespaced: List[SearchResult] = []
+    for item in results:
+        namespaced.append(
+            replace(
+                item,
+                result_id=f"{prefix}{item.result_id}",
+                duplicate_of=f"{prefix}{item.duplicate_of}" if item.duplicate_of else None,
+            )
+        )
+    return namespaced
+
+
 def enrich_retrieval_for_claims(
     claims: List[ClaimItem],
     retrieval_bundle: RetrievalBundle,
@@ -207,7 +228,14 @@ def enrich_retrieval_for_claims(
             index, results, exc = future.result()
             outcomes[index] = (results, exc)
 
-    # Reassemble in candidate order for a deterministic merge.
+    # Reassemble in candidate order for a deterministic merge. Each per-claim
+    # query ran its own retrieve_for_event, which numbers result_ids from q0-
+    # independently — so the SAME article fetched by two claims arrives with an
+    # IDENTICAL id (q0-web-1 in both). merge_search_results treats identical ids
+    # as already-canonical and skips the URL/title relation, so those cross-batch
+    # duplicates would never merge and canonical_results would just accumulate.
+    # Prefix each batch (existing pool = b0, per-claim batches = b1, b2, …) so
+    # ids are globally unique and genuine duplicates merge on URL/title instead.
     for index, claim in enumerate(candidates):
         results, exc = outcomes[index]
         if exc is not None:
@@ -220,7 +248,7 @@ def enrich_retrieval_for_claims(
             continue
         queries_executed += 1
         if results:
-            new_results.extend(results)
+            new_results.extend(_namespace_batch(results, index + 1))
 
     if not new_results:
         emit_stage(
@@ -235,8 +263,9 @@ def enrich_retrieval_for_claims(
         )
         return retrieval_bundle
 
-    # Merge new results with existing canonical results, deduplicated.
-    all_results = list(retrieval_bundle.canonical_results) + new_results
+    # Merge new results with existing canonical results, deduplicated. Namespace
+    # the existing pool as batch 0 so it can't collide with the per-claim batches.
+    all_results = _namespace_batch(list(retrieval_bundle.canonical_results), 0) + new_results
     merged_canonical = merge_search_results(all_results)
 
     enriched_bundle = replace(

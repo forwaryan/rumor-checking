@@ -106,6 +106,19 @@ class Settings:
     agent_max_url_fetches: int
     agent_tool_max_retries: int
     agent_max_token_budget: int
+    agent_checkpoint_enabled: bool
+    agent_checkpoint_dir: Path
+    agent_trace_enabled: bool
+    agent_trace_dir: Path
+    agent_rate_limit_enabled: bool
+    agent_rate_limit_per_second: float
+    agent_rate_limit_burst: float
+    agent_verdict_cache_enabled: bool
+    agent_verdict_cache_ttl_seconds: float
+    agent_wall_clock_seconds: float
+    agent_clarification_enabled: bool
+    agent_evidence_compaction_enabled: bool
+    agent_prompt_cache_enabled: bool
     llm_api_key: str | None
     llm_base_url: str
     llm_model_base_urls: dict[str, str]
@@ -214,6 +227,19 @@ def get_settings() -> Settings:
         agent_max_url_fetches=max(_as_int(os.getenv("AGENT_MAX_URL_FETCHES"), 1), 0),
         agent_tool_max_retries=max(_as_int(os.getenv("AGENT_TOOL_MAX_RETRIES"), 2), 0),
         agent_max_token_budget=max(_as_int(os.getenv("AGENT_MAX_TOKEN_BUDGET"), 0), 0),
+        agent_checkpoint_enabled=_as_bool(os.getenv("AGENT_CHECKPOINT_ENABLED"), default=False),
+        agent_checkpoint_dir=Path(os.getenv("AGENT_CHECKPOINT_DIR", str(project_root / "data" / "cache" / "checkpoints"))),
+        agent_trace_enabled=_as_bool(os.getenv("AGENT_TRACE_ENABLED"), default=False),
+        agent_trace_dir=Path(os.getenv("AGENT_TRACE_DIR", str(project_root / "data" / "traces"))),
+        agent_rate_limit_enabled=_as_bool(os.getenv("AGENT_RATE_LIMIT_ENABLED"), default=False),
+        agent_rate_limit_per_second=max(_as_float(os.getenv("AGENT_RATE_LIMIT_PER_SECOND"), 5.0), 0.1),
+        agent_rate_limit_burst=max(_as_float(os.getenv("AGENT_RATE_LIMIT_BURST"), 10.0), 1.0),
+        agent_verdict_cache_enabled=_as_bool(os.getenv("AGENT_VERDICT_CACHE_ENABLED"), default=False),
+        agent_verdict_cache_ttl_seconds=max(_as_float(os.getenv("AGENT_VERDICT_CACHE_TTL_SECONDS"), 21600.0), 0.0),
+        agent_wall_clock_seconds=max(_as_float(os.getenv("AGENT_WALL_CLOCK_SECONDS"), 0.0), 0.0),
+        agent_clarification_enabled=_as_bool(os.getenv("AGENT_CLARIFICATION_ENABLED"), default=False),
+        agent_evidence_compaction_enabled=_as_bool(os.getenv("AGENT_EVIDENCE_COMPACTION_ENABLED"), default=False),
+        agent_prompt_cache_enabled=_as_bool(os.getenv("AGENT_PROMPT_CACHE_ENABLED"), default=False),
         llm_api_key=os.getenv("LLM_API_KEY") or os.getenv("KIMI_API_KEY"),
         llm_base_url=(os.getenv("LLM_BASE_URL") or os.getenv("KIMI_BASE_URL") or "https://api.openai.com/v1").rstrip("/"),
         llm_model_base_urls=_parse_model_base_urls(os.getenv("LLM_MODEL_BASE_URLS")),

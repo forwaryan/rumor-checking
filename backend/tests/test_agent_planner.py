@@ -35,6 +35,27 @@ def test_legal_actions_branch_point_offers_investigate_or_synthesize():
     assert legal_actions(state) == [planner_mod.INVESTIGATE, planner_mod.SYNTHESIZE]
 
 
+def test_time_exhausted_forces_shortest_path_to_synthesize():
+    """When the wall-clock deadline has passed, the planner skips optional
+    evidence-gathering (investigate) and heads straight to synthesize — the same
+    soft-landing the token-budget fast-path takes."""
+    state = _state_after("normalize", "search_news", "resolve_question", "follow_up_retrieval")
+    state.time_exhausted = True
+    assert legal_actions(state) == [planner_mod.SYNTHESIZE]
+
+
+def test_time_exhausted_still_produces_report_via_fallback_chain():
+    """Even if synthesis didn't structure a result, time-exhausted planning walks
+    the rule fallback chain to a finalize (never stalls)."""
+    state = _state_after(
+        "normalize", "search_news", "resolve_question", "follow_up_retrieval", "synthesize",
+        agent_synthesized=False,
+    )
+    state.time_exhausted = True
+    # Not agent_synthesized → fast-path continues down enrich→extract→…→finalize.
+    assert legal_actions(state) == [planner_mod.ENRICH]
+
+
 def test_legal_actions_after_successful_synthesis_short_circuits_to_finalize():
     state = _state_after(
         "normalize", "search_news", "resolve_question", "follow_up_retrieval",

@@ -4,6 +4,7 @@ from backend.app.agent.state import AgentState
 from backend.app.agent_tools.base import ToolContext, tool
 from backend.app.services.analyze_pipeline import (
     _GRADE_RANK,
+    _apply_clarification_note,
     _bundle_quality,
     _claim_details,
     _event_details,
@@ -123,7 +124,11 @@ def resolve_question(ctx: ToolContext, state: AgentState) -> None:
 @tool("follow_up_retrieval", description="基于消歧结果执行跟进检索")
 def follow_up_retrieval(ctx: ToolContext, state: AgentState) -> None:
     resolution = state.question_resolution
-    if resolution is not None and resolution.follow_up_query:
+    # A follow-up retrieval is a real network round-trip. Under the token-budget
+    # fast-path it still runs (it costs no LLM tokens), but once the wall-clock
+    # deadline has fired the whole point is to stop spending latency — so skip the
+    # fetch and let the planner head straight to synthesis with what we have.
+    if resolution is not None and resolution.follow_up_query and not state.time_exhausted:
         emit_stage(
             stage_key="retrieval_follow_up",
             title="追加检索",
@@ -149,11 +154,12 @@ def follow_up_retrieval(ctx: ToolContext, state: AgentState) -> None:
             details=_retrieval_bundle_details(follow_up_bundle),
         )
     else:
+        skipped_for_time = state.time_exhausted and resolution is not None and bool(resolution.follow_up_query)
         emit_stage(
             stage_key="retrieval_follow_up",
             title="追加检索",
             status="skipped",
-            summary="当前输入不需要 follow-up query。",
+            summary="已超时软着陆，跳过追加检索。" if skipped_for_time else "当前输入不需要 follow-up query。",
             details=[],
         )
     state.record("follow_up_retrieval", "follow-up 阶段结束")
@@ -743,6 +749,7 @@ def finalize_report(ctx: ToolContext, state: AgentState) -> None:
         report=report,
     )
     final_report = report.model_copy(update={"content_check": content_check, "pipeline_trace": pipeline_trace})
+    final_report = _apply_clarification_note(ctx.settings, final_report, state.question_resolution)
     state.report = final_report
     emit_stage(
         stage_key="report_build",

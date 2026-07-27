@@ -122,6 +122,11 @@ class AgentState:
     # When exceeded, legal_actions forces early synthesis/finalize.
     max_token_budget: int = 0
 
+    # Set by the runner when the overall wall-clock deadline passes. Like
+    # max_token_budget exhaustion, it makes legal_actions force the shortest path
+    # to a report — a soft landing instead of accumulating per-step timeouts.
+    time_exhausted: bool = False
+
     # Cooperative cancellation flag. The runner checks this before each step;
     # external code (e.g. SSE disconnect handler) sets it to abort the loop.
     cancelled: bool = False
