@@ -26,6 +26,7 @@ from backend.app.services.retrieval_models import (
     looks_like_repost,
 )
 from backend.app.services.playwright_search_provider import PlaywrightSearchProvider
+from backend.app.services.xhs_search_provider import XhsSearchProvider
 from backend.app.services.progress import (
     emit_log,
     emit_retrieval,
@@ -99,6 +100,7 @@ class RetrievalService:
         self.provider = provider or self._build_provider()
         self.mock_retriever = MockRetriever(settings=self.settings)
         self.agent_reasoner = agent_reasoner
+        self.xhs_provider = XhsSearchProvider(settings=self.settings)
         self.cache = cache or RetrievalCache(
             cache_root=self.settings.retrieval_cache_dir,
             ttl_seconds=self.settings.retrieval_cache_ttl_seconds,
@@ -129,9 +131,13 @@ class RetrievalService:
         )
         stage_token = set_retrieval_stage_key(stage_key)
         try:
-            return self._retrieve_for_event(event, request_context=request_context, stage_key=stage_key)
+            bundle = self._retrieve_for_event(event, request_context=request_context, stage_key=stage_key)
+            # XHS runs after the primary retrieval (including cache path) so it
+            # supplements regardless of whether the main results were cached.
+            bundle = self._append_xhs_results(bundle, bundle.query, stage_key=stage_key)
         finally:
             reset_retrieval_stage_key(stage_token)
+        return bundle
 
     def _retrieve_for_event(
         self,
@@ -431,6 +437,7 @@ class RetrievalService:
             cache_statuses=cache_statuses,
             query_failures=query_failures,
         )
+
         emit_log(
             stage_key=stage_key,
             title="检索阶段汇总完成",
@@ -534,6 +541,82 @@ class RetrievalService:
             query_failures=tuple(all_failures),
         )
         return combined
+
+    def _append_xhs_results(
+        self, bundle: RetrievalBundle, primary_query: str, *, stage_key: str
+    ) -> RetrievalBundle:
+        """Append XHS social search results to an existing bundle.
+
+        Fires a single xhs-cli search for a short query derived from the primary.
+        Results are merged into canonical_results as tier-C social evidence.
+        Degrades silently on failure — XHS is supplementary, never blocks.
+        """
+        if not self.xhs_provider.enabled:
+            return bundle
+        xhs_query = self._shorten_for_xhs(primary_query)
+        if not xhs_query:
+            return bundle
+        try:
+            xhs_results = self.xhs_provider.search(xhs_query, max_results=5)
+        except Exception as exc:
+            logger.warning("xhs_append_failed error=%s", exc)
+            return bundle
+        if not xhs_results:
+            return bundle
+
+        # Enrich with standard metadata (independence key, signal tags, etc.)
+        retrieved_at = ensure_datetime_string(datetime.now(UTC).isoformat())
+        enriched = []
+        for item in xhs_results:
+            enriched.append(replace(
+                item,
+                retrieved_at=retrieved_at,
+                source_category=infer_source_category(item.url, item.source_name),
+                independence_key=build_independence_key(item.url, item.source_name),
+                signal_tags=detect_signal_tags(item.title, item.snippet, item.source_name),
+            ))
+
+        # Merge with existing canonical results (dedup by independence_key)
+        existing_keys = {r.independence_key for r in bundle.canonical_results if r.independence_key}
+        new_results = [r for r in enriched if r.independence_key not in existing_keys]
+        if not new_results:
+            return bundle
+
+        combined_canonical = tuple(list(bundle.canonical_results) + new_results)
+        combined_raw = tuple(list(bundle.raw_results) + new_results)
+        return replace(
+            bundle,
+            canonical_results=combined_canonical,
+            raw_results=combined_raw,
+        )
+
+    def _shorten_for_xhs(self, query: str) -> str:
+        """Produce a short XHS-friendly query from the primary query.
+
+        XHS works best with concise natural-language queries (4-8 chars).
+        Strategy: extract the first entity-like segment and first action-like
+        segment from the space-separated terms.
+        """
+        # The primary_query is already term-extracted (e.g. "美团 裁了 30% 产品 美团")
+        tokens = query.split()
+        skip = {
+            "官方", "回应", "通报", "说明", "辟谣", "传闻", "网传",
+            "热议", "发酵", "转发", "最近", "近日", "近期", "目前",
+        }
+        kept = [t for t in tokens if t not in skip]
+        if not kept:
+            return ""
+        # Deduplicate preserving order, take first 2-3 meaningful tokens
+        seen: set[str] = set()
+        result: list[str] = []
+        for t in kept:
+            if t in seen:
+                continue
+            seen.add(t)
+            result.append(t)
+            if len(result) >= 2:
+                break
+        return " ".join(result)
 
     def _namespace_bundle_results(
         self, results: tuple[SearchResult, ...], position: int

@@ -146,6 +146,7 @@ class Settings:
     retrieval_fallback_to_mock: bool
     retrieval_gdelt_base_url: str
     retrieval_google_news_endpoint: str
+    xhs_search_enabled: bool
     url_fetch_timeout_seconds: float
     url_fetch_max_chars: int
     url_fetch_cache_enabled: bool
@@ -277,6 +278,7 @@ def get_settings() -> Settings:
             "RETRIEVAL_GOOGLE_NEWS_ENDPOINT",
             "https://news.google.com/rss/search?q={query}&hl=zh-CN&gl=CN&ceid=CN:zh-Hans",
         ),
+        xhs_search_enabled=_as_bool(os.getenv("XHS_SEARCH_ENABLED"), default=True),
         url_fetch_timeout_seconds=_as_float(os.getenv("URL_FETCH_TIMEOUT_SECONDS"), 8.0),
         url_fetch_max_chars=max(_as_int(os.getenv("URL_FETCH_MAX_CHARS"), 12000), 1000),
         url_fetch_cache_enabled=_as_bool(os.getenv("URL_FETCH_CACHE_ENABLED"), default=True),
