@@ -140,6 +140,14 @@ class AgentState:
     # to a report — a soft landing instead of accumulating per-step timeouts.
     time_exhausted: bool = False
 
+    # Debate loop: how many Analysis ↔ Critic debate rounds have completed.
+    # The supervisor increments this each time it re-runs Analysis after a critic
+    # downgrade. Max rounds is controlled by MULTI_AGENT_DEBATE_ROUNDS.
+    debate_rounds: int = 0
+    # Indices of claims the critic just downgraded — tells the AnalysisAgent to
+    # focus its per-claim search loop only on these (not all insufficient claims).
+    debate_focus_indices: Optional[Set[int]] = None
+
     # Cooperative cancellation flag. The runner checks this before each step;
     # external code (e.g. SSE disconnect handler) sets it to abort the loop.
     cancelled: bool = False

@@ -108,6 +108,7 @@ class Settings:
     multi_agent_retrieval_mode: str
     multi_agent_llm_routing_enabled: bool
     multi_agent_critic_perspectives: int
+    multi_agent_debate_rounds: int
     agent_max_url_fetches: int
     agent_tool_max_retries: int
     agent_max_token_budget: int
@@ -243,6 +244,7 @@ def get_settings() -> Settings:
         ),
         multi_agent_llm_routing_enabled=_as_bool(os.getenv("MULTI_AGENT_LLM_ROUTING_ENABLED"), default=False),
         multi_agent_critic_perspectives=max(_as_int(os.getenv("MULTI_AGENT_CRITIC_PERSPECTIVES"), 3), 1),
+        multi_agent_debate_rounds=max(_as_int(os.getenv("MULTI_AGENT_DEBATE_ROUNDS"), 2), 0),
         agent_max_url_fetches=max(_as_int(os.getenv("AGENT_MAX_URL_FETCHES"), 1), 0),
         agent_tool_max_retries=max(_as_int(os.getenv("AGENT_TOOL_MAX_RETRIES"), 2), 0),
         agent_max_token_budget=max(_as_int(os.getenv("AGENT_MAX_TOKEN_BUDGET"), 0), 0),

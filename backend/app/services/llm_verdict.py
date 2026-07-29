@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, List, Optional, Tuple
 
 import httpx
@@ -83,21 +84,33 @@ def llm_judge_claims(
 
     updated = list(claim_results)
     judged_count = 0
-    for i, cr in candidates:
+
+    def _judge_one(idx_cr: Tuple[int, "ClaimResult"]) -> Tuple[int, Optional["ClaimResult"]]:
+        i, cr = idx_cr
         result = _judge_single_claim(cr, settings, completion_fn=completion_fn)
-        if result is not None:
-            updated[i] = result
-            judged_count += 1
-            if result.verdict != cr.verdict:
-                emit_log(
-                    stage_key="llm_verdict",
-                    title="LLM 判定结果",
-                    summary=f"claim「{cr.claim[:30]}」: {cr.verdict} → {result.verdict}",
-                    details=[
-                        f"verdict={result.verdict}",
-                        f"confidence={result.confidence}",
-                    ],
-                )
+        return i, result
+
+    with ThreadPoolExecutor(max_workers=min(len(candidates), 4)) as pool:
+        futures = {pool.submit(_judge_one, (i, cr)): (i, cr) for i, cr in candidates}
+        for future in as_completed(futures):
+            i, cr = futures[future]
+            try:
+                idx, result = future.result()
+            except Exception:
+                continue
+            if result is not None:
+                updated[idx] = result
+                judged_count += 1
+                if result.verdict != cr.verdict:
+                    emit_log(
+                        stage_key="llm_verdict",
+                        title="LLM 判定结果",
+                        summary=f"claim「{cr.claim[:30]}」: {cr.verdict} → {result.verdict}",
+                        details=[
+                            f"verdict={result.verdict}",
+                            f"confidence={result.confidence}",
+                        ],
+                    )
 
     status = "completed" if judged_count > 0 else "skipped"
     summary = (

@@ -82,6 +82,8 @@ class SubAgentResult:
     # Wall-clock spent inside _run_agent (incl. retries). Set by the supervisor;
     # feeds the end-of-run observability summary.
     elapsed_ms: int = 0
+    # Indices of claims downgraded by critic — used by the debate loop.
+    downgraded_indices: Optional[set] = None
 
 
 class SubAgent(Protocol):

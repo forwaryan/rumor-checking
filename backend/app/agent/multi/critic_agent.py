@@ -91,6 +91,7 @@ class CriticAgent:
     def run(self, state: AgentState, ctx: ToolContext) -> SubAgentResult:
         actions_taken: List[str] = []
         model_used = self._apply_model(ctx)
+        all_downgraded: Set[int] = set()
 
         if state.verdict is None:
             emit_log(
@@ -111,9 +112,11 @@ class CriticAgent:
             downgraded = self._critique_via_llm(state, ctx)
             if downgraded is not None:
                 actions_taken.append("critique_llm")
+                all_downgraded = downgraded
         else:
             if self._critique_via_rules(state, ctx):
                 actions_taken.append("critique_rules")
+                all_downgraded = self._rule_downgraded_indices(state)
 
         if not actions_taken:
             emit_log(
@@ -134,6 +137,7 @@ class CriticAgent:
             status=AgentStatus.COMPLETED,
             actions_taken=actions_taken,
             model_used=model_used,
+            downgraded_indices=all_downgraded if all_downgraded else None,
         )
 
     def _apply_model(self, ctx: ToolContext) -> Optional[str]:
@@ -287,3 +291,14 @@ class CriticAgent:
         if any(getattr(ev, "source_tier", "C") in ("S", "A") for ev in evidence):
             return True
         return len(evidence) >= 2
+
+    @staticmethod
+    def _rule_downgraded_indices(state: "AgentState") -> Set[int]:
+        """Identify indices of claims that the rule path just downgraded to insufficient."""
+        if state.verdict is None:
+            return set()
+        return {
+            i for i, cr in enumerate(state.verdict.claim_results)
+            if cr.claim_type == "fact" and cr.verdict == "insufficient"
+            and "对抗复检" in (cr.notes or "")
+        }

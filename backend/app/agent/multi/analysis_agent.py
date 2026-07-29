@@ -38,11 +38,36 @@ class AnalysisAgent:
         actions_taken: List[str] = []
         model_used = self._apply_model(ctx)
 
+        is_debate_round = state.debate_rounds > 0 and state.debate_focus_indices
+
         emit_log(
             stage_key=_STAGE_KEY,
-            title="分析 Agent 启动",
-            summary=f"开始声明提取与判定。模型: {model_used or 'default'}",
+            title="分析 Agent 启动" + (f"（辩论轮次 {state.debate_rounds}）" if is_debate_round else ""),
+            summary=(
+                f"对 {len(state.debate_focus_indices)} 条被质疑 claim 重新判定。模型: {model_used or 'default'}"
+                if is_debate_round
+                else f"开始声明提取与判定。模型: {model_used or 'default'}"
+            ),
         )
+
+        # In a debate round, skip synthesis and go straight to per-claim re-search
+        # targeting only the claims the critic downgraded.
+        if is_debate_round:
+            self._debate_rejudge(state, ctx, actions_taken)
+            emit_log(
+                stage_key=_STAGE_KEY,
+                title="分析 Agent 完成（辩论重判）",
+                summary=f"辩论轮次 {state.debate_rounds} 完成 {len(actions_taken)} 个步骤。",
+                details=[f"actions={','.join(actions_taken)}"],
+            )
+            # Clear focus indices so next critic run evaluates fresh
+            state.debate_focus_indices = None
+            return SubAgentResult(
+                role=self.role,
+                status=AgentStatus.COMPLETED,
+                actions_taken=actions_taken,
+                model_used=model_used,
+            )
 
         if self._try_synthesis(state, ctx, actions_taken):
             emit_log(
@@ -145,4 +170,51 @@ class AnalysisAgent:
         return any(
             cr.claim_type == "fact" and cr.verdict == "insufficient"
             for cr in state.verdict.claim_results
+        )
+
+    def _debate_rejudge(self, state: AgentState, ctx: ToolContext, actions_taken: List[str]) -> None:
+        """In a debate round, run per-claim search + re-judge only on focused claims.
+
+        This targets just the claims the critic downgraded, potentially finding
+        better evidence to restore a decisive verdict or confirming they should
+        stay insufficient."""
+        if state.verdict is None or not state.debate_focus_indices:
+            return
+
+        # Run per_claim_search which internally targets insufficient claims
+        for iteration in range(_MAX_PER_CLAIM_ITERATIONS):
+            if not self._has_debate_weak_claims(state):
+                break
+            try:
+                search_fn = get_tool_fn("per_claim_search")
+                if search_fn:
+                    search_fn(ctx, state)
+                    actions_taken.append("debate_per_claim_search")
+                    state.done_actions.append("per_claim_search")
+                    state.per_claim_searches += 1
+            except Exception as exc:
+                logger.warning("debate_per_claim_search_failed iter=%d error=%s", iteration, exc)
+                break
+
+            try:
+                rejudge_fn = get_tool_fn("re_judge_claims")
+                if rejudge_fn:
+                    rejudge_fn(ctx, state)
+                    actions_taken.append("debate_re_judge")
+                    state.done_actions.append("re_judge_claims")
+                    state.per_claim_iterations += 1
+            except Exception as exc:
+                logger.warning("debate_rejudge_failed iter=%d error=%s", iteration, exc)
+                state.per_claim_iterations += 1
+                break
+
+    def _has_debate_weak_claims(self, state: AgentState) -> bool:
+        """During debate, only consider focused claims as weak."""
+        if state.verdict is None or not state.debate_focus_indices:
+            return False
+        return any(
+            i in state.debate_focus_indices
+            and cr.claim_type == "fact"
+            and cr.verdict == "insufficient"
+            for i, cr in enumerate(state.verdict.claim_results)
         )

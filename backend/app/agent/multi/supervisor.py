@@ -30,6 +30,13 @@ from contextvars import copy_context
 from typing import Dict, List, Optional
 
 from backend.app.agent.multi import AgentRole, AgentStatus, SubAgent, SubAgentResult
+from backend.app.agent.checkpoint import (
+    Checkpoint,
+    DiskCheckpointStore,
+    MemoryCheckpointStore,
+    restore_state,
+    snapshot_state,
+)
 from backend.app.agent.multi.analysis_agent import AnalysisAgent
 from backend.app.agent.multi.critic_agent import CriticAgent
 from backend.app.agent.multi.merge_agent import MergeAgent
@@ -98,8 +105,41 @@ class Supervisor:
             if a.role in {AgentRole.RETRIEVAL, AgentRole.NORMALIZE, AgentRole.RETRIEVAL_MERGE, *SOURCE_ROLES}
         ]
 
-    def run(self, request: AnalyzeRequest) -> Report:
-        state = AgentState(request=request)
+    def run(self, request: AnalyzeRequest, run_id: Optional[str] = None) -> Report:
+        checkpoint_enabled = getattr(self.ctx.settings, "agent_checkpoint_enabled", False)
+        checkpoint_store = None
+        if checkpoint_enabled:
+            checkpoint_dir = getattr(self.ctx.settings, "agent_checkpoint_dir", None)
+            if checkpoint_dir:
+                checkpoint_store = DiskCheckpointStore(checkpoint_dir)
+            else:
+                checkpoint_store = MemoryCheckpointStore()
+
+        # Attempt resume from checkpoint
+        state = None
+        completed: set[AgentRole] = set()
+        if run_id and checkpoint_store:
+            latest = checkpoint_store.latest(run_id)
+            if latest is not None:
+                try:
+                    state = restore_state(latest)
+                    completed = {
+                        AgentRole(a) for a in state.done_actions
+                        if any(a == role.value for role in AgentRole)
+                    }
+                    emit_log(
+                        stage_key=_STAGE_KEY,
+                        title="Supervisor 从检查点恢复",
+                        summary=f"恢复到步骤 {latest.step_index}（{latest.action}），跳过已完成 Agent。",
+                    )
+                except Exception as exc:
+                    logger.warning("checkpoint_restore_failed run_id=%s error=%s", run_id, exc)
+                    state = None
+                    completed = set()
+
+        if state is None:
+            state = AgentState(request=request)
+
         state.max_url_fetches = int(getattr(self.ctx.settings, "agent_max_url_fetches", 0) or 0)
         state.max_token_budget = int(getattr(self.ctx.settings, "agent_max_token_budget", 0) or 0)
 
@@ -124,10 +164,10 @@ class Supervisor:
         )
 
         agent_map = {a.role: a for a in self.agents}
-        completed: set[AgentRole] = set()
         failed: set[AgentRole] = set()
         iteration = 0
         max_iterations = 3
+        step_index = 0
 
         while True:
             iteration += 1
@@ -182,6 +222,16 @@ class Supervisor:
                             f"critical_agent_failed:{result.role.value} error={result.error}"
                         )
 
+            # Checkpoint after each batch
+            if checkpoint_store and run_id:
+                step_index += 1
+                batch_roles = ",".join(r.role.value for r in results)
+                try:
+                    cp = snapshot_state(state, action=batch_roles, step_index=step_index)
+                    checkpoint_store.save(run_id, cp)
+                except Exception as exc:
+                    logger.warning("checkpoint_save_failed step=%d error=%s", step_index, exc)
+
             # Conditional routing: after the critic runs, decide whether to loop
             # back to retrieval for another evidence round. An LLM router decides
             # when enabled; otherwise a rule threshold. Either way, loop-back only
@@ -200,6 +250,27 @@ class Supervisor:
                 state.per_claim_iterations = 0
                 state.per_claim_searches = 0
                 state.done_actions.append("supervisor_loop_back")
+
+            # Debate loop: after critic downgrades claims, re-run Analysis + Critic
+            # on just the downgraded claims for up to N rounds. Converges when the
+            # critic no longer downgrades anything or the round limit is reached.
+            elif AgentRole.CRITIC in completed and self._should_debate(state):
+                critic_result = self._results.get(AgentRole.CRITIC)
+                downgraded = getattr(critic_result, "downgraded_indices", None) or set()
+                debate_round = state.debate_rounds + 1
+                emit_log(
+                    stage_key=_STAGE_KEY,
+                    title=f"辩论轮次 {debate_round}",
+                    summary=f"Critic 降级了 {len(downgraded)} 条 claim，触发 Analysis 重判。",
+                    details=[f"debate_round={debate_round}", f"downgraded={sorted(downgraded)}"],
+                )
+                state.debate_rounds = debate_round
+                state.debate_focus_indices = downgraded
+                # Re-run only Analysis + Critic (no re-retrieval — evidence is kept)
+                completed.discard(AgentRole.ANALYSIS)
+                completed.discard(AgentRole.CRITIC)
+                state.per_claim_iterations = 0
+                state.per_claim_searches = 0
 
         if state.report is None:
             self._force_finalize(state, completed)
@@ -307,6 +378,25 @@ class Supervisor:
 
         insufficient_ratio = sum(1 for cr in fact_claims if cr.verdict == "insufficient") / len(fact_claims)
         return insufficient_ratio > 0.7
+
+    def _should_debate(self, state: AgentState) -> bool:
+        """Should we enter (or continue) a debate round between Analysis and Critic?
+
+        A debate round fires when:
+        1. The critic actually downgraded at least one claim (not just skipped)
+        2. We haven't exceeded the max debate rounds (default 2)
+        3. The loop-back didn't already fire (debate is a lighter mechanism)
+        """
+        max_debate_rounds = max(int(getattr(self.ctx.settings, "multi_agent_debate_rounds", 2) or 2), 0)
+        if state.debate_rounds >= max_debate_rounds:
+            return False
+        if "supervisor_loop_back" in state.done_actions:
+            return False
+        critic_result = self._results.get(AgentRole.CRITIC)
+        if critic_result is None:
+            return False
+        downgraded = getattr(critic_result, "downgraded_indices", None)
+        return bool(downgraded)
 
     def _llm_route_loop_back(self, state: AgentState, fact_claims: list) -> Optional[bool]:
         """LLM router: choose 'loop_back' vs 'finalize' from an evidence snapshot.
