@@ -272,6 +272,31 @@ def ensure_datetime_string(value: Optional[str]) -> str:
     return datetime.now(SHANGHAI_TZ).isoformat()
 
 
+def ensure_datetime_string_or_empty(value: Optional[str]) -> str:
+    """Normalize a datetime string, or return "" when the source has none.
+
+    Use this for user-visible SOURCE dates (evidence.published_at,
+    TimelineNode.published_at) where fabricating datetime.now() as a
+    fallback misleads the reader into thinking every hit was published
+    at report-generation time. Contrast with ensure_datetime_string,
+    which is fine for retrieval/generation-side timestamps."""
+    if not value:
+        return ""
+    compact = value.strip()
+    if not compact:
+        return ""
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", compact):
+        return f"{compact}T00:00:00+08:00"
+    try:
+        normalized = compact.replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(normalized)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=SHANGHAI_TZ)
+        return parsed.isoformat()
+    except ValueError:
+        return ""
+
+
 def source_name_from_url(url: str) -> Optional[str]:
     parsed = urlparse(url.strip())
     host = parsed.netloc.lower().strip()

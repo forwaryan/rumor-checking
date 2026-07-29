@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Sequence
 
 from backend.app.models.schemas import NormalizedEvent, TimelineNode, TimelineSourceType
-from backend.app.services.contract_utils import ensure_datetime_string
+from backend.app.services.contract_utils import ensure_datetime_string, ensure_datetime_string_or_empty
 from backend.app.services.retrieval_models import RetrievalBundle, SearchResult
 
 TURN_KEYWORDS = ("回应", "否认", "辟谣", "澄清", "调查", "核查", "纠正", "致歉", "responds", "denies")
@@ -51,7 +51,7 @@ class TimelineBuilder:
                     title=event.title or "输入内容进入分析队列",
                     url=event.source_url or "https://example.org/input/manual-input",
                     source_name=event.source_name or "用户提供输入",
-                    published_at=ensure_datetime_string(event.published_at),
+                    published_at=ensure_datetime_string_or_empty(event.published_at),
                     summary=event.summary,
                     why_selected="这是当前唯一稳定的输入锚点，尚未扩展到外部检索节点。",
                 )
@@ -94,7 +94,7 @@ class TimelineBuilder:
                     title=result.title,
                     url=result.url,
                     source_name=result.source_name,
-                    published_at=ensure_datetime_string(result.published_at),
+                    published_at=ensure_datetime_string_or_empty(result.published_at),
                     summary=result.snippet,
                     why_selected=self._build_selection_reason(
                         node_type=node_type,
@@ -107,7 +107,12 @@ class TimelineBuilder:
                 )
             )
 
-        timeline_nodes = sorted(timeline_nodes, key=lambda item: (item.published_at, item.node_type))[:10]
+        # Sort dated nodes chronologically; undated nodes (empty published_at)
+        # get pushed to the end rather than sorting to the top as "" < any ISO.
+        timeline_nodes = sorted(
+            timeline_nodes,
+            key=lambda item: (item.published_at == "", item.published_at, item.node_type),
+        )[:10]
         completeness = self._compute_completeness(timeline_nodes)
         confidence = self._compute_confidence(retrieval_bundle, selected_results, completeness)
         return TimelineBuild(

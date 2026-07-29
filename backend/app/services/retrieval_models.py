@@ -6,7 +6,7 @@ from typing import Optional, Tuple
 from urllib.parse import urlparse
 
 from backend.app.models.schemas import EvidenceItem, RetrievalDiagnostics, SourceTier
-from backend.app.services.contract_utils import ensure_datetime_string
+from backend.app.services.contract_utils import ensure_datetime_string, ensure_datetime_string_or_empty
 
 TIER_WEIGHTS = {"S": 4, "A": 3, "B": 2, "C": 1}
 
@@ -398,7 +398,7 @@ class SearchResult:
             title=self.title,
             url=self.url,
             source_name=self.source_name,
-            published_at=ensure_datetime_string(self.published_at),
+            published_at=ensure_datetime_string_or_empty(self.published_at),
             snippet=self.snippet,
             relevance_reason=relevance_reason,
             source_tier=self.source_tier,

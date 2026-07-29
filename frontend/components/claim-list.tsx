@@ -2,6 +2,7 @@
 
 import type { ClaimResult } from "@/types/report";
 import { getVerdictLabel, formatConfidence, formatProbability, getBasisLabel } from "@/lib/report-utils";
+import { EvidenceCard } from "@/components/evidence-list";
 
 export interface ClaimListProps {
   claims: ClaimResult[];
@@ -41,6 +42,18 @@ export function ClaimList({ claims, isOpen, onToggle }: ClaimListProps) {
                   )}
                 </div>
                 {claim.notes && <div className="claim-item__notes">{claim.notes}</div>}
+                {claim.evidence.length > 0 && (
+                  <details className="claim-item__evidence">
+                    <summary className="claim-item__evidence-summary">
+                      判定依据 · {claim.evidence.length} 条
+                    </summary>
+                    <div className="claim-item__evidence-body">
+                      {claim.evidence.map((ev, j) => (
+                        <EvidenceCard key={`${ev.url}-${j}`} item={ev} />
+                      ))}
+                    </div>
+                  </details>
+                )}
                 {claim.correction && (
                   <div className="claim-item__correction">
                     <span className="claim-item__correction-label">纠正</span>

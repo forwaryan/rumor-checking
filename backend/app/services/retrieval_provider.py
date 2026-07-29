@@ -21,7 +21,7 @@ from backend.app.services.retrieval_models import (
 
 logger = logging.getLogger(__name__)
 
-OFFICIAL_HOST_MARKERS = ("gov.cn", ".gov", "police", "court", "edu.cn")
+OFFICIAL_HOST_MARKERS = ("gov.cn", ".gov", "police", "court", "edu.cn", "piyao.org.cn")
 TOP_TIER_DOMAINS = {
     "news.cn",
     "xinhuanet.com",

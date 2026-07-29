@@ -32,6 +32,8 @@ OFFICIAL_SOURCE_MARKERS = (
     "市场监管",
     "应急管理",
     "官方",
+    "piyao.org.cn",
+    "辟谣平台",
     "company announcement",
     "official site",
 )

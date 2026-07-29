@@ -26,6 +26,8 @@ from backend.app.services.retrieval_models import (
     looks_like_repost,
 )
 from backend.app.services.playwright_search_provider import PlaywrightSearchProvider
+from backend.app.services.sogou_weixin_provider import SogouWeixinSearchProvider
+from backend.app.services.toutiao_search_provider import ToutiaoSearchProvider
 from backend.app.services.xhs_search_provider import XhsSearchProvider
 from backend.app.services.progress import (
     emit_log,
@@ -101,6 +103,8 @@ class RetrievalService:
         self.mock_retriever = MockRetriever(settings=self.settings)
         self.agent_reasoner = agent_reasoner
         self.xhs_provider = XhsSearchProvider(settings=self.settings)
+        self.toutiao_provider = ToutiaoSearchProvider(settings=self.settings)
+        self.sogou_weixin_provider = SogouWeixinSearchProvider(settings=self.settings)
         self.cache = cache or RetrievalCache(
             cache_root=self.settings.retrieval_cache_dir,
             ttl_seconds=self.settings.retrieval_cache_ttl_seconds,
@@ -129,15 +133,35 @@ class RetrievalService:
         stage_key = request_context.get("retrieval_stage_key") or (
             "retrieval_follow_up" if request_context.get("force_retrieval_query") else "retrieval_initial"
         )
+        # Caller may pass search_sources to limit which providers run.
+        search_sources = request_context.get("search_sources")
         stage_token = set_retrieval_stage_key(stage_key)
         try:
-            bundle = self._retrieve_for_event(event, request_context=request_context, stage_key=stage_key)
-            # XHS runs after the primary retrieval (including cache path) so it
-            # supplements regardless of whether the main results were cached.
-            bundle = self._append_xhs_results(bundle, bundle.query, stage_key=stage_key)
+            if self._source_enabled("baidu", search_sources):
+                bundle = self._retrieve_for_event(event, request_context=request_context, stage_key=stage_key)
+            else:
+                query_plan = self._build_query_plan(event, request_context=request_context)
+                primary_query = query_plan[0].query if query_plan else (event.title or "")
+                bundle = self._empty_bundle(primary_query, provider_name="skipped", query_plan=query_plan or [])
+            # Supplementary sources run after the primary retrieval (including
+            # cache path) so they supplement regardless of cache state.
+            if self._source_enabled("xiaohongshu", search_sources):
+                bundle = self._append_xhs_results(bundle, bundle.query, stage_key=stage_key)
+            if self._source_enabled("toutiao", search_sources):
+                bundle = self._append_toutiao_results(bundle, bundle.query, stage_key=stage_key)
+            if self._source_enabled("sogou_weixin", search_sources):
+                bundle = self._append_sogou_weixin_results(bundle, bundle.query, stage_key=stage_key)
         finally:
             reset_retrieval_stage_key(stage_token)
         return bundle
+
+    @staticmethod
+    def _source_enabled(source_name: str, search_sources: Optional[list[str]]) -> bool:
+        """Check if a source should run. If search_sources is None (no filter),
+        all sources run. If it's a list, only listed sources run."""
+        if search_sources is None:
+            return True
+        return source_name in search_sources
 
     def _retrieve_for_event(
         self,
@@ -590,6 +614,97 @@ class RetrievalService:
             raw_results=combined_raw,
         )
 
+    def _append_toutiao_results(
+        self, bundle: RetrievalBundle, primary_query: str, *, stage_key: str
+    ) -> RetrievalBundle:
+        """Append Toutiao search results to an existing bundle.
+
+        Similar to XHS — fires a single search and merges results as tier-B evidence.
+        Degrades silently on failure.
+        """
+        if not self.toutiao_provider.enabled:
+            return bundle
+        toutiao_query = self._shorten_for_xhs(primary_query)
+        if not toutiao_query:
+            return bundle
+        try:
+            toutiao_results = self.toutiao_provider.search(toutiao_query, max_results=5)
+        except Exception as exc:
+            logger.warning("toutiao_append_failed error=%s", exc)
+            return bundle
+        if not toutiao_results:
+            return bundle
+
+        retrieved_at = ensure_datetime_string(datetime.now(UTC).isoformat())
+        enriched = []
+        for item in toutiao_results:
+            enriched.append(replace(
+                item,
+                retrieved_at=retrieved_at,
+                source_category=infer_source_category(item.url, item.source_name),
+                independence_key=build_independence_key(item.url, item.source_name),
+                signal_tags=detect_signal_tags(item.title, item.snippet, item.source_name),
+            ))
+
+        existing_keys = {r.independence_key for r in bundle.canonical_results if r.independence_key}
+        new_results = [r for r in enriched if r.independence_key not in existing_keys]
+        if not new_results:
+            return bundle
+
+        combined_canonical = tuple(list(bundle.canonical_results) + new_results)
+        combined_raw = tuple(list(bundle.raw_results) + new_results)
+        return replace(
+            bundle,
+            canonical_results=combined_canonical,
+            raw_results=combined_raw,
+        )
+
+    def _append_sogou_weixin_results(
+        self, bundle: RetrievalBundle, primary_query: str, *, stage_key: str
+    ) -> RetrievalBundle:
+        """Append Sogou WeChat article results to an existing bundle.
+
+        Searches weixin.sogou.com for WeChat Official Account articles — the
+        primary distribution channel for Chinese fact-checkers (腾讯较真, etc.).
+        Degrades silently on failure.
+        """
+        if not self.sogou_weixin_provider.enabled:
+            return bundle
+        wx_query = self._shorten_for_xhs(primary_query)
+        if not wx_query:
+            return bundle
+        try:
+            wx_results = self.sogou_weixin_provider.search(wx_query, max_results=5)
+        except Exception as exc:
+            logger.warning("sogou_weixin_append_failed error=%s", exc)
+            return bundle
+        if not wx_results:
+            return bundle
+
+        retrieved_at = ensure_datetime_string(datetime.now(UTC).isoformat())
+        enriched = []
+        for item in wx_results:
+            enriched.append(replace(
+                item,
+                retrieved_at=retrieved_at,
+                source_category=infer_source_category(item.url, item.source_name),
+                independence_key=build_independence_key(item.url, item.source_name),
+                signal_tags=detect_signal_tags(item.title, item.snippet, item.source_name),
+            ))
+
+        existing_keys = {r.independence_key for r in bundle.canonical_results if r.independence_key}
+        new_results = [r for r in enriched if r.independence_key not in existing_keys]
+        if not new_results:
+            return bundle
+
+        combined_canonical = tuple(list(bundle.canonical_results) + new_results)
+        combined_raw = tuple(list(bundle.raw_results) + new_results)
+        return replace(
+            bundle,
+            canonical_results=combined_canonical,
+            raw_results=combined_raw,
+        )
+
     def _shorten_for_xhs(self, query: str) -> str:
         """Produce a short XHS-friendly query from the primary query.
 
@@ -663,8 +778,18 @@ class RetrievalService:
             "百度百科", "汉语", "拼音", "笔顺", "部首", "笔画",
             "字典", "词典", "汉字", "解释", "组词", "地名",
             "怎么读", "的意思", "的读音",
+            # Baidu image search cards (title always ends with "- 百度图片") are not
+            # article evidence — they're a thumbnail gallery page.
+            "- 百度图片", "-百度图片",
         )
         if any(p in title_lower for p in noise_title_patterns):
+            return True
+        # Baidu's "no results" placeholder: when the exact query returns zero
+        # indexed items, Baidu still emits a SERP entry whose title echoes the
+        # query and ends with "的最新相关信息". It carries no article body — the
+        # aggregator page just says "we don't have this". Distinct wording from
+        # organic news titles which use "最新消息" not "最新相关信息".
+        if "的最新相关信息" in title:
             return True
         # Time-calibration / clock / calendar utility pages: search engines return
         # these for any query containing a place name or number, but they carry no
@@ -682,6 +807,9 @@ class RetrievalService:
             "shidianguji.com", "gxdq.com",
             "beijing-time.org", "time.org", "-time.com", "shijian.cc",
             "mergeimage.org",
+            # Baidu's image search vertical + its captcha/no-result placeholder
+            # host — both surface as SERP items with no article content.
+            "image.baidu.com", "wappass.baidu.com",
         )
         if any(d in url for d in noise_domains):
             return True
@@ -715,6 +843,22 @@ class RetrievalService:
         haystack = self._normalize_query(" ".join([result.title, result.snippet]))
         return not any(term in haystack for term in event_terms)
 
+    # Well-known brand names the query builder treats as generic scaffolding.
+    # These are subjects of interest — when the query names one, results that
+    # don't mention it are almost always off-topic (an "美团 裁员" query pulling
+    # back Amazon/Meta/辛选 layoff aggregator titles just because they share the
+    # verb 裁员). Kept as a class-level constant so _query_subject_tokens and
+    # _event_specific_terms stay in sync.
+    #
+    # We deliberately spell out "阿里巴巴" and "字节跳动" instead of the shorter
+    # "阿里" / "字节" because those 2-char prefixes are ambiguous with place names
+    # and generic vocabulary (阿里山 / 字节流) — activating the subject gate on
+    # them would cause the compound-prefix matcher below to reject legitimate
+    # unrelated queries.
+    _SUBJECT_BRANDS = frozenset({
+        "拼多多", "京东", "淘宝", "阿里巴巴", "腾讯", "百度", "美团", "字节跳动",
+    })
+
     def _event_specific_terms(self, query: str) -> list[str]:
         """Whole-word query tokens that identify the *event*, not the brand.
 
@@ -723,8 +867,7 @@ class RetrievalService:
         stopwords, generic commerce/navigation words a brand homepage matches by
         default, and any single character. Unlike the old bigram approach these are
         whole tokens, so "办公楼" no longer matches a stray "办公" on a shopping page."""
-        generic = {
-            "拼多多", "京东", "淘宝", "阿里", "腾讯", "百度", "美团", "字节",
+        generic = self._SUBJECT_BRANDS | {
             "官方", "平台", "采购", "办公", "批发", "旗下", "服务", "企业",
             "公司", "集团", "商城", "商家", "店铺", "下载", "登录", "首页",
             "电商", "购物", "客服", "热线", "联系", "我们", "关于",
@@ -738,11 +881,63 @@ class RetrievalService:
                 terms.append(chunk)
         return terms
 
+    def _query_subject_tokens(self, query: str) -> list[str]:
+        """Brand/subject tokens the query names — treated as REQUIRED anchors.
+
+        These are the brand names _event_specific_terms strips out as generic
+        scaffolding, but they matter for topicality: when the user asks about
+        "美团 裁员", a Chinese aggregator page that only shares the verb "裁员"
+        (subject is Amazon/Meta/辛选) is off-topic. If the query names a subject
+        brand, the result must mention it — otherwise it isn't evidence for
+        THIS claim.
+
+        Match a brand against the query's CJK chunks (produced by the same
+        chunk regex _event_specific_terms uses). A chunk activates the subject
+        gate when it either equals the brand ("美团 产品") or starts with it
+        ("拼多多雄安新区招聘信息"). Merely appearing as a substring is NOT
+        enough — otherwise a "阿里山 事故" query would falsely trigger the
+        "阿里" (Alibaba) gate. Ambiguous 2-char brands ("阿里"/"字节") are kept
+        out of _SUBJECT_BRANDS specifically to make this prefix rule safe."""
+        tokens: list[str] = []
+        normalized = self._normalize_query(query)
+        chunks = re.findall(r"\d+(?:\.\d+)?[万亿千百]?%?|[A-Za-z]{2,}|[一-鿿]{2,}", normalized)
+        for brand in self._SUBJECT_BRANDS:
+            for chunk in chunks:
+                if chunk == brand or chunk.startswith(brand):
+                    if brand not in tokens:
+                        tokens.append(brand)
+                    break
+        return tokens
+
     def _result_matches_query(self, result: SearchResult) -> bool:
         raw_text = " ".join([result.title, result.snippet, result.source_name])
         text = self._normalize_query(raw_text)
+        # Case-fold once for the event-token fallback below. CJK characters are
+        # invariant under casefold, so brand/subject matching is unaffected; the
+        # Latin path becomes case-insensitive so an "OpenAI Layoffs" query still
+        # matches a "openai layoffs" title.
+        text_folded = text.casefold()
         if any(marker in text for marker in ("未提及", "未涉及", "不涉及", "无关", "another", "unrelated")):
             return False
+        # Dual filter — subject brand REQUIRED, event term as fallback.
+        #
+        # Historically this method only rejected results carrying explicit "无关"
+        # markers, which meant any Chinese aggregator page sharing the query's
+        # verb ("裁员") slipped through: an "美团 产品 裁员 70%" query kept
+        # Amazon/Meta/辛选 layoff titles that never mention 美团.
+        #
+        # Fix: when the query names a subject brand (美团/京东/…), require the
+        # result text to mention that brand — no brand mention, not evidence.
+        # When the query has no brand (e.g. a pure question), fall back to
+        # event-specific tokens so we don't drop everything for open queries.
+        # If neither exists (very short query), keep the pre-existing accept-all
+        # behavior so this never returns an empty set for legitimate queries.
+        subjects = self._query_subject_tokens(result.query or "")
+        if subjects:
+            return any(subject in text for subject in subjects)
+        event_terms = self._event_specific_terms(result.query or "")
+        if event_terms:
+            return any(term.casefold() in text_folded for term in event_terms)
         return True
 
     def _is_topically_disjoint(self, result: SearchResult) -> bool:
@@ -923,6 +1118,16 @@ class RetrievalService:
         bounds.append(len(text))
         segments = [text[bounds[i] : bounds[i + 1]].strip() for i in range(len(bounds) - 1)]
         return [s for s in segments if len(s) >= 2][:3]
+
+    def build_query_plan(
+        self, event: NormalizedEvent, *, request_context: Optional[dict[str, Any]] = None
+    ) -> list[RetrievalQuerySpec]:
+        """Public entry to the query planner.
+
+        Lets callers outside this service (e.g. the multi-agent normalize step)
+        compute the plan once and reuse its primary query, instead of each
+        parallel source agent re-planning and re-triggering the LLM extractor."""
+        return self._build_query_plan(event, request_context=request_context or {})
 
     def _build_query_plan(self, event: NormalizedEvent, *, request_context: dict[str, Any]) -> list[RetrievalQuerySpec]:
         forced_query = request_context.get("force_retrieval_query")

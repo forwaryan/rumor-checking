@@ -1,6 +1,31 @@
 "use client";
 
 import type { Evidence } from "@/types/report";
+import { getSourceTierMeta } from "@/lib/report-utils";
+
+export function EvidenceCard({ item }: { item: Evidence }) {
+  const tier = getSourceTierMeta(item.source_tier);
+  return (
+    <div className="evidence-item">
+      <div className="evidence-item__source">
+        <span>{item.source_name}</span>
+        <span className={`tier-badge tier-badge--${tier.tone}`} title={tier.hint}>
+          {tier.label}
+        </span>
+      </div>
+      <div className="evidence-item__title">
+        <a href={item.url} target="_blank" rel="noreferrer">{item.title}</a>
+      </div>
+      <div className="evidence-item__snippet">{item.snippet}</div>
+      {item.relevance_reason && (
+        <div className="evidence-item__relevance">
+          <span className="evidence-item__relevance-label">相关性</span>
+          {item.relevance_reason}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export interface EvidenceListProps {
   evidence: Evidence[];
@@ -23,13 +48,7 @@ export function EvidenceList({ evidence, isOpen, onToggle }: EvidenceListProps) 
       {isOpen && (
         <div className="section-card__body">
           {evidence.map((item, i) => (
-            <div key={`${item.url}-${i}`} className="evidence-item">
-              <div className="evidence-item__source">{item.source_name} · {item.source_tier}</div>
-              <div className="evidence-item__title">
-                <a href={item.url} target="_blank" rel="noreferrer">{item.title}</a>
-              </div>
-              <div className="evidence-item__snippet">{item.snippet}</div>
-            </div>
+            <EvidenceCard key={`${item.url}-${i}`} item={item} />
           ))}
         </div>
       )}
@@ -59,13 +78,7 @@ export function RetrievalHitsList({ hits, isOpen, onToggle }: RetrievalHitsListP
         <div className="section-card__body">
           <div className="section-card__hint">这些是检索到、但没有被任何核查点当作判定证据的结果，仅供参考。</div>
           {hits.map((item, i) => (
-            <div key={`${item.url}-${i}`} className="evidence-item">
-              <div className="evidence-item__source">{item.source_name} · {item.source_tier}</div>
-              <div className="evidence-item__title">
-                <a href={item.url} target="_blank" rel="noreferrer">{item.title}</a>
-              </div>
-              <div className="evidence-item__snippet">{item.snippet}</div>
-            </div>
+            <EvidenceCard key={`${item.url}-${i}`} item={item} />
           ))}
         </div>
       )}

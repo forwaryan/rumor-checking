@@ -287,4 +287,114 @@ describe("analyzeReportStream heartbeat handling", () => {
       source_tier: "B",
     });
   });
+
+  it("skips unknown event types without aborting the stream", async () => {
+    // Forward-compat: a new backend event type must not crash an older client
+    // mid-analysis. The unknown event is silently dropped; the report survives.
+    const lines = [
+      JSON.stringify({ type: "some_future_event", foo: "bar", emitted_at: "2026-03-20T00:00:00Z" }),
+      JSON.stringify({ type: "report", run_id: "r", summary: "done", report: { mode: "safe_mode" }, emitted_at: "2026-03-20T00:00:12Z" }),
+      JSON.stringify({ type: "complete", run_id: "r", success: true, summary: "结束", emitted_at: "2026-03-20T00:00:13Z" }),
+    ];
+    const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse(lines));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const seen: AnalysisLiveEvent[] = [];
+    try {
+      const report = await analyzeReportStream({ raw_input: "x", input_type: "auto" }, (e) => seen.push(e));
+      expect(report.mode).toBe("safe_mode");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(seen.some((e) => (e as { type: string }).type === "some_future_event")).toBe(false);
+    expect(seen.some((e) => e.type === "report")).toBe(true);
+  });
+
+  it("tolerates a malformed (non-JSON) line without dropping the report", async () => {
+    const lines = [
+      "this is not json {{{",
+      JSON.stringify({ type: "report", run_id: "r", summary: "done", report: { mode: "safe_mode" }, emitted_at: "2026-03-20T00:00:12Z" }),
+      JSON.stringify({ type: "complete", run_id: "r", success: true, summary: "结束", emitted_at: "2026-03-20T00:00:13Z" }),
+    ];
+    const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse(lines));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const report = await analyzeReportStream({ raw_input: "x", input_type: "auto" }, () => {});
+      expect(report.mode).toBe("safe_mode");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("parses a metrics event into a structured RunMetrics payload", async () => {
+    const lines = [
+      JSON.stringify({
+        type: "metrics",
+        stage_key: "supervisor",
+        emitted_at: "2026-03-20T00:00:05Z",
+        metrics: {
+          mode: "parallel",
+          total_ms: 4200,
+          time_exhausted: false,
+          looped_back: false,
+          completed: ["normalize", "retrieval_merge"],
+          failed: [],
+          agents: [
+            { role: "retrieval_baidu", status: "completed", elapsed_ms: 1800, actions: ["search_baidu"], model: null, error: null },
+          ],
+          source_hits: { baidu: 5, xiaohongshu: 2 },
+          tokens: { prompt: 1000, completion: 400, total: 1400, llm_calls: 3 },
+        },
+      }),
+      JSON.stringify({ type: "report", run_id: "r", summary: "done", report: { mode: "safe_mode" }, emitted_at: "2026-03-20T00:00:12Z" }),
+      JSON.stringify({ type: "complete", run_id: "r", success: true, summary: "结束", emitted_at: "2026-03-20T00:00:13Z" }),
+    ];
+    const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse(lines));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const seen: AnalysisLiveEvent[] = [];
+    try {
+      await analyzeReportStream({ raw_input: "x", input_type: "auto" }, (e) => seen.push(e));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    const metrics = seen.find((e) => e.type === "metrics");
+    expect(metrics).toBeDefined();
+    const m = (metrics as { metrics: { mode: string; source_hits: Record<string, number>; tokens: { total: number } } }).metrics;
+    expect(m.mode).toBe("parallel");
+    expect(m.source_hits.baidu).toBe(5);
+    expect(m.tokens.total).toBe(1400);
+  });
+
+  it("preserves an empty published_at rather than fabricating new Date().toISOString()", () => {
+    // Regression: parseReport used to fill missing timeline/evidence
+    // published_at with `new Date().toISOString()`. On the "京东要造游艇"
+    // run four different articles all rendered with the same
+    // millisecond-precision timestamp because they were all filled at
+    // report-parse time. Empty string flows through timeline-section.tsx's
+    // `|| "时间未知"` fallback instead.
+    const report = parseReport({
+      mode: "safe_mode",
+      event: { title: "事件", summary: "s", source_url: "https://ex.com", source_name: "s", published_at: "" },
+      timeline: [
+        { node_type: "origin", title: "无日期节点", url: "https://ex.com/a", source_name: "s", summary: "x", why_selected: "y" },
+      ],
+      claim_results: [
+        {
+          claim: "c",
+          verdict: "supported",
+          confidence: "high",
+          evidence: [
+            { title: "无日期证据", url: "https://ex.com/e", source_name: "s", snippet: "x", relevance_reason: "r", source_tier: "B" },
+          ],
+        },
+      ],
+      final_summary: "",
+      risks: [],
+      provenance: { input_type: "text_only", mode_hint: "safe", event_source: "input_normalized" },
+    });
+    expect(report.timeline[0]?.published_at).toBe("");
+    expect(report.claim_results[0]?.evidence[0]?.published_at).toBe("");
+    expect(report.event.published_at).toBe("");
+  });
 });

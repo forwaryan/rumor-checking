@@ -5,6 +5,7 @@ import type {
   AnalysisLiveErrorEvent,
   AnalysisLiveEvent,
   AnalysisLiveLogEvent,
+  AnalysisLiveMetricsEvent,
   AnalysisLiveReportEvent,
   AnalysisLiveRetrievalEvent,
   AnalysisLiveSessionEvent,
@@ -29,6 +30,8 @@ import type {
   RetrievalDiagnostics,
   RetrievalResultItem,
   ReportSourceType,
+  RunMetrics,
+  RunMetricsAgent,
   TimelineNode,
   TimelineSourceType,
   Verdict,
@@ -75,6 +78,10 @@ function ensureStringArray(value: unknown) {
 
 function ensureOptionalString(value: unknown) {
   return typeof value === "string" ? value : null;
+}
+
+function ensureNumber(value: unknown, fallback = 0) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
 function ensureMode(value: unknown, fallback: OutputMode = "safe_mode"): OutputMode {
@@ -130,7 +137,7 @@ function parseEvidence(value: unknown): Evidence[] {
       title: ensureString(item.title, "未命名证据"),
       url: ensureString(item.url, "https://example.org/demo/missing-source"),
       source_name: ensureString(item.source_name, "来源待补充"),
-      published_at: ensureString(item.published_at, new Date().toISOString()),
+      published_at: ensureString(item.published_at),
       snippet: ensureString(item.snippet, "暂无摘要"),
       relevance_reason: ensureString(item.relevance_reason, "未提供相关性说明"),
       source_tier:
@@ -174,7 +181,7 @@ function parseEvent(value: unknown, mode: OutputMode): Event {
     summary: ensureString(event.summary, "当前没有足够上下文来生成事件摘要。"),
     source_url: ensureString(event.source_url, "https://example.org/demo/missing-source"),
     source_name: ensureString(event.source_name, "来源待补充"),
-    published_at: ensureString(event.published_at, new Date().toISOString()),
+    published_at: ensureString(event.published_at),
     keywords: ensureStringArray(event.keywords),
     mode: ensureMode(event.mode, mode),
   };
@@ -197,7 +204,7 @@ function parseTimeline(value: unknown): TimelineNode[] {
     title: ensureString(item.title, "未命名节点"),
     url: ensureString(item.url, "https://example.org/demo/missing-node"),
     source_name: ensureString(item.source_name, "来源待补充"),
-    published_at: ensureString(item.published_at, new Date().toISOString()),
+    published_at: ensureString(item.published_at),
     summary: ensureString(item.summary, "暂无节点摘要"),
     why_selected: ensureString(item.why_selected, "未提供入选原因"),
   }));
@@ -420,9 +427,9 @@ async function parseJson<T>(response: Response) {
   return (await response.json()) as T;
 }
 
-function parseLiveEvent(value: unknown): AnalysisLiveEvent {
+function parseLiveEvent(value: unknown): AnalysisLiveEvent | null {
   if (!isObject(value)) {
-    throw new ApiClientError("无法解析流式分析事件。");
+    return null;
   }
 
   const type = ensureString(value.type);
@@ -532,7 +539,56 @@ function parseLiveEvent(value: unknown): AnalysisLiveEvent {
     return event;
   }
 
-  throw new ApiClientError(`未知流式事件类型: ${type || "unknown"}`);
+  if (type === "metrics") {
+    const event: AnalysisLiveMetricsEvent = {
+      type,
+      emitted_at: emittedAt,
+      stage_key: ensureOptionalString(value.stage_key),
+      metrics: parseRunMetrics(value.metrics),
+    };
+    return event;
+  }
+
+  // Unknown event type — skip gracefully rather than aborting the whole stream.
+  // New backend event types must never break an existing client mid-analysis.
+  return null;
+}
+
+function parseRunMetrics(value: unknown): RunMetrics {
+  const obj = isObject(value) ? value : {};
+  const tokens = isObject(obj.tokens) ? obj.tokens : {};
+  const sourceHits: Record<string, number> = {};
+  if (isObject(obj.source_hits)) {
+    for (const [key, v] of Object.entries(obj.source_hits)) {
+      sourceHits[key] = ensureNumber(v);
+    }
+  }
+  const agents: RunMetricsAgent[] = Array.isArray(obj.agents)
+    ? obj.agents.filter(isObject).map((a) => ({
+        role: ensureString(a.role),
+        status: ensureString(a.status),
+        elapsed_ms: ensureNumber(a.elapsed_ms),
+        actions: ensureStringArray(a.actions),
+        model: ensureOptionalString(a.model),
+        error: ensureOptionalString(a.error),
+      }))
+    : [];
+  return {
+    mode: ensureString(obj.mode),
+    total_ms: ensureNumber(obj.total_ms),
+    time_exhausted: obj.time_exhausted === true,
+    looped_back: obj.looped_back === true,
+    completed: ensureStringArray(obj.completed),
+    failed: ensureStringArray(obj.failed),
+    agents,
+    source_hits: sourceHits,
+    tokens: {
+      prompt: ensureNumber(tokens.prompt),
+      completion: ensureNumber(tokens.completion),
+      total: ensureNumber(tokens.total),
+      llm_calls: ensureNumber(tokens.llm_calls),
+    },
+  };
 }
 
 export async function analyzeReport(request: AnalyzeRequest): Promise<Report> {
@@ -586,13 +642,24 @@ export async function analyzeReportStream(
     if (!line) {
       return;
     }
-    const rawEvent = JSON.parse(line) as unknown;
+    let rawEvent: unknown;
+    try {
+      rawEvent = JSON.parse(line) as unknown;
+    } catch {
+      // A single malformed line (truncated chunk, stray keepalive) must not
+      // abort the whole analysis stream. Skip it and keep reading.
+      return;
+    }
     // Transport-level keepalive emitted during slow backend work; not an
     // analysis event, so skip it before strict parsing.
     if (rawEvent && typeof rawEvent === "object" && (rawEvent as { type?: unknown }).type === "heartbeat") {
       return;
     }
     const event = parseLiveEvent(rawEvent);
+    if (event === null) {
+      // Unknown or unparseable event type — forward-compatible skip.
+      return;
+    }
     onEvent(event);
     if (event.type === "report") {
       finalReport = event.report;
@@ -655,6 +722,18 @@ export interface ModelsResponse {
   default: string;
 }
 
+export interface SearchSource {
+  id: string;
+  label: string;
+  description: string;
+  enabled: boolean;
+  default_on: boolean;
+}
+
+export interface SearchSourcesResponse {
+  sources: SearchSource[];
+}
+
 export async function getModels(): Promise<ModelsResponse> {
   const response = await fetch(`${getApiBase()}/api/v1/models`, { cache: "no-store" });
   const payload = await parseJson<unknown>(response);
@@ -666,4 +745,22 @@ export async function getModels(): Promise<ModelsResponse> {
     };
   }
   return { models: [], default: "" };
+}
+
+export async function getSearchSources(): Promise<SearchSourcesResponse> {
+  const response = await fetch(`${getApiBase()}/api/v1/search-sources`, { cache: "no-store" });
+  const payload = await parseJson<unknown>(response);
+  if (isObject(payload) && Array.isArray(payload.sources)) {
+    const sources = payload.sources
+      .filter(isObject)
+      .map((s) => ({
+        id: ensureString(s.id),
+        label: ensureString(s.label),
+        description: ensureString(s.description),
+        enabled: s.enabled === true,
+        default_on: s.default_on === true,
+      }));
+    return { sources };
+  }
+  return { sources: [] };
 }

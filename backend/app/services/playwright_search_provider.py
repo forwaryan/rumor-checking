@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+from datetime import date, datetime, timedelta, timezone
 from dataclasses import dataclass
 from typing import List, Optional
 from urllib.parse import quote_plus, urlparse
@@ -307,7 +308,7 @@ class PlaywrightSearchProvider:
                     title=title,
                     url=url,
                     source_name=source_name,
-                    published_at=None,
+                    published_at=item.get("published_at") or "",
                     snippet=snippet,
                     source_tier=_infer_source_tier(url, source_name),
                     source_category=infer_source_category(url, source_name),
@@ -340,7 +341,7 @@ class PlaywrightSearchProvider:
                     title=title,
                     url=url,
                     source_name=source_name,
-                    published_at=None,
+                    published_at="",
                     snippet=snippet,
                     source_tier=_infer_source_tier(url, source_name),
                     source_category=infer_source_category(url, source_name),
@@ -361,6 +362,59 @@ def _clean_text(text: str) -> str:
     text = _html.unescape(text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
+
+
+_SHANGHAI_TZ = timezone(timedelta(hours=8))
+
+
+def _parse_baidu_date(raw: str, *, now: Optional[datetime] = None) -> Optional[str]:
+    """Turn Baidu's SERP date markers into an ISO date string (YYYY-MM-DD).
+
+    Baidu prefixes results with a `prefix-time` span that carries one of:
+      - "2026年7月16日" / "2026年2月25日" (absolute, chinese)
+      - "2026-07-24" (absolute, ISO)
+      - "今天" / "昨天" / "前天" (relative day)
+      - "6天前" / "3小时前" / "45分钟前" (relative delta)
+    Returns None when the text has no parseable date (e.g. empty, or a
+    stray "官方" tag baidu occasionally puts in the same slot).
+    """
+    if not raw:
+        return None
+    text = raw.strip()
+    if not text:
+        return None
+
+    reference = (now or datetime.now(_SHANGHAI_TZ)).astimezone(_SHANGHAI_TZ)
+    today: date = reference.date()
+
+    m = re.search(r"(\d{4})[年\-/](\d{1,2})[月\-/](\d{1,2})", text)
+    if m:
+        try:
+            year, month, day = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            return date(year, month, day).isoformat()
+        except ValueError:
+            return None
+
+    if "今天" in text:
+        return today.isoformat()
+    if "昨天" in text:
+        return (today - timedelta(days=1)).isoformat()
+    if "前天" in text:
+        return (today - timedelta(days=2)).isoformat()
+
+    m = re.search(r"(\d+)\s*天前", text)
+    if m:
+        return (today - timedelta(days=int(m.group(1)))).isoformat()
+    m = re.search(r"(\d+)\s*(?:小时|个小时)前", text)
+    if m:
+        delta = timedelta(hours=int(m.group(1)))
+        return (reference - delta).date().isoformat()
+    m = re.search(r"(\d+)\s*(?:分钟|分)前", text)
+    if m:
+        delta = timedelta(minutes=int(m.group(1)))
+        return (reference - delta).date().isoformat()
+
+    return None
 
 
 def _extract_baidu_items(html: str) -> List[dict]:
@@ -400,7 +454,21 @@ def _extract_baidu_items(html: str) -> List[dict]:
         if source_match:
             source = _clean_text(source_match.group(1))
 
-        items.append({"url": url, "title": title, "snippet": snippet, "source": source})
+        # Baidu marks each hit with a prefix-time span carrying either an
+        # absolute date ("2026年7月16日", "2026-07-24") or a relative marker
+        # ("昨天", "6天前"). If that span is absent, look inside the embedded
+        # <!--s-data:...prefixTime":"..."--> JSON blob Baidu sometimes uses
+        # in the "generalLines" summary layout.
+        published_at: Optional[str] = None
+        time_match = re.search(r'class="[^"]*prefix-time[^"]*"[^>]*>(.*?)</span>', segment, re.DOTALL)
+        if time_match:
+            published_at = _parse_baidu_date(_clean_text(time_match.group(1)))
+        if not published_at:
+            json_time_match = re.search(r'"prefixTime"\s*:\s*"([^"]{1,20})"', segment)
+            if json_time_match:
+                published_at = _parse_baidu_date(json_time_match.group(1))
+
+        items.append({"url": url, "title": title, "snippet": snippet, "source": source, "published_at": published_at})
         if len(items) >= 15:
             break
 

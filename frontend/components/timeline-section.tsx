@@ -8,6 +8,16 @@ interface TimelineSectionProps {
   onToggle: () => void;
 }
 
+function formatPublishedAt(iso: string): string {
+  if (!iso) return "时间未知";
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return iso;
+  const y = parsed.getFullYear();
+  const m = String(parsed.getMonth() + 1).padStart(2, "0");
+  const d = String(parsed.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 export function TimelineSection({ timeline, isOpen, onToggle }: TimelineSectionProps) {
   if (timeline.length === 0) return null;
   return (
@@ -25,7 +35,7 @@ export function TimelineSection({ timeline, isOpen, onToggle }: TimelineSectionP
             {timeline.map((node, i) => (
               <div key={`${node.url}-${i}`} className={`timeline__node timeline__node--${node.node_type}`}>
                 <div className="timeline__node-title">{node.title}</div>
-                <div className="timeline__node-meta">{node.source_name} · {node.published_at || "时间未知"}</div>
+                <div className="timeline__node-meta">{node.source_name} · {formatPublishedAt(node.published_at)}</div>
                 <div className="timeline__node-summary">{node.summary}</div>
               </div>
             ))}
