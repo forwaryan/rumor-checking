@@ -226,14 +226,10 @@ curl -X POST http://127.0.0.1:8000/api/v1/analyze \
 
 ## 文档入口
 
-- [docs/current-code-architecture-guide.md](./docs/current-code-architecture-guide.md) — **代码结构与架构详解**（图文并茂）
-- [docs/question-analysis-end-to-end-flow.md](./docs/question-analysis-end-to-end-flow.md) — 提问输入的全链路分析
-- [docs/status/current-verified-state.md](./docs/status/current-verified-state.md) — 已验证状态（口径基准）
-- [docs/status/web-search-options.md](./docs/status/web-search-options.md) — 联网检索方案对比
+- [docs/current-code-architecture-guide.md](./docs/current-code-architecture-guide.md) — **代码结构与架构详解**（图文并茂;§11 事实边界仲裁、§12 联网检索选型均归档在此）
 - [backend/README.md](./backend/README.md) · [frontend/README.md](./frontend/README.md) — 前后端说明
-- [contracts/README.md](./contracts/README.md) · [evals/README.md](./evals/README.md) — 协议与评测
-- [DEMO_SCRIPT.md](./DEMO_SCRIPT.md) · [SMOKE_CHECKLIST.md](./SMOKE_CHECKLIST.md) — 演示脚本 / 演示前检查
-- [docs/README.md](./docs/README.md) — 文档总导航
+- [contracts/README.md](./contracts/README.md) · [evals/minimal_v1/README.md](./evals/minimal_v1/README.md) — 协议与评测
+- [DEMO.md](./DEMO.md) — 演示脚本 + 演示前 Smoke 检查
 
 ---
 

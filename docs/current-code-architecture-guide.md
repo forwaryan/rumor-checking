@@ -571,6 +571,39 @@ sequenceDiagram
 
 ---
 
+## 11. 事实边界与仲裁
+
+已核验事实（当文档与代码冲突时，以本节和对应实现为准）：
+
+- **公开 API 只有 4 个**：`GET /api/v1/health` · `GET /api/v1/models` · `POST /api/v1/analyze` · `POST /api/v1/analyze/stream`（没有 `demo-cases` / `replay`）
+- **两档分析**：`request_context.mode="fast"`（零 LLM 规则路径，~0.2–0.3s）/ `"deep"`（LLM/agent 全链路）— 由 `backend/tests/test_api.py::test_fast_mode_skips_llm_enrichment_while_deep_mode_uses_it` 锁定
+- **provenance 收敛**：`Report.provenance.source_type` 后端只输出 `backend_live` 或 `backend_mock`;前端缺失时保守落到 `unknown`（不是后端枚举）
+- **Grounded verdict**：任何 `supported/refuted/conflicting` 必须带有效 `evidence_result_id`，否则降级 `insufficient`（`backend/tests/test_agent_grounded_verdict.py` 锁定）
+- **LLM 补判 verdict**：`llm_judge_claims` 只从 insufficient 升级、**永不降级**，失败优雅退回规则结果
+- **合成 critic 单调性**：`SYNTHESIS_CRITIC` 只能下调未被证据支撑的判定、永不上调（`backend/tests/test_synthesis_critic.py` 锁定）
+- **概率与 verdict 解耦**：`truth_probability`(0–100) + `probability_basis`(`evidence`|`prior`);一条 `insufficient` 也能带 `prob=15, basis=prior`（`test_probability.py` 锁定）
+- **SERP 日期真实抽取**：`playwright_search_provider` 从 Baidu `prefix-time` span 抽取，抽不到返回空串，**永远不伪造 `datetime.now()`**
+
+## 12. 联网检索选型（历史决策记录）
+
+当前推荐路径：**判定层走内部网关（不动） + 检索层用 `playwright`（httpx 抓百度/Bing）**。为什么不选其他方案：
+
+| 备选 | 为什么不选 |
+|---|---|
+| 内部网关自带 web search | 网关只做 chat/completions 转发，物理上不带搜索工具 |
+| DeepSeek 官方 API 联网 | 官方 API 不暴露联网能力（只有 App/网页版有），官方建议自接第三方搜索 |
+| 智谱 GLM Web Search API | 中文覆盖好、按次计费低，是最强备选;当前 playwright 已够用暂未接入 |
+| Kimi `$web_search` | 官方标注"功能升级中，近期不建议使用"，生产先排除 |
+| Anthropic Claude web_search | 中文小众源覆盖存疑，且判定+联网绑定成本高 |
+| GDELT | 英文偏向，中文热点覆盖弱，当下国内事件基本抓不到 |
+| Tavily / Brave / Serper | 境外 API 中文小众源覆盖差，不适合中文核查主场 |
+
+**核心区分**：`App/网页版"联网搜索"按钮 ≠ 官方 API 联网能力`;`内部判定网关 ≠ 厂商官方平台`。选型时反复踩这个坑。
+
+**架构取向**：判定与检索解耦，判定模型可换（走 OpenAI 兼容 chat/completions），检索走独立 provider，两者独立演进。
+
+---
+
 <p align="center">
   <sub>用一句话总结当前架构：<b>结构化流水线 + 流式可观测 + 契约化输出</b></sub>
 </p>

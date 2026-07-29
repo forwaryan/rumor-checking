@@ -1,112 +1,17 @@
 # Backend
 
-本目录承载 rumor-checking 的后端主链路。
+FastAPI 主进程。产品能力/两档核查/概率维度看主 [README.md](../README.md)；这里只讲后端目录本身的接口、运行方式和边界。
 
-更新时间：2026-07-23（Asia/Shanghai）
+更新时间：2026-07-29（Asia/Shanghai）
 
 ## 当前接口
 
 - `GET /api/v1/health`
-- `GET /api/v1/models`（可选分析模型白名单 + 默认，供前端下拉；只返回模型名，不含网关地址/密钥）
+- `GET /api/v1/models` — 分析模型白名单 + 默认（只返回模型名，不含网关地址/密钥）
 - `POST /api/v1/analyze`
-- `POST /api/v1/analyze/stream`
+- `POST /api/v1/analyze/stream` — NDJSON 流式事件
 
-## 分析档位（按请求选择）
-
-两个接口都读取 `request_context.mode`，同一个后端进程同时提供两档：
-
-- `mode="fast"`（默认，缺省或未知值都按 fast 处理）：**零 LLM 规则路径**。跳过 agent 编排、resolve/synthesize/investigation、provider 结构化补全和 LLM query 抽取；只做真实联网检索（`playwright`）+ 规则 verdict。实测约 0.2–0.3s，`source_type=backend_live`、真实来源 URL。适合给真实用户当下就能用的实时核查。
-- `mode="deep"`：走现有 LLM/agent-first 全链路（planner/investigation/synthesis/结构化补全）。判定质量更高，但在当前网关上一次 synthesis 就要 ~200s（约 0.7s/token），整轮通常要几分钟，属于异步/后台深度档，不作为默认。
-- `request_context.model`（可选）：deep 档指定判定模型，由 `LLM_MODELS` 白名单校验，不在白名单内退回默认 `LLM_MODEL`。
-
-> mode 只切换分析深度；检索 provider 仍由 `RETRIEVAL_PROVIDER` 决定，两档都走同一套真实检索。
-
-## 多可能性 + 为真概率
-
-- 每条 claim 带 `truth_probability`（0–100）与 `probability_basis`（`evidence` / `prior`）；`Investigation.possibilities`（整体情形分布）带 `probability` + `basis`，缺省时回落到分类 `likelihood`。全部可选字段。
-- **概率与 verdict 解耦**：grounded 兜底不变（无证据的决定性 verdict 仍降级为 `insufficient`），概率是独立维度，`basis` 诚实区分"有检索证据（evidence）"与"仅凭常识先验（prior）"——所以一条 `insufficient` 的 claim 也能带 `truth_probability=15, basis=prior`。
-- **fast 档**：`verdict_engine.coarse_truth_probability` 把 verdict+confidence 确定映射成粗概率，在 `report_builder` 单点回填；insufficient→50%/prior，不伪造整体分布。
-- **deep 档**：LLM 直接产出每条 claim 概率 + 2–4 条互斥情形（合计≈100），解析层做 clamp/归一化，并强制"标 evidence 但无证据挂靠"回退为 prior。
-
-## 当前状态
-
-- 默认运行基线已冻结为 `ANALYSIS_PROVIDER=off`、`RETRIEVAL_PROVIDER=mock`、`RETRIEVAL_FALLBACK_TO_MOCK=true`
-- 已接入公开 HTML 页面 URL 正文抽取
-- 已接入流式分析事件输出，前端通过 `analyze/stream` 消费执行轨迹
-- 当前没有公开的 `demo-cases` 或 `replay` 接口
-- `Report.provenance.source_type` 当前只会输出 `backend_live` 或 `backend_mock`
-
-## 环境与默认基线
-
-```dotenv
-ANALYSIS_PROVIDER=off
-RETRIEVAL_PROVIDER=mock
-RETRIEVAL_FALLBACK_TO_MOCK=true
-```
-
-如需启用 LLM 分析增强，再显式配置（模型/端点/密钥都放 git 忽略的 `backend/.env`，不写入版本库）：
-
-```dotenv
-ANALYSIS_PROVIDER=kimi
-LLM_API_KEY=你的真实 key
-LLM_BASE_URL=你的 OpenAI 兼容网关端点
-LLM_MODEL=你的模型名
-PROVIDER_TIMEOUT_SECONDS=20
-```
-
-> `ANALYSIS_PROVIDER=kimi` 只是历史遗留的开关字面量，不代表具体供应商；调用层已供应商中立，走标准 OpenAI 兼容 `chat/completions` 流式接口。
-
-## 检索 provider
-
-- `RETRIEVAL_PROVIDER=mock`：稳定回归（默认）
-- `RETRIEVAL_PROVIDER=playwright`：纯 httpx 抓取百度（主）+ Bing（兜底）搜索结果页，中文覆盖较好，无需额外依赖（**当前推荐的真实联网路径**）
-- `RETRIEVAL_PROVIDER=gdelt`：公开 GDELT 检索（英文偏向），失败时可回退到 mock
-- `RETRIEVAL_PROVIDER=kimi`：走 LLM 内建 `$web_search`（仅对支持该工具的供应商有效；当前新模型无此能力）
-- `RETRIEVAL_PROVIDER=off`：关闭检索，只保留保守链路
-
-相关环境变量：
-
-- `RETRIEVAL_TIMEOUT_SECONDS`
-- `RETRIEVAL_GDELT_BASE_URL`
-- `RETRIEVAL_MAX_RESULTS`
-- `LLM_SEARCH_MODEL`
-- `RETRIEVAL_CACHE_ENABLED`
-- `RETRIEVAL_CACHE_TTL_SECONDS`
-- `RETRIEVAL_CACHE_ALLOW_STALE_ON_ERROR`
-- `RETRIEVAL_FALLBACK_TO_MOCK`
-- `RETRIEVAL_CACHE_DIR`
-
-## URL 输入边界
-
-- 只支持公开 HTML 页面
-- 不支持登录页、强反爬页面、浏览器渲染页面、PDF/图片正文
-- 抽取失败时仍会返回保守结果和明确 fallback 提示
-
-## 最小联调
-
-```bash
-curl http://127.0.0.1:8000/api/v1/health
-```
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/v1/analyze \
-  -H "Content-Type: application/json" \
-  -d '{
-    "raw_input": "网传某地出台新规，要求周末全面停工整顿。",
-    "input_type": "text"
-  }'
-```
-
-流式联调：
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/v1/analyze/stream \
-  -H "Content-Type: application/json" \
-  -d '{
-    "raw_input": "最近某公司裁员 40% 了吗？",
-    "input_type": "question"
-  }'
-```
+同一进程通过 `request_context.mode=fast|deep` 提供两档分析，详见主 [README.md](../README.md#两档核查--秒级-vs-分钟级)。
 
 ## 本地运行
 
@@ -117,8 +22,51 @@ uvicorn backend.app.main:app --reload
 
 默认地址：`http://127.0.0.1:8000`
 
-## 当前已知边界
+## 环境变量
 
-- verdict 和 timeline 仍是基于检索结果的规则/启发式判断，不是完整 agent 搜证系统
-- `live probe` 仍只用于内部诊断，不代表真实检索已通过最终验收
-- 共享协议仍以 [contracts/report.schema.json](../contracts/report.schema.json) 为准
+**默认基线**（零 key、可复现）：
+
+```dotenv
+ANALYSIS_PROVIDER=off
+RETRIEVAL_PROVIDER=mock
+RETRIEVAL_FALLBACK_TO_MOCK=true
+```
+
+**启用真实检索 + LLM**：模型/端点/密钥只放 git 忽略的 `backend/.env`，不写入 `.env.example` 或版本库。
+
+**检索层可调参数**：
+
+- `RETRIEVAL_TIMEOUT_SECONDS`（默认 12s 读超时）
+- `RETRIEVAL_MAX_RESULTS`
+- `RETRIEVAL_CACHE_ENABLED` / `RETRIEVAL_CACHE_TTL_SECONDS` / `RETRIEVAL_CACHE_ALLOW_STALE_ON_ERROR` / `RETRIEVAL_CACHE_DIR`
+- `RETRIEVAL_GDELT_BASE_URL`
+- `LLM_SEARCH_MODEL`
+
+**Provider 枚举**：`mock | playwright | gdelt | kimi | off`。对照说明见主 [README.md](../README.md#接口与运行路径)。
+
+**运行时缓存**（`data/cache/` 下）：
+
+- 检索缓存：`data/cache/retrieval/<provider>/<cache_key>.json`；key = `sha256(v1|provider|compact_query)` 前 24 位
+- URL 正文缓存：`data/cache/url_fetch/<cache_key>.json`；key = `sha256(v1|url)` 前 24 位；TTL 由 `URL_FETCH_CACHE_TTL_SECONDS` 控制（默认 12h）
+- 诊断入口：`request_context.retrieval_cache_only=true` 强制只读缓存；`bypass_retrieval_cache=true` 跳过缓存直连 provider
+
+## 最小联调
+
+```bash
+curl http://127.0.0.1:8000/api/v1/health
+
+curl -X POST http://127.0.0.1:8000/api/v1/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"raw_input": "网传某地出台新规，要求周末全面停工整顿。", "input_type": "text"}'
+
+curl -X POST http://127.0.0.1:8000/api/v1/analyze/stream \
+  -H "Content-Type: application/json" \
+  -d '{"raw_input": "最近某公司裁员 40% 了吗？", "input_type": "question"}'
+```
+
+## 边界
+
+- URL 输入只支持公开 HTML 页面（不支持登录页、强反爬、浏览器渲染页、PDF、图片正文）
+- verdict / timeline 基于检索结果的规则+启发式，不是完整 agent 搜证系统
+- `Report.provenance.source_type` 当前只输出 `backend_live` 或 `backend_mock`
+- 共享契约以 [../contracts/report.schema.json](../contracts/report.schema.json) 为准
