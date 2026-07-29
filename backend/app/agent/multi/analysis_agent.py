@@ -24,12 +24,15 @@ class AnalysisAgent:
     role = AgentRole.ANALYSIS
     description = "Extract claims, judge verdicts, and run iterative evidence refinement."
 
-    def __init__(self, config: Optional[AgentConfig] = None) -> None:
+    def __init__(self, config: Optional[AgentConfig] = None, depends_on: Optional[List[AgentRole]] = None) -> None:
         self.config = config or AgentConfig()
+        # Which upstream role produces the retrieval bundle: RETRIEVAL on the
+        # sequential DAG, RETRIEVAL_MERGE on the parallel DAG.
+        self._depends_on = depends_on if depends_on is not None else [AgentRole.RETRIEVAL]
 
     @property
     def dependencies(self) -> List[AgentRole]:
-        return [AgentRole.RETRIEVAL]
+        return list(self._depends_on)
 
     def run(self, state: AgentState, ctx: ToolContext) -> SubAgentResult:
         actions_taken: List[str] = []

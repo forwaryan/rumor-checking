@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import queue
+import time
 from datetime import datetime, timezone
 from threading import Thread
 from typing import Any
@@ -14,6 +16,8 @@ from backend.app.core.exceptions import AppError
 from backend.app.models.schemas import AnalyzeRequest, Report
 from backend.app.services.analyze_pipeline import AnalyzePipeline
 from backend.app.services.progress import reset_progress_callback, set_progress_callback
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 _STREAM_DONE = object()
@@ -46,6 +50,12 @@ def analyze_stream(payload: AnalyzeRequest, request: Request) -> StreamingRespon
 
     def worker() -> None:
         token = set_progress_callback(push_event)
+        t0 = time.monotonic()
+        mode_req = payload.request_context.get("mode", "auto")
+        logger.info(
+            "analyze_stream_start run_id=%s trace_id=%s input_type=%s mode=%s",
+            run_id, trace_id, payload.input_type or "auto", mode_req,
+        )
         try:
             preview = payload.raw_input.strip().replace("\r", " ").replace("\n", " ")
             if len(preview) > 140:
@@ -71,6 +81,10 @@ def analyze_stream(payload: AnalyzeRequest, request: Request) -> StreamingRespon
                     "report": report.model_dump(mode="json"),
                 }
             )
+            logger.info(
+                "analyze_stream_ok run_id=%s trace_id=%s mode=%s elapsed_ms=%d",
+                run_id, trace_id, getattr(report, "mode", "?"), int((time.monotonic() - t0) * 1000),
+            )
             push_event(
                 {
                     "type": "complete",
@@ -80,6 +94,10 @@ def analyze_stream(payload: AnalyzeRequest, request: Request) -> StreamingRespon
                 }
             )
         except AppError as exc:
+            logger.warning(
+                "analyze_stream_app_error run_id=%s trace_id=%s code=%s status=%s elapsed_ms=%d",
+                run_id, trace_id, exc.code, exc.status_code, int((time.monotonic() - t0) * 1000),
+            )
             push_event(
                 {
                     "type": "error",
@@ -99,6 +117,10 @@ def analyze_stream(payload: AnalyzeRequest, request: Request) -> StreamingRespon
                 }
             )
         except Exception as exc:  # pragma: no cover
+            logger.exception(
+                "analyze_stream_crashed run_id=%s trace_id=%s error_type=%s elapsed_ms=%d",
+                run_id, trace_id, exc.__class__.__name__, int((time.monotonic() - t0) * 1000),
+            )
             push_event(
                 {
                     "type": "error",

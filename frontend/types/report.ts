@@ -36,7 +36,8 @@ export type AnalysisLiveEventType =
   | "log"
   | "report"
   | "error"
-  | "complete";
+  | "complete"
+  | "metrics";
 
 export type AnalysisLiveStatus = "running" | "completed" | "warning" | "skipped" | "error";
 
@@ -350,6 +351,38 @@ export interface AnalysisLiveCompleteEvent extends AnalysisLiveEventBase {
   summary: string;
 }
 
+export interface RunMetricsAgent {
+  role: string;
+  status: string;
+  elapsed_ms: number;
+  actions: string[];
+  model?: string | null;
+  error?: string | null;
+}
+
+export interface RunMetrics {
+  mode: string;
+  total_ms: number;
+  time_exhausted: boolean;
+  looped_back: boolean;
+  completed: string[];
+  failed: string[];
+  agents: RunMetricsAgent[];
+  source_hits: Record<string, number>;
+  tokens: {
+    prompt: number;
+    completion: number;
+    total: number;
+    llm_calls: number;
+  };
+}
+
+export interface AnalysisLiveMetricsEvent extends AnalysisLiveEventBase {
+  type: "metrics";
+  stage_key?: string | null;
+  metrics: RunMetrics;
+}
+
 export type AnalysisLiveEvent =
   | AnalysisLiveSessionEvent
   | AnalysisLiveStageEvent
@@ -358,7 +391,8 @@ export type AnalysisLiveEvent =
   | AnalysisLiveLogEvent
   | AnalysisLiveReportEvent
   | AnalysisLiveErrorEvent
-  | AnalysisLiveCompleteEvent;
+  | AnalysisLiveCompleteEvent
+  | AnalysisLiveMetricsEvent;
 
 export interface Report {
   mode: OutputMode;

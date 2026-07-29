@@ -10,6 +10,7 @@ import type {
   ReportProvenance,
   ReportProvenanceState,
   ReportSourceKind,
+  SourceTier,
   Verdict,
 } from "@/types/report";
 
@@ -594,6 +595,50 @@ export function getBasisLabel(basis?: string | null): string | null {
   if (basis === "evidence") return "有证据";
   if (basis === "prior") return "无直接证据";
   return null;
+}
+
+export interface SourceTierMeta {
+  tier: SourceTier;
+  label: string;
+  tone: "high" | "medium" | "low";
+  hint: string;
+}
+
+const sourceTierMeta: Record<SourceTier, SourceTierMeta> = {
+  S: {
+    tier: "S",
+    label: "权威一手",
+    tone: "high",
+    hint: "官方通报、当事主体或一手权威来源，可信度最高。",
+  },
+  A: {
+    tier: "A",
+    label: "权威/主流",
+    tone: "high",
+    hint: "官方或权威媒体来源，适合作为主要判定依据。",
+  },
+  B: {
+    tier: "B",
+    label: "一般媒体",
+    tone: "medium",
+    hint: "普通媒体或次级来源，需与更高等级来源相互印证。",
+  },
+  C: {
+    tier: "C",
+    label: "自媒体/社交",
+    tone: "low",
+    hint: "自媒体、社交或聚合转载来源，仅供参考，不宜单独采信。",
+  },
+};
+
+// Turn the bare tier letter (S/A/B/C) into a human-readable label + tone so a
+// low-trust self-media post is not visually indistinguishable from an
+// authoritative source. Unknown tiers fall back to the most conservative (C).
+export function getSourceTierMeta(tier: SourceTier | string | null | undefined): SourceTierMeta {
+  if (tier && tier in sourceTierMeta) {
+    return sourceTierMeta[tier as SourceTier];
+  }
+  return sourceTierMeta.C;
 }
 
 export function validateInput(input: string, inputType: InputType) {

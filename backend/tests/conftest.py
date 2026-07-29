@@ -39,6 +39,7 @@ def stable_test_env(monkeypatch, tmp_path):
     monkeypatch.setenv("RETRIEVAL_PROVIDER", "mock")
     monkeypatch.setenv("RETRIEVAL_FALLBACK_TO_MOCK", "true")
     monkeypatch.setenv("XHS_SEARCH_ENABLED", "false")
+    monkeypatch.setenv("TOUTIAO_SEARCH_ENABLED", "false")
     monkeypatch.setenv("RETRIEVAL_CACHE_ENABLED", "true")
     monkeypatch.setenv("RETRIEVAL_CACHE_ALLOW_STALE_ON_ERROR", "false")
     # Isolate the retrieval cache per test so runs never read or clobber the

@@ -563,7 +563,11 @@ class AnalyzePipeline:
             summary="Supervisor 多 Agent 模式接管本次分析。",
         )
 
-        supervisor = Supervisor(ctx, max_parallel=int(getattr(self.settings, "multi_agent_max_parallel", 4) or 4))
+        supervisor = Supervisor(
+            ctx,
+            max_parallel=int(getattr(self.settings, "multi_agent_max_parallel", 4) or 4),
+            retrieval_mode=getattr(self.settings, "multi_agent_retrieval_mode", "parallel"),
+        )
         try:
             return supervisor.run(request)
         except Exception as exc:

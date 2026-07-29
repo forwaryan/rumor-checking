@@ -22,22 +22,29 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, List, Optional, Protocol
+from typing import Callable, List, Optional, Protocol
 
 from backend.app.agent.state import AgentState
 from backend.app.agent_tools.base import ToolContext
 
 
 class AgentRole(str, Enum):
+    # Sequential-DAG role (retrieval + analysis + critic + report chain).
     RETRIEVAL = "retrieval"
+    # Parallel-DAG roles: a normalize step, one agent per evidence source that
+    # fan out concurrently, and a merge step that recombines their bundles.
+    NORMALIZE = "normalize"
+    RETRIEVAL_BAIDU = "retrieval_baidu"
+    RETRIEVAL_XHS = "retrieval_xhs"
+    RETRIEVAL_TOUTIAO = "retrieval_toutiao"
+    RETRIEVAL_WEIXIN = "retrieval_weixin"
+    RETRIEVAL_MERGE = "retrieval_merge"
     ANALYSIS = "analysis"
     CRITIC = "critic"
     REPORT = "report"
 
 
 class AgentStatus(str, Enum):
-    IDLE = "idle"
-    RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
     SKIPPED = "skipped"
@@ -55,7 +62,6 @@ class AgentConfig:
     """
 
     model: Optional[str] = None
-    temperature: Optional[float] = None
     max_retries: int = 1
     timeout_seconds: Optional[float] = None
     goal: str = ""
@@ -72,7 +78,9 @@ class SubAgentResult:
     actions_taken: List[str] = field(default_factory=list)
     error: Optional[str] = None
     model_used: Optional[str] = None
-    output: Any = None
+    # Wall-clock spent inside _run_agent (incl. retries). Set by the supervisor;
+    # feeds the end-of-run observability summary.
+    elapsed_ms: int = 0
 
 
 class SubAgent(Protocol):

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   collectEvidence,
   getReportProvenanceMeta,
+  getSourceTierMeta,
   getStatusFromMode,
   getTopLineAssessment,
   getVerificationScoreMeta,
@@ -224,5 +225,17 @@ describe("report-utils", () => {
 
     expect(scoreMeta.score).toBe(7);
     expect(scoreMeta.summary).toContain("当前不是实时联网结果");
+  });
+
+  it("maps source tiers to human labels with a conservative fallback", () => {
+    expect(getSourceTierMeta("A").tone).toBe("high");
+    expect(getSourceTierMeta("A").label).toContain("权威");
+    expect(getSourceTierMeta("B").tone).toBe("medium");
+    expect(getSourceTierMeta("C").tone).toBe("low");
+    // An unknown/garbage tier must degrade to the most conservative (C), never
+    // silently read as high-trust.
+    expect(getSourceTierMeta("Z").tone).toBe("low");
+    expect(getSourceTierMeta(null).tone).toBe("low");
+    expect(getSourceTierMeta(undefined).tier).toBe("C");
   });
 });

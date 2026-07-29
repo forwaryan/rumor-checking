@@ -22,7 +22,7 @@ from backend.app.models.schemas import (
 )
 from backend.app.services.claim_extractor import ClaimExtraction
 from backend.app.services.claim_correction import annotate_claim_corrections
-from backend.app.services.contract_utils import default_source_name, default_source_url, ensure_datetime_string, loads_lenient_json
+from backend.app.services.contract_utils import default_source_name, default_source_url, ensure_datetime_string, ensure_datetime_string_or_empty, loads_lenient_json
 from backend.app.services.progress import emit_api_call, emit_log
 from backend.app.services.question_intent import is_broad_trend_question
 from backend.app.services.question_resolver import QuestionResolution
@@ -1766,14 +1766,14 @@ class LlmAgentReasoner:
                     title=result.title,
                     url=result.url,
                     source_name=result.source_name,
-                    published_at=ensure_datetime_string(result.published_at),
+                    published_at=ensure_datetime_string_or_empty(result.published_at),
                     summary=self._clean_optional_string(item.get("summary")) or result.snippet,
                     why_selected=self._clean_optional_string(item.get("why_selected")) or "Agent selected this retrieval hit as a timeline node.",
                 )
             )
             if len(nodes) >= 5:
                 break
-        nodes.sort(key=lambda item: (item.published_at, item.node_type))
+        nodes.sort(key=lambda item: (item.published_at == "", item.published_at, item.node_type))
         return nodes
 
     def _timeline_completeness(self, nodes: list[TimelineNode]) -> int:

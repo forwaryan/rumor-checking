@@ -159,6 +159,20 @@ def test_models_endpoint_returns_whitelist_and_default(monkeypatch):
         assert body["default"] == "ModelA"
 
 
+def test_search_sources_endpoint_lists_all_dag_sources(client):
+    response = client.get("/api/v1/search-sources")
+    assert response.status_code == 200
+    body = response.json()
+    ids = {s["id"] for s in body["sources"]}
+    # Every source wired into the parallel DAG must be exposed so the toggle UI
+    # stays consistent with what actually runs.
+    assert {"baidu", "xiaohongshu", "toutiao", "sogou_weixin"}.issubset(ids)
+    for source in body["sources"]:
+        assert {"id", "label", "description", "enabled", "default_on"} <= source.keys()
+        assert isinstance(source["enabled"], bool)
+        assert isinstance(source["default_on"], bool)
+
+
 def test_resolve_model_rejects_non_whitelisted(monkeypatch):
     from backend.app.core.config import get_settings
 

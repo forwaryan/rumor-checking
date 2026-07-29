@@ -569,6 +569,13 @@ class VerdictEngine:
             ("有一个", ""),
             ("死掉了", "死亡"),
             ("死掉", "死亡"),
+            ("死了", "死亡"),
+            ("裁了", "裁员"),
+            ("裁掉", "裁员"),
+            ("停了", "停产"),
+            ("关了", "停业"),
+            ("倒了", "倒闭"),
+            ("跑了", "跑路"),
             ("真的假的", ""),
             ("真的还是假的", ""),
             ("真假", ""),
@@ -599,9 +606,16 @@ class VerdictEngine:
         for term in self._extract_quantity_tokens(text):
             push(term)
 
-        for chunk in re.findall(r"[\u4e00-\u9fff]{2,}", text):
+        # Strip high-frequency function chars before CJK chunking so they
+        # don't pollute bigram windows (e.g. "\u7684\u4ea7\u54c1" \u2192 "\u4ea7\u54c1")
+        cjk_text = re.sub(r"[\u7684\u4e86\u5728\u8fc7\u7740\u628a\u88ab\u8ba9\u7ed9\u8ddf]", "", text)
+        for chunk in re.findall(r"[\u4e00-\u9fff]{2,}", cjk_text):
             if len(chunk) <= 4:
                 push(chunk)
+                # Also emit 2-char bigrams so entities like "\u7f8e\u56e2" match
+                if len(chunk) >= 3:
+                    for idx in range(len(chunk) - 1):
+                        push(chunk[idx : idx + 2])
                 continue
             for window in (4, 3, 2):
                 if len(chunk) < window:

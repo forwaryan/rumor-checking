@@ -1,6 +1,7 @@
 "use client";
 
 import type { DemoCaseSummary } from "@/types/report";
+import type { SearchSource } from "@/lib/api-client";
 
 export interface SearchInputProps {
   inputValue: string;
@@ -10,6 +11,9 @@ export interface SearchInputProps {
   demoCases: DemoCaseSummary[];
   onSelectExample: (demo: DemoCaseSummary) => void;
   backendState: "checking" | "online" | "offline" | "degraded";
+  searchSources: SearchSource[];
+  activeSources: string[];
+  onToggleSource: (sourceId: string) => void;
 }
 
 export function SearchInput({
@@ -20,7 +24,12 @@ export function SearchInput({
   demoCases,
   onSelectExample,
   backendState,
+  searchSources,
+  activeSources,
+  onToggleSource,
 }: SearchInputProps) {
+  const enabledSources = searchSources.filter((s) => s.enabled);
+
   return (
     <main className="app app--idle">
       <div className="search-page">
@@ -28,6 +37,35 @@ export function SearchInput({
           <h1>较真核查</h1>
           <p>输入你看到的消息，帮你判断真假</p>
         </div>
+
+        {enabledSources.length > 0 && (
+          <div className="search-sources">
+            <span className="search-sources__label">搜索源：</span>
+            <div className="search-sources__options">
+              {enabledSources.map((source) => {
+                const checked = activeSources.includes(source.id);
+                // Block unchecking the last active source: an empty selection
+                // would silently fall back to "all sources" on the backend.
+                const isLastActive = checked && activeSources.length <= 1;
+                return (
+                  <label
+                    key={source.id}
+                    className="search-sources__item"
+                    title={isLastActive ? "至少保留一个搜索源" : source.description}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => onToggleSource(source.id)}
+                      disabled={isStreaming || isLastActive}
+                    />
+                    <span className="search-sources__name">{source.label}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <div className="search-box">
           <textarea

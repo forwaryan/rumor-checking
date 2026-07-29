@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set
 
@@ -36,12 +37,16 @@ class TokenUsage:
     completion_tokens: int = 0
     total_tokens: int = 0
     call_count: int = 0
+    # Parallel source agents can fire LLM calls concurrently, so the read-modify-
+    # write of these counters must be serialized or totals get lost to races.
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     def add(self, prompt: int = 0, completion: int = 0, total: int = 0) -> None:
-        self.prompt_tokens += prompt
-        self.completion_tokens += completion
-        self.total_tokens += total or (prompt + completion)
-        self.call_count += 1
+        with self._lock:
+            self.prompt_tokens += prompt
+            self.completion_tokens += completion
+            self.total_tokens += total or (prompt + completion)
+            self.call_count += 1
 
 
 @dataclass
@@ -73,6 +78,14 @@ class AgentState:
     retrieval_bundle: Optional[RetrievalBundle] = None
     follow_up_bundle: Optional[RetrievalBundle] = None
     follow_up_used: bool = False
+    # Parallel-DAG scratch: each source agent writes its own bundle under a
+    # source key ("baidu"/"xiaohongshu"/...); the merge agent recombines them
+    # into retrieval_bundle. Empty on the sequential DAG.
+    source_bundles: Dict[str, RetrievalBundle] = field(default_factory=dict)
+    # Primary search query computed once by the normalize agent so parallel
+    # source agents reuse it (via force_retrieval_query) instead of each
+    # re-running the query planner (which can cost an LLM round-trip).
+    primary_query: Optional[str] = None
 
     question_resolution: Optional[QuestionResolution] = None
 

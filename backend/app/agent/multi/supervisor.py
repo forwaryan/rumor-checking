@@ -25,19 +25,29 @@ from __future__ import annotations
 
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout, wait
+from contextvars import copy_context
 from typing import Dict, List, Optional
 
 from backend.app.agent.multi import AgentRole, AgentStatus, SubAgent, SubAgentResult
 from backend.app.agent.multi.analysis_agent import AnalysisAgent
 from backend.app.agent.multi.critic_agent import CriticAgent
+from backend.app.agent.multi.merge_agent import MergeAgent
+from backend.app.agent.multi.normalize_agent import NormalizeAgent
 from backend.app.agent.multi.report_agent import ReportAgent
 from backend.app.agent.multi.retrieval_agent import RetrievalAgent
+from backend.app.agent.multi.source_agents import SOURCE_ROLES, build_source_agents
 from backend.app.agent.state import AgentState
 from backend.app.agent_tools.base import ToolContext
 from backend.app.agent_tools import tools as _tools  # noqa: F401 — triggers @tool registration
 from backend.app.models.schemas import AnalyzeRequest, Report
-from backend.app.services.progress import emit_log
+from backend.app.services.progress import (
+    emit_log,
+    emit_progress,
+    get_progress_callback,
+    reset_progress_callback,
+    set_progress_callback,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,17 +71,32 @@ class Supervisor:
         agents: Optional[List[SubAgent]] = None,
         agent_configs: Optional[Dict[AgentRole, "AgentConfig"]] = None,
         max_parallel: int = 2,
+        retrieval_mode: Optional[str] = None,
     ) -> None:
         self.ctx = ctx
         self.max_parallel = max_parallel
         self._results: Dict[AgentRole, SubAgentResult] = {}
+        self.retrieval_mode = (
+            retrieval_mode
+            or getattr(ctx, "settings", None)
+            and getattr(ctx.settings, "multi_agent_retrieval_mode", "parallel")
+            or "parallel"
+        )
 
         if agents:
             self.agents: List[SubAgent] = agents
         else:
             from backend.app.agent.multi import AgentConfig
             configs = agent_configs or self._load_configs_from_settings()
-            self.agents = self._default_agents(configs)
+            self.agents = self._default_agents(configs, mode=self.retrieval_mode)
+
+        # Retrieval-segment roles present in the active DAG — used by loop-back to
+        # reset the right agents regardless of which topology is running.
+        self._retrieval_roles = [
+            a.role
+            for a in self.agents
+            if a.role in {AgentRole.RETRIEVAL, AgentRole.NORMALIZE, AgentRole.RETRIEVAL_MERGE, *SOURCE_ROLES}
+        ]
 
     def run(self, request: AnalyzeRequest) -> Report:
         state = AgentState(request=request)
@@ -88,7 +113,8 @@ class Supervisor:
         wall_clock = float(getattr(self.ctx.settings, "agent_wall_clock_seconds", 0.0) or 0.0)
         if wall_clock <= 0:
             wall_clock = 120.0
-        deadline = time.monotonic() + wall_clock
+        run_start = time.monotonic()
+        deadline = run_start + wall_clock
 
         emit_log(
             stage_key=_STAGE_KEY,
@@ -147,7 +173,11 @@ class Supervisor:
                     completed.add(result.role)
                 else:
                     failed.add(result.role)
-                    if result.role == AgentRole.RETRIEVAL:
+                    # The DAG entry point (sequential: RETRIEVAL; parallel:
+                    # NORMALIZE) is critical — nothing downstream can run without
+                    # it, so abort to the fixed-pipeline fallback. Individual
+                    # source agents are NOT critical (they degrade to empty slots).
+                    if result.role in (AgentRole.RETRIEVAL, AgentRole.NORMALIZE):
                         raise RuntimeError(
                             f"critical_agent_failed:{result.role.value} error={result.error}"
                         )
@@ -162,9 +192,11 @@ class Supervisor:
                     title="条件路由: 回到检索",
                     summary="判定证据不足，触发重新检索。",
                 )
-                completed.discard(AgentRole.RETRIEVAL)
-                completed.discard(AgentRole.ANALYSIS)
-                completed.discard(AgentRole.CRITIC)
+                # Re-run the whole retrieval segment for the active DAG (sequential:
+                # RETRIEVAL; parallel: normalize + sources + merge) plus analysis and
+                # critic. Discard only roles that exist so this is DAG-agnostic.
+                for role in (*self._retrieval_roles, AgentRole.ANALYSIS, AgentRole.CRITIC):
+                    completed.discard(role)
                 state.per_claim_iterations = 0
                 state.per_claim_searches = 0
                 state.done_actions.append("supervisor_loop_back")
@@ -175,17 +207,83 @@ class Supervisor:
         if state.report is None:
             raise RuntimeError("supervisor_finished_without_report")
 
-        emit_log(
-            stage_key=_STAGE_KEY,
-            title="Supervisor 完成",
-            summary=f"已完成 {len(completed)} 个 Agent，失败 {len(failed)} 个。",
-            details=[
-                f"completed={','.join(r.value for r in completed)}",
-                f"failed={','.join(r.value for r in failed)}",
-            ],
-        )
+        self._emit_run_summary(state, completed, failed, run_start)
 
         return state.report
+
+    def _emit_run_summary(
+        self,
+        state: AgentState,
+        completed: set[AgentRole],
+        failed: set[AgentRole],
+        run_start: float,
+    ) -> None:
+        """Emit an end-of-run observability summary: per-agent status/timing,
+        token usage, per-source contribution, and the DAG topology used.
+
+        Emitted twice — a human-readable `log` event for the trace panel and a
+        machine-readable `metrics` event for programmatic consumers. Best-effort:
+        any failure here must never break a run that already produced a report."""
+        try:
+            total_ms = int((time.monotonic() - run_start) * 1000)
+            agents_detail = []
+            for role in (a.role for a in self.agents):
+                res = self._results.get(role)
+                if res is None:
+                    continue
+                agents_detail.append({
+                    "role": role.value,
+                    "status": res.status.value,
+                    "elapsed_ms": res.elapsed_ms,
+                    "actions": list(res.actions_taken),
+                    "model": res.model_used,
+                    "error": res.error,
+                })
+
+            source_hits = {
+                key: len(bundle.canonical_results)
+                for key, bundle in sorted(state.source_bundles.items())
+                if bundle is not None
+            }
+
+            usage = state.token_usage
+            metrics = {
+                "mode": self.retrieval_mode,
+                "total_ms": total_ms,
+                "time_exhausted": state.time_exhausted,
+                "looped_back": "supervisor_loop_back" in state.done_actions,
+                "completed": sorted(r.value for r in completed),
+                "failed": sorted(r.value for r in failed),
+                "agents": agents_detail,
+                "source_hits": source_hits,
+                "tokens": {
+                    "prompt": usage.prompt_tokens,
+                    "completion": usage.completion_tokens,
+                    "total": usage.total_tokens,
+                    "llm_calls": usage.call_count,
+                },
+            }
+            emit_progress("metrics", stage_key=_STAGE_KEY, metrics=metrics)
+
+            slowest = sorted(agents_detail, key=lambda a: a["elapsed_ms"], reverse=True)[:3]
+            details = [
+                f"mode={self.retrieval_mode} total={total_ms}ms",
+                f"tokens={usage.total_tokens}(calls={usage.call_count})",
+            ]
+            if source_hits:
+                details.append("source_hits=" + ", ".join(f"{k}:{v}" for k, v in source_hits.items()))
+            if slowest:
+                details.append("slowest=" + ", ".join(f"{a['role']}:{a['elapsed_ms']}ms" for a in slowest))
+            if failed:
+                details.append("failed=" + ",".join(sorted(r.value for r in failed)))
+            emit_log(
+                stage_key=_STAGE_KEY,
+                title="Supervisor 完成",
+                summary=f"已完成 {len(completed)} 个 Agent，失败 {len(failed)} 个，总耗时 {total_ms}ms。",
+                details=details,
+            )
+        except Exception as exc:  # observability must never break a successful run
+            logger.warning("supervisor_run_summary_failed error=%s", exc)
 
     def _should_loop_back(self, state: AgentState) -> bool:
         """Conditional edge: should we loop back to retrieval for another round?
@@ -316,14 +414,44 @@ class Supervisor:
                 results.append(result)
             return results
 
+        # Parallel fan-out. Agents on parallel threads must NOT mutate the shared
+        # reasoner's model_override (its save/restore in _run_agent is not thread
+        # safe), so batched agents are required to declare no model override. The
+        # source agents satisfy this by construction; assert to catch regressions.
+        offenders = [a.role.value for a in agents if getattr(getattr(a, "config", None), "model", None)]
+        if offenders:
+            raise RuntimeError(f"parallel_batch_declares_model_override:{','.join(offenders)}")
+
         results: List[SubAgentResult] = []
         with ThreadPoolExecutor(max_workers=min(len(agents), self.max_parallel)) as pool:
+            # ContextVars (progress callback, retrieval stage key) do NOT cross into
+            # pool threads — on 3.12 submit() runs the callable with a fresh empty
+            # context, so a naive submit makes every source-agent emit_log/emit_api_call
+            # silently no-op and the whole parallel retrieval phase vanishes from the
+            # trace UI. Snapshot the parent context and run each worker inside a copy,
+            # mirroring the rebinding retrieval_service._run_fetch already does.
             futures = {
-                pool.submit(self._run_agent, agent, state, deadline): agent
+                pool.submit(copy_context().run, self._run_agent, agent, state, deadline): agent
                 for agent in agents
             }
-            for future in as_completed(futures):
+            # Bound the wait by the supervisor deadline so one hung agent can't
+            # block the whole batch past the wall-clock budget. Providers already
+            # have their own IO timeouts; this is the supervisor-level backstop.
+            timeout = max(deadline - time.monotonic(), 0.0) if deadline is not None else None
+            done, not_done = wait(futures, timeout=timeout)
+            for future in done:
                 results.append(future.result())
+            for future in not_done:
+                agent = futures[future]
+                future.cancel()
+                logger.warning("supervisor_agent_timed_out role=%s", agent.role.value)
+                results.append(
+                    SubAgentResult(
+                        role=agent.role,
+                        status=AgentStatus.FAILED,
+                        error="batch_deadline_exceeded",
+                    )
+                )
         return results
 
     def _run_agent(
@@ -361,6 +489,7 @@ class Supervisor:
         t0 = time.monotonic()
 
         max_retries = getattr(config, "max_retries", 1) if config else 1
+        timeout_seconds = getattr(config, "timeout_seconds", None) if config else None
         result: Optional[SubAgentResult] = None
 
         for attempt in range(max_retries + 1):
@@ -378,7 +507,14 @@ class Supervisor:
             reasoner = self.ctx.agent_reasoner
             prev_model = getattr(reasoner, "model_override", None) if reasoner else None
             try:
-                result = agent.run(state, self.ctx)
+                result = self._invoke_agent(agent, state, timeout_seconds)
+            except TimeoutError:
+                logger.warning("supervisor_agent_timeout role=%s attempt=%d limit=%ss", agent.role.value, attempt, timeout_seconds)
+                result = SubAgentResult(
+                    role=agent.role,
+                    status=AgentStatus.FAILED,
+                    error=f"agent_timeout:{timeout_seconds}s",
+                )
             except Exception as exc:
                 logger.error("supervisor_agent_crashed role=%s attempt=%d error=%s", agent.role.value, attempt, exc)
                 result = SubAgentResult(
@@ -394,6 +530,7 @@ class Supervisor:
                 break
 
         elapsed = time.monotonic() - t0
+        result.elapsed_ms = int(elapsed * 1000)
         emit_log(
             stage_key=_STAGE_KEY,
             title=f"{agent.role.value} Agent 返回",
@@ -404,6 +541,40 @@ class Supervisor:
             ],
         )
         return result
+
+    def _invoke_agent(
+        self,
+        agent: SubAgent,
+        state: AgentState,
+        timeout_seconds: Optional[float],
+    ) -> SubAgentResult:
+        """Run agent.run, optionally bounded by a per-agent timeout.
+
+        With no timeout, runs inline. With a timeout, runs on a worker thread and
+        raises TimeoutError if it overruns; the progress ContextVar is rebound in
+        the worker since ContextVars don't cross threads. An overrun leaves the
+        worker orphaned, but every provider has its own IO timeout so it cannot
+        run unbounded — this is a supervisor-level backstop, not the only guard."""
+        if not timeout_seconds or timeout_seconds <= 0:
+            return agent.run(state, self.ctx)
+
+        parent_callback = get_progress_callback()
+
+        def _worker() -> SubAgentResult:
+            token = set_progress_callback(parent_callback) if parent_callback is not None else None
+            try:
+                return agent.run(state, self.ctx)
+            finally:
+                if token is not None:
+                    reset_progress_callback(token)
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(_worker)
+            try:
+                return future.result(timeout=timeout_seconds)
+            except FuturesTimeout as exc:
+                future.cancel()
+                raise TimeoutError(str(timeout_seconds)) from exc
 
     def _force_finalize(self, state: AgentState, completed: set[AgentRole]) -> None:
         """Last-resort: force report generation with whatever state we have."""
@@ -433,7 +604,11 @@ class Supervisor:
             logger.error("supervisor_force_finalize_failed error=%s", exc)
 
     @staticmethod
-    def _default_agents(configs: Optional[Dict[AgentRole, "AgentConfig"]] = None) -> List[SubAgent]:
+    def _default_agents(
+        configs: Optional[Dict[AgentRole, "AgentConfig"]] = None,
+        *,
+        mode: str = "parallel",
+    ) -> List[SubAgent]:
         from backend.app.agent.multi import AgentConfig
         configs = configs or {}
 
@@ -442,6 +617,16 @@ class Supervisor:
                 goal="标准化输入并从多源收集高质量证据。",
                 tools=["normalize", "search_news", "resolve_question", "follow_up_retrieval", "investigate", "fetch_url"],
                 max_retries=2,
+            ),
+            AgentRole.NORMALIZE: AgentConfig(
+                goal="标准化输入并预计算共享检索 query。",
+                tools=["normalize"],
+                max_retries=2,
+            ),
+            AgentRole.RETRIEVAL_MERGE: AgentConfig(
+                goal="合并多源检索结果并执行检索精炼。",
+                tools=["resolve_question", "follow_up_retrieval", "investigate", "fetch_url"],
+                max_retries=1,
             ),
             AgentRole.ANALYSIS: AgentConfig(
                 goal="基于证据对每条事实声明做出准确的真假判定。",
@@ -461,21 +646,39 @@ class Supervisor:
             ),
         }
 
-        merged = {role: AgentConfig(
-            model=configs.get(role, AgentConfig()).model or default_configs[role].model,
-            temperature=configs.get(role, AgentConfig()).temperature or default_configs[role].temperature,
-            max_retries=configs.get(role, AgentConfig()).max_retries if configs.get(role) else default_configs[role].max_retries,
-            timeout_seconds=configs.get(role, AgentConfig()).timeout_seconds or default_configs[role].timeout_seconds,
-            goal=configs.get(role, AgentConfig()).goal or default_configs[role].goal,
-            tools=configs.get(role, AgentConfig()).tools or default_configs[role].tools,
-            skip_when=configs.get(role, AgentConfig()).skip_when or default_configs[role].skip_when,
-        ) for role in AgentRole}
+        def cfg(role: AgentRole) -> AgentConfig:
+            """Merge an optional per-role override over that role's default."""
+            base = default_configs.get(role, AgentConfig())
+            override = configs.get(role)
+            if override is None:
+                return base
+            return AgentConfig(
+                model=override.model or base.model,
+                max_retries=override.max_retries,
+                timeout_seconds=override.timeout_seconds or base.timeout_seconds,
+                goal=override.goal or base.goal,
+                tools=override.tools or base.tools,
+                skip_when=override.skip_when or base.skip_when,
+            )
 
+        analysis_upstream = AgentRole.RETRIEVAL if mode == "sequential" else AgentRole.RETRIEVAL_MERGE
+        analysis_chain: List[SubAgent] = [
+            AnalysisAgent(config=cfg(AgentRole.ANALYSIS), depends_on=[analysis_upstream]),
+            CriticAgent(config=cfg(AgentRole.CRITIC)),
+            ReportAgent(config=cfg(AgentRole.REPORT)),
+        ]
+
+        if mode == "sequential":
+            return [RetrievalAgent(config=cfg(AgentRole.RETRIEVAL)), *analysis_chain]
+
+        # parallel: normalize -> {4 source agents in parallel} -> merge -> analysis.
+        # Source agents keep model=None by construction (build_source_agents) so the
+        # parallel batch never races on reasoner.model_override.
         return [
-            RetrievalAgent(config=merged[AgentRole.RETRIEVAL]),
-            AnalysisAgent(config=merged[AgentRole.ANALYSIS]),
-            CriticAgent(config=merged[AgentRole.CRITIC]),
-            ReportAgent(config=merged[AgentRole.REPORT]),
+            NormalizeAgent(config=cfg(AgentRole.NORMALIZE)),
+            *build_source_agents(),
+            MergeAgent(config=cfg(AgentRole.RETRIEVAL_MERGE)),
+            *analysis_chain,
         ]
 
     def _load_configs_from_settings(self) -> Dict[AgentRole, "AgentConfig"]:
