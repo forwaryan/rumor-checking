@@ -1,56 +1,65 @@
-# 当前代码结构与项目架构说明
+# 代码结构与架构详解
 
-更新时间：2026-07-26（Asia/Shanghai）
-
-这份文档只讲三件事：
-
-1. 现在这套代码是怎么分层的。
-2. 现在这个项目的主架构是怎么跑的。
-3. 用一个真实能在当前代码里跑通的例子，把整条链路讲清楚。
+> 更新时间：2026-07-29（Asia/Shanghai）
+> 
+> 目的：把这套代码「怎么分层、怎么跑、每个模块干什么」讲清楚。所有链接和口径与当前主分支代码一致。
 
 <p align="center">
-  <img src="assets/hero.png" alt="较真核查：从信息洪流中分辨真伪" width="720">
+  <img src="assets/hero.png" alt="较真：让每一条传闻都能被查证" width="720">
 </p>
 
 ---
 
-## 1. 一句话先讲清楚
+## 目录
 
-`rumor-checking` 现在是一套 **Next.js 单页前端 + FastAPI 后端 + 共享 Report 契约 + 可流式观测的分析流水线**。
-
-它不是“前端调一个黑盒模型然后等答案”，而是：
-
-- 前端负责输入、实时过程展示、结构化结果展示。
-- 后端负责把输入拆成标准化事件、检索、消歧、判定、时间线和最终报告。
-- `contracts/` 负责把前后端都要认的字段结构固定下来。
-- `evals/` 和 `mock` 检索负责给这条链路提供稳定、可回归的样例。
-
----
-
-## 2. 先看当前运行路径
-
-项目现在存在三层可叠加的运行选择：
-
-| 维度 | 稳定基线（默认） | 增强路径 | 关键开关 |
-| --- | --- | --- | --- |
-| 分析 provider | 规则兜底 | LLM 综合判断 | `ANALYSIS_PROVIDER=off\|kimi` |
-| 检索 provider | mock | playwright 抓取 / gdelt / LLM 内建联网 | `RETRIEVAL_PROVIDER=mock\|playwright\|gdelt\|kimi\|off` |
-| 主编排 | 固定 pipeline | 可插拔 agent 循环 | `AGENT_ORCHESTRATOR_ENABLED=false\|true` |
-
-三个开关都默认取"稳定基线"一侧，所以**开箱即 `off + mock + 固定 pipeline`**，零 key、可复现、可回归。
-
-> 说明：`ANALYSIS_PROVIDER` / `RETRIEVAL_PROVIDER` 的枚举值 `kimi` 只是历史遗留的**配置开关字面量**，不代表具体供应商；LLM 调用层已做成供应商中立（见 §6.4），真实模型/端点/密钥全部由 git 忽略的 `backend/.env` 决定。`playwright` 是纯 httpx 抓取百度/Bing 的独立联网检索路径（不依赖浏览器二进制，也不依赖 LLM 内建搜索）。
-
-`backend/.env.example` 是模板（key 字段留空）；真实运行时把密钥和覆盖项放进 **git 忽略的 `backend/.env`**（该文件不进版本库）。理解架构时分两层看：
-
-- **代码结构层**：始终是“输入标准化 -> 检索 -> 消歧 -> agent/规则判定 -> 报告组装”。
-- **运行配置层**：只是决定“这一步走 mock 还是走真实 provider、agent 是否启用”。
-
-下面这份说明主图会把两条分支都画出来。贯穿示例则使用稳定的 `off + mock` 路径，因为它最容易复现，也最符合当前仓库里的回归资产。
+1. [一句话架构](#1-一句话架构)
+2. [核查全流程](#2-核查全流程)
+3. [仓库结构](#3-仓库结构)
+4. [两档核查设计](#4-两档核查设计)
+5. [前端架构](#5-前端架构)
+6. [后端架构](#6-后端架构)
+7. [多 Agent 并行编排](#7-多-agent-并行编排)
+8. [核心数据对象](#8-核心数据对象)
+9. [贯穿示例：一次真实分析的 8 步](#9-贯穿示例一次真实分析的-8-步)
+10. [推荐阅读顺序](#10-推荐阅读顺序)
 
 ---
 
-## 3. 仓库结构总览
+## 1. 一句话架构
+
+`rumor-checking` 是一套 **Next.js 前端 + FastAPI 后端 + 共享 Report 契约 + 可流式观测的分析流水线**。它刻意**不是「前端调一个黑盒模型然后等答案」**：
+
+- **前端**负责输入、实时过程展示、结构化结果展示
+- **后端**负责把输入拆成标准化事件 → 检索 → 消歧 → 判定 → 时间线 → 最终报告
+- **`contracts/`** 固定前后端共享的字段结构，避免各说各话
+- **`evals/` + mock 检索**给整条链路提供稳定、可回归的样例
+
+> **关键取舍**：架构的关键词不是「大模型」，而是「结构化流水线 + 流式可观测 + 契约化输出」。
+
+---
+
+## 2. 核查全流程
+
+<p align="center">
+  <img src="assets/end-to-end-flow.png" alt="核查全流程：从一句话到一份可复核的报告" width="900">
+</p>
+
+后端主链路始终是这 6 步（不管深浅档）：
+
+| # | 步骤 | 谁负责 | 关键输出 |
+|---|---|---|---|
+| 1 | **输入** | 前端 `SearchInput` | `AnalyzeRequest` |
+| 2 | **标准化** | `InputNormalizer` | `NormalizedEvent`（标题、摘要、关键词、来源、input_type） |
+| 3 | **并行检索** | `RetrievalService` / 多 Agent 4 路 | `RetrievalBundle`（canonical_results、grade） |
+| 4 | **拆 Claim** | `ClaimExtractor` / LLM synthesis | 原子 fact/statement/opinion 列表 |
+| 5 | **逐条判定** | `VerdictEngine` + LLM 补判 / Critic | 每条 `verdict + confidence + truth_probability + evidence` |
+| 6 | **报告** | `ReportBuilder` + `PipelineTraceBuilder` | `Report`（前端消费） |
+
+**每一步都以流式事件推给前端**（`emit_stage` / `emit_log` / `emit_retrieval` / `emit_api_call`），用户能实时看到当前进度、失败原因、每次 LLM 调用的问答（人类可读/原始 JSON 两个 tab）。
+
+---
+
+## 3. 仓库结构
 
 ```text
 rumor-checking/
@@ -59,8 +68,10 @@ rumor-checking/
 │  │  ├─ api/                # FastAPI 路由与接口入口
 │  │  ├─ core/               # 配置、日志、异常
 │  │  ├─ models/             # Pydantic 数据模型
+│  │  ├─ agent/              # Agent 编排层（含 multi/ 多 Agent DAG）
+│  │  ├─ agent_tools/        # 把 services 里的能力薄封装成工具
 │  │  └─ services/           # 真正的业务流水线与能力组件
-│  ├─ tests/                 # 后端测试
+│  ├─ tests/                 # 后端测试（~540 用例）
 │  └─ eval_regression_tests/ # 回归相关脚本
 ├─ frontend/
 │  ├─ app/                   # Next.js 页面入口与全局样式
@@ -74,114 +85,82 @@ rumor-checking/
 └─ README.md                 # 仓库总入口
 ```
 
-### 3.1 各目录在当前架构里的角色
+**各目录职责**：
 
-| 目录 | 当前职责 | 关键文件 |
-| --- | --- | --- |
-| [backend/app/api](../backend/app/api) | 定义 HTTP 接口与流式响应入口 | [backend/app/api/v1/endpoints/analyze.py](../backend/app/api/v1/endpoints/analyze.py) |
-| [backend/app/core](../backend/app/core) | 读取配置、安装异常处理、配置日志 | [backend/app/core/config.py](../backend/app/core/config.py) |
-| [backend/app/models](../backend/app/models) | 定义 `AnalyzeRequest`、`Report` 等结构 | [backend/app/models/schemas.py](../backend/app/models/schemas.py) |
-| [backend/app/services](../backend/app/services) | 实现输入标准化、检索、判定、时间线、报告组装 | [backend/app/services/analyze_pipeline.py](../backend/app/services/analyze_pipeline.py) |
-| [frontend/components](../frontend/components) | 把最终 `Report` 和流式事件拆成多个 UI 组件（判定卡片、逐条核查、证据、可能性、时间线、trace 等） | [frontend/components/analyze-page.tsx](../frontend/components/analyze-page.tsx) |
-| [frontend/lib](../frontend/lib) | 前端请求后端、解析 NDJSON、整理展示逻辑 | [frontend/lib/api-client.ts](../frontend/lib/api-client.ts) |
-| [contracts](../contracts) | 固定共享协议，避免前后端各说各话 | [contracts/report.schema.json](../contracts/report.schema.json) |
-| [evals/minimal_v1](../evals/minimal_v1) | 提供 mock 检索和最小回归样例 | [evals/minimal_v1/retrieval_cases.json](../evals/minimal_v1/retrieval_cases.json) |
-| [data/cache](../data/cache) | 存真实检索缓存，而不是把缓存散落在业务目录 | [data/README.md](../data/README.md) |
+| 目录 | 职责 | 关键文件 |
+|---|---|---|
+| [backend/app/api](../backend/app/api) | HTTP 接口与流式响应入口 | [analyze.py](../backend/app/api/v1/endpoints/analyze.py) |
+| [backend/app/core](../backend/app/core) | 读取配置、异常处理、日志 | [config.py](../backend/app/core/config.py) |
+| [backend/app/models](../backend/app/models) | 定义 `AnalyzeRequest`、`Report` 等结构 | [schemas.py](../backend/app/models/schemas.py) |
+| [backend/app/services](../backend/app/services) | 输入标准化、检索、判定、时间线、报告组装 | [analyze_pipeline.py](../backend/app/services/analyze_pipeline.py) |
+| [backend/app/agent](../backend/app/agent) | Agent 编排（单 Agent + 多 Agent 层） | [runner.py](../backend/app/agent/runner.py) / [multi/supervisor.py](../backend/app/agent/multi/supervisor.py) |
+| [frontend/components](../frontend/components) | 判定卡片、逐条核查、证据、时间线、trace 等展示 | [analyze-page.tsx](../frontend/components/analyze-page.tsx) |
+| [frontend/lib](../frontend/lib) | 请求后端、解析 NDJSON、展示层整理 | [api-client.ts](../frontend/lib/api-client.ts) |
+| [contracts](../contracts) | 固定共享协议 | [report.schema.json](../contracts/report.schema.json) |
 
 ---
 
-## 4. 项目总架构图
+## 4. 两档核查设计
 
-```mermaid
-flowchart LR
-    U["用户"] --> FE["Next.js 前端"]
-    FE --> API["FastAPI 接口层"]
-    API --> PIPE["AnalyzePipeline"]
+<p align="center">
+  <img src="assets/two-modes.png" alt="两档核查：秒级实时 vs 分钟级深度" width="900">
+</p>
 
-    PIPE --> NORM["InputNormalizer"]
-    PIPE --> RET["RetrievalService"]
-    PIPE --> RESOLVE["QuestionResolver / Agent question resolution"]
-    PIPE --> SYN["LlmAgentReasoner.synthesize"]
-    PIPE --> FALLBACK["ProviderEnricher + ClaimExtractor + VerdictEngine + TimelineBuilder"]
-    PIPE --> BUILD["ReportBuilder + ContentCheckBuilder + PipelineTraceBuilder"]
+同一后端进程**同时提供两档**，不靠环境变量切换：
 
-    RET --> CACHE["data/cache/retrieval"]
-    RET --> EVAL["evals/minimal_v1 mock cases"]
-    BUILD --> CONTRACT["contracts/report.schema.json"]
+| 档位 | 触发 | 路径 | 时延 | 适用 |
+|---|---|---|---|---|
+| **`fast`**（默认） | `request_context.mode=fast` 或缺省 | 零 LLM 规则路径 + 真实检索 + 规则 verdict（可 LLM 补判） | ~0.2–0.3s | 真实用户当下就能用的秒级核查 |
+| **`deep`** | `request_context.mode=deep` | LLM/agent 全链路（序列规划器、synthesis、critic、多 Agent 并行 DAG） | 几分钟级 | 需要更强判定时的异步深度核查 |
 
-    API --> STREAM["NDJSON 流式事件"]
-    STREAM --> FE
-    CONTRACT --> FE
-```
+**为什么这样分档**：
 
-这张图里最重要的三个点是：
+- **fast** 保证「用户按下按钮 → 立刻看到结果」的体验，不阻塞在 LLM 上
+- **deep** 是 fast 结果页的二次入口，用户觉得快档结论不够放心时才触发
+- **同一套检索**：`mode` 只切换分析深度，检索 provider 始终由 `RETRIEVAL_PROVIDER` 决定
 
-1. **后端主链路不在路由层，在 `AnalyzePipeline`。**
-2. **检索和判定是分开的。**
-3. **前端不是只拿最终 JSON，而是同时消费实时事件流和最终 `Report`。**
+**运行选择三层可叠加**：
+
+| 维度 | 稳定基线（默认） | 增强路径 | 关键开关 |
+|---|---|---|---|
+| 分析 provider | 规则兜底 | LLM 综合判断 | `ANALYSIS_PROVIDER=off\|kimi` |
+| 检索 provider | mock | playwright / gdelt / LLM 内建联网 | `RETRIEVAL_PROVIDER=mock\|playwright\|gdelt\|kimi\|off` |
+| 主编排 | 固定 pipeline | 可插拔 agent 循环 + 多 Agent DAG | `AGENT_ORCHESTRATOR_ENABLED` + `MULTI_AGENT_ENABLED` |
+
+三个开关都默认取"稳定基线"一侧，所以**开箱即 `off + mock + 固定 pipeline`**，零 key、可复现、可回归。
 
 ---
 
 ## 5. 前端架构
 
-### 5.1 前端现在的定位
+### 5.1 定位
 
-前端现在是一个**面向普通用户的核查产品**，而不是内部工作台。它承担两件事：
+前端是**面向普通用户的核查产品**，不是内部工作台。它承担两件事：
 
-- 一个“输入框”：像搜索引擎首页一样，居中一个输入框加几个示例。
-- 一个“结果页”：大号判定卡片打头，下面把逐条核查、证据、时间线折叠成可展开区块；执行过程轨迹默认折叠在最底部。
+- **搜索态**：像搜索引擎首页一样，居中输入框 + 几个示例卡片
+- **结果态**：大号判定卡片打头 → 逐条核查（可展开看证据）→ 证据来源 → 传播时间线 → 底部执行 trace（默认折叠）
 
-也就是说，普通用户先看到一句话结论和判定色块，需要时再逐层展开细节；开发/调试信息（执行 trace）不占据主视线。
+普通用户先看到一句话结论和判定色块，需要时再逐层展开细节；开发/调试信息不占主视线。
 
-### 5.2 前端核心文件
+### 5.2 核心文件
 
-前端早期是「多面板工作台」，中途一度收敛成单文件，**当前又按职责拆回了一组聚焦组件**：`AnalyzePage` 只做状态机与编排（输入、流式事件、报告状态、两态切换），把每个展示区块交给独立组件。核心文件如下：
+`AnalyzePage` 只做状态机与编排（输入、流式事件、报告状态、两态切换），把每个展示区块交给独立组件：
 
-| 文件 | 当前职责 |
-| --- | --- |
-| [frontend/app/page.tsx](../frontend/app/page.tsx) | 页面入口，只挂载 `AnalyzePage` |
-| [frontend/app/layout.tsx](../frontend/app/layout.tsx) | 根布局与站点标题（「较真核查」） |
-| [frontend/app/globals.css](../frontend/app/globals.css) | 全站样式，移动端优先，约 300 行 |
-| [frontend/components/analyze-page.tsx](../frontend/components/analyze-page.tsx) | **编排组件**：搜索态 / 结果态两个视图，维护输入、流式事件、报告状态，按顺序组合下面各展示组件 |
-| [frontend/components/search-input.tsx](../frontend/components/search-input.tsx) | 搜索态：居中输入框 + 示例卡片 + 后端状态点 |
-| [frontend/components/verdict-card.tsx](../frontend/components/verdict-card.tsx) | 结果态打头的整体判定卡片（色块 + 一句话结论 + 整体真假混杂逻辑） |
-| [frontend/components/claim-list.tsx](../frontend/components/claim-list.tsx) | 逐条核查（可折叠），每条带 verdict + 为真概率 + basis |
-| [frontend/components/evidence-list.tsx](../frontend/components/evidence-list.tsx) | 证据来源与未被引用的检索命中（可折叠） |
-| [frontend/components/possibilities-section.tsx](../frontend/components/possibilities-section.tsx) | 「可能性分布」与「更可能的答案」区块 |
-| [frontend/components/timeline-section.tsx](../frontend/components/timeline-section.tsx) | 传播时间线（可折叠） |
-| [frontend/components/trace-timeline.tsx](../frontend/components/trace-timeline.tsx) | 底部执行过程 trace（默认折叠），每步「干了什么/输入/输出/结论」 |
-| [frontend/lib/api-client.ts](../frontend/lib/api-client.ts) | 请求 `/health`、`/models`、`/analyze`、`/analyze/stream`，解析 NDJSON |
-| [frontend/lib/report-utils.ts](../frontend/lib/report-utils.ts) | 展示层二次整理：verdict 标签、置信度格式化、证据收集 |
-| [frontend/lib/report-high-score.ts](../frontend/lib/report-high-score.ts) | 整体可信度、评分拆解等派生指标 |
-| [frontend/lib/trace-steps.ts](../frontend/lib/trace-steps.ts) | 把流式事件聚合成可观测执行时间线 |
-| [frontend/lib/agent-run.ts](../frontend/lib/agent-run.ts) | 从流式事件派生 agent 调查动作视图 |
-| [frontend/lib/demo-cases.ts](../frontend/lib/demo-cases.ts) | 提供搜索态的示例输入卡片 |
-| [frontend/types/report.ts](../frontend/types/report.ts) | 前端侧 `Report`、`AnalysisLiveEvent` 类型定义 |
+| 文件 | 职责 |
+|---|---|
+| [analyze-page.tsx](../frontend/components/analyze-page.tsx) | **编排组件**：搜索态 / 结果态两个视图，维护输入、流式事件、报告状态 |
+| [search-input.tsx](../frontend/components/search-input.tsx) | 搜索态：输入框 + 示例卡片 + 后端状态点 + 源开关 |
+| [verdict-card.tsx](../frontend/components/verdict-card.tsx) | 结果态打头的整体判定卡片 |
+| [claim-list.tsx](../frontend/components/claim-list.tsx) | 逐条核查（可折叠），每条带 verdict + 真伪概率 + `<details>判定依据`（含来源分级 + 相关性说明） |
+| [evidence-list.tsx](../frontend/components/evidence-list.tsx) | 证据来源与未被引用的检索命中 |
+| [possibilities-section.tsx](../frontend/components/possibilities-section.tsx) | 「可能性分布」与「更可能的答案」 |
+| [timeline-section.tsx](../frontend/components/timeline-section.tsx) | 传播时间线（日期由后端从 SERP 真实抽取，不足时降级为「时间未知」） |
+| [trace-timeline.tsx](../frontend/components/trace-timeline.tsx) | 底部执行过程 trace（默认折叠） |
+| [run-metrics-panel.tsx](../frontend/components/run-metrics-panel.tsx) | 深度档观测面板：per-agent elapsed_ms、source_hits、tokens |
+| [lib/api-client.ts](../frontend/lib/api-client.ts) | 请求 `/health`、`/models`、`/analyze`、`/analyze/stream`，解析 NDJSON |
+| [lib/report-utils.ts](../frontend/lib/report-utils.ts) | 展示层二次整理：verdict 标签、置信度格式化、来源分级 meta |
 
-### 5.3 前端结构图
-
-`AnalyzePage` 是一个轻量状态机，按「搜索态 / 结果态」两个分支渲染；结果态再把 `Report` 的不同切片分发给各展示组件。
-
-```mermaid
-flowchart TD
-    PAGE["app/page.tsx"] --> ANALYZE["AnalyzePage（编排组件）"]
-
-    ANALYZE --> IDLE["SearchInput（搜索态）"]
-    ANALYZE --> RESULT["结果态"]
-
-    RESULT --> VERDICT["VerdictCard 判定卡片"]
-    RESULT --> POSS["PossibilitiesSection 可能性 / 更可能的答案"]
-    RESULT --> CLAIMS["ClaimList 逐条核查"]
-    RESULT --> EVIDENCE["EvidenceList 证据来源"]
-    RESULT --> TIMELINE["TimelineSection 传播时间线"]
-    RESULT --> TRACE["TraceTimeline 执行过程（默认折叠）"]
-
-    ANALYZE --> CLIENT["api-client.ts"]
-    CLIENT --> STREAM["/api/v1/analyze/stream"]
-    CLIENT --> HEALTH["/api/v1/health"]
-```
-
-### 5.4 前端请求和渲染流程
+### 5.3 请求与渲染时序
 
 ```mermaid
 sequenceDiagram
@@ -195,387 +174,302 @@ sequenceDiagram
     A->>C: analyzeReportStream(request)
     C->>B: POST /api/v1/analyze/stream
     B-->>C: NDJSON 事件流
-    C-->>A: session / stage / retrieval / log / report / complete
+    C-->>A: session / stage / retrieval / log / metrics / report / complete
     A->>A: 更新 liveEvents / report / status
     A-->>U: 结果态（判定卡片 + 可折叠区块 + 底部 trace）
 ```
 
-前端这层最值得讲给面试官的点是：
+**要点**：
 
-- `AnalyzePage` 是一个轻量状态机（搜索态 / 结果态两个视图），展示逻辑按职责拆给一组聚焦组件，它只负责编排。
-- `api-client.ts` 读的是 **NDJSON 流**，不是等到最后一次性读 JSON。
-- 执行过程 trace 是结果态底部一个独立组件（`TraceTimeline`，默认折叠），流式事件仍能让后端每个阶段被追溯。
+- `AnalyzePage` 是轻量状态机（搜索态/结果态两个视图），展示逻辑按职责拆给一组聚焦组件
+- `api-client.ts` 读 **NDJSON 流**，不等最后一次性读 JSON；`parseLiveEvent` 对未知事件类型返回 `null`（前向兼容跳过），单行 JSON 坏了不会中止整个流
+- **不伪造时间**：`published_at` 缺失时保持空字符串，让 UI 显示「时间未知」而不是 `new Date().toISOString()`
 
 ---
 
 ## 6. 后端架构
 
-### 6.1 后端分层
+### 6.1 分层
 
-| 层级 | 当前职责 | 关键文件 |
-| --- | --- | --- |
-| 应用层 | 创建 FastAPI、挂中间件、挂路由 | [backend/app/main.py](../backend/app/main.py) |
-| 接口层 | 提供同步分析与流式分析接口 | [backend/app/api/v1/endpoints/analyze.py](../backend/app/api/v1/endpoints/analyze.py) |
-| 配置层 | 读取 `.env` / `.env.example` 对应的运行开关 | [backend/app/core/config.py](../backend/app/core/config.py) |
-| 协议层 | 定义 `AnalyzeRequest`、`Report`、`PipelineTrace` | [backend/app/models/schemas.py](../backend/app/models/schemas.py) |
-| 流水线层 | 串起所有业务步骤 | [backend/app/services/analyze_pipeline.py](../backend/app/services/analyze_pipeline.py) |
-| 能力组件层 | 输入标准化、检索、判定、时间线、报告、内容核查 | [backend/app/services](../backend/app/services) |
+| 层级 | 职责 | 关键文件 |
+|---|---|---|
+| 应用层 | 创建 FastAPI、挂中间件、挂路由 | [main.py](../backend/app/main.py) |
+| 接口层 | 同步分析 + 流式分析接口 | [analyze.py](../backend/app/api/v1/endpoints/analyze.py) |
+| 配置层 | 读取环境变量 | [config.py](../backend/app/core/config.py) |
+| 协议层 | 定义 `AnalyzeRequest`、`Report`、`PipelineTrace` | [schemas.py](../backend/app/models/schemas.py) |
+| 流水线层 | 串起所有业务步骤 | [analyze_pipeline.py](../backend/app/services/analyze_pipeline.py) |
+| 编排层 | 单 Agent 循环 + 多 Agent DAG | [agent/runner.py](../backend/app/agent/runner.py) / [agent/multi/supervisor.py](../backend/app/agent/multi/supervisor.py) |
+| 能力组件层 | 输入标准化、检索、判定、时间线、报告 | [services/](../backend/app/services/) |
 
-### 6.2 后端主链路图
+### 6.2 核心服务职责表
 
-```mermaid
-flowchart TD
-    REQ["AnalyzeRequest"] --> N1["InputNormalizer"]
-    N1 --> N2["RetrievalService"]
-    N2 --> N3["Question Resolution"]
-    N3 --> N4{"是否需要 follow-up?"}
-    N4 -->|是| N5["Follow-up Retrieval"]
-    N4 -->|否| N6["跳过"]
-    N5 --> N7["Agent Synthesis"]
-    N6 --> N7
-    N7 -->|成功| N8["直接拿到 event / claims / verdict / timeline"]
-    N7 -->|失败或关闭| N9["ProviderEnricher"]
-    N9 --> N10["ClaimExtractor"]
-    N10 --> N11["VerdictEngine"]
-    N11 --> N12["TimelineBuilder"]
-    N8 --> N13["ReportBuilder"]
-    N12 --> N13
-    N13 --> N14["ContentCheckBuilder"]
-    N13 --> N15["PipelineTraceBuilder"]
-    N14 --> OUT["Report"]
-    N15 --> OUT
-```
+| 服务 | 职责 |
+|---|---|
+| [input_normalizer.py](../backend/app/services/input_normalizer.py) | 识别 `text / url / question`，抽取标题/摘要/关键词/来源；URL 走正文抽取 |
+| [retrieval_service.py](../backend/app/services/retrieval_service.py) | 生成 query plan，多 provider 调度，缓存与 fallback；**主体+事件双层相关性过滤** |
+| [playwright_search_provider.py](../backend/app/services/playwright_search_provider.py) | httpx 抓百度/Bing SERP，**从 `prefix-time` span 真实抽取日期**（支持绝对/相对/中文三种格式） |
+| [toutiao_search_provider.py](../backend/app/services/toutiao_search_provider.py) | 今日头条源（httpx SERP 抓取） |
+| [sogou_weixin_provider.py](../backend/app/services/sogou_weixin_provider.py) | 搜狗微信公众号源，tier 判定基于 `source_name`（不受标题攻击） |
+| [xhs_provider.py](../backend/app/services/xhs_provider.py) | 小红书源（走 xhs-cli） |
+| [question_resolver.py](../backend/app/services/question_resolver.py) | 对问句做事件收束，只在 `question_only` 路径生效 |
+| [agent_reasoner.py](../backend/app/services/agent_reasoner.py) | `LlmAgentReasoner`：LLM synthesis + critic + question resolution + 序列规划 |
+| [claim_extractor.py](../backend/app/services/claim_extractor.py) | 把一句话拆成原子 claim |
+| [verdict_engine.py](../backend/app/services/verdict_engine.py) | 给 claim 打 `supported/refuted/insufficient/conflicting` |
+| [timeline_builder.py](../backend/app/services/timeline_builder.py) | 从检索结果挑 `origin / amplification / peak / turn / clarification` |
+| [report_builder.py](../backend/app/services/report_builder.py) | 组装最终 `Report`，决定 `safe/partial/complete` mode |
+| [content_check_builder.py](../backend/app/services/content_check_builder.py) | 生成"哪些更像真/假/争议/观点"视图 |
+| [pipeline_trace_builder.py](../backend/app/services/pipeline_trace_builder.py) | 把流水线压缩成用户可读的步骤摘要 |
+| [contract_utils.py](../backend/app/services/contract_utils.py) | 日期规范化：`ensure_datetime_string_or_empty` 用于 SOURCE 日期，**永远不 fallback 到 `datetime.now()`** |
 
-### 6.3 流式观测是怎么做的
+### 6.3 流式观测怎么做
 
-这里有一个很关键但容易忽略的结构：
+这是本项目和普通聊天页最大的架构区别：
 
-- [backend/app/api/v1/endpoints/analyze.py](../backend/app/api/v1/endpoints/analyze.py) 用线程包了一层 `AnalyzePipeline`
-- [backend/app/services/progress.py](../backend/app/services/progress.py) 用 `ContextVar` 维护当前请求的回调
-- `AnalyzePipeline` 和各服务调用 `emit_stage()`、`emit_log()`、`emit_api_call()`、`emit_retrieval()`
-- 前端于是能持续收到 `stage / log / retrieval / report / complete` 等事件
+- [api/v1/endpoints/analyze.py](../backend/app/api/v1/endpoints/analyze.py) 用线程包了一层 `AnalyzePipeline`
+- [services/progress.py](../backend/app/services/progress.py) 用 `ContextVar` 维护当前请求的回调
+- 各服务通过 `emit_stage()` / `emit_log()` / `emit_api_call()` / `emit_retrieval()` 打点
+- 前端持续收到 `stage / log / retrieval / metrics / report / complete` 等事件
 
-这意味着：
+**流式接口不是把 LLM token 原样回传，回传的是「流水线执行事件」。**
 
-- 流式接口不是把 LLM token 原样回传
-- 它回传的是“流水线执行事件”
-
-这正是当前项目和普通聊天页最大的架构区别之一。
-
-### 6.4 核心服务职责表
-
-| 服务 | 当前职责 | 说明 |
-| --- | --- | --- |
-| [backend/app/services/input_normalizer.py](../backend/app/services/input_normalizer.py) | 识别 `text / url / question`，抽取标题、摘要、关键词、来源 | URL 输入还会尝试正文抽取 |
-| [backend/app/services/retrieval_service.py](../backend/app/services/retrieval_service.py) | 生成 query plan，决定走 mock / playwright / gdelt / LLM 内建联网，做缓存与 fallback | 检索不是一条 query，而是一组 query |
-| [backend/app/services/question_resolver.py](../backend/app/services/question_resolver.py) | 对问句做事件收束 | 只在 `question_only` 路径生效 |
-| [backend/app/services/agent_reasoner.py](../backend/app/services/agent_reasoner.py) | `LlmAgentReasoner`：用 LLM 做 question resolution 和 synthesis | 配置关闭时整段分支失效 |
-| [backend/app/services/provider_enricher.py](../backend/app/services/provider_enricher.py) | 给事件补结构化标题/摘要/claim | 属于 fallback 链的一部分 |
-| [backend/app/services/claim_extractor.py](../backend/app/services/claim_extractor.py) | 把一句话拆成原子 claim | 规则抽取是默认兜底 |
-| [backend/app/services/verdict_engine.py](../backend/app/services/verdict_engine.py) | 给 claim 打 `supported/refuted/insufficient/conflicting` | 依据是 retrieval evidence |
-| [backend/app/services/timeline_builder.py](../backend/app/services/timeline_builder.py) | 从检索结果挑时间线节点 | 形成 `origin / amplification / peak / turn / clarification` |
-| [backend/app/services/report_builder.py](../backend/app/services/report_builder.py) | 组装最终 `Report`，决定 `safe/partial/complete` | 还负责 investigation 和评分 |
-| [backend/app/services/content_check_builder.py](../backend/app/services/content_check_builder.py) | 生成“哪些更像真/假/争议/观点”视图 | 主要为了前端展示 |
-| [backend/app/services/pipeline_trace_builder.py](../backend/app/services/pipeline_trace_builder.py) | 把流水线压缩成用户可读的步骤摘要 | 给前端结果区复盘用 |
-
-### 6.5 Agent 编排层（默认关闭，可回退）
-
-上面 6.1–6.4 讲的是**固定 pipeline**。在它之上还有一层**可选的 agent 编排**，由 `AGENT_ORCHESTRATOR_ENABLED` 控制（默认 `false`）。开启后，`AnalyzePipeline.analyze()` 顶部把控制权交给 agent 循环；循环抛错则自动回退固定 pipeline。
-
-关键点是：**agent 编排不是重写业务，而是把 6.4 里那些现成服务当成"工具"来调度。**
-
-| 模块 | 职责 |
-| --- | --- |
-| [backend/app/agent/state.py](../backend/app/agent/state.py) | `AgentState` 黑板，贯穿所有工具，字段对应固定 pipeline 里的中间产物 |
-| [backend/app/agent/planner.py](../backend/app/agent/planner.py) | `Planner` 协议 + `RulePlanner` / `LlmPlanner`；`legal_actions(state)` 是排序的唯一真相源 |
-| [backend/app/agent/runner.py](../backend/app/agent/runner.py) | 主循环 `plan -> tool -> observe -> decide -> finalize`，带步数上限与回退 |
-| [backend/app/agent_tools/tools.py](../backend/app/agent_tools/tools.py) | 把 `RetrievalService` / `VerdictEngine` / `ReportBuilder` 等薄封装成工具，复用同样的 `emit_stage` |
-
-Planner 可插拔，这是"agent 为主又不破坏基线"的关键取舍：
-
-- `RulePlanner`（默认）：永远取第一个合法动作，复刻固定 pipeline 顺序。在 `off + mock` 上产出与旧链路**逐字节一致**的 `Report`（`backend/tests/test_agent_orchestrator.py` 的 parity 测试保证）。
-- `LlmPlanner`（配置 LLM 时启用）：只在真实岔路口调用 LLM；其余强制步骤不浪费 LLM 调用。非法/失败选择一律退回 `RulePlanner`。当前岔路口的候选动作：`investigate`（补一轮检索）/ `fetch_url`（抓取最权威证据的全文）/ `synthesize`（直接综合）/ `per_claim_search`（对弱 claim 定向补搜）/ `build_timeline`。`fetch_url` 等自主动作始终排在规则默认动作之后，`RulePlanner`（取第一个）永不选它 → parity 不受影响。
-- **序列规划器**：`LlmPlanner` 优先调用 `agent_reasoner.plan_action_sequence` 一次规划一串动作（带证据快照 `_evidence_snapshot` 作为上下文），缓存后逐步执行，而不是每步都单独问 LLM；序列不可用时回退单步决策。
-
-`agent-loop` 概念示意（搜索 → 判定 → 取证 → 再搜的迭代循环，中枢由 planner 编排）：
-
-<p align="center">
-  <img src="assets/agent-loop.png" alt="搜索-判定-取证-再搜的迭代 agent 循环" width="620">
-</p>
-
-```mermaid
-flowchart TD
-    REQ["AnalyzeRequest"] --> SW{"AGENT_ORCHESTRATOR_ENABLED?"}
-    SW -->|false| PIPE["固定 AnalyzePipeline (6.2)"]
-    SW -->|true| RUN["AgentRunner"]
-    RUN --> PLAN["Planner.next_action(state)"]
-    PLAN --> LEGAL["legal_actions(state)"]
-    LEGAL -->|唯一合法| TOOL["执行该工具"]
-    LEGAL -->|岔路 & 配置 LLM| SEQ["LlmPlanner 序列规划 / 单步决策"]
-    SEQ --> TOOL
-    TOOL --> STATE["写回 AgentState"]
-    STATE -->|弱 claim 且未达迭代上限| REJUDGE["per_claim_search → re_judge_claims"]
-    REJUDGE --> PLAN
-    STATE -->|未完成| PLAN
-    STATE -->|finalize| REPORT["Report"]
-    RUN -->|抛错| PIPE
-```
-
-**多轮迭代 + 合成校验（近期强化）**：
-
-- **搜-判-再搜循环**：证据弱的 claim 会触发 `per_claim_search`（定向补搜）→ `re_judge_claims`（重判）循环，由 `AgentState.per_claim_iterations` 计数、`max_per_claim_iterations`（默认 3）封顶，避免无限迭代。
-- **合成 critic**：开 LLM 时 `agent_reasoner.synthesize` 的结果会再经一道 `SYNTHESIS_CRITIC` 校验（`agent_synthesis_critic_enabled`），**只能把未被证据支撑的判定下调为 `insufficient`，永不上调**——critic 失败或返回垃圾都不可能加强判定（单调安全）。
-- **LLM 补判 verdict**：fast/规则路径下，`verdict_engine` 会对「规则判 insufficient 但其实有证据」的事实类 claim 调用 `llm_verdict.llm_judge_claims` 做补判，同样只升级、不降级，失败即优雅退回规则结果。
-
-配合的能力开关：`LIGHTWEIGHT_AGENT_ENABLED`（证据弱时让 LLM planner 追加定向检索）、`AGENT_MAX_URL_FETCHES`（允许 planner 抓取几次证据全文，默认 1、0=关）、以及开 LLM 时 `agent_reasoner.synthesize` 接管 grounded verdict（判定必须带证据，否则降级 `insufficient`）。
+⚠️ **重要坑**：`ThreadPoolExecutor.submit` 的 worker 拿不到父线程的 `ContextVars`，进而 `progress` 回调静默失效。多 Agent 层的 `Supervisor._execute_batch` 用 `copy_context().run()` 包装 worker 修复了这个问题。任何新加的并行 fan-out 必须遵守这个模式。
 
 ---
 
-## 7. 核心数据对象
+## 7. 多 Agent 并行编排
 
-当前代码最重要的四个对象如下：
+深度档 + `MULTI_AGENT_ENABLED=true` 会走一层 **Supervisor 多 Agent DAG**，把原来的串行检索改成并行拉源：
 
-| 对象 | 所在位置 | 作用 |
-| --- | --- | --- |
-| `AnalyzeRequest` | [backend/app/models/schemas.py](../backend/app/models/schemas.py) | 前端提交给后端的输入 |
-| `NormalizedEvent` | [backend/app/models/schemas.py](../backend/app/models/schemas.py) | 后端内部使用的标准化事件草稿 |
-| `RetrievalBundle` | [backend/app/services/retrieval_models.py](../backend/app/services/retrieval_models.py) | 一轮检索的聚合结果 |
-| `Report` | [backend/app/models/schemas.py](../backend/app/models/schemas.py) | 前端最终消费的统一结构 |
+<p align="center">
+  <img src="assets/multi-agent-dag.png" alt="多 Agent 并行 DAG · 一次分析同时跑 4 路检索" width="900">
+</p>
 
-### 7.1 `AnalyzeRequest`
+### 7.1 触发条件
+
+三个开关**都开**才走这条路：
+
+```
+deep_mode + AGENT_ORCHESTRATOR_ENABLED + MULTI_AGENT_ENABLED
+```
+
+任一未开 → 回退到「固定 pipeline」（`AnalyzePipeline`），行为不变。**入口在** `analyze_pipeline.py::_run_multi_agent`。
+
+### 7.2 DAG 结构
+
+```
+NORMALIZE
+    ├─→ RETRIEVAL_BAIDU     ┐
+    ├─→ RETRIEVAL_XHS       │  4 路并行（ThreadPool）
+    ├─→ RETRIEVAL_TOUTIAO   │
+    └─→ RETRIEVAL_WEIXIN    ┘
+                 ↓
+           RETRIEVAL_MERGE   合并 · 去重 · 补检索
+                 ↓
+             ANALYSIS
+                 ↓
+              CRITIC          可选 N 路多视角并行
+                 ↓
+              REPORT
+```
+
+设 `MULTI_AGENT_RETRIEVAL_MODE=sequential` 时回退为单节点 `RETRIEVAL`（老链路）。
+
+### 7.3 每个 Agent 一个文件
+
+| 文件 | 角色 |
+|---|---|
+| [multi/__init__.py](../backend/app/agent/multi/__init__.py) | Protocol 定义（`AgentRole` / `AgentConfig` / `SubAgent` / `SubAgentResult`） |
+| [multi/supervisor.py](../backend/app/agent/multi/supervisor.py) | 编排：拓扑排序、`_ready_agents`、`_execute_batch`、loop_back、`_emit_run_summary` |
+| [multi/normalize_agent.py](../backend/app/agent/multi/normalize_agent.py) | 输入标准化 |
+| [multi/source_agents.py](../backend/app/agent/multi/source_agents.py) | 工厂 `build_source_agents` + `SOURCE_ROLES`，4 个源共用同一个 `SourceRetrievalAgent` 类 |
+| [multi/merge_agent.py](../backend/app/agent/multi/merge_agent.py) | 命名空间化 result_id (`baidu::…`)、`merge_search_results`、跑 resolve_question / follow_up / fetch_url |
+| [multi/retrieval_agent.py](../backend/app/agent/multi/retrieval_agent.py) | sequential 模式的单体节点 |
+| [multi/analysis_agent.py](../backend/app/agent/multi/analysis_agent.py) | 依赖参数化（`depends_on=RETRIEVAL_MERGE` 或 `RETRIEVAL`） |
+| [multi/critic_agent.py](../backend/app/agent/multi/critic_agent.py) | 多视角并行 critic，只允许**下调**未被证据支撑的判定（单调安全） |
+| [multi/report_agent.py](../backend/app/agent/multi/report_agent.py) | 组装最终报告 |
+
+### 7.4 关键设计约束（都是踩过的坑）
+
+| 约束 | 为什么 |
+|---|---|
+| Source agent 全部 `config.model=None` | `reasoner.model_override` 是全局态，多线程并发写会花，`_execute_batch` 会 assert |
+| `TokenUsage.add` 加了 `threading.Lock` | 并发 LLM 回调会漏计数 |
+| 单源失败 = `COMPLETED` + 空 bundle，不是 `FAILED` | 让 `MERGE` 继续跑；只有 `NORMALIZE` / `RETRIEVAL_MERGE` 是 critical |
+| `pool.submit(copy_context().run, worker, ...)` | 不这么做，父线程的 `ContextVars` 不传播，观测事件静默失效 |
+| Source 只用一个 `primary_query` | 跳过 3 次 LLM query-extract（百度还有自己的富 query plan） |
+| 用户 toggle 关掉的源 → `SKIPPED` | `_ready_agents` 视同满足，MERGE 继续跑 |
+| Loop back 至多一次 | 由 `supervisor_loop_back` 标记守护 |
+
+### 7.5 观测入口
+
+深度档结束时 `Supervisor._emit_run_summary` 会 emit 一个结构化 `metrics` 事件（per-agent `elapsed_ms` / `source_hits` / `tokens` / `mode`），前端 `RunMetricsPanel` 消费它。
+
+### 7.6 单 Agent 循环（`AGENT_ORCHESTRATOR_ENABLED=true, MULTI_AGENT_ENABLED=false`）
+
+在多 Agent 层之下还有一层单 Agent 编排（`AnalyzePipeline` 顶层的 planner 循环）：
+
+- [agent/state.py](../backend/app/agent/state.py) — `AgentState` 黑板，字段对应固定 pipeline 里的中间产物
+- [agent/planner.py](../backend/app/agent/planner.py) — `Planner` 协议 + `RulePlanner`（默认）/ `LlmPlanner`；`legal_actions(state)` 是排序的唯一真相源
+- [agent/runner.py](../backend/app/agent/runner.py) — 主循环 `plan → tool → observe → decide → finalize`
+- [agent_tools/tools.py](../backend/app/agent_tools/tools.py) — 把 `RetrievalService` / `VerdictEngine` / `ReportBuilder` 薄封装成工具
+
+**Planner 可插拔**：
+- `RulePlanner`（默认）：永远取第一个合法动作，复刻固定 pipeline，`off + mock` 上产出与旧链路**逐字节一致**的 `Report`
+- `LlmPlanner`（配 LLM 时）：只在真实岔路口调用 LLM，序列规划器一次规划一串动作，失败退回单步决策，再失败退回规则
+
+**多轮迭代 + Critic 保护**：
+- 弱证据 claim 触发 `per_claim_search` → `re_judge_claims` 循环，`max_per_claim_iterations=3` 封顶
+- 开 LLM 时 synthesis 结果经 `SYNTHESIS_CRITIC` 校验，**只能下调 `insufficient`、永不上调**
+- `verdict_engine` 的 LLM 补判也只升级不降级，失败优雅退回规则结果
+
+---
+
+## 8. 核心数据对象
+
+当前代码最重要的四个对象：
+
+| 对象 | 位置 | 作用 |
+|---|---|---|
+| `AnalyzeRequest` | [schemas.py](../backend/app/models/schemas.py) | 前端提交给后端的输入 |
+| `NormalizedEvent` | [schemas.py](../backend/app/models/schemas.py) | 后端内部使用的标准化事件草稿 |
+| `RetrievalBundle` | [retrieval_models.py](../backend/app/services/retrieval_models.py) | 一轮检索的聚合结果 |
+| `Report` | [schemas.py](../backend/app/models/schemas.py) | 前端最终消费的统一结构 |
+
+### 8.1 `AnalyzeRequest`
 
 ```json
 {
   "raw_input": "用户原始输入",
   "input_type": "text | url | question | auto",
-  "request_context": {}
+  "request_context": { "mode": "fast|deep", "search_sources": ["baidu", "xhs", ...] }
 }
 ```
 
-### 7.2 `NormalizedEvent`
+### 8.2 `NormalizedEvent`
 
-后端会先把原始输入压成一个内部事件对象，大致包含：
+后端先把原始输入压成一个内部事件对象：`title` / `summary` / `keywords` / `source_name` / `input_type` / `mode_hint` / `event_source`。
 
-- `title`
-- `summary`
-- `keywords`
-- `source_name`
-- `input_type`
-- `mode_hint`
-- `event_source`
+**这一步的价值**：后面的检索、claim 提取、时间线构建都不再直接啃原始输入。
 
-这一步的价值是：**后面的检索、claim 提取、时间线构建都不再直接啃原始输入。**
+### 8.3 `RetrievalBundle`
 
-### 7.3 `RetrievalBundle`
+不只是「搜索结果数组」，还包括：`query` / `provider` / `cache_status` / `raw_results` / `canonical_results` / `evidence_grade` / `conflict_signals` / `fallback` 信息。
 
-它不只是“搜索结果数组”，还包括：
+**它是当前后端里最像「证据中台对象」的东西。**
 
-- 实际 query
-- provider 名称
-- cache 状态
-- 原始结果和去重后的 canonical 结果
-- evidence grade
-- fallback 信息
+### 8.4 `Report`
 
-所以它是当前后端里最像“证据中台对象”的东西。
+面向前端展示的聚合对象：
 
-### 7.4 `Report`
+- **核心**：`mode` / `event` / `timeline` / `claim_results` / `final_summary` / `risks` / `sources` / `retrieval_hits` / `provenance`
+- **展示辅助**：`content_check` / `pipeline_trace` / `investigation` / `score_breakdown` / `overall_credibility_score`
 
-最终 `Report` 是一个面向前端展示的聚合对象，至少包含：
+**前端各个面板都只是「消费同一个 Report 的不同切片」。**
 
-- `mode`
-- `event`
-- `timeline`
-- `claim_results`
-- `final_summary`
-- `risks`
-- `sources`
-- `retrieval_hits`
-- `provenance`
+### 8.5 判定四态 + 真伪概率
 
-并且还会带上：
+<p align="center">
+  <img src="assets/verdict-states.png" alt="一条 Claim 的四种命运" width="900">
+</p>
 
-- `content_check`
-- `pipeline_trace`
-- `investigation`
-- `score_breakdown`
+| verdict | 含义 | 触发 |
+|---|---|---|
+| `supported` | 基本属实 | 有权威/独立证据支撑 |
+| `refuted` | 不实信息 | 有证据直接反驳 |
+| `insufficient` | 证据不足 | 公开证据不足以定论（grounded 兜底） |
+| `conflicting` | 各方矛盾 | 不同来源相互冲突（含数量冲突） |
 
-这也是为什么前端各个面板都只是“消费同一个 Report 的不同切片”。
+**真伪概率与 verdict 解耦**：`truth_probability`（0–100）+ `probability_basis`（`evidence` / `prior`）。一条 `insufficient` 的 claim 仍可带 `truth_probability=15, basis=prior`——诚实区分「有检索证据」vs「凭常识先验」。
 
 ---
 
-## 8. 用一个真实例子把整条流程讲清楚
+## 9. 贯穿示例：一次真实分析的 8 步
 
-### 8.1 例子选型
+用「海州酸奶抽检」demo case 走一遍。运行配置：默认稳定基线（`off + mock + 固定 pipeline`），零 key、可复现。
 
-这里用前端 demo case 里的“海州酸奶抽检”作为贯穿例子：
+### Step 1 · 输入标准化
 
-```text
-海州市市场监管局通报称，海州新鲜屋部分酸奶批次超过保质期，涉事门店已停业整改。
-```
-
-原因有两个：
-
-1. 它在当前仓库里有稳定 mock 检索数据。
-2. 它能完整覆盖“输入标准化 -> 检索 -> claim -> verdict -> timeline -> report”的整条链路。
-
-### 8.2 本例采用的运行配置
-
-为了让例子稳定可复现，这里按默认稳定基线讲解：
-
-```dotenv
-ANALYSIS_PROVIDER=off
-RETRIEVAL_PROVIDER=mock
-RETRIEVAL_FALLBACK_TO_MOCK=true
-RETRIEVAL_CACHE_ENABLED=false
-```
-
-这意味着本例会走：
-
-- 不启用 LLM synthesis
-- 走 mock retrieval
-- 走规则型 claim / verdict / timeline 链路
-
-### 8.3 例子在当前代码里的实际中间结果
-
-#### 第一步：输入标准化
-
-`InputNormalizer` 会把输入整理成：
+`InputNormalizer` 把输入压成 `NormalizedEvent`：
 
 ```json
 {
   "input_type": "text_news",
   "title": "海州市市场监管局通报称，海州新鲜屋部分酸奶批次超过保质期",
-  "summary": "海州市市场监管局通报称，海州新鲜屋部分酸奶批次超过保质期，涉事门店已停业整改。",
-  "keywords": ["海州市市场监管局", "海州新鲜屋", "停业整改", "酸奶", "涉事门店已停业"],
+  "summary": "海州市市场监管局通报称...涉事门店已停业整改。",
+  "keywords": ["海州市市场监管局", "海州新鲜屋", "停业整改", "酸奶"],
   "source_name": "海州市市场监管局",
   "mode_hint": "complete_or_partial",
   "event_source": "input_normalized"
 }
 ```
 
-这一步的含义是：
+### Step 2 · 生成 query plan 并首轮检索
 
-- 输入已经被识别为“文本新闻”
-- 后端已经拿到了标题、摘要、关键词
-- 后面不是直接拿原句去判断，而是拿这个标准化结果继续跑
-
-#### 第二步：生成 query plan 并做首轮检索
-
-`RetrievalService` 针对这段文本生成了 3 条主要 query：
-
-| query label | 实际 query 作用 |
-| --- | --- |
-| `event_core` | 用标题、摘要、关键词抓主结果 |
-| `event_claim` | 收紧到更接近 claim 的表述 |
-| `event_official` | 优先抓官方回应与权威结果 |
-
-在 mock 路径里，这组 query 最终命中了回归样例 `R01`：
+`RetrievalService` 生成 3 条 query：`event_core` / `event_claim` / `event_official`。命中回归样例 `R01`：
 
 ```json
 {
-  "provider": "mock",
-  "matched_case_id": "R01",
-  "mode_hint": "complete",
-  "evidence_grade": "A",
-  "canonical_results": 4,
-  "high_trust_result_count": 3,
-  "independent_source_count": 4
+  "provider": "mock", "matched_case_id": "R01",
+  "canonical_results": 4, "evidence_grade": "A",
+  "high_trust_result_count": 3, "independent_source_count": 4
 }
 ```
 
-命中的典型结果包括：
+命中的典型结果：海州市市场监管局通报 · 海州日报跟进 · 海州新鲜屋致歉 · 一条低可信自媒体"多人中毒"说法。
 
-- 海州市市场监管局通报
-- 海州日报跟进报道
-- 海州新鲜屋致歉说明
-- 一条低可信自媒体“多人中毒”说法
+### Step 3 · Question resolution / follow-up 跳过
 
-这一步的意义是：**后面所有 verdict 和 timeline 都要建立在 `RetrievalBundle` 上，而不是建立在输入句子本身上。**
+本例是 `text_news`，不是 `question_only` → `question_resolution` + `retrieval_follow_up` 都跳过。
 
-#### 第三步：问题消歧在本例里会跳过
+**这说明**：流水线是**按输入类型分支**的，不是每次都把所有步骤跑一遍。
 
-因为本例是 `text_news`，不是 `question_only`，所以：
+### Step 4 · Agent synthesis 跳过（配置了 `ANALYSIS_PROVIDER=off`）
 
-- `question_resolution` 跳过
-- `retrieval_follow_up` 也跳过
+`agent_synthesis` 进入 warning/跳过路径，后端退回**规则兜底链路**。
 
-这说明当前后端流水线是 **按输入类型分支** 的，不是每次都把所有步骤跑一遍。
+**架构特点**：流水线始终先保留 agent 分支的位置，但默认稳定演示路径依赖规则兜底保证可交付。
 
-#### 第四步：Agent synthesis 在本例里不会生效
+### Step 5 · Claim 抽取
 
-因为本例配置了 `ANALYSIS_PROVIDER=off`，所以：
+`ClaimExtractor` 抽出 3 条事实：
 
-- `agent_synthesis` 会进入 warning/跳过式路径
-- 后端退回规则兜底链路
-
-这也是当前代码里一个很关键的架构特点：
-
-- **流水线始终先保留 agent 分支的位置**
-- **但默认稳定演示路径仍然依赖规则兜底保证可交付**
-
-#### 第五步：Claim 抽取
-
-`ClaimExtractor` 在本例里抽出了 3 条事实 claim：
-
-```text
+```
 1. 海州市市场监管局通报称。
 2. 海州新鲜屋部分酸奶批次超过保质期。
 3. 酸奶已停业整改。
 ```
 
-这里要注意，它抽出来的是“可判定的原子事实”，不是整段原文。
+**抽的是「可判定的原子事实」，不是整段原文。**
 
-#### 第六步：Claim 判定
+### Step 6 · Claim 判定
 
-`VerdictEngine` 基于 `RetrievalBundle` 给这 3 条 claim 的结果都是：
+`VerdictEngine` 基于 `RetrievalBundle` 判定：
 
 | claim | verdict | confidence |
-| --- | --- | --- |
-| 海州市市场监管局通报称。 | `supported` | `high` |
-| 海州新鲜屋部分酸奶批次超过保质期。 | `supported` | `high` |
-| 酸奶已停业整改。 | `supported` | `high` |
+|---|---|---|
+| 海州市市场监管局通报称 | `supported` | `high` |
+| 海州新鲜屋部分酸奶批次超过保质期 | `supported` | `high` |
+| 酸奶已停业整改 | `supported` | `high` |
 
-对应证据来源是：
+「模型说是真的」的不是模型——是**官方通报和主流媒体已经足够支撑核心 claim**，规则引擎才把它们判成 `supported`。
 
-```json
-{
-  "evidence_source": "retrieval_mock",
-  "evidence_grade": "A"
-}
-```
+### Step 7 · 时间线构建
 
-也就是说，这个例子不是“模型说是真的”，而是：
-
-- 官方通报和主流媒体已经足够支撑核心 claim
-- 所以规则引擎可以把它们判成 `supported`
-
-#### 第七步：时间线构建
-
-`TimelineBuilder` 为本例还原出了 3 个节点：
+`TimelineBuilder` 还原出 3 个节点：
 
 | 节点类型 | 节点内容 |
-| --- | --- |
+|---|---|
 | `origin` | 海州市市场监管局通报海州新鲜屋整改情况 |
 | `amplification` | 海州日报：海州新鲜屋两门店停售整改 |
 | `turn` | 海州新鲜屋发布致歉说明 |
 
-对应结果：
+结果：`source=retrieval, nodes=3, completeness=65, confidence=92`。
 
-```json
-{
-  "source": "retrieval",
-  "nodes": 3,
-  "completeness": 65,
-  "confidence": 92
-}
-```
+「有证据」进一步提升为「证据之间有传播顺序和角色关系」。
 
-这一步把“有证据”进一步提升为“证据之间有传播顺序和角色关系”。
+### Step 8 · 最终报告组装
 
-#### 第八步：最终报告组装
-
-`ReportBuilder` 最终给出的核心结果是：
+`ReportBuilder` 给出：
 
 ```json
 {
@@ -591,20 +485,17 @@ RETRIEVAL_CACHE_ENABLED=false
 }
 ```
 
-最终总结语是：
+最终总结：
 
 > 已形成相对完整的公开证据链，当前更倾向于：海州市市场监管局通报称。
 
-同时它还保留了一个重要风险提示：
+**同时保留一个重要风险提示**：
 
 > 当前结果来自 mock 数据或 mock 回退路径，不能当作真实联网核查结论。
 
-这就是当前项目的设计取舍：
+**设计取舍**：结果可以完整，但 provenance 必须老实告诉你它是不是 mock。
 
-- 结果可以完整
-- 但 provenance 也必须老实告诉你它是不是 mock
-
-### 8.4 这条例子的完整时序图
+### 9.1 完整时序图
 
 ```mermaid
 sequenceDiagram
@@ -634,7 +525,6 @@ sequenceDiagram
     PIPE-->>FE: stage(retrieval_initial)
 
     PIPE-->>FE: stage(question_resolution: skipped)
-    PIPE-->>FE: stage(retrieval_follow_up: skipped)
     PIPE-->>FE: stage(agent_synthesis: warning)
 
     PIPE->>C: extract_with_source()
@@ -651,44 +541,36 @@ sequenceDiagram
     FE-->>U: 实时直播 + 最终结论面板
 ```
 
-### 8.5 这个例子能说明什么
+### 9.2 这条例子能说明什么
 
-这个例子把当前系统最核心的设计讲出来了：
-
-1. **输入先标准化，再进入后续链路。**
-2. **检索是流水线中枢，claim、verdict、timeline 都围绕它。**
-3. **Agent 是可选增强，不是唯一依赖。**
-4. **最终输出不是一段话，而是一份结构化 `Report`。**
-5. **前端展示的不只是答案，还包括答案是怎么来的。**
+1. **输入先标准化，再进入后续链路**
+2. **检索是流水线中枢**，claim、verdict、timeline 都围绕它
+3. **Agent 是可选增强，不是唯一依赖**
+4. **最终输出不是一段话，而是一份结构化 `Report`**
+5. **前端展示的不只是答案，还包括答案是怎么来的**
 
 ---
 
-## 9. 当前项目最适合怎么讲
+## 10. 推荐阅读顺序
 
-如果你要向别人解释这个项目，最稳的表述是：
+按这个顺序读，最容易把"页面怎么发请求"一路连到"报告是怎么长出来的"：
 
-> 这是一个带执行过程可视化的谣言核查工作台。前端负责把一次分析过程完整展示出来，后端把输入加工成标准化事件，再做检索、消歧、claim 判定、时间线构建和报告组装。当前代码同时支持稳定 mock 基线和 LLM 增强路径，但无论走哪条路径，最终都统一收敛到一份带 provenance 的 `Report`。
-
-再压缩一点，可以直接说：
-
-> 当前架构的关键词不是“大模型”，而是“结构化流水线 + 流式可观测 + 契约化输出”。 
+1. [frontend/components/analyze-page.tsx](../frontend/components/analyze-page.tsx) — 编排与状态机
+2. [frontend/lib/api-client.ts](../frontend/lib/api-client.ts) — NDJSON 流的解析
+3. [backend/app/api/v1/endpoints/analyze.py](../backend/app/api/v1/endpoints/analyze.py) — 流式响应入口
+4. [backend/app/services/analyze_pipeline.py](../backend/app/services/analyze_pipeline.py) — **主链路，先看这里**
+5. [backend/app/services/input_normalizer.py](../backend/app/services/input_normalizer.py) — 输入标准化
+6. [backend/app/services/retrieval_service.py](../backend/app/services/retrieval_service.py) — 检索调度 + 相关性过滤
+7. [backend/app/services/playwright_search_provider.py](../backend/app/services/playwright_search_provider.py) — SERP 抓取 + 日期抽取
+8. [backend/app/services/claim_extractor.py](../backend/app/services/claim_extractor.py) — Claim 拆分
+9. [backend/app/services/verdict_engine.py](../backend/app/services/verdict_engine.py) — Verdict 判定
+10. [backend/app/services/timeline_builder.py](../backend/app/services/timeline_builder.py) — 时间线还原
+11. [backend/app/services/report_builder.py](../backend/app/services/report_builder.py) — 最终报告组装
+12. [backend/app/agent/multi/supervisor.py](../backend/app/agent/multi/supervisor.py) — 多 Agent 并行 DAG
+13. [contracts/report.schema.json](../contracts/report.schema.json) — 前后端契约
 
 ---
 
-## 10. 你看代码时的推荐阅读顺序
-
-如果你要自己继续深入，推荐按这个顺序读：
-
-1. [frontend/components/analyze-page.tsx](../frontend/components/analyze-page.tsx)（编排与状态机，再看它组合的 verdict-card / claim-list / trace-timeline 等展示组件）
-2. [frontend/lib/api-client.ts](../frontend/lib/api-client.ts)
-3. [backend/app/api/v1/endpoints/analyze.py](../backend/app/api/v1/endpoints/analyze.py)
-4. [backend/app/services/analyze_pipeline.py](../backend/app/services/analyze_pipeline.py)
-5. [backend/app/services/input_normalizer.py](../backend/app/services/input_normalizer.py)
-6. [backend/app/services/retrieval_service.py](../backend/app/services/retrieval_service.py)
-7. [backend/app/services/claim_extractor.py](../backend/app/services/claim_extractor.py)
-8. [backend/app/services/verdict_engine.py](../backend/app/services/verdict_engine.py)
-9. [backend/app/services/timeline_builder.py](../backend/app/services/timeline_builder.py)
-10. [backend/app/services/report_builder.py](../backend/app/services/report_builder.py)
-11. [contracts/report.schema.json](../contracts/report.schema.json)
-
-按这个顺序读，最容易把“页面怎么发请求”一路连到“报告是怎么长出来的”。
+<p align="center">
+  <sub>用一句话总结当前架构：<b>结构化流水线 + 流式可观测 + 契约化输出</b></sub>
+</p>

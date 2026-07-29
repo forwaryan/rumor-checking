@@ -1,116 +1,112 @@
-# rumor-checking · 「较真」的新闻观察员
+# 较真 · 让每一条传闻都能被查证
 
-一个面向真实用户的新闻/传闻核查产品：接收一条消息，把它拆成可判定的原子事实，联网找证据，逐条判定真假，并把「结论是怎么来的」完整展示出来。
-
-<p align="center">
-  <img src="docs/assets/hero.png" alt="较真核查：从信息洪流中分辨真伪" width="820">
-</p>
-
-更新时间：2026-07-26（Asia/Shanghai）
-
----
-
-## 这是什么
-
-> 一句话：**带执行过程可视化的谣言核查系统**。前端把一次分析全程直播出来，后端把输入加工成标准化事件，再做检索、消歧、逐条 claim 判定、时间线还原和报告组装，最终统一收敛到一份带 provenance（来源标注）的结构化 `Report`。
-
-它刻意不是「前端调一个黑盒模型然后等答案」：
-
-- **前端**负责输入、实时过程展示、结构化结果展示。
-- **后端**负责把输入拆成标准化事件 → 检索 → 消歧 → 判定 → 时间线 → 最终报告，每一步都以流式事件推给前端。
-- **`contracts/`** 把前后端都要认的字段结构固定下来，避免各说各话。
-- **`evals/` + mock 检索**给整条链路提供稳定、可回归的样例。
-
-对应的题目（「较真的新闻观察员」）要求两条主流程：**传播链还原** 与 **内容核查**，见 [target/tar.md](./target/tar.md)。
-
----
-
-## 核心能力
-
-### 1. 把一条消息拆成多条 claim，逐条判定
+**一个带执行过程可视化的谣言核查产品**：接收一条消息，把它拆成可判定的原子事实，联网找证据，逐条判定真假，并把「结论是怎么来的」完整展示出来。
 
 <p align="center">
-  <img src="docs/assets/claims.png" alt="消息拆成原子 claim，每条独立判定" width="760">
+  <img src="docs/assets/hero.png" alt="较真：让每一条传闻都能被查证" width="820">
 </p>
-
-一条消息往往「核心属实、细节存疑」。系统把它拆成原子 claim，每条独立给 `verdict`：
-
-| 状态 | 含义 | 图中标记 |
-| --- | --- | --- |
-| `supported` 基本属实 | 有权威/独立证据支撑 | 绿色 ✓ |
-| `refuted` 不实信息 | 有证据直接反驳 | 红色 ✗ |
-| `insufficient` 证据不足 | 公开证据不足以定论 | 灰色 ? |
-| `conflicting` 各方矛盾 | 不同来源相互冲突（含数量冲突） | 琥珀色 ! |
-
-整体判定诚实反映混合情况：当一条消息**既有属实成分又有被反驳成分**时，标「各方矛盾」而不是干净的「属实」。
-
-### 2. 多可能性 + 为真概率（概率与 verdict 解耦）
-
-- 每条 claim 除 `verdict`/`confidence` 外，带 `truth_probability`（0–100）与 `probability_basis`（`evidence` / `prior`）。
-- **核心原则：概率独立于 verdict。** 无证据的决定性 verdict 仍降级为 `insufficient`（grounded 兜底不变），但概率是另一维度——一条 `insufficient` 的 claim 仍可带 `truth_probability=15, basis=prior`，`basis` 诚实区分「有检索证据」还是「仅凭常识先验」。
-
-### 3. Agent 循环：搜 → 判 → 再搜的多轮自主编排
 
 <p align="center">
-  <img src="docs/assets/agent-loop.png" alt="搜索-判定-取证-再搜的迭代 agent 循环" width="720">
+  <sub>Next.js 前端 · FastAPI 后端 · 多 Agent 并行检索 · 全程流式可观测</sub>
 </p>
 
-深度档走一层可插拔的 agent 编排（`plan → tool → observe → decide → finalize`）：
+---
 
-- **序列规划器**：LLM 一次规划一串动作，而不是每步单独问。
-- **多轮迭代**：证据弱的 claim 会触发「定向补搜 → 重判」循环（`per_claim_search` → `re_judge_claims`，最多 3 轮）。
-- **合成 critic**：synthesis 结果经一道校验 critic，只能**下调**未被证据支撑的判定、永不上调（单调安全）。
-- **自主取证**：planner 可选择抓取当前证据里最权威来源的正文，按同一 `result_id` 挂靠喂给 synthesis（grounding 安全，不新增证据源）。
+## 目录
 
-`RulePlanner`（默认）复刻固定 pipeline 顺序，在 `off + mock` 上产出与旧链路**逐字节一致**的 `Report`；`LlmPlanner`（配置 LLM 时）在真实岔路口调用 LLM 决策，失败即回退规则。
-
-### 4. 全程可观测
-
-结果态把流式事件按步骤聚合成执行时间线，每步展示「干了什么/输入/输出/结论」；每次 LLM 调用的提问与回答有「人类可读 / 原始 JSON」两个 tab。
+- [产品能力速览](#产品能力速览)
+- [核查全流程 · 一张图看懂](#核查全流程--一张图看懂)
+- [多 Agent 并行架构](#多-agent-并行架构)
+- [两档核查 · 秒级 vs 分钟级](#两档核查--秒级-vs-分钟级)
+- [四种命运 · 每条事实独立判定](#四种命运--每条事实独立判定)
+- [快速开始](#快速开始)
+- [接口与运行路径](#接口与运行路径)
+- [文档入口](#文档入口)
+- [当前边界与如实口径](#当前边界与如实口径)
 
 ---
 
-## 两档分析（按请求 `mode` 选择）
+## 产品能力速览
 
-同一后端进程同时提供两档，不靠全局环境变量切换：
-
-| 档位 | 触发 | 路径 | 时延 | 适用 |
-| --- | --- | --- | --- | --- |
-| **`fast`**（默认） | `request_context.mode=fast` 或缺省 | 零 LLM 规则路径 + 真实检索 + 规则 verdict（含 LLM 补判可选） | 约 0.2–0.3s | 给真实用户当下就能用的秒级核查 |
-| **`deep`** | `request_context.mode=deep` | LLM/agent 全链路（序列规划器、investigation、synthesis、critic、结构化补全） | 几分钟级 | 需要更强判定时的异步深度核查 |
-
-前端主按钮走 fast，出结果后再给「深度核查」二次入口；deep 档可从白名单里选判定模型。`mode` 只切换分析深度，检索 provider 始终由 `RETRIEVAL_PROVIDER` 决定，两档共用同一套真实检索。
+|  | 能力 | 关键特征 |
+|---|---|---|
+| 🎯 | **拆 claim 逐条判**  | 一条消息拆成原子事实，每条独立判 `属实 / 不实 / 证据不足 / 各方矛盾`，混合情况不粉饰 |
+| 🌐 | **4 路并行真检索**  | 百度 + 小红书 + 今日头条 + 搜狗微信，同一时刻并发拉取，SERP 日期真实抓取而非伪造 |
+| 🧠 | **Agent 多轮迭代**  | 深度档跑「搜 → 判 → 再搜」循环，配合 LLM Critic 单调下调（永不加强判定） |
+| 📊 | **真伪概率**  | 除 verdict 外每条还有 0–100 概率，明确标注是「基于证据」还是「基于常识先验」 |
+| 👁️ | **全程可观测**  | 流式事件直播每一步，用户能看到「哪一步、找到了什么、为什么这么判」 |
+| 📜 | **可复核证据链**  | 每条判定都能展开 `<details>判定依据`：来源分级 · 相关性说明 · 原始 URL |
 
 ---
 
-## 系统架构
+## 核查全流程 · 一张图看懂
 
-```mermaid
-flowchart LR
-    U["用户"] --> FE["Next.js 前端<br/>（搜索态 / 结果态）"]
-    FE -->|"POST /analyze/stream"| API["FastAPI 接口层"]
-    API --> ORCH{"AGENT_ORCHESTRATOR<br/>_ENABLED?"}
-    ORCH -->|false| PIPE["固定 AnalyzePipeline"]
-    ORCH -->|true| RUN["AgentRunner<br/>（plan→tool→observe→decide）"]
+<p align="center">
+  <img src="docs/assets/end-to-end-flow.png" alt="核查全流程：从一句话到一份可复核的报告" width="900">
+</p>
 
-    PIPE --> SVC["能力组件层"]
-    RUN --> SVC
-    SVC --> NORM["InputNormalizer"]
-    SVC --> RET["RetrievalService"]
-    SVC --> VERDICT["VerdictEngine + LLM 补判"]
-    SVC --> BUILD["ReportBuilder + ContentCheck + Trace"]
+**六步流水线**，每一步都以流式事件推给前端，用户实时看到「后端现在在干什么」：
 
-    RET --> LIVE["真实检索<br/>百度/Bing (playwright)"]
-    RET --> MOCK["mock 回归样例"]
-    BUILD --> CONTRACT["contracts/report.schema.json"]
+1. **输入** — 支持文本、URL、问句三种输入类型
+2. **标准化** — 识别输入类型，抽取标题/摘要/关键词/来源
+3. **并行检索** — 4 路证据源同时拉取，去重、时间戳规范化
+4. **拆 Claim** — 把核心事实和存疑细节各自独立，一条消息可能拆成 3–5 条
+5. **逐条判定** — 每条 claim 独立走 verdict + 真伪概率
+6. **报告** — 组装成带来源标注、时间线、可信度打分的结构化 `Report`
 
-    API -.->|"NDJSON 流式事件"| FE
-    CONTRACT --> FE
-```
+---
 
-要点：**主链路不在路由层，而在 `AnalyzePipeline` / `AgentRunner`；检索和判定解耦；前端同时消费实时事件流和最终 `Report`。**
+## 多 Agent 并行架构
 
-更细的分层、时序图和贯穿示例见 [docs/current-code-architecture-guide.md](./docs/current-code-architecture-guide.md)。
+深度档 (`mode=deep`) 开启多 Agent 编排后，检索层从**串行 4 源** 升级为**并行 DAG**：
+
+<p align="center">
+  <img src="docs/assets/multi-agent-dag.png" alt="多 Agent 并行 DAG · 一次分析同时跑 4 路检索" width="900">
+</p>
+
+**为什么这么设计**：
+
+- 4 个源之间没有数据依赖，串行是浪费；ThreadPool 并发拉取，端到端延迟 ≈ 最慢那一源
+- `NORMALIZE` / `RETRIEVAL_MERGE` 是关键路径节点，任何源失败降级为 `SKIPPED` 空 bundle，`MERGE` 继续跑
+- `CRITIC` 可选多视角并行（`MULTI_AGENT_CRITIC_PERSPECTIVES>1`，N 个独立视角各判一次，取"提示downgrade"的交集）
+- `Supervisor.execute_batch` 用 `copy_context().run()` 绑 `ContextVars`，否则 ThreadPool 的 worker 拿不到 `progress` 回调，观测会静默失效
+
+**在代码里**：入口 `backend/app/services/analyze_pipeline.py::_run_multi_agent` · Supervisor `backend/app/agent/multi/supervisor.py` · 6 个 sub-agent 各一个文件在 `backend/app/agent/multi/`
+
+**触发条件**：`MULTI_AGENT_ENABLED=true` + `AGENT_ORCHESTRATOR_ENABLED=true` + 请求带 `mode=deep`。三个都开才走这条路，任一关闭回退到固定 pipeline，行为不变。
+
+---
+
+## 两档核查 · 秒级 vs 分钟级
+
+同一后端进程**同时提供两档**，不靠环境变量切换。前端主按钮走 fast，出结果后再给「深度核查」二次入口。
+
+<p align="center">
+  <img src="docs/assets/two-modes.png" alt="两档核查：秒级实时 vs 分钟级深度" width="900">
+</p>
+
+| 档位 | 触发 | 时延 | 判定路径 | 适用 |
+|---|---|---|---|---|
+| **fast** ⚡ | 默认 / 请求带 `mode=fast` | ~0.2–0.3s | 4 路并行检索 → 规则引擎 verdict | 秒级实时查证 |
+| **deep** 🔬 | 请求带 `mode=deep` | 分钟级 | Agent 循环 → LLM synthesis → Critic 校验 → 结构化补全 | 需要更强证据时的深度核查 |
+
+`mode` 只切换分析深度，检索 provider 始终由 `RETRIEVAL_PROVIDER` 决定，两档共用同一套真实检索层。
+
+---
+
+## 四种命运 · 每条事实独立判定
+
+一条传闻往往「核心属实、细节存疑」。把它拆成原子 claim 独立判定，能诚实反映混合情况——**当既有属实成分又有被反驳成分时，标「各方矛盾」而不是干净的「属实」**。
+
+<p align="center">
+  <img src="docs/assets/verdict-states.png" alt="一条 Claim 的四种命运 + 真伪概率" width="900">
+</p>
+
+**真伪概率与 verdict 解耦**（核心设计原则）：
+
+- 每条 claim 除 `verdict` / `confidence` 外，带 `truth_probability`（0–100）和 `probability_basis`（`evidence` / `prior`）
+- 无证据时决定性 verdict 仍降级为 `insufficient`（grounded 安全兜底不变），但概率是另一维度
+- 一条 `insufficient` 的 claim 仍可带 `truth_probability=15, basis=prior`——`basis` 诚实区分「有检索证据」还是「仅凭常识先验」
 
 ---
 
@@ -118,8 +114,8 @@ flowchart LR
 
 ### 环境要求
 
-- Python：`>= 3.8`
-- Node.js：`>= 18.18.0`，建议 `>= 20.9.0`
+- Python `>= 3.8`
+- Node.js `>= 18.18.0`（建议 `>= 20.9.0`）
 
 ### 1. 配置环境变量
 
@@ -127,7 +123,7 @@ flowchart LR
 cp backend/.env.example backend/.env
 ```
 
-默认基线（零 key、可复现）：
+**默认基线**（零 key、可复现）：
 
 ```dotenv
 ANALYSIS_PROVIDER=off
@@ -135,23 +131,27 @@ RETRIEVAL_PROVIDER=mock
 RETRIEVAL_FALLBACK_TO_MOCK=true
 ```
 
-启用真实联网检索（纯 httpx 抓取百度/Bing，无需额外依赖）：
+**启用真实联网检索**（纯 httpx 抓百度/Bing，无需额外依赖）：
 
 ```dotenv
 RETRIEVAL_PROVIDER=playwright
 RETRIEVAL_FALLBACK_TO_MOCK=true
 ```
 
-启用 LLM 分析增强（模型/端点/密钥全部放 git 忽略的 `backend/.env`，不写入版本库）：
+**启用多 Agent 并行 DAG + LLM 深度档**：
 
 ```dotenv
+RETRIEVAL_PROVIDER=playwright
 ANALYSIS_PROVIDER=kimi
+AGENT_ORCHESTRATOR_ENABLED=true
+MULTI_AGENT_ENABLED=true
+MULTI_AGENT_RETRIEVAL_MODE=parallel
 LLM_API_KEY=你的真实 key
 LLM_BASE_URL=你的 OpenAI 兼容网关端点
 LLM_MODEL=你的模型名
 ```
 
-> `ANALYSIS_PROVIDER=kimi` 只是历史遗留的开关字面量，不代表具体供应商；LLM 调用层已供应商中立，走标准 OpenAI 兼容 `chat/completions`。
+> `ANALYSIS_PROVIDER=kimi` 只是历史遗留的开关字面量，不代表具体供应商；LLM 调用层已供应商中立，走标准 OpenAI 兼容 `chat/completions`。内网网关地址和密钥全部放 `backend/.env`（git 忽略），永不进版本库。
 
 ### 2. 启动后端
 
@@ -165,35 +165,33 @@ uvicorn backend.app.main:app --reload
 ### 3. 启动前端
 
 ```bash
-cd frontend
-npm install
-npm run dev
+cd frontend && npm install && npm run dev
 ```
 
 默认地址：`http://127.0.0.1:3000`
 
-> Windows 下通过 `\\wsl.localhost\...` 访问仓库时，优先用：
-> ```powershell
-> powershell -ExecutionPolicy Bypass -File .\frontend\start-local-windows.ps1 -BackendUrl http://127.0.0.1:8000 -Port 3020
-> ```
-
-### 4. 运行测试
+### 4. 跑测试
 
 ```bash
-pytest backend/tests -q          # 后端回归
-cd frontend && npm run typecheck && npm test   # 前端类型检查 + 单测
+pytest backend/tests -q                          # 后端回归 (~540 tests)
+cd frontend && npm run typecheck && npm test     # 前端类型检查 + 单测 (~53 tests)
 ```
 
 ---
 
-## 后端接口
+## 接口与运行路径
 
-- `GET /api/v1/health`
-- `GET /api/v1/models`（可选分析模型白名单 + 默认，只返回模型名，不含网关地址/密钥）
-- `POST /api/v1/analyze`
-- `POST /api/v1/analyze/stream`
+### 主要接口
 
-最小联调：
+| 接口 | 用途 |
+|---|---|
+| `GET /api/v1/health` | 健康检查 |
+| `GET /api/v1/models` | 可选分析模型白名单 + 默认（只回模型名，不含网关地址/密钥） |
+| `GET /api/v1/search-sources` | 可用检索源列表（用于前端 toggle） |
+| `POST /api/v1/analyze` | 同步分析 |
+| `POST /api/v1/analyze/stream` | 流式分析（NDJSON 事件流） |
+
+**最小联调**：
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/analyze \
@@ -201,44 +199,56 @@ curl -X POST http://127.0.0.1:8000/api/v1/analyze \
   -d '{"raw_input": "网传某地出台新规，要求周末全面停工整顿。", "input_type": "text"}'
 ```
 
----
+### 检索 Provider 对照
 
-## 运行路径对照
+| provider | 说明 | 适用 |
+|---|---|---|
+| `mock` | 稳定回归样例 | 默认，用于开发/联调/演示 |
+| `playwright` | httpx 抓百度（主）+ Bing（兜底），日期从 `prefix-time` span 真实抽取 | **推荐真实联网路径**，中文覆盖好，无浏览器依赖 |
+| `gdelt` | GDELT 公开新闻 API | 英文事件，中文覆盖弱 |
+| `kimi` | LLM 内建 `$web_search` | 仅对支持该工具的供应商有效 |
+| `off` | 关闭检索 | 只走 LLM 内部知识 |
 
-| 路径 | 关键环境变量 | 适合做什么 | 边界口径 |
-| --- | --- | --- | --- |
-| `default dev / demo` | `off + mock + fallback=true` | 默认开发、联调、回归、演示 | 零 key、可复现；结果标 `backend_mock`，不讲成真实检索 |
-| `real live（推荐 playwright）` | `RETRIEVAL_PROVIDER=playwright` + `ANALYSIS_PROVIDER=kimi` + `AGENT_ORCHESTRATOR_ENABLED=true` | 真实联网调查 → grounded 判定，标 `backend_live + retrieval_live` | 中文覆盖较好、无需模型内建搜索；检索多条 query 已并发；延迟高于 mock，非默认 |
-| `fast 实时档` | `RETRIEVAL_PROVIDER=playwright`，请求带 `mode=fast`（默认） | 给真实用户的秒级核查：真实检索 + 规则 verdict | 零 LLM，约 0.2–0.3s，真实 URL；判定用规则，深度不如 deep |
-| `deep 深度档` | 同 `real live`，请求带 `mode=deep` | 需要更强判定时的异步深度核查 | LLM/agent 全链路，几分钟级，前端从 fast 结果页二次触发 |
+### 多 Agent 相关开关
 
-### 检索 provider
-
-- `mock`：稳定回归（默认）
-- `playwright`：纯 httpx 抓取百度（主）+ Bing（兜底）搜索结果页，中文覆盖较好，无需浏览器二进制（**当前推荐的真实联网路径**）
-- `gdelt`：公开 GDELT 新闻 API，英文偏向、中文覆盖弱
-- `kimi`：LLM 内建 `$web_search`（仅对支持该工具的供应商有效；当前网关无此能力）
-- `off`：关闭检索
+| 环境变量 | 默认 | 说明 |
+|---|---|---|
+| `MULTI_AGENT_ENABLED` | `false` | 启用 Supervisor 多 Agent 层 |
+| `MULTI_AGENT_RETRIEVAL_MODE` | `parallel` | `parallel`（推荐）/ `sequential`（回退） |
+| `MULTI_AGENT_MAX_PARALLEL` | `4` | ThreadPool 并发上限 |
+| `MULTI_AGENT_CRITIC_PERSPECTIVES` | `1` | Critic 多视角并行数，>1 时取 downgrade 的并集 |
+| `MULTI_AGENT_LLM_ROUTING_ENABLED` | `false` | 用 LLM 决定 loop_back / finalize（否则走规则阈值） |
+| `TOUTIAO_SEARCH_ENABLED` | `true` | 今日头条源 |
+| `SOGOU_WEIXIN_SEARCH_ENABLED` | `true` | 搜狗微信源 |
+| `XHS_SEARCH_ENABLED` | `true` | 小红书源（需 `xhs-cli`） |
 
 ---
 
 ## 文档入口
 
-- 当前已核验状态（约束所有文档口径）：[docs/status/current-verified-state.md](./docs/status/current-verified-state.md)
-- 代码结构与架构说明：[docs/current-code-architecture-guide.md](./docs/current-code-architecture-guide.md)
-- 提问分析全链路：[docs/question-analysis-end-to-end-flow.md](./docs/question-analysis-end-to-end-flow.md)
-- 联网检索方案调查：[docs/status/web-search-options.md](./docs/status/web-search-options.md)
-- 演示脚本 / 演示前检查：[DEMO_SCRIPT.md](./DEMO_SCRIPT.md) · [SMOKE_CHECKLIST.md](./SMOKE_CHECKLIST.md)
-- 后端 / 前端说明：[backend/README.md](./backend/README.md) · [frontend/README.md](./frontend/README.md)
-- 协议 / 数据 / 评测：[contracts/README.md](./contracts/README.md) · [data/README.md](./data/README.md) · [evals/README.md](./evals/README.md)
-- 总导航：[docs/README.md](./docs/README.md)
+- [docs/current-code-architecture-guide.md](./docs/current-code-architecture-guide.md) — **代码结构与架构详解**（图文并茂）
+- [docs/question-analysis-end-to-end-flow.md](./docs/question-analysis-end-to-end-flow.md) — 提问输入的全链路分析
+- [docs/status/current-verified-state.md](./docs/status/current-verified-state.md) — 已验证状态（口径基准）
+- [docs/status/web-search-options.md](./docs/status/web-search-options.md) — 联网检索方案对比
+- [backend/README.md](./backend/README.md) · [frontend/README.md](./frontend/README.md) — 前后端说明
+- [contracts/README.md](./contracts/README.md) · [evals/README.md](./evals/README.md) — 协议与评测
+- [DEMO_SCRIPT.md](./DEMO_SCRIPT.md) · [SMOKE_CHECKLIST.md](./SMOKE_CHECKLIST.md) — 演示脚本 / 演示前检查
+- [docs/README.md](./docs/README.md) — 文档总导航
 
 ---
 
-## 当前边界（如实口径）
+## 当前边界与如实口径
 
-- 前端只消费后端返回的真实 `Report`，不请求 `replay`，也不读本地 demo payload；请求失败时展示错误态与重试入口。
+- 前端只消费后端返回的真实 `Report`，不请求 `replay`，也不读本地 demo payload；请求失败展示错误态与重试入口。
 - `report.provenance.source_type` 当前只会是 `backend_live` 或 `backend_mock`；前端缺失 provenance 时保守落到 `unknown`。
-- URL 输入只支持公开 HTML 页面，不支持登录页、强反爬、浏览器渲染页、PDF 和图片正文。
-- 演示口径：`mock demo` 稳、可复现、零 key；`real live` 已联调通过，但要如实说明「延迟高、非默认、需按配方配置」，别讲成随手就能实时跑。
+- URL 输入只支持公开 HTML 页面，不支持登录页、强反爬、浏览器渲染页、PDF、图片正文。
+- **日期字段**：`published_at` 从 Baidu SERP 的 `prefix-time` span 真实抽取（`2026-07-16` / `6天前` / `昨天` 三种格式），SERP 里没有的场景返回空字符串（前端显示「时间未知」），**永远不伪造 `datetime.now()`**。
+- **相关性过滤**：`retrieval_service._result_matches_query` 采用主体品牌 + 事件词双层过滤，避免「共享一个动词就算相关」（如「美团 裁员」query 拉回 Amazon / Meta 的裁员新闻）。
 - 内网网关地址是硬密码，绝不写入代码或文档；模型名运行时可露，但不硬编码进版本库。
+- 演示口径：`mock demo` 稳、可复现、零 key；`real live` 已联调，但延迟高、非默认、需按配方配置，别讲成随手就能实时跑。
+
+---
+
+<p align="center">
+  <sub>用一句话总结：<b>结构化流水线 + 流式可观测 + 契约化输出</b>，让每一条判定都可追溯、可复核。</sub>
+</p>
