@@ -38,6 +38,7 @@ class AgentRole(str, Enum):
     RETRIEVAL_XHS = "retrieval_xhs"
     RETRIEVAL_TOUTIAO = "retrieval_toutiao"
     RETRIEVAL_WEIXIN = "retrieval_weixin"
+    RETRIEVAL_PIYAO = "retrieval_piyao"
     RETRIEVAL_MERGE = "retrieval_merge"
     ANALYSIS = "analysis"
     CRITIC = "critic"

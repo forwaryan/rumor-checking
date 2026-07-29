@@ -126,13 +126,14 @@ class SourceRetrievalAgent:
         )
 
 
-# (role, source_key, force_primary_query) — baidu keeps its rich plan; the three
-# social sources reuse the precomputed primary query and skip re-planning.
+# (role, source_key, force_primary_query) — baidu keeps its rich plan; the
+# social/official sources reuse the precomputed primary query and skip re-planning.
 _SOURCE_SPECS = [
     (AgentRole.RETRIEVAL_BAIDU, "baidu", False),
     (AgentRole.RETRIEVAL_XHS, "xiaohongshu", True),
     (AgentRole.RETRIEVAL_TOUTIAO, "toutiao", True),
     (AgentRole.RETRIEVAL_WEIXIN, "sogou_weixin", True),
+    (AgentRole.RETRIEVAL_PIYAO, "piyao", True),
 ]
 
 

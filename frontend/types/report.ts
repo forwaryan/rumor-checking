@@ -120,6 +120,11 @@ export interface TraceStep {
   subEvents: TraceSubEvent[];
   startedAt: string;
   endedAt: string | null;
+  durationMs: number | null;
+  offsetMs: number;
+  parentKey: string | null;
+  children: TraceStep[];
+  isParallelGroup: boolean;
 }
 
 export interface ReportProvenance {

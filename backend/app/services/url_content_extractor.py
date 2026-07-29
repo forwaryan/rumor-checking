@@ -11,6 +11,7 @@ import httpx
 from backend.app.core.config import Settings, get_settings
 from backend.app.models.schemas import MockFetchResult
 from backend.app.services.contract_utils import looks_like_url, source_name_from_url
+from backend.app.services.url_validator import is_safe_url
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,14 @@ class UrlContentExtractor:
                 final_url=normalized_url,
                 fallback_reason="url_invalid",
                 error_message="invalid_url",
+            )
+        if not is_safe_url(normalized_url):
+            return MockFetchResult(
+                status="error",
+                source_name=source_name,
+                final_url=normalized_url,
+                fallback_reason="url_blocked_ssrf",
+                error_message="blocked_internal_url",
             )
 
         try:

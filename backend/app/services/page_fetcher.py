@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 import httpx
 
 from backend.app.services.retrieval_models import SearchResult, TIER_WEIGHTS
+from backend.app.services.url_validator import is_safe_url
 
 if TYPE_CHECKING:
     from backend.app.services.url_fetch_cache import UrlFetchCache
@@ -85,6 +86,9 @@ def _extract_key_paragraphs(text: str, max_chars: int = 800) -> str:
 
 def _fetch_single_page(url: str) -> Optional[str]:
     """Fetch one page, using the module-level cache when available."""
+    if not is_safe_url(url):
+        return None
+
     # Check cache first
     if _cache is not None:
         try:

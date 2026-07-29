@@ -74,14 +74,14 @@ def test_skips_claims_without_evidence():
     assert out[0].verdict == "insufficient"
 
 
-def test_skips_non_insufficient_claims():
+def test_judges_all_fact_claims_with_evidence():
     calls = {"n": 0}
 
     def counter(s, u):
         calls["n"] += 1
-        return json.dumps({"verdict": "supported", "confidence": "high", "reason": "有"})
+        return json.dumps({"verdict": "supported", "confidence": "high", "reason": "确认"})
 
     claims = [_claim("某事。", verdict="supported", evidence=[_ev()])]
     out = llm_judge_claims(claims, completion_fn=counter)
-    assert calls["n"] == 0
+    assert calls["n"] == 1
     assert out[0].verdict == "supported"

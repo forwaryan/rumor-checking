@@ -154,6 +154,7 @@ class Settings:
     xhs_search_enabled: bool
     toutiao_search_enabled: bool
     sogou_weixin_search_enabled: bool
+    piyao_search_enabled: bool
     url_fetch_timeout_seconds: float
     url_fetch_max_chars: int
     url_fetch_cache_enabled: bool
@@ -241,7 +242,7 @@ def get_settings() -> Settings:
             else "parallel"
         ),
         multi_agent_llm_routing_enabled=_as_bool(os.getenv("MULTI_AGENT_LLM_ROUTING_ENABLED"), default=False),
-        multi_agent_critic_perspectives=max(_as_int(os.getenv("MULTI_AGENT_CRITIC_PERSPECTIVES"), 1), 1),
+        multi_agent_critic_perspectives=max(_as_int(os.getenv("MULTI_AGENT_CRITIC_PERSPECTIVES"), 3), 1),
         agent_max_url_fetches=max(_as_int(os.getenv("AGENT_MAX_URL_FETCHES"), 1), 0),
         agent_tool_max_retries=max(_as_int(os.getenv("AGENT_TOOL_MAX_RETRIES"), 2), 0),
         agent_max_token_budget=max(_as_int(os.getenv("AGENT_MAX_TOKEN_BUDGET"), 0), 0),
@@ -257,7 +258,7 @@ def get_settings() -> Settings:
         agent_wall_clock_seconds=max(_as_float(os.getenv("AGENT_WALL_CLOCK_SECONDS"), 0.0), 0.0),
         agent_clarification_enabled=_as_bool(os.getenv("AGENT_CLARIFICATION_ENABLED"), default=False),
         agent_evidence_compaction_enabled=_as_bool(os.getenv("AGENT_EVIDENCE_COMPACTION_ENABLED"), default=False),
-        agent_prompt_cache_enabled=_as_bool(os.getenv("AGENT_PROMPT_CACHE_ENABLED"), default=False),
+        agent_prompt_cache_enabled=_as_bool(os.getenv("AGENT_PROMPT_CACHE_ENABLED"), default=True),
         llm_api_key=os.getenv("LLM_API_KEY") or os.getenv("KIMI_API_KEY"),
         llm_base_url=(os.getenv("LLM_BASE_URL") or os.getenv("KIMI_BASE_URL") or "https://api.openai.com/v1").rstrip("/"),
         llm_model_base_urls=_parse_model_base_urls(os.getenv("LLM_MODEL_BASE_URLS")),
@@ -298,6 +299,7 @@ def get_settings() -> Settings:
         xhs_search_enabled=_as_bool(os.getenv("XHS_SEARCH_ENABLED"), default=True),
         toutiao_search_enabled=_as_bool(os.getenv("TOUTIAO_SEARCH_ENABLED"), default=True),
         sogou_weixin_search_enabled=_as_bool(os.getenv("SOGOU_WEIXIN_SEARCH_ENABLED"), default=True),
+        piyao_search_enabled=_as_bool(os.getenv("PIYAO_SEARCH_ENABLED"), default=True),
         url_fetch_timeout_seconds=_as_float(os.getenv("URL_FETCH_TIMEOUT_SECONDS"), 8.0),
         url_fetch_max_chars=max(_as_int(os.getenv("URL_FETCH_MAX_CHARS"), 12000), 1000),
         url_fetch_cache_enabled=_as_bool(os.getenv("URL_FETCH_CACHE_ENABLED"), default=True),

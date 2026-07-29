@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { deriveTraceSteps, formatLlmText, humanizeLlmText } from "@/lib/trace-steps";
-import type { AnalysisLiveEvent, AnalysisLiveStatus } from "@/types/report";
+import {
+  deriveTraceSteps,
+  elapsedSince,
+  formatDuration,
+  formatLlmText,
+  humanizeLlmText,
+  parallelWallClockMs,
+  sumChildDurationsMs,
+} from "@/lib/trace-steps";
+import type { AnalysisLiveEvent, AnalysisLiveStatus, TraceStep } from "@/types/report";
 
 function stage(
   stage_key: string,
@@ -285,5 +293,200 @@ describe("humanizeLlmText", () => {
   it("falls back to formatted JSON for an unknown shape", () => {
     const out = humanizeLlmText("agent_synthesis", "response", '{"weird":"shape"}');
     expect(out).toContain('"weird": "shape"');
+  });
+});
+
+describe("formatDuration", () => {
+  it("returns dash for null / negative / non-finite", () => {
+    expect(formatDuration(null)).toBe("—");
+    expect(formatDuration(-5)).toBe("—");
+    expect(formatDuration(Number.NaN)).toBe("—");
+  });
+
+  it("formats sub-second in milliseconds", () => {
+    expect(formatDuration(0)).toBe("0ms");
+    expect(formatDuration(482)).toBe("482ms");
+    expect(formatDuration(999)).toBe("999ms");
+  });
+
+  it("formats seconds with two decimals under a minute", () => {
+    expect(formatDuration(1000)).toBe("1.00s");
+    expect(formatDuration(1235)).toBe("1.24s");
+    expect(formatDuration(59_999)).toBe("60.00s");
+  });
+
+  it("formats minutes with zero-padded seconds beyond a minute", () => {
+    expect(formatDuration(60_000)).toBe("1m 00s");
+    expect(formatDuration(65_000)).toBe("1m 05s");
+    expect(formatDuration(3_599_000)).toBe("59m 59s");
+  });
+});
+
+describe("elapsedSince", () => {
+  it("returns positive delta when now is after start", () => {
+    const start = "2026-03-20T00:00:00Z";
+    const now = new Date("2026-03-20T00:00:03.500Z").getTime();
+    expect(elapsedSince(start, now)).toBe(3500);
+  });
+
+  it("clamps to zero when start is in the future", () => {
+    const start = "2026-03-20T00:00:10Z";
+    const now = new Date("2026-03-20T00:00:00Z").getTime();
+    expect(elapsedSince(start, now)).toBe(0);
+  });
+
+  it("returns zero for an unparseable start", () => {
+    expect(elapsedSince("not-a-date", Date.now())).toBe(0);
+  });
+});
+
+function makeStep(overrides: Partial<TraceStep>): TraceStep {
+  return {
+    stageKey: "x",
+    label: "x",
+    status: "completed",
+    did: "",
+    inputs: [],
+    outputs: [],
+    note: null,
+    llmCalls: [],
+    subEvents: [],
+    startedAt: "2026-03-20T00:00:00Z",
+    endedAt: "2026-03-20T00:00:01Z",
+    durationMs: 1000,
+    offsetMs: 0,
+    parentKey: null,
+    children: [],
+    isParallelGroup: false,
+    ...overrides,
+  };
+}
+
+describe("parallelWallClockMs", () => {
+  it("computes max(end) - min(start) across children", () => {
+    const children = [
+      makeStep({
+        stageKey: "a",
+        startedAt: "2026-03-20T00:00:00.000Z",
+        endedAt: "2026-03-20T00:00:01.500Z",
+      }),
+      makeStep({
+        stageKey: "b",
+        startedAt: "2026-03-20T00:00:00.200Z",
+        endedAt: "2026-03-20T00:00:02.400Z",
+      }),
+      makeStep({
+        stageKey: "c",
+        startedAt: "2026-03-20T00:00:00.500Z",
+        endedAt: "2026-03-20T00:00:01.000Z",
+      }),
+    ];
+    expect(parallelWallClockMs(children)).toBe(2400);
+  });
+
+  it("returns null if a child has no endedAt", () => {
+    const children = [
+      makeStep({ startedAt: "2026-03-20T00:00:00.000Z", endedAt: "2026-03-20T00:00:01.000Z" }),
+      makeStep({ startedAt: "2026-03-20T00:00:00.500Z", endedAt: null }),
+    ];
+    expect(parallelWallClockMs(children)).toBe(null);
+  });
+
+  it("returns null for an empty child list", () => {
+    expect(parallelWallClockMs([])).toBe(null);
+  });
+});
+
+describe("sumChildDurationsMs", () => {
+  it("sums populated durations, treating null as zero", () => {
+    const children = [
+      makeStep({ durationMs: 1000 }),
+      makeStep({ durationMs: 2500 }),
+      makeStep({ durationMs: null }),
+    ];
+    expect(sumChildDurationsMs(children)).toBe(3500);
+  });
+});
+
+describe("deriveTraceSteps · duration + offset", () => {
+  it("computes durationMs from startedAt and endedAt on the terminal stage", () => {
+    const events: AnalysisLiveEvent[] = [
+      { type: "stage", stage_key: "normalize_input", status: "running", title: "n", summary: "", details: [], emitted_at: "2026-03-20T00:00:00.000Z" } as AnalysisLiveEvent,
+      { type: "stage", stage_key: "normalize_input", status: "completed", title: "n", summary: "", details: [], emitted_at: "2026-03-20T00:00:00.480Z" } as AnalysisLiveEvent,
+      { type: "complete", run_id: "r", success: true, summary: "", emitted_at: "2026-03-20T00:00:00.500Z" } as AnalysisLiveEvent,
+    ];
+    const steps = deriveTraceSteps(events);
+    expect(steps).toHaveLength(1);
+    expect(steps[0].durationMs).toBe(480);
+    expect(steps[0].offsetMs).toBe(0);
+  });
+
+  it("computes offsetMs relative to the earliest step start (t=0)", () => {
+    const events: AnalysisLiveEvent[] = [
+      { type: "stage", stage_key: "normalize_input", status: "completed", title: "n", summary: "", details: [], emitted_at: "2026-03-20T00:00:01.000Z" } as AnalysisLiveEvent,
+      { type: "stage", stage_key: "retrieval_initial", status: "running", title: "r", summary: "", details: [], emitted_at: "2026-03-20T00:00:01.700Z" } as AnalysisLiveEvent,
+      { type: "stage", stage_key: "retrieval_initial", status: "completed", title: "r", summary: "", details: [], emitted_at: "2026-03-20T00:00:02.900Z" } as AnalysisLiveEvent,
+      { type: "complete", run_id: "r", success: true, summary: "", emitted_at: "2026-03-20T00:00:03.000Z" } as AnalysisLiveEvent,
+    ];
+    const steps = deriveTraceSteps(events);
+    expect(steps[0].offsetMs).toBe(0);
+    expect(steps[1].offsetMs).toBe(700);
+    expect(steps[1].durationMs).toBe(1200);
+  });
+
+  it("leaves durationMs null when the step is still running", () => {
+    const events: AnalysisLiveEvent[] = [
+      { type: "stage", stage_key: "agent_synthesis", status: "running", title: "s", summary: "", details: [], emitted_at: "2026-03-20T00:00:00.000Z" } as AnalysisLiveEvent,
+    ];
+    const steps = deriveTraceSteps(events);
+    expect(steps[0].durationMs).toBe(null);
+    expect(steps[0].endedAt).toBe(null);
+  });
+});
+
+describe("deriveTraceSteps · parallel group synthesis", () => {
+  it("groups the 4 source-agent children under a synthesized parent with wall-clock duration", () => {
+    const evt = (stage: string, status: AnalysisLiveStatus, at: string): AnalysisLiveEvent =>
+      ({ type: "stage", stage_key: stage, status, title: stage, summary: "", details: [], emitted_at: at } as AnalysisLiveEvent);
+    const events: AnalysisLiveEvent[] = [
+      evt("agent_retrieval_baidu", "running", "2026-03-20T00:00:00.100Z"),
+      evt("agent_retrieval_xiaohongshu", "running", "2026-03-20T00:00:00.200Z"),
+      evt("agent_retrieval_toutiao", "running", "2026-03-20T00:00:00.150Z"),
+      evt("agent_retrieval_sogou_weixin", "running", "2026-03-20T00:00:00.180Z"),
+      evt("agent_retrieval_baidu", "completed", "2026-03-20T00:00:01.700Z"),
+      evt("agent_retrieval_xiaohongshu", "completed", "2026-03-20T00:00:01.900Z"),
+      evt("agent_retrieval_toutiao", "completed", "2026-03-20T00:00:01.200Z"),
+      evt("agent_retrieval_sogou_weixin", "completed", "2026-03-20T00:00:02.100Z"),
+      { type: "complete", run_id: "r", success: true, summary: "", emitted_at: "2026-03-20T00:00:03Z" } as AnalysisLiveEvent,
+    ];
+    const steps = deriveTraceSteps(events);
+    expect(steps).toHaveLength(1);
+    const parent = steps[0];
+    expect(parent.stageKey).toBe("agent_retrieval_orchestrator");
+    expect(parent.isParallelGroup).toBe(true);
+    expect(parent.children.map((c) => c.stageKey)).toEqual([
+      "agent_retrieval_baidu",
+      "agent_retrieval_xiaohongshu",
+      "agent_retrieval_toutiao",
+      "agent_retrieval_sogou_weixin",
+    ]);
+    // Wall clock = max(2.100) - min(0.100) = 2000ms
+    expect(parent.durationMs).toBe(2000);
+    // Sum-of-children (naive) is much larger
+    expect(sumChildDurationsMs(parent.children)).toBeGreaterThan(2000);
+  });
+
+  it("propagates a still-running child up as parent status='running'", () => {
+    const evt = (stage: string, status: AnalysisLiveStatus, at: string): AnalysisLiveEvent =>
+      ({ type: "stage", stage_key: stage, status, title: stage, summary: "", details: [], emitted_at: at } as AnalysisLiveEvent);
+    const events: AnalysisLiveEvent[] = [
+      evt("agent_retrieval_baidu", "running", "2026-03-20T00:00:00Z"),
+      evt("agent_retrieval_xiaohongshu", "running", "2026-03-20T00:00:00Z"),
+      evt("agent_retrieval_baidu", "completed", "2026-03-20T00:00:01Z"),
+      // xiaohongshu never completes
+    ];
+    const steps = deriveTraceSteps(events);
+    expect(steps[0].status).toBe("running");
+    expect(steps[0].durationMs).toBe(null);
   });
 });

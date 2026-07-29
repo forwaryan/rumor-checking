@@ -274,8 +274,8 @@ def test_critic_rule_path_keeps_strong_source():
     assert state.verdict.claim_results[0].verdict == "refuted"
 
 
-def test_critic_llm_path_union_of_perspectives():
-    """Multi-perspective LLM critic downgrades the UNION of flagged indices."""
+def test_critic_llm_path_majority_vote():
+    """Multi-perspective LLM critic downgrades only when ≥2 lenses flag a claim."""
     from backend.app.agent.multi.critic_agent import CriticAgent
     from backend.app.agent.state import AgentState
     from backend.app.models.schemas import AnalyzeRequest
@@ -286,11 +286,12 @@ def test_critic_llm_path_union_of_perspectives():
         enabled = True
         model_override = None
 
-        def critique_claims(self, claim_results):
-            # Perspective 0 flags claim 0; perspective 1 flags claim 1.
-            idx = calls["n"] % 2
+        def critique_claims(self, claim_results, lens_instruction=None):
+            # All perspectives flag claim 0; only one flags claim 1.
             calls["n"] += 1
-            return claim_results, {idx}
+            if calls["n"] <= 2:
+                return claim_results, {0}
+            return claim_results, {1}
 
     state = AgentState(request=AnalyzeRequest(raw_input="x"))
     state.verdict = _verdict([
@@ -298,14 +299,14 @@ def test_critic_llm_path_union_of_perspectives():
         _fact_claim("c1", "refuted", [_evidence("A")]),
     ])
     settings = _StubSettings()
-    settings.multi_agent_critic_perspectives = 2
+    settings.multi_agent_critic_perspectives = 3
     ctx = _StubCtx(reasoner=_FakeReasoner(), settings=settings)
 
     CriticAgent().run(state, ctx)
-    # Both claims downgraded (union of {0} and {1}).
+    # Claim 0 downgraded (flagged by 2/3 lenses), claim 1 NOT (flagged by 1/3).
     assert state.verdict.claim_results[0].verdict == "insufficient"
-    assert state.verdict.claim_results[1].verdict == "insufficient"
-    assert calls["n"] == 2
+    assert state.verdict.claim_results[1].verdict == "refuted"
+    assert calls["n"] == 3
 
 
 # --- Supervisor LLM routing ---

@@ -8,6 +8,55 @@ import type {
 } from "@/types/report";
 
 /**
+ * Format a millisecond duration as a short human string:
+ *   "—" when null (still running / unknown)
+ *   "482ms" when < 1000ms
+ *   "1.24s" when < 60s
+ *   "1m 05s" when >= 60s
+ */
+export function formatDuration(ms: number | null): string {
+  if (ms === null || !Number.isFinite(ms) || ms < 0) return "—";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(2)}s`;
+  const totalSec = Math.round(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}m ${s.toString().padStart(2, "0")}s`;
+}
+
+/**
+ * For a step that is still running, return "已跑 X" based on now vs startedAt.
+ * Used by the live-tick renderer while the stream is in flight.
+ */
+export function elapsedSince(startedAtIso: string, nowMs: number): number {
+  const start = new Date(startedAtIso).getTime();
+  if (!Number.isFinite(start)) return 0;
+  return Math.max(0, nowMs - start);
+}
+
+/**
+ * Aggregate the "wall clock" of a parallel group: max(child endedAt) - min(child startedAt).
+ * Returns null if any child is still running (endedAt === null), so we never
+ * display a wall-clock that would grow if we waited longer.
+ */
+export function parallelWallClockMs(children: TraceStep[]): number | null {
+  if (children.length === 0) return null;
+  if (children.some((c) => c.endedAt === null)) return null;
+  const starts = children.map((c) => new Date(c.startedAt).getTime()).filter(Number.isFinite);
+  const ends = children.map((c) => new Date(c.endedAt as string).getTime()).filter(Number.isFinite);
+  if (starts.length === 0 || ends.length === 0) return null;
+  return Math.max(...ends) - Math.min(...starts);
+}
+
+/**
+ * Naive sum of child durations. When we compare this against
+ * parallelWallClockMs, the difference is how much wall-clock the fan-out saved.
+ */
+export function sumChildDurationsMs(children: TraceStep[]): number {
+  return children.reduce((acc, c) => acc + (c.durationMs ?? 0), 0);
+}
+
+/**
  * Make an LLM prompt/response readable: pretty-print the embedded JSON object
  * (the compressed one-line JSON is unreadable), while keeping any leading
  * instruction text ("Choose the single best… Context JSON:") as-is. Falls back
@@ -149,7 +198,53 @@ const STAGE_LABEL: Record<string, string> = {
   verdict_engine: "证据判定",
   timeline_builder: "构建时间线",
   report_build: "生成报告",
+  // Multi-agent parallel DAG stages
+  agent_retrieval_orchestrator: "并行检索编排",
+  agent_retrieval_baidu: "百度检索",
+  agent_retrieval_xiaohongshu: "小红书检索",
+  agent_retrieval_toutiao: "今日头条检索",
+  agent_retrieval_sogou_weixin: "搜狗微信检索",
+  agent_retrieval_piyao: "辟谣平台检索",
+  agent_retrieval_merge: "检索合并",
+  agent_normalize: "输入规整",
+  agent_analysis: "综合分析",
+  agent_critic: "结果复核",
 };
+
+// Parent-child mapping: which stage_keys are children of a group, and which is
+// their parent's stage_key. Children roll their bars up under the parent, and
+// the parent's duration is computed as max(child.endedAt) - min(child.startedAt).
+// Only stages that appear as VALUES here become children; unmapped stages stay
+// at the top level. Parallel-branch groups set `parallel: true` so the renderer
+// visualizes the fan-out as overlapping bars instead of sequential.
+interface ParentSpec {
+  parent: string;
+  parentLabel: string;
+  children: string[];
+  parallel: boolean;
+}
+
+const PARALLEL_GROUPS: ParentSpec[] = [
+  {
+    parent: "agent_retrieval_orchestrator",
+    parentLabel: "并行检索编排",
+    children: [
+      "agent_retrieval_baidu",
+      "agent_retrieval_xiaohongshu",
+      "agent_retrieval_toutiao",
+      "agent_retrieval_sogou_weixin",
+      "agent_retrieval_piyao",
+    ],
+    parallel: true,
+  },
+];
+
+const CHILD_TO_PARENT = new Map<string, ParentSpec>();
+for (const spec of PARALLEL_GROUPS) {
+  for (const child of spec.children) {
+    CHILD_TO_PARENT.set(child, spec);
+  }
+}
 
 // How each detail key should be presented, and whether it reads as an input
 // (what the step was given / decided to do) or an output (what it produced).
@@ -291,6 +386,11 @@ export function deriveTraceSteps(events: AnalysisLiveEvent[]): TraceStep[] {
         subEvents: [],
         startedAt: emittedAt,
         endedAt: null,
+        durationMs: null,
+        offsetMs: 0,
+        parentKey: null,
+        children: [],
+        isParallelGroup: false,
       };
       byStage.set(stageKey, step);
       order.push(stageKey);
@@ -419,8 +519,8 @@ export function deriveTraceSteps(events: AnalysisLiveEvent[]): TraceStep[] {
     (event) => event.type === "complete" || event.type === "error" || event.type === "report",
   );
 
-  const steps = order.map((key) => byStage.get(key)!);
-  for (const step of steps) {
+  const flatSteps = order.map((key) => byStage.get(key)!);
+  for (const step of flatSteps) {
     step.subEvents = normalizeSubEvents(step.subEvents);
     if (streamEnded && step.status === "running") {
       const worst = step.subEvents.reduce(
@@ -431,6 +531,128 @@ export function deriveTraceSteps(events: AnalysisLiveEvent[]): TraceStep[] {
       const lastSub = step.subEvents[step.subEvents.length - 1];
       step.endedAt = lastSub?.emittedAt ?? step.startedAt;
     }
+    // If a step has sub-events later than its own endedAt (e.g. retrieval events
+    // that ran after the terminal stage event), extend endedAt so the timing
+    // reflects actual work — otherwise `durationMs` under-reports parallel work.
+    if (step.endedAt && step.subEvents.length) {
+      const latestSub = step.subEvents.reduce((acc, s) => {
+        const t = s.emittedAt ?? "";
+        return t > acc ? t : acc;
+      }, "");
+      if (latestSub && latestSub > step.endedAt) {
+        step.endedAt = latestSub;
+      }
+    }
   }
-  return steps;
+
+  // Synthesize a parent group step for parallel branches (the multi-agent
+  // orchestrator does not emit its own stage events — only children do). This
+  // lets the renderer show the 4 parallel source-agent bars nested inside one
+  // "并行检索编排" row with a wall-clock duration = max(end) - min(start).
+  for (const spec of PARALLEL_GROUPS) {
+    const childSteps = spec.children
+      .map((k) => byStage.get(k))
+      .filter((s): s is TraceStep => Boolean(s));
+    if (childSteps.length === 0) continue;
+    if (byStage.has(spec.parent)) continue;
+
+    const earliestStart = childSteps.reduce(
+      (acc, s) => (s.startedAt < acc ? s.startedAt : acc),
+      childSteps[0].startedAt,
+    );
+    // If any child hasn't ended yet, the parent's wall-clock is unknown — leave
+    // endedAt null so the renderer shows "—" instead of a misleading duration.
+    const anyChildOpen = childSteps.some((s) => s.endedAt === null);
+    const latestEnd: string | null = anyChildOpen
+      ? null
+      : childSteps.reduce<string | null>((acc, s) => {
+          if (!s.endedAt) return acc;
+          if (acc === null) return s.endedAt;
+          return s.endedAt > acc ? s.endedAt : acc;
+        }, null);
+    const someRunning = childSteps.some((s) => s.status === "running");
+    const someError = childSteps.some((s) => s.status === "error");
+    const someWarn = childSteps.some((s) => s.status === "warning");
+    const parentStatus: AnalysisLiveStatus = someRunning
+      ? "running"
+      : someError
+        ? "error"
+        : someWarn
+          ? "warning"
+          : "completed";
+    const parent: TraceStep = {
+      stageKey: spec.parent,
+      label: spec.parentLabel,
+      status: parentStatus,
+      did: `并行 ${childSteps.length} 路检索源`,
+      inputs: [],
+      outputs: [],
+      note: null,
+      llmCalls: [],
+      subEvents: [],
+      startedAt: earliestStart,
+      endedAt: latestEnd,
+      durationMs: null,
+      offsetMs: 0,
+      parentKey: null,
+      children: [],
+      isParallelGroup: true,
+    };
+    byStage.set(spec.parent, parent);
+    // Insert parent right before its first child in the ordered list so timeline
+    // ordering stays chronological.
+    const firstChildIdx = order.findIndex((k) => spec.children.includes(k));
+    if (firstChildIdx >= 0) {
+      order.splice(firstChildIdx, 0, spec.parent);
+    } else {
+      order.push(spec.parent);
+    }
+  }
+
+  // Wire parent<->children references and remove children from the top level.
+  const childKeys = new Set<string>();
+  for (const step of order.map((k) => byStage.get(k)!)) {
+    const spec = CHILD_TO_PARENT.get(step.stageKey);
+    if (spec) {
+      const parent = byStage.get(spec.parent);
+      if (parent) {
+        step.parentKey = parent.stageKey;
+        parent.children.push(step);
+        childKeys.add(step.stageKey);
+      }
+    }
+  }
+
+  const topLevel = order.map((k) => byStage.get(k)!).filter((s) => !childKeys.has(s.stageKey));
+
+  // Compute t=0 as the earliest startedAt across all steps, and populate
+  // durationMs (null if the step is still running) and offsetMs (from t=0).
+  // Recursion covers the two-level tree.
+  const allStepsFlat: TraceStep[] = [];
+  const walk = (s: TraceStep) => {
+    allStepsFlat.push(s);
+    s.children.forEach(walk);
+  };
+  topLevel.forEach(walk);
+
+  if (allStepsFlat.length === 0) return topLevel;
+
+  const t0 = allStepsFlat.reduce(
+    (acc, s) => (s.startedAt < acc ? s.startedAt : acc),
+    allStepsFlat[0].startedAt,
+  );
+  const t0Ms = new Date(t0).getTime();
+
+  for (const step of allStepsFlat) {
+    const startMs = new Date(step.startedAt).getTime();
+    step.offsetMs = Number.isFinite(startMs) && Number.isFinite(t0Ms) ? Math.max(0, startMs - t0Ms) : 0;
+    if (step.endedAt) {
+      const endMs = new Date(step.endedAt).getTime();
+      if (Number.isFinite(endMs) && Number.isFinite(startMs) && endMs >= startMs) {
+        step.durationMs = endMs - startMs;
+      }
+    }
+  }
+
+  return topLevel;
 }

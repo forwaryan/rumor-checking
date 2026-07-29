@@ -26,6 +26,7 @@ from backend.app.services.retrieval_models import (
     looks_like_repost,
 )
 from backend.app.services.playwright_search_provider import PlaywrightSearchProvider
+from backend.app.services.piyao_provider import PiyaoSearchProvider
 from backend.app.services.sogou_weixin_provider import SogouWeixinSearchProvider
 from backend.app.services.toutiao_search_provider import ToutiaoSearchProvider
 from backend.app.services.xhs_search_provider import XhsSearchProvider
@@ -105,6 +106,7 @@ class RetrievalService:
         self.xhs_provider = XhsSearchProvider(settings=self.settings)
         self.toutiao_provider = ToutiaoSearchProvider(settings=self.settings)
         self.sogou_weixin_provider = SogouWeixinSearchProvider(settings=self.settings)
+        self.piyao_provider = PiyaoSearchProvider(settings=self.settings)
         self.cache = cache or RetrievalCache(
             cache_root=self.settings.retrieval_cache_dir,
             ttl_seconds=self.settings.retrieval_cache_ttl_seconds,
@@ -151,6 +153,8 @@ class RetrievalService:
                 bundle = self._append_toutiao_results(bundle, bundle.query, stage_key=stage_key)
             if self._source_enabled("sogou_weixin", search_sources):
                 bundle = self._append_sogou_weixin_results(bundle, bundle.query, stage_key=stage_key)
+            if self._source_enabled("piyao", search_sources):
+                bundle = self._append_piyao_results(bundle, bundle.query, stage_key=stage_key)
         finally:
             reset_retrieval_stage_key(stage_token)
         return bundle
@@ -688,6 +692,51 @@ class RetrievalService:
                 item,
                 retrieved_at=retrieved_at,
                 source_category=infer_source_category(item.url, item.source_name),
+                independence_key=build_independence_key(item.url, item.source_name),
+                signal_tags=detect_signal_tags(item.title, item.snippet, item.source_name),
+            ))
+
+        existing_keys = {r.independence_key for r in bundle.canonical_results if r.independence_key}
+        new_results = [r for r in enriched if r.independence_key not in existing_keys]
+        if not new_results:
+            return bundle
+
+        combined_canonical = tuple(list(bundle.canonical_results) + new_results)
+        combined_raw = tuple(list(bundle.raw_results) + new_results)
+        return replace(
+            bundle,
+            canonical_results=combined_canonical,
+            raw_results=combined_raw,
+        )
+
+    def _append_piyao_results(
+        self, bundle: RetrievalBundle, primary_query: str, *, stage_key: str
+    ) -> RetrievalBundle:
+        """Append results from the Chinese Internet Joint Rumor Debunking Platform.
+
+        piyao.org.cn is the authoritative government-backed debunking source.
+        Hits from this platform are S-tier by definition. Degrades silently on failure.
+        """
+        if not self.piyao_provider.enabled:
+            return bundle
+        piyao_query = self._shorten_for_xhs(primary_query)
+        if not piyao_query:
+            return bundle
+        try:
+            piyao_results = self.piyao_provider.search(piyao_query, max_results=5)
+        except Exception as exc:
+            logger.warning("piyao_append_failed error=%s", exc)
+            return bundle
+        if not piyao_results:
+            return bundle
+
+        retrieved_at = ensure_datetime_string(datetime.now(UTC).isoformat())
+        enriched = []
+        for item in piyao_results:
+            enriched.append(replace(
+                item,
+                retrieved_at=retrieved_at,
+                source_category="official_debunking",
                 independence_key=build_independence_key(item.url, item.source_name),
                 signal_tags=detect_signal_tags(item.title, item.snippet, item.source_name),
             ))
