@@ -133,7 +133,11 @@ class AnalyzePipeline:
         self._apply_model_override(request)
 
         if deep_mode and self.settings.agent_orchestrator_enabled:
-            report = self._run_agent_orchestrator(request)
+            multi_agent = getattr(self.settings, "multi_agent_enabled", False)
+            if multi_agent:
+                report = self._run_multi_agent(request)
+            else:
+                report = self._run_agent_orchestrator(request)
             if report is not None:
                 return report
 
@@ -529,6 +533,46 @@ class AnalyzePipeline:
                 title="Agent 综合失败",
                 summary="Agent synthesis 抛错，退回规则链。",
                 details=[f"error_type={exc.__class__.__name__}"],
+            )
+            return None
+
+    def _run_multi_agent(self, request: AnalyzeRequest):
+        from backend.app.agent.multi.supervisor import Supervisor
+        from backend.app.agent_tools.base import ToolContext
+
+        ctx = ToolContext(
+            settings=self.settings,
+            input_normalizer=self.input_normalizer,
+            retriever=self.retriever,
+            url_content_extractor=self.input_normalizer.url_content_extractor,
+            url_fetch_cache=self.url_fetch_cache,
+            question_resolver=self.question_resolver,
+            agent_reasoner=self.agent_reasoner,
+            provider_enricher=self.provider_enricher,
+            claim_extractor=self.claim_extractor,
+            verdict_engine=self.verdict_engine,
+            timeline_builder=self.timeline_builder,
+            report_builder=self.report_builder,
+            content_check_builder=self.content_check_builder,
+            pipeline_trace_builder=self.pipeline_trace_builder,
+        )
+
+        emit_log(
+            stage_key="multi_agent",
+            title="多 Agent 编排启动",
+            summary="Supervisor 多 Agent 模式接管本次分析。",
+        )
+
+        supervisor = Supervisor(ctx, max_parallel=int(getattr(self.settings, "multi_agent_max_parallel", 4) or 4))
+        try:
+            return supervisor.run(request)
+        except Exception as exc:
+            emit_log(
+                stage_key="multi_agent",
+                level="warning",
+                title="多 Agent 编排失败",
+                summary="Supervisor 抛错，退回固定 pipeline。",
+                details=[f"error_type={exc.__class__.__name__}", f"error={str(exc)[:100]}"],
             )
             return None
 

@@ -1347,6 +1347,15 @@ class LlmAgentReasoner:
             )
         return claim_results
 
+    def critique_claims(self, claim_results: list[ClaimResult]) -> tuple[list[ClaimResult], set[int]]:
+        """Public adversarial re-check of a set of verdicts.
+
+        Thin wrapper over the internal `_critique_claim_results` so the multi-agent
+        CriticAgent can run the same monotonic verify pass over rule-engine verdicts
+        (the synthesize path already calls the internal version inline). Returns
+        (possibly-revised results, set of downgraded indices)."""
+        return self._critique_claim_results(claim_results)
+
     def _critique_claim_results(self, claim_results: list[ClaimResult]) -> tuple[list[ClaimResult], set[int]]:
         """Second-pass verify: re-check each decisive verdict against its own cited
         evidence and downgrade any the critic finds unfaithful to "insufficient".

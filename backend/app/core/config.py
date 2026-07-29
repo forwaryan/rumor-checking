@@ -103,6 +103,10 @@ class Settings:
     lightweight_agent_enabled: bool
     agent_max_extra_rounds: int
     agent_orchestrator_enabled: bool
+    multi_agent_enabled: bool
+    multi_agent_max_parallel: int
+    multi_agent_llm_routing_enabled: bool
+    multi_agent_critic_perspectives: int
     agent_max_url_fetches: int
     agent_tool_max_retries: int
     agent_max_token_budget: int
@@ -225,6 +229,10 @@ def get_settings() -> Settings:
         lightweight_agent_enabled=_as_bool(os.getenv("LIGHTWEIGHT_AGENT_ENABLED"), default=False),
         agent_max_extra_rounds=max(_as_int(os.getenv("AGENT_MAX_EXTRA_ROUNDS"), 1), 0),
         agent_orchestrator_enabled=_as_bool(os.getenv("AGENT_ORCHESTRATOR_ENABLED"), default=False),
+        multi_agent_enabled=_as_bool(os.getenv("MULTI_AGENT_ENABLED"), default=False),
+        multi_agent_max_parallel=max(_as_int(os.getenv("MULTI_AGENT_MAX_PARALLEL"), 4), 1),
+        multi_agent_llm_routing_enabled=_as_bool(os.getenv("MULTI_AGENT_LLM_ROUTING_ENABLED"), default=False),
+        multi_agent_critic_perspectives=max(_as_int(os.getenv("MULTI_AGENT_CRITIC_PERSPECTIVES"), 1), 1),
         agent_max_url_fetches=max(_as_int(os.getenv("AGENT_MAX_URL_FETCHES"), 1), 0),
         agent_tool_max_retries=max(_as_int(os.getenv("AGENT_TOOL_MAX_RETRIES"), 2), 0),
         agent_max_token_budget=max(_as_int(os.getenv("AGENT_MAX_TOKEN_BUDGET"), 0), 0),
