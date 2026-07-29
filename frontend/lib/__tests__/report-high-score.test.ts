@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  getClaimContributionIntro,
-  getClaimContributions,
   getClaimSummaryBuckets,
   getCompletionBreakdown,
   getOverallCredibilityMeta,
@@ -117,7 +115,8 @@ const baseReport: Report = {
   },
 };
 
-const scoredReport = Object.assign({}, baseReport, {
+const scoredReport: Report = {
+  ...baseReport,
   overall_credibility_score: 57,
   overall_credibility_label: "mixed",
   score_breakdown: {
@@ -134,30 +133,12 @@ const scoredReport = Object.assign({}, baseReport, {
     summary: "Officials support part of the story, but high-priority sources still conflict on the shutdown scope.",
     limiting_factors: ["Shutdown scope still lacks a higher-priority unified source."],
   },
-  claim_contributions: [
-    {
-      claim: "Officials inspected the site.",
-      claim_type: "fact",
-      verdict: "supported",
-      contribution_label: "supports",
-      contribution_score: 20,
-      reason: "Official action improves verifiability.",
-    },
-    {
-      claim: "The factory fully shut down production.",
-      claim_type: "fact",
-      verdict: "conflicting",
-      contribution_label: "mixed",
-      contribution_score: -18,
-      reason: "High-priority sources still conflict.",
-    },
-  ],
   timeline_confidence: 61,
   independent_source_count: 3,
-}) as Report;
+};
 
 describe("report-high-score", () => {
-  it("reads score breakdown and overall credibility fields from extended reports", () => {
+  it("reads score breakdown and overall credibility fields from typed reports", () => {
     const overall = getOverallCredibilityMeta(scoredReport, {
       sourceKind: "backend_mock",
     });
@@ -190,14 +171,17 @@ describe("report-high-score", () => {
     expect(buckets.find((item) => item.key === "opinions")?.count).toBe(1);
   });
 
-  it("explains mixed claim contributions and falls back when backend scores are missing", () => {
-    const contributions = getClaimContributions(scoredReport);
-    const fallbackContributions = getClaimContributions(baseReport);
+  it("falls back gracefully when the report has no scoring fields", () => {
+    const overall = getOverallCredibilityMeta(baseReport, {
+      sourceKind: "backend_mock",
+    });
 
-    expect(contributions[0]?.contributionScore).toBe(20);
-    expect(contributions[1]?.contributionLabel).toBe("mixed");
-    expect(getClaimContributionIntro(scoredReport)).toContain("claim");
-    expect(fallbackContributions[0]?.derived).toBe(true);
-    expect(fallbackContributions[1]?.contributionLabel).toBe("mixed");
+    // Without a real score the helper should still derive a conservative label
+    // so the header component knows to render, and the score itself must be
+    // null (never fabricated).
+    expect(overall?.score).toBeNull();
+    expect(overall?.labelKey).toBe("insufficient_evidence");
+    expect(getScoreBreakdown(baseReport)).toBeNull();
+    expect(getTimelineConfidence(baseReport)).toBeNull();
   });
 });

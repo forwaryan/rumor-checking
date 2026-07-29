@@ -9,6 +9,7 @@ import { deriveTraceSteps } from "@/lib/trace-steps";
 import type { AnalysisLiveEvent, AnalysisStatus, AnalyzeRequest, Report, ReportProvenanceState } from "@/types/report";
 import { SearchInput } from "@/components/search-input";
 import { VerdictCard } from "@/components/verdict-card";
+import { CredibilityHeader } from "@/components/credibility-header";
 import { ClaimList } from "@/components/claim-list";
 import { EvidenceList, RetrievalHitsList } from "@/components/evidence-list";
 import { PossibleAnswers, PossibilitiesDistribution } from "@/components/possibilities-section";
@@ -198,6 +199,7 @@ export function AnalyzePage() {
         )}
 
         {report && <VerdictCard report={report} reportProvenance={reportProvenance} />}
+        {report && <CredibilityHeader report={report} reportProvenance={reportProvenance} />}
         {report && activeMode === "fast" && !isStreaming && (
           <div className="deep-cta">
             <div className="deep-cta__text">还不确定？让 AI 深入分析证据、逐条判定。</div>
@@ -215,7 +217,7 @@ export function AnalyzePage() {
         {report?.content_check && <PossibleAnswers answers={report.content_check.possible_answers} isOpen={answersOpen} onToggle={() => setAnswersOpen(!answersOpen)} />}
         {report?.investigation && <PossibilitiesDistribution possibilities={report.investigation.possibilities} isOpen={possibilitiesOpen} onToggle={() => setPossibilitiesOpen(!possibilitiesOpen)} />}
         {report && <ClaimList claims={report.claim_results} isOpen={claimsOpen} onToggle={() => setClaimsOpen(!claimsOpen)} />}
-        {report && <EvidenceList evidence={evidence} isOpen={evidenceOpen} onToggle={() => setEvidenceOpen(!evidenceOpen)} />}
+        {report && <EvidenceList evidence={evidence} isOpen={evidenceOpen} onToggle={() => setEvidenceOpen(!evidenceOpen)} report={report} />}
         {report && <RetrievalHitsList hits={retrievalOnlyHits} isOpen={retrievalHitsOpen} onToggle={() => setRetrievalHitsOpen(!retrievalHitsOpen)} />}
         {report && <TimelineSection timeline={report.timeline} isOpen={timelineOpen} onToggle={() => setTimelineOpen(!timelineOpen)} />}
         {runMetrics && <RunMetricsPanel metrics={runMetrics} isOpen={metricsOpen} onToggle={() => setMetricsOpen(!metricsOpen)} />}

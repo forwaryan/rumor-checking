@@ -140,6 +140,28 @@ export interface ReportProvenance {
   fallback_reasons: string[];
 }
 
+export type CredibilityLabel =
+  | "high_credibility"
+  | "medium_credibility"
+  | "low_credibility"
+  | "mixed"
+  | "insufficient_evidence";
+
+export interface ScoreBreakdown {
+  claim_score: number;
+  source_quality_score: number;
+  cross_source_agreement_score: number;
+  timeline_score: number;
+  weights: {
+    claim: number;
+    source_quality: number;
+    cross_source_agreement: number;
+    timeline: number;
+  };
+  summary: string;
+  limiting_factors: string[];
+}
+
 export interface ReportProvenanceState {
   sourceKind: ReportSourceKind;
   reportProvenance?: ReportProvenance | null;
@@ -413,6 +435,11 @@ export interface Report {
   content_check?: ContentCheck | null;
   pipeline_trace?: PipelineTrace | null;
   provenance?: ReportProvenance | null;
+  overall_credibility_score?: number | null;
+  overall_credibility_label?: CredibilityLabel | null;
+  score_breakdown?: ScoreBreakdown | null;
+  timeline_confidence?: number | null;
+  independent_source_count?: number | null;
 }
 
 export interface AnalyzeRequest {

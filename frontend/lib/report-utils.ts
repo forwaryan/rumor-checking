@@ -602,30 +602,37 @@ export interface SourceTierMeta {
   label: string;
   tone: "high" | "medium" | "low";
   hint: string;
+  // Short single-word/phrase adjective displayed next to the letter pill so a
+  // reader immediately gets "S = 权威一手" without needing to hover.
+  shortLabel: string;
 }
 
 const sourceTierMeta: Record<SourceTier, SourceTierMeta> = {
   S: {
     tier: "S",
     label: "权威一手",
+    shortLabel: "权威一手",
     tone: "high",
     hint: "官方通报、当事主体或一手权威来源，可信度最高。",
   },
   A: {
     tier: "A",
     label: "权威/主流",
+    shortLabel: "权威主流",
     tone: "high",
     hint: "官方或权威媒体来源，适合作为主要判定依据。",
   },
   B: {
     tier: "B",
     label: "一般媒体",
+    shortLabel: "一般媒体",
     tone: "medium",
     hint: "普通媒体或次级来源，需与更高等级来源相互印证。",
   },
   C: {
     tier: "C",
     label: "自媒体/社交",
+    shortLabel: "自媒体",
     tone: "low",
     hint: "自媒体、社交或聚合转载来源，仅供参考，不宜单独采信。",
   },

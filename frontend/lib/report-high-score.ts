@@ -1,34 +1,18 @@
 import { getReportProvenanceMeta, getVerificationScoreMeta } from "@/lib/report-utils";
-import type { ClaimType, Report, ReportProvenanceState, Verdict } from "@/types/report";
+import type {
+  CredibilityLabel,
+  Report,
+  ReportProvenanceState,
+  ScoreBreakdown,
+} from "@/types/report";
 
-const credibilityLabels = [
+const credibilityLabels: readonly CredibilityLabel[] = [
   "high_credibility",
   "medium_credibility",
   "low_credibility",
   "mixed",
   "insufficient_evidence",
-] as const;
-const contributionLabels = ["supports", "weakens", "mixed", "neutral"] as const;
-
-export type CredibilityLabel = (typeof credibilityLabels)[number];
-export type ContributionLabel = (typeof contributionLabels)[number];
-
-interface ScoreWeights {
-  claim: number;
-  source_quality: number;
-  cross_source_agreement: number;
-  timeline: number;
-}
-
-export interface ScoreBreakdown {
-  claim_score: number;
-  source_quality_score: number;
-  cross_source_agreement_score: number;
-  timeline_score: number;
-  weights: ScoreWeights;
-  summary: string;
-  limiting_factors: string[];
-}
+];
 
 export interface ScoreBreakdownMetric {
   key: "claim" | "source_quality" | "cross_source_agreement" | "timeline";
@@ -71,16 +55,6 @@ export interface ClaimSummaryBucket {
   helper: string;
 }
 
-export interface DisplayClaimContribution {
-  claim: string;
-  claimType: ClaimType;
-  verdict: Verdict;
-  contributionLabel: ContributionLabel;
-  contributionScore: number | null;
-  reason: string;
-  derived: boolean;
-}
-
 const credibilityCopy: Record<
   CredibilityLabel,
   { label: string; tone: OverallCredibilityMeta["tone"]; summary: string }
@@ -112,134 +86,40 @@ const credibilityCopy: Record<
   },
 };
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+function isBoundedScore(value: number | null | undefined): value is number {
+  return typeof value === "number" && value >= 0 && value <= 100;
 }
 
-function asExtendedReport(report: Report) {
-  return report as Report & Record<string, unknown>;
-}
-
-function getBoundedScore(value: unknown) {
-  return typeof value === "number" && value >= 0 && value <= 100 ? value : null;
-}
-
-function getContributionScore(value: unknown) {
-  return typeof value === "number" && value >= -100 && value <= 100 ? value : null;
-}
-
-function getPositiveInteger(value: unknown) {
-  return Number.isInteger(value) && (value as number) >= 0 ? (value as number) : null;
-}
-
-function getCredibilityLabel(value: unknown): CredibilityLabel | null {
-  return typeof value === "string" && credibilityLabels.includes(value as CredibilityLabel)
-    ? (value as CredibilityLabel)
-    : null;
-}
-
-function getContributionLabel(value: unknown): ContributionLabel | null {
-  return typeof value === "string" && contributionLabels.includes(value as ContributionLabel)
-    ? (value as ContributionLabel)
-    : null;
+function isCredibilityLabel(value: unknown): value is CredibilityLabel {
+  return typeof value === "string" && credibilityLabels.includes(value as CredibilityLabel);
 }
 
 function deriveCredibilityLabel(score: number | null): CredibilityLabel {
-  if (score === null) {
-    return "insufficient_evidence";
-  }
-
-  if (score >= 80) {
-    return "high_credibility";
-  }
-
-  if (score >= 60) {
-    return "medium_credibility";
-  }
-
-  if (score >= 35) {
-    return "low_credibility";
-  }
-
+  if (score === null) return "insufficient_evidence";
+  if (score >= 80) return "high_credibility";
+  if (score >= 60) return "medium_credibility";
+  if (score >= 35) return "low_credibility";
   return "insufficient_evidence";
 }
 
-function getScoreWeights(value: unknown): ScoreWeights | null {
-  if (!isObject(value)) {
-    return null;
-  }
-
-  const claim = typeof value.claim === "number" ? value.claim : null;
-  const sourceQuality = typeof value.source_quality === "number" ? value.source_quality : null;
-  const crossSourceAgreement =
-    typeof value.cross_source_agreement === "number" ? value.cross_source_agreement : null;
-  const timeline = typeof value.timeline === "number" ? value.timeline : null;
-
-  if (
-    claim === null ||
-    sourceQuality === null ||
-    crossSourceAgreement === null ||
-    timeline === null
-  ) {
-    return null;
-  }
-
-  return {
-    claim,
-    source_quality: sourceQuality,
-    cross_source_agreement: crossSourceAgreement,
-    timeline,
-  };
+function readBoundedScore(value: number | null | undefined): number | null {
+  return isBoundedScore(value) ? value : null;
 }
 
 export function getScoreBreakdown(report: Report | null): ScoreBreakdown | null {
-  if (!report) {
-    return null;
-  }
-
-  const raw = asExtendedReport(report).score_breakdown;
-  if (!isObject(raw)) {
-    return null;
-  }
-
-  const claimScore = getBoundedScore(raw.claim_score);
-  const sourceQualityScore = getBoundedScore(raw.source_quality_score);
-  const crossSourceAgreementScore = getBoundedScore(raw.cross_source_agreement_score);
-  const timelineScore = getBoundedScore(raw.timeline_score);
-  const weights = getScoreWeights(raw.weights);
-  const summary = typeof raw.summary === "string" ? raw.summary : null;
-  const limitingFactors = Array.isArray(raw.limiting_factors)
-    ? raw.limiting_factors.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-    : [];
-
-  if (
-    claimScore === null ||
-    sourceQualityScore === null ||
-    crossSourceAgreementScore === null ||
-    timelineScore === null ||
-    !weights ||
-    !summary
-  ) {
-    return null;
-  }
-
-  return {
-    claim_score: claimScore,
-    source_quality_score: sourceQualityScore,
-    cross_source_agreement_score: crossSourceAgreementScore,
-    timeline_score: timelineScore,
-    weights,
-    summary,
-    limiting_factors: limitingFactors,
-  };
+  if (!report?.score_breakdown) return null;
+  const raw = report.score_breakdown;
+  const claim = readBoundedScore(raw.claim_score);
+  const source = readBoundedScore(raw.source_quality_score);
+  const cross = readBoundedScore(raw.cross_source_agreement_score);
+  const timeline = readBoundedScore(raw.timeline_score);
+  if (claim === null || source === null || cross === null || timeline === null) return null;
+  return raw;
 }
 
 export function getScoreBreakdownMetrics(report: Report | null): ScoreBreakdownMetric[] {
   const breakdown = getScoreBreakdown(report);
-  if (!breakdown) {
-    return [];
-  }
-
+  if (!breakdown) return [];
   return [
     {
       key: "claim",
@@ -272,38 +152,34 @@ export function getScoreBreakdownMetrics(report: Report | null): ScoreBreakdownM
   ];
 }
 
-export function getTimelineConfidence(report: Report | null) {
-  if (!report) {
-    return null;
-  }
-
-  return getBoundedScore(asExtendedReport(report).timeline_confidence);
+export function getTimelineConfidence(report: Report | null): number | null {
+  return report ? readBoundedScore(report.timeline_confidence) : null;
 }
 
-export function getIndependentSourceCount(report: Report | null) {
-  if (!report) {
-    return null;
-  }
-
-  return getPositiveInteger(asExtendedReport(report).independent_source_count);
+function getIndependentSourceCount(report: Report | null): number | null {
+  if (!report) return null;
+  const value = report.independent_source_count;
+  return Number.isInteger(value) && (value as number) >= 0 ? (value as number) : null;
 }
 
 export function getOverallCredibilityMeta(
   report: Report | null,
   provenance: ReportProvenanceState | null,
 ): OverallCredibilityMeta | null {
-  if (!report) {
-    return null;
-  }
+  if (!report) return null;
 
-  const rawScore = getBoundedScore(asExtendedReport(report).overall_credibility_score);
-  const rawLabel = getCredibilityLabel(asExtendedReport(report).overall_credibility_label);
+  const rawScore = readBoundedScore(report.overall_credibility_score);
+  const rawLabel = isCredibilityLabel(report.overall_credibility_label)
+    ? (report.overall_credibility_label as CredibilityLabel)
+    : null;
   const labelKey = rawLabel ?? deriveCredibilityLabel(rawScore);
   const labelMeta = credibilityCopy[labelKey];
   const breakdown = getScoreBreakdown(report);
   const provenanceMeta = getReportProvenanceMeta(report, provenance);
   const cautionFirst =
-    provenanceMeta && provenanceMeta.sourceKind !== "backend_live" ? provenanceMeta.caution ?? provenanceMeta.summary : null;
+    provenanceMeta && provenanceMeta.sourceKind !== "backend_live"
+      ? provenanceMeta.caution ?? provenanceMeta.summary
+      : null;
 
   return {
     score: rawScore,
@@ -325,39 +201,22 @@ export function getOverallCredibilityMeta(
   };
 }
 
-function getPropagationTone(percent: number | null, nodeCount: number) {
-  if (percent === null) {
-    return nodeCount >= 3 ? "medium" : "low";
-  }
-
-  if (percent >= 75) {
-    return "high";
-  }
-
-  if (percent >= 45) {
-    return "medium";
-  }
-
+function getPropagationTone(percent: number | null, nodeCount: number): CompletionStageMeta["tone"] {
+  if (percent === null) return nodeCount >= 3 ? "medium" : "low";
+  if (percent >= 75) return "high";
+  if (percent >= 45) return "medium";
   return "low";
 }
 
-function getPropagationDescription(percent: number | null, report: Report, sourceCount: number | null) {
+function getPropagationDescription(percent: number | null, report: Report, sourceCount: number | null): string {
   if (percent === null) {
     if (report.timeline.length > 0) {
       return `已拿到 ${report.timeline.length} 个关键节点，但后端尚未返回传播链完成度分。`;
     }
-
     return "当前还没有形成可解释的传播链闭环。";
   }
-
-  if (percent >= 75) {
-    return "关键起点、放大节点和回应节点基本齐全，适合讲传播主链。";
-  }
-
-  if (percent >= 45) {
-    return "已经形成主链路，但峰值节点或关键回应仍有缺口。";
-  }
-
+  if (percent >= 75) return "关键起点、放大节点和回应节点基本齐全，适合讲传播主链。";
+  if (percent >= 45) return "已经形成主链路，但峰值节点或关键回应仍有缺口。";
   return sourceCount && sourceCount > 1
     ? "目前只有零散传播线索，还不足以讲成完整传播图。"
     : "当前传播链仍偏弱，只适合提示线索，不适合讲成闭环。";
@@ -367,10 +226,7 @@ export function getCompletionBreakdown(
   report: Report | null,
   provenance: ReportProvenanceState | null,
 ): CompletionBreakdown | null {
-  if (!report) {
-    return null;
-  }
-
+  if (!report) return null;
   const contentScore = getVerificationScoreMeta(report, provenance);
   const propagationPercent = getTimelineConfidence(report);
   const sourceCount = getIndependentSourceCount(report);
@@ -399,10 +255,7 @@ export function getCompletionBreakdown(
 }
 
 export function getClaimSummaryBuckets(report: Report | null): ClaimSummaryBucket[] {
-  if (!report) {
-    return [];
-  }
-
+  if (!report) return [];
   const contentCheck = report.content_check;
   const facts = contentCheck
     ? contentCheck.likely_true.length
@@ -449,133 +302,3 @@ export function getClaimSummaryBuckets(report: Report | null): ClaimSummaryBucke
   ];
 }
 
-function getFallbackContributionLabel(claimType: ClaimType, verdict: Verdict): ContributionLabel {
-  if (claimType === "opinion" || verdict === "insufficient") {
-    return "neutral";
-  }
-
-  if (verdict === "supported") {
-    return "supports";
-  }
-
-  if (verdict === "refuted") {
-    return "weakens";
-  }
-
-  return "mixed";
-}
-
-function parseContribution(value: unknown): DisplayClaimContribution | null {
-  if (!isObject(value)) {
-    return null;
-  }
-
-  const claim = typeof value.claim === "string" ? value.claim : null;
-  const claimType =
-    value.claim_type === "fact" ||
-    value.claim_type === "opinion" ||
-    value.claim_type === "prediction" ||
-    value.claim_type === "unverifiable"
-      ? value.claim_type
-      : null;
-  const verdict =
-    value.verdict === "supported" ||
-    value.verdict === "refuted" ||
-    value.verdict === "insufficient" ||
-    value.verdict === "conflicting"
-      ? value.verdict
-      : null;
-  const contributionLabel = getContributionLabel(value.contribution_label);
-  const reason = typeof value.reason === "string" ? value.reason : null;
-
-  if (!claim || !claimType || !verdict || !contributionLabel || !reason) {
-    return null;
-  }
-
-  return {
-    claim,
-    claimType,
-    verdict,
-    contributionLabel,
-    contributionScore: getContributionScore(value.contribution_score),
-    reason,
-    derived: false,
-  };
-}
-
-export function getClaimContributions(report: Report | null): DisplayClaimContribution[] {
-  if (!report) {
-    return [];
-  }
-
-  const raw = asExtendedReport(report).claim_contributions;
-  if (Array.isArray(raw)) {
-    const parsed = raw.map(parseContribution).filter((item): item is DisplayClaimContribution => item !== null);
-    if (parsed.length > 0) {
-      return parsed;
-    }
-  }
-
-  return report.claim_results.map((item) => ({
-    claim: item.claim,
-    claimType: item.claim_type,
-    verdict: item.verdict,
-    contributionLabel: getFallbackContributionLabel(item.claim_type, item.verdict),
-    contributionScore: null,
-    reason: item.notes,
-    derived: true,
-  }));
-}
-
-export function getContributionLabelText(label: ContributionLabel) {
-  switch (label) {
-    case "supports":
-      return "拉高总分";
-    case "weakens":
-      return "拉低总分";
-    case "mixed":
-      return "真假混杂";
-    default:
-      return "仅作边界";
-  }
-}
-
-export function getContributionTone(label: ContributionLabel) {
-  switch (label) {
-    case "supports":
-      return "high";
-    case "weakens":
-      return "low";
-    case "mixed":
-      return "mixed";
-    default:
-      return "neutral";
-  }
-}
-
-export function getClaimContributionIntro(report: Report | null) {
-  const contributions = getClaimContributions(report);
-  if (!contributions.length) {
-    return "当前还没有 claim 贡献解释。";
-  }
-
-  const hasPositive = contributions.some((item) => item.contributionLabel === "supports");
-  const hasNegative = contributions.some(
-    (item) => item.contributionLabel === "weakens" || item.contributionLabel === "mixed",
-  );
-  const hasMixed = contributions.some((item) => item.contributionLabel === "mixed");
-
-  if (hasMixed || (hasPositive && hasNegative)) {
-    return "这条新闻不是整条真或整条假，而是不同 claim 在同时抬高和拉低整体可信度。";
-  }
-
-  if (hasNegative) {
-    return "当前主要是反驳或冲突 claim 在拉低整体可信度。";
-  }
-
-  if (hasPositive) {
-    return "当前主要是被证据支持的 claim 在抬高整体可信度。";
-  }
-
-  return "当前多数 claim 仍是观点或待补证项，对整体可信度只提供边界提示。";
-}
