@@ -39,6 +39,12 @@ export function CredibilityHeader({ report, reportProvenance }: CredibilityHeade
   // missing (metrics/completion sub-scores can be absent in older payloads).
   if (!overall) return null;
   const showBuckets = buckets.some((b) => b.count > 0);
+  // VerdictCard already renders report.final_summary as its headline. When the
+  // backend has no score_breakdown, overall.summary falls back to that same
+  // final_summary — so suppress it here to avoid printing the identical
+  // sentence twice in two stacked cards. The detail line (limiting factors /
+  // provenance caution) is still distinct and worth keeping.
+  const summaryDupesVerdict = overall.summary === report.final_summary;
 
   return (
     <div className={`credibility-header credibility-header--${overall.tone}`}>
@@ -48,7 +54,9 @@ export function CredibilityHeader({ report, reportProvenance }: CredibilityHeade
           <span className="credibility-header__score-label">{overall.label}</span>
         </div>
         <div className="credibility-header__summary">
-          <div className="credibility-header__summary-text">{overall.summary}</div>
+          {!summaryDupesVerdict && (
+            <div className="credibility-header__summary-text">{overall.summary}</div>
+          )}
           {overall.detail && overall.detail !== overall.summary && (
             <div className="credibility-header__summary-detail">{overall.detail}</div>
           )}

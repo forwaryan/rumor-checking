@@ -77,7 +77,7 @@ export function VerdictCard({ report, reportProvenance }: VerdictCardProps) {
         <span>{getVerdictDisplayLabel(verdict)}</span>
       </div>
       <div className="verdict-card__summary">{report.final_summary}</div>
-      {overallMeta?.summary && (
+      {overallMeta?.summary && overallMeta.summary !== report.final_summary && (
         <div className="verdict-card__detail">{overallMeta.summary}</div>
       )}
       <div className="verdict-card__meta">
