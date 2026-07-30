@@ -110,6 +110,7 @@ def annotate_claim_corrections(
                 temperature=0.2,
                 max_tokens=1024,
                 timeout=30.0,
+                stage_key="verdict_engine",
             )
 
         if not content:

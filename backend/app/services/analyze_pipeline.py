@@ -19,6 +19,7 @@ from backend.app.services.retrieval_service import RetrievalService
 from backend.app.services.timeline_builder import TimelineBuilder
 from backend.app.services.url_fetch_cache import UrlFetchCache
 from backend.app.services.verdict_engine import VerdictEngine
+from backend.app.services.model_health import diff_snapshot, get_model_health_registry
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ class AnalyzePipeline:
         change as news breaks, so live-checking must opt in with a short TTL."""
         cache = self._get_verdict_cache()
         if cache is None or request.request_context.get("skip_verdict_cache"):
-            return self._analyze_uncached(request)
+            return self._run_with_failover_summary(request)
 
         from backend.app.agent.verdict_cache import fingerprint
         fp = fingerprint(request.raw_input)
@@ -69,9 +70,56 @@ class AnalyzePipeline:
                 )
                 return restored
 
-        report = self._analyze_uncached(request)
+        report = self._run_with_failover_summary(request)
         self._store_verdict(cache, fp, request, report)
         return report
+
+    def _run_with_failover_summary(self, request: AnalyzeRequest) -> Report:
+        """Wrap ``_analyze_uncached`` with an in/out registry snapshot diff so the
+        trace surfaces the failover activity attributed to this single run —
+        the registry itself is process-wide and never resets, so a raw snapshot
+        would mix every earlier request's activity into the summary."""
+        registry = get_model_health_registry()
+        before = registry.snapshot()
+        try:
+            return self._analyze_uncached(request)
+        finally:
+            # Observability must never mask the real failure — if snapshot/emit
+            # raises (progress callbacks are supplied by the caller and aren't
+            # trusted to behave), swallow it here so the original exception from
+            # _analyze_uncached (if any) propagates untouched.
+            try:
+                diffs = diff_snapshot(before, registry.snapshot())
+                self._emit_failover_summary(diffs)
+            except Exception as exc:
+                logger.warning("failover_summary_emit_failed error=%s", str(exc)[:120])
+
+    def _emit_failover_summary(self, diffs: dict) -> None:
+        if not diffs:
+            return
+        # Only surface a summary when something interesting happened this run:
+        # a failure was recorded OR a model got evicted. All-success is the
+        # steady state and would just be noise in the trace UI.
+        interesting = any(d.get("failures", 0) or d.get("evictions", 0) for d in diffs.values())
+        if not interesting:
+            return
+        total_failures = sum(d.get("failures", 0) for d in diffs.values())
+        total_evictions = sum(d.get("evictions", 0) for d in diffs.values())
+        details = [
+            f"{name}: 失败{d.get('failures', 0)} 成功{d.get('successes', 0)} 驱逐{d.get('evictions', 0)}"
+            for name, d in sorted(diffs.items())
+        ]
+        emit_log(
+            stage_key="report_build",
+            title="模型健康 (本次)",
+            summary=(
+                f"本次分析共记录 {total_failures} 次模型失败、{total_evictions} 次模型驱逐。"
+                if total_evictions
+                else f"本次分析共记录 {total_failures} 次模型失败，无模型被驱逐。"
+            ),
+            details=details,
+            level="warning" if total_evictions else "info",
+        )
 
     def _get_verdict_cache(self):
         if not self.settings.agent_verdict_cache_enabled:

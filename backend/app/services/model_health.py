@@ -22,9 +22,11 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Dict, List, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence
 
 import httpx
+
+from backend.app.services.progress import emit_log
 
 if TYPE_CHECKING:
     from backend.app.core.config import Settings
@@ -36,6 +38,9 @@ logger = logging.getLogger(__name__)
 class _ModelState:
     consecutive_errors: int = 0
     unhealthy_since: Optional[float] = None
+    total_failures: int = 0
+    total_evictions: int = 0
+    total_successes: int = 0
 
 
 @dataclass
@@ -83,13 +88,16 @@ class ModelHealthRegistry:
                 return
             state.consecutive_errors = 0
             state.unhealthy_since = None
+            state.total_successes += 1
 
     def report_failure(self, model: str) -> None:
         with self._lock:
             state = self._states.setdefault(model, _ModelState())
             state.consecutive_errors += 1
+            state.total_failures += 1
             if state.consecutive_errors >= self.failure_threshold and state.unhealthy_since is None:
                 state.unhealthy_since = self._now()
+                state.total_evictions += 1
 
     def order_by_health(self, models: Sequence[str]) -> List[str]:
         """Return ``models`` with healthy ones first, preserving input order
@@ -108,6 +116,50 @@ class ModelHealthRegistry:
             seen.add(model)
             (healthy if self.is_healthy(model) else unhealthy).append(model)
         return healthy + unhealthy
+
+    def snapshot(self) -> Dict[str, Dict[str, Any]]:
+        """Return a copy of every seen model's health counters. Ops-facing:
+        a model never touched is absent (fresh models start healthy by default,
+        so the empty state is the correct default). Values are plain dicts so
+        callers can json-serialize the result without touching internals."""
+        with self._lock:
+            out: Dict[str, Dict[str, Any]] = {}
+            for name, state in self._states.items():
+                out[name] = {
+                    "healthy": state.unhealthy_since is None,
+                    "consecutive_errors": state.consecutive_errors,
+                    "total_failures": state.total_failures,
+                    "total_successes": state.total_successes,
+                    "total_evictions": state.total_evictions,
+                }
+            return out
+
+
+def diff_snapshot(
+    before: Dict[str, Dict[str, Any]],
+    after: Dict[str, Dict[str, Any]],
+) -> Dict[str, Dict[str, int]]:
+    """Return per-model failure/success/eviction deltas between two snapshots.
+
+    Used to attribute failover activity to a single analysis run: the registry
+    is process-wide and never resets, so a raw snapshot mixes activity from
+    every earlier request. Only models with a positive delta on any counter
+    appear in the result — no-op models are omitted to keep the summary compact.
+    """
+    diffs: Dict[str, Dict[str, int]] = {}
+    for name in set(before) | set(after):
+        b = before.get(name) or {}
+        a = after.get(name) or {}
+        failures = int(a.get("total_failures", 0)) - int(b.get("total_failures", 0))
+        successes = int(a.get("total_successes", 0)) - int(b.get("total_successes", 0))
+        evictions = int(a.get("total_evictions", 0)) - int(b.get("total_evictions", 0))
+        if failures or successes or evictions:
+            diffs[name] = {
+                "failures": failures,
+                "successes": successes,
+                "evictions": evictions,
+            }
+    return diffs
 
 
 _registry: Optional[ModelHealthRegistry] = None
@@ -154,6 +206,7 @@ def complete_once(
     max_tokens: int,
     timeout: float,
     include_reasoning: bool = False,
+    stage_key: Optional[str] = None,
 ) -> str:
     """One-shot chat completion with health-aware model failover.
 
@@ -167,13 +220,27 @@ def complete_once(
     Returns the response ``content`` (stripped), or ``""`` when every candidate
     fails — callers already treat an empty string as "degrade to no-op / rule
     fallback". ``include_reasoning`` also accepts a reasoning model's last CoT
-    line when ``content`` is blank (only ``content_check_builder`` needs this)."""
+    line when ``content`` is blank (only ``content_check_builder`` needs this).
+
+    When ``stage_key`` is supplied, every candidate switch after the first emits
+    a "切换备用模型" progress event under that stage — parity with the agent
+    reasoner's failover, so non-agent failovers are also visible in the trace UI.
+    """
     candidates = _fast_model_candidates(settings)
     if not candidates or not settings.llm_api_key:
         return ""
     registry = get_model_health_registry()
 
+    prev_model: Optional[str] = None
     for model in candidates:
+        if stage_key and prev_model is not None and model != prev_model:
+            emit_log(
+                stage_key=stage_key,
+                title="切换备用模型",
+                summary=f"上一个模型未返回可用结果，改用备用模型 {model}。",
+                details=[f"model={model}"],
+            )
+        prev_model = model
         base_url = settings.base_url_for_model(model)
         try:
             resp = httpx.post(

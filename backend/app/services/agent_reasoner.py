@@ -857,16 +857,16 @@ class LlmAgentReasoner:
         content = ""
         prev_model: Optional[str] = None
         for attempt in range(1, attempts + 1):
-            model = candidates[(attempt - 1) % len(candidates)]
-            if prev_model is not None and model != prev_model:
+            current_model = candidates[(attempt - 1) % len(candidates)]
+            if prev_model is not None and current_model != prev_model:
                 emit_log(
                     stage_key=stage_key,
                     title="切换备用模型",
-                    summary=f"上一个模型未返回可用结果，改用备用模型 {model}。",
-                    details=[f"model={model}", f"attempt={attempt}/{attempts}"],
+                    summary=f"上一个模型未返回可用结果，改用备用模型 {current_model}。",
+                    details=[f"model={current_model}", f"attempt={attempt}/{attempts}"],
                 )
-            prev_model = model
-            endpoint = f"{self.settings.base_url_for_model(model)}/chat/completions"
+            prev_model = current_model
+            endpoint = f"{self.settings.base_url_for_model(current_model)}/chat/completions"
             attempt_title = title if attempt == 1 else f"{title}（重试 {attempt - 1}）"
             emit_api_call(
                 stage_key=stage_key,
@@ -875,16 +875,16 @@ class LlmAgentReasoner:
                 title=attempt_title,
                 summary="正在调用 LLM chat/completions（streaming）。",
                 details=[
-                    f"model={model}",
+                    f"model={current_model}",
                     f"attempt={attempt}/{attempts}",
                     f"system={_full_text(system_prompt)}",
                     f"prompt={_full_text(user_prompt)}",
                 ],
             )
-            self._acquire_rate_limit(model)
+            self._acquire_rate_limit(current_model)
             content = self._stream_completion(
                 endpoint=endpoint,
-                model=model,
+                model=current_model,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 timeout_multiplier=timeout_multiplier,
@@ -920,19 +920,19 @@ class LlmAgentReasoner:
                     else "LLM 已返回流式响应。"
                 ),
                 details=[
-                    f"model={model}",
+                    f"model={current_model}",
                     f"content_chars={len(content)}",
                     f"outcome={outcome_label}",
                     f"response={_full_text(content)}",
                 ],
             )
             if not retry:
-                registry.report_success(model)
+                registry.report_success(current_model)
                 break
-            registry.report_failure(model)
+            registry.report_failure(current_model)
             logger.warning(
                 "llm_bad_completion model=%s attempt=%s/%s stage=%s reason=%s chars=%s",
-                model, attempt, attempts, stage_key, outcome, len(content),
+                current_model, attempt, attempts, stage_key, outcome, len(content),
             )
         return content
 

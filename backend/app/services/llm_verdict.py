@@ -20,7 +20,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, List, Optional, Tuple
 
 from backend.app.core.config import Settings, get_settings
-from backend.app.models.schemas import ClaimResult, EvidenceItem
+from backend.app.models.schemas import ClaimResult
 from backend.app.services.model_health import complete_once
 from backend.app.services.progress import emit_log, emit_stage
 
@@ -158,6 +158,7 @@ def _judge_single_claim(
                 temperature=0.1,
                 max_tokens=256,
                 timeout=15.0,
+                stage_key="llm_verdict",
             )
 
         if not content:

@@ -55,6 +55,13 @@ def _source_name_from_url(url: str) -> str:
 
 
 class PlaywrightSearchProvider:
+    # Historical name — this provider does NOT use Playwright or any headless
+    # browser. It's an httpx + regex SERP scraper that fetches Baidu/Bing HTML
+    # directly. The name is preserved because it is embedded in user-facing
+    # config (RETRIEVAL_PROVIDER=playwright) and in the `provider_name` field
+    # the frontend reads from trace payloads — renaming would break both.
+    # If you need to change this in the future, do it end-to-end (config
+    # aliasing + trace field + frontend match) rather than just the class name.
     name = "playwright"
 
     def __init__(self, settings: Optional[Settings] = None) -> None:

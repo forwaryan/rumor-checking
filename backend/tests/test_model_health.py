@@ -5,8 +5,12 @@ from __future__ import annotations
 import pytest
 
 from backend.app.core.config import get_settings
-from backend.app.services import model_health
-from backend.app.services.model_health import ModelHealthRegistry, complete_once
+from backend.app.services import model_health, progress
+from backend.app.services.model_health import (
+    ModelHealthRegistry,
+    complete_once,
+    diff_snapshot,
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -285,3 +289,127 @@ def test_complete_once_falls_back_to_default_model_when_no_fast_in_list(monkeypa
     monkeypatch.setattr(model_health.httpx, "post", fake_post)
     assert _one(settings) == "ok"
     assert calls == ["default-fast"]
+
+
+# --------------------------------------------------------------------------- #
+# Snapshot / diff — used by the pipeline's per-run failover summary
+# --------------------------------------------------------------------------- #
+def test_snapshot_only_reports_seen_models():
+    reg = ModelHealthRegistry(failure_threshold=2)
+    reg.report_failure("m")
+    reg.report_failure("m")
+    snap = reg.snapshot()
+    assert set(snap) == {"m"}  # never-seen models are absent
+    assert snap["m"] == {
+        "healthy": False,
+        "consecutive_errors": 2,
+        "total_failures": 2,
+        "total_successes": 0,
+        "total_evictions": 1,
+    }
+
+
+def test_snapshot_counters_track_lifetime_totals():
+    # Lifetime counters keep climbing even after a success clears consecutive_errors,
+    # so an ops dashboard sees the true failure rate across a whole run.
+    reg = ModelHealthRegistry(failure_threshold=3)
+    reg.report_failure("m")
+    reg.report_failure("m")
+    reg.report_success("m")  # clears consecutive_errors but total_failures stays 2
+    reg.report_failure("m")
+    snap = reg.snapshot()["m"]
+    assert snap["total_failures"] == 3
+    assert snap["total_successes"] == 1
+    assert snap["consecutive_errors"] == 1  # reset by the success then +1
+    assert snap["total_evictions"] == 0     # never crossed the threshold
+
+
+def test_diff_snapshot_returns_only_changed_models():
+    before = {"m": {"total_failures": 1, "total_successes": 0, "total_evictions": 0}}
+    # "m" gained a success; "n" is new and gained a failure + eviction.
+    after = {
+        "m": {"total_failures": 1, "total_successes": 1, "total_evictions": 0},
+        "n": {"total_failures": 3, "total_successes": 0, "total_evictions": 1},
+        "quiet": {"total_failures": 5, "total_successes": 5, "total_evictions": 0},
+    }
+    # "quiet" was not in `before` -> looks like everything happened this run.
+    before["quiet"] = {"total_failures": 5, "total_successes": 5, "total_evictions": 0}
+    diffs = diff_snapshot(before, after)
+    assert set(diffs) == {"m", "n"}  # "quiet" has zero delta -> omitted
+    assert diffs["m"] == {"failures": 0, "successes": 1, "evictions": 0}
+    assert diffs["n"] == {"failures": 3, "successes": 0, "evictions": 1}
+
+
+def test_diff_snapshot_handles_missing_keys_on_either_side():
+    # A model present only in `before` (unlikely) or only in `after` (a fresh model
+    # touched this run) must not raise — and the missing side is treated as zero.
+    before = {"only_before": {"total_failures": 2, "total_successes": 0, "total_evictions": 0}}
+    after = {"only_after": {"total_failures": 1, "total_successes": 0, "total_evictions": 0}}
+    diffs = diff_snapshot(before, after)
+    assert diffs["only_before"]["failures"] == -2  # disappeared -> negative delta
+    assert diffs["only_after"]["failures"] == 1
+
+
+# --------------------------------------------------------------------------- #
+# complete_once — stage_key surfaces failover in the trace
+# --------------------------------------------------------------------------- #
+def test_complete_once_emits_switch_log_on_failover_when_stage_key_given(monkeypatch, fast_settings):
+    def fake_post(url, headers, json, timeout):
+        if json["model"] == "fast-a":
+            return _FakeResp(500, "")
+        return _FakeResp(200, "备用答案")
+
+    monkeypatch.setattr(model_health.httpx, "post", fake_post)
+    events: list[dict] = []
+    token = progress.set_progress_callback(events.append)
+    try:
+        assert complete_once(
+            "sys", "usr",
+            settings=fast_settings, temperature=0.1, max_tokens=64, timeout=5.0,
+            stage_key="verdict_engine",
+        ) == "备用答案"
+    finally:
+        progress.reset_progress_callback(token)
+    switch = [e for e in events if e.get("type") == "log" and e.get("title") == "切换备用模型"]
+    assert len(switch) == 1
+    assert switch[0]["stage_key"] == "verdict_engine"
+    assert "fast-b" in switch[0]["summary"]
+
+
+def test_complete_once_stays_silent_without_stage_key(monkeypatch, fast_settings):
+    # The original callers can still opt out of trace emissions by omitting
+    # stage_key — we must not force every user of complete_once onto the trace.
+    def fake_post(url, headers, json, timeout):
+        if json["model"] == "fast-a":
+            return _FakeResp(500, "")
+        return _FakeResp(200, "ok")
+
+    monkeypatch.setattr(model_health.httpx, "post", fake_post)
+    events: list[dict] = []
+    token = progress.set_progress_callback(events.append)
+    try:
+        assert complete_once(
+            "sys", "usr",
+            settings=fast_settings, temperature=0.1, max_tokens=64, timeout=5.0,
+        ) == "ok"
+    finally:
+        progress.reset_progress_callback(token)
+    assert not any(e.get("type") == "log" and e.get("title") == "切换备用模型" for e in events)
+
+
+def test_complete_once_no_switch_log_when_first_candidate_answers(monkeypatch, fast_settings):
+    # Success on the first candidate must not emit a switch log — that would lie
+    # about the trace showing failover activity.
+    monkeypatch.setattr(model_health.httpx, "post",
+                        lambda url, headers, json, timeout: _FakeResp(200, "答案"))
+    events: list[dict] = []
+    token = progress.set_progress_callback(events.append)
+    try:
+        assert complete_once(
+            "sys", "usr",
+            settings=fast_settings, temperature=0.1, max_tokens=64, timeout=5.0,
+            stage_key="verdict_engine",
+        ) == "答案"
+    finally:
+        progress.reset_progress_callback(token)
+    assert not any(e.get("type") == "log" and e.get("title") == "切换备用模型" for e in events)

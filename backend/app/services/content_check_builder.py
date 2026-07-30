@@ -297,6 +297,7 @@ class ContentCheckBuilder:
             max_tokens=512,
             timeout=30.0,
             include_reasoning=True,
+            stage_key="report_build",
         )
         if not content or len(content) > 150:
             return None
