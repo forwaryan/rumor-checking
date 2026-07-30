@@ -256,6 +256,51 @@ def test_retries_are_capped_at_configured_count(monkeypatch):
     assert calls["n"] == 3  # 1 initial + 2 retries, then give up
 
 
+def test_failover_spends_shared_budget_across_candidates(monkeypatch):
+    # The borrowed HappyClaw failover spends the SAME retry budget across models
+    # rather than multiplying it: with 3 candidates and retries=2 (budget 3), an
+    # empty first model advances to the next candidate on each retry — total 3
+    # calls, one per candidate, NOT 3-per-model.
+    seen: list[str] = []
+
+    def empty_then_answer(*, endpoint, model, system_prompt, user_prompt, **_):
+        seen.append(model)
+        return '{"ok": true}' if model == "m-c" else ""
+
+    r = _reasoner(
+        llm_model="m-a",
+        llm_models=("m-a", "m-b", "m-c"),
+        llm_reasoning_retries=2,
+    )
+    monkeypatch.setattr(r, "_stream_completion", empty_then_answer)
+
+    out = r._request_completion(stage_key="s", title="t", system_prompt="sys", user_prompt="usr")
+    assert out == '{"ok": true}'
+    assert seen == ["m-a", "m-b", "m-c"]  # switched models each attempt, one call each
+
+
+def test_picker_override_never_fails_over(monkeypatch):
+    # A per-request picker override pins one model: every attempt in the budget
+    # retries THAT model, never switching to another candidate.
+    seen: list[str] = []
+
+    def always_empty(*, endpoint, model, system_prompt, user_prompt, **_):
+        seen.append(model)
+        return ""
+
+    r = _reasoner(
+        llm_model="m-a",
+        llm_models=("m-a", "m-b", "m-c"),
+        llm_reasoning_retries=2,
+    )
+    r.model_override = "picked-x"
+    monkeypatch.setattr(r, "_stream_completion", always_empty)
+
+    out = r._request_completion(stage_key="s", title="t", system_prompt="sys", user_prompt="usr")
+    assert out == ""
+    assert seen == ["picked-x", "picked-x", "picked-x"]  # pinned, no failover
+
+
 def test_unparseable_completion_is_retried_when_validator_supplied(monkeypatch):
     # The run-3 bug: a fast model returns a NON-empty but truncated JSON fragment
     # (stream dropped mid-answer). Without a validator the truthy fragment breaks

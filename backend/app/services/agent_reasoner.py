@@ -23,6 +23,7 @@ from backend.app.models.schemas import (
 from backend.app.services.claim_extractor import ClaimExtraction
 from backend.app.services.claim_correction import annotate_claim_corrections
 from backend.app.services.contract_utils import default_source_name, default_source_url, ensure_datetime_string, ensure_datetime_string_or_empty, loads_lenient_json
+from backend.app.services.model_health import get_model_health_registry
 from backend.app.services.progress import emit_api_call, emit_log
 from backend.app.services.question_intent import is_broad_trend_question
 from backend.app.services.question_resolver import QuestionResolution
@@ -826,23 +827,46 @@ class LlmAgentReasoner:
         timeout_multiplier: float = 1.0,
         model: Optional[str] = None,
     ) -> str:
-        model = model or self._reasoning_model()
-        endpoint = f"{self.settings.base_url_for_model(model)}/chat/completions"
+        primary = model or self._reasoning_model()
         # An empty completion is always retryable — the caller can't parse it either
         # way — and empties happen to BOTH families on this gateway: reasoning models
         # stall when the chain-of-thought never terminates, and even fast models time
         # out mid-answer on the heavy synthesis prompt (observed: 249 chars then a
-        # read-timeout, then 0 chars). So retry regardless of model type; a run that
-        # returns content on the first try still costs exactly one call.
+        # read-timeout, then 0 chars).
         #
         # `is_valid` lets a caller also retry a NON-empty but unusable completion —
         # e.g. synthesis returning a truncated JSON fragment (`{"event":{..."summary":"拼`)
         # that the parser then rejects. Without this, the truthy fragment breaks the
         # loop, fails to parse, and drops the whole run to the rule fallback. When no
         # validator is supplied we keep the original "retry only when empty" behavior.
+        #
+        # Failover is the borrowed HappyClaw "fail-fast then switch": the retry budget
+        # (`llm_reasoning_retries + 1` total attempts) is spent ACROSS healthy models,
+        # not exhausted on one. Each failed attempt advances to the next candidate
+        # (health-ordered, wrapping when the budget outruns the candidate list), and
+        # the model is marked unhealthy so a persistently-bad one drifts to the back of
+        # future orderings. This keeps the total call count identical to the old
+        # single-model loop (bounding worst-case latency) while still trying other
+        # models before dropping to the rule fallback. A per-request picker override
+        # pins a single candidate, so every attempt retries that one model (no switch).
+        registry = get_model_health_registry()
+        candidates = self._candidate_models(primary)
+        if not candidates:
+            return ""
         attempts = self.settings.llm_reasoning_retries + 1
         content = ""
+        prev_model: Optional[str] = None
         for attempt in range(1, attempts + 1):
+            model = candidates[(attempt - 1) % len(candidates)]
+            if prev_model is not None and model != prev_model:
+                emit_log(
+                    stage_key=stage_key,
+                    title="切换备用模型",
+                    summary=f"上一个模型未返回可用结果，改用备用模型 {model}。",
+                    details=[f"model={model}", f"attempt={attempt}/{attempts}"],
+                )
+            prev_model = model
+            endpoint = f"{self.settings.base_url_for_model(model)}/chat/completions"
             attempt_title = title if attempt == 1 else f"{title}（重试 {attempt - 1}）"
             emit_api_call(
                 stage_key=stage_key,
@@ -903,7 +927,9 @@ class LlmAgentReasoner:
                 ],
             )
             if not retry:
+                registry.report_success(model)
                 break
+            registry.report_failure(model)
             logger.warning(
                 "llm_bad_completion model=%s attempt=%s/%s stage=%s reason=%s chars=%s",
                 model, attempt, attempts, stage_key, outcome, len(content),
@@ -1089,6 +1115,21 @@ class LlmAgentReasoner:
         if self.model_override:
             return self.model_override
         return self.settings.llm_search_model.strip() or self.settings.llm_model.strip()
+
+    def _candidate_models(self, primary: str) -> list[str]:
+        """Health-ordered failover candidates for a completion, primary first.
+
+        A per-request picker override (``model_override``) pins the model — the
+        user asked for that exact one, so we never silently fail over off it.
+        Otherwise the primary is followed by the other whitelisted models
+        (``LLM_MODELS``), reordered so currently-healthy ones come first. This is
+        the borrowed HappyClaw behavior: fail fast on one model, then switch to the
+        next healthy provider instead of hammering a known-bad one."""
+        if self.model_override:
+            return [self.model_override]
+        registry = get_model_health_registry()
+        candidates = [primary, *self.settings.available_models]
+        return registry.order_by_health(candidates)
 
     def _synthesis_model(self) -> str:
         """Model for the one heavy synthesis call. A per-request picker override

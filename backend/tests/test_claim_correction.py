@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 from backend.app.models.schemas import ClaimResult, EvidenceItem
-from backend.app.services import claim_correction
+from backend.app.services import model_health
 from backend.app.services.claim_correction import annotate_claim_corrections
 
 
@@ -59,7 +59,7 @@ def test_completion_fn_is_used_and_bypasses_httpx(monkeypatch):
     # (that path picks a fast model that times out on the real gateway).
     def boom(*args, **kwargs):
         raise AssertionError("httpx.post must not be called when completion_fn is provided")
-    monkeypatch.setattr(claim_correction.httpx, "post", boom)
+    monkeypatch.setattr(model_health.httpx, "post", boom)
 
     calls = {"n": 0}
 

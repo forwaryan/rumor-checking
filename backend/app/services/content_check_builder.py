@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import json
 import logging
 import re
 from typing import Iterable, List, Optional
 
-import httpx
-
 from backend.app.core.config import get_settings
 from backend.app.models.schemas import AnswerSuggestion, ClaimResult, ContentCheck, ContentCheckItem, EvidenceItem, Report
+from backend.app.services.model_health import complete_once
 from backend.app.services.question_intent import (
     is_broad_trend_question,
     safe_trend_summary,
@@ -288,46 +286,20 @@ class ContentCheckBuilder:
         )
         user = f"用户原文：{original_input}\n\n检索到的新闻标题：\n{snippets_text}"
 
-        # Use the first non-reasoning model for this lightweight call; reasoning
-        # models waste their token budget on CoT before producing any content.
-        model = "DeepSeek-V4-Flash"
-        for m in settings.available_models:
-            if not settings.is_reasoning_model(m):
-                model = m
-                break
-        base_url = settings.base_url_for_model(model)
-        try:
-            resp = httpx.post(
-                f"{base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {settings.llm_api_key}"},
-                json={
-                    "model": model,
-                    "temperature": 0.3,
-                    "max_tokens": 512,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": user},
-                    ],
-                },
-                timeout=30.0,
-            )
-            if resp.status_code != 200:
-                logger.debug("correction LLM returned %d", resp.status_code)
-                return None
-            data = resp.json()
-            msg = data["choices"][0]["message"]
-            content = (msg.get("content") or "").strip()
-            if not content:
-                content = (msg.get("reasoning_content") or "").strip()
-                if content:
-                    # Reasoning models dump CoT; take only the last sentence.
-                    last = content.rsplit("\n", 1)[-1].strip()
-                    content = last if len(last) <= 150 else ""
-            if not content or len(content) > 150:
-                return None
-            if "无法纠正" in content:
-                return None
-            return content
-        except Exception as exc:
-            logger.debug("correction LLM call failed: %s", exc)
+        # Health-aware failover over the fast models. include_reasoning=True keeps
+        # this call site's original behaviour: if a reasoning model slips in and
+        # returns only chain-of-thought, fall back to its last CoT line.
+        content = complete_once(
+            system,
+            user,
+            settings=settings,
+            temperature=0.3,
+            max_tokens=512,
+            timeout=30.0,
+            include_reasoning=True,
+        )
+        if not content or len(content) > 150:
             return None
+        if "无法纠正" in content:
+            return None
+        return content

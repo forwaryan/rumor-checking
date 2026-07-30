@@ -9,10 +9,9 @@ import logging
 import re
 from typing import Callable, Dict, List, Optional, Set
 
-import httpx
-
 from backend.app.core.config import get_settings
 from backend.app.models.schemas import ClaimResult
+from backend.app.services.model_health import complete_once
 
 logger = logging.getLogger(__name__)
 
@@ -32,13 +31,13 @@ def annotate_claim_corrections(
 
     completion_fn: optional (system, user) -> content callable. When supplied, the
     LLM call is routed through it (e.g. the agent reasoner's retry/streaming layer)
-    instead of the built-in one-shot httpx POST. This lets callers whose default
-    model can actually complete the request avoid the fast-model timeout that the
-    bare POST path hits on some gateways. The rest of the logic (prompt, parsing,
-    number-grounding) is identical on both paths.
+    instead of the shared health-aware failover transport. This lets callers whose
+    default model can actually complete the request avoid the fast-model timeout
+    that the default path can hit on some gateways. The rest of the logic (prompt,
+    parsing, number-grounding) is identical on both paths.
     """
     settings = get_settings()
-    # The key gate only guards the built-in httpx path. When the caller injects a
+    # The key gate only guards the default transport path. When the caller injects a
     # completion_fn, it owns the LLM transport (and its own auth), so a blank key
     # here must not block it.
     if completion_fn is None and not settings.llm_api_key:
@@ -103,33 +102,15 @@ def annotate_claim_corrections(
             # Caller-supplied LLM layer (e.g. agent reasoner retry/streaming path).
             content = (completion_fn(system, user) or "").strip()
         else:
-            # Default one-shot path: pick a non-reasoning model for speed.
-            model = "DeepSeek-V4-Flash"
-            for m in settings.available_models:
-                if not settings.is_reasoning_model(m):
-                    model = m
-                    break
-            base_url = settings.base_url_for_model(model)
-            resp = httpx.post(
-                f"{base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {settings.llm_api_key}"},
-                json={
-                    "model": model,
-                    "temperature": 0.2,
-                    "max_tokens": 1024,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": user},
-                    ],
-                },
+            # Default path: health-aware failover over the fast models.
+            content = complete_once(
+                system,
+                user,
+                settings=settings,
+                temperature=0.2,
+                max_tokens=1024,
                 timeout=30.0,
             )
-            if resp.status_code != 200:
-                logger.debug("claim correction LLM returned %d", resp.status_code)
-                return claim_results
-            data = resp.json()
-            msg = data["choices"][0]["message"]
-            content = (msg.get("content") or "").strip()
 
         if not content:
             return claim_results

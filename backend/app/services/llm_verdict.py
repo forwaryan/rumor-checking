@@ -19,10 +19,9 @@ import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, List, Optional, Tuple
 
-import httpx
-
 from backend.app.core.config import Settings, get_settings
 from backend.app.models.schemas import ClaimResult, EvidenceItem
+from backend.app.services.model_health import complete_once
 from backend.app.services.progress import emit_log, emit_stage
 
 logger = logging.getLogger(__name__)
@@ -59,7 +58,7 @@ def llm_judge_claims(
 
     completion_fn: optional (system, user) -> content callable. When supplied,
     LLM calls route through it (e.g. the agent reasoner's retry/streaming layer)
-    instead of the built-in one-shot httpx POST.
+    instead of the shared health-aware failover transport.
     """
     if settings is None:
         settings = get_settings()
@@ -152,26 +151,14 @@ def _judge_single_claim(
         if completion_fn is not None:
             content = (completion_fn(_SYSTEM_PROMPT, user_prompt) or "").strip()
         else:
-            model = _pick_fast_model(settings)
-            base_url = settings.base_url_for_model(model)
-            resp = httpx.post(
-                f"{base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {settings.llm_api_key}"},
-                json={
-                    "model": model,
-                    "temperature": 0.1,
-                    "max_tokens": 256,
-                    "messages": [
-                        {"role": "system", "content": _SYSTEM_PROMPT},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                },
+            content = complete_once(
+                _SYSTEM_PROMPT,
+                user_prompt,
+                settings=settings,
+                temperature=0.1,
+                max_tokens=256,
                 timeout=15.0,
             )
-            if resp.status_code != 200:
-                return None
-            data = resp.json()
-            content = (data["choices"][0]["message"].get("content") or "").strip()
 
         if not content:
             return None
@@ -214,11 +201,3 @@ def _parse_verdict_response(
             "notes": notes,
         }
     )
-
-
-def _pick_fast_model(settings: Settings) -> str:
-    """Pick a fast (non-reasoning) model for verdict judgment."""
-    for m in settings.available_models:
-        if not settings.is_reasoning_model(m):
-            return m
-    return settings.llm_model or "DeepSeek-V4-Flash"

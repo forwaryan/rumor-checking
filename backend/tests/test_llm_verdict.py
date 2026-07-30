@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 
 from backend.app.models.schemas import ClaimResult, EvidenceItem
-from backend.app.services import llm_verdict
+from backend.app.services import model_health
 from backend.app.services.llm_verdict import llm_judge_claims
 
 
@@ -25,7 +25,7 @@ def _claim(claim: str, verdict: str = "insufficient", *, evidence=None) -> Claim
 def test_completion_fn_bypasses_httpx(monkeypatch):
     def boom(*a, **kw):
         raise AssertionError("httpx.post must not be called")
-    monkeypatch.setattr(llm_verdict.httpx, "post", boom)
+    monkeypatch.setattr(model_health.httpx, "post", boom)
 
     calls = {"n": 0}
 
