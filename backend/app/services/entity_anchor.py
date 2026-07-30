@@ -101,6 +101,22 @@ TEMPORAL_ADVERBS = (
     "刚刚",
     "近来",
 )
+# Frequency / mood adverbs the non-greedy action-prefix capture also swallows
+# when they sit between subject and verb without being in the optional prefix
+# group (e.g. "公司又回应" -> subject "公司又", which then double-prints as
+# "公司又又回应" once re-prepended). These are always single trailing chars on a
+# real subject, so strip only from the tail to avoid clipping a legitimate name.
+TRAILING_ADVERBS = (
+    "又",
+    "也",
+    "还",
+    "仍",
+    "再",
+    "就",
+    "更",
+    "亦",
+    "则",
+)
 SUBJECT_MISMATCH_MARKERS = (
     "未点名",
     "没有点名",
@@ -149,11 +165,24 @@ def _strip_temporal_adverbs(text: str) -> str:
     return cleaned
 
 
+def _strip_trailing_adverbs(text: str) -> str:
+    cleaned = text
+    changed = True
+    while changed:
+        changed = False
+        for adverb in TRAILING_ADVERBS:
+            if cleaned.endswith(adverb) and len(cleaned) > len(adverb):
+                cleaned = cleaned[: -len(adverb)]
+                changed = True
+    return cleaned
+
+
 def _clean_anchor_candidate(text: str) -> str:
     cleaned = _normalize_anchor_text(text)
     cleaned = cleaned.strip(" -_/|")
     cleaned = re.sub(r"^(关于|针对|有关)", "", cleaned).strip()
     cleaned = _strip_temporal_adverbs(cleaned)
+    cleaned = _strip_trailing_adverbs(cleaned)
     return cleaned
 
 

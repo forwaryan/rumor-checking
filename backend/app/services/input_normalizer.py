@@ -15,7 +15,11 @@ from backend.app.services.contract_utils import (
     looks_like_url,
     source_name_from_url,
 )
-from backend.app.services.entity_anchor import _strip_temporal_adverbs, extract_subject_anchors
+from backend.app.services.entity_anchor import (
+    _strip_temporal_adverbs,
+    _strip_trailing_adverbs,
+    extract_subject_anchors,
+)
 from backend.app.services.url_content_extractor import UrlContentExtractor
 
 
@@ -81,7 +85,13 @@ KEYWORD_PHRASES = (
 KEYWORD_PATTERNS = (
     r"[\u4e00-\u9fa5]{2,20}(?:市场监管局|交通局|教育局|生态环境局|化工厂|公司|医院|政府|警方|委员会|日报|中学|生物|运营公司|平台)",
     r"裁员\d+%",
-    r"[\u4e00-\u9fa5A-Za-z0-9]{2,20}(?=(?:明天|今晚|下周|本周|近日|已|已经|将|会|正在)?(?:全线|全面)?(?:停航|停运|停课|裁员|脑出血|去世|死亡|核查|回应|通报|检修|整改|恢复|救治|辟谣))",
+    r"[\u4e00-\u9fa5A-Za-z0-9]{2,20}?(?=(?:明天|今晚|下周|本周|近日|已经|已|将|会|正在)?(?:又|也|还|仍|再|就|更|亦|则)?(?:全线|全面)?(?:停航|停运|停课|裁员|脑出血|去世|死亡|核查|进场|回应|通报|检修|整改|恢复|救治|辟谣))",
+)
+# Prefix/adverb tokens the action-lookahead pattern can leave as a bare match
+# (e.g. "已经", "进场") once the subject group goes non-greedy. They are never a
+# real subject on their own, so drop them from the keyword list.
+KEYWORD_NON_SUBJECT_TOKENS = frozenset(
+    {"已经", "已", "将", "会", "正在", "又", "也", "还", "仍", "再", "就", "更", "亦", "则", "全线", "全面", "进场"}
 )
 TIME_PATTERNS = (
     r"\d{4}[-/]\d{1,2}[-/]\d{1,2}",
@@ -180,7 +190,11 @@ def _extract_keywords(text: str) -> List[str]:
         # The action-lookahead pattern greedily grabs a leading temporal adverb
         # ("美团最近" before 裁员); strip it so the keyword is the real subject.
         cleaned = _strip_temporal_adverbs(cleaned)
-        if cleaned and cleaned not in seen:
+        # The same lookahead also slides a trailing frequency adverb onto the
+        # subject ("公司又" before 回应); drop it so the keyword is the bare
+        # subject and does not re-inject a doubled adverb downstream.
+        cleaned = _strip_trailing_adverbs(cleaned)
+        if cleaned and cleaned not in KEYWORD_NON_SUBJECT_TOKENS and cleaned not in seen:
             seen.add(cleaned)
             ordered.append(cleaned)
     return ordered[:6]
@@ -371,9 +385,20 @@ class InputNormalizer:
         if bracket_match:
             return bracket_match.group(1)
 
-        sentence = re.split(r"[。！？]", raw_input, maxsplit=1)[0]
-        sentence = sentence.strip()
-        return sentence[:28] if sentence else "待核实事件"
+        sentence = re.split(r"[。！？]", raw_input, maxsplit=1)[0].strip()
+        if not sentence:
+            return "待核实事件"
+        if len(sentence) <= 28:
+            return sentence
+        # Cut at the last clause boundary within the limit so the title stays a
+        # whole clause. A mid-clause hard cut ("...已经进场") produces a claim that
+        # looks distinct from its full-sentence form ("...已经进场核查。") and slips
+        # past dedup as a phantom duplicate.
+        window = sentence[:28]
+        boundary = max(window.rfind(ch) for ch in "，,、；;")
+        if boundary >= 6:
+            return window[:boundary]
+        return window
 
     def _derive_url_title(self, extracted_text: str) -> Optional[str]:
         if not extracted_text:

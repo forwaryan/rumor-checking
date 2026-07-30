@@ -14,3 +14,6 @@ tmp-utf8-test.txt
 # Process logs / pids (dev server output, not source)
 *.log
 *.pid
+
+# Playwright MCP browser-verification artifacts (console logs / page snapshots)
+.playwright-mcp/

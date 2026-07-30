@@ -95,7 +95,7 @@ SUBJECT_SUFFIX_PATTERN = re.compile(
     r"[A-Za-z0-9一-龥]{2,24}(?:市场监管局|监管局|交通局|教育局|生态环境局|运营公司|公司|集团|生物|平台|中学|学校|大学|学院|医院|警方|公安|政府|化工厂|门店|品牌)"
 )
 SUBJECT_BEFORE_ACTION_PATTERN = re.compile(
-    r"([A-Za-z0-9一-龥]{2,24}?)(?=(?:明天|今晚|下周|本周|近期|近日|已经|已|将|会|正在)?(?:全线|全面)?(?:在[一-龥]{2,6})?(?:停航|停运|停课|裁员|脑出血|去世|死亡|核查|回应|通报|检修|整改|恢复|救治|辟谣|抽检|入院|买了|买下|招了|招聘|开设|设立|投资|收购|建设|建了|租了|持有))"
+    r"([A-Za-z0-9一-龥]{2,24}?)(?=(?:明天|今晚|下周|本周|近期|近日|已经|已|将|会|正在)?(?:又|也|还|仍|再|就|更|亦|则)?(?:全线|全面)?(?:在[一-龥]{2,6})?(?:停航|停运|停课|裁员|脑出血|去世|死亡|核查|进场|回应|通报|检修|整改|恢复|救治|辟谣|抽检|入院|买了|买下|招了|招聘|开设|设立|投资|收购|建设|建了|租了|持有))"
 )
 TIME_PATTERN = re.compile(
     r"\d{4}[-/年]\d{1,2}[-/月]\d{1,2}日?|\d{1,2}月\d{1,2}日(?:上午|下午|凌晨|晚上|晚间|中午)?|明天|今晚|今早|今天|今日|昨天|昨日|下周|本周|近日|近期"
@@ -185,6 +185,36 @@ OFFICIAL_RESPONSE_MARKERS = (
     "监管局",
 )
 PRESERVE_GENERIC_SUBJECT_PREFIXES = {"医院", "院方", "警方", "公安", "官方", "校方", "当地"}
+
+# Adverbs / bare action fragments that SUBJECT_BEFORE_ACTION_PATTERN can capture
+# as a spurious "subject" when it slides across a sentence (e.g. matching at the
+# "进场" inside "已经进场核查" yields the candidate "进场"). They carry no entity
+# identity, so they must never seed a subject or be prepended to a fragment.
+NON_SUBJECT_TOKENS = {
+    "已经",
+    "已",
+    "将",
+    "会",
+    "正在",
+    "进场",
+    "又",
+    "也",
+    "还",
+    "仍",
+    "再",
+    "就",
+    "更",
+    "亦",
+    "则",
+}
+_TRAILING_ADVERB_CHARS = "又也还仍再就更亦则"
+
+
+def _strip_trailing_subject_adverbs(text: str) -> str:
+    cleaned = text
+    while cleaned and cleaned[-1] in _TRAILING_ADVERB_CHARS and len(cleaned) > 1:
+        cleaned = cleaned[:-1]
+    return cleaned
 
 
 @dataclass(frozen=True)
@@ -519,7 +549,8 @@ class ClaimExtractor:
 
         def push(candidate: str) -> None:
             cleaned = candidate.strip(" ，,：:；;。")
-            if not cleaned or cleaned in GENERIC_SUBJECTS or cleaned in seen:
+            cleaned = _strip_trailing_subject_adverbs(cleaned)
+            if not cleaned or cleaned in GENERIC_SUBJECTS or cleaned in NON_SUBJECT_TOKENS or cleaned in seen:
                 return
             seen.add(cleaned)
             ordered.append(cleaned)

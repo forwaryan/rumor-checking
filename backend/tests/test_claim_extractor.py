@@ -286,3 +286,30 @@ def test_continuation_marker_subject_injection():
     assert continuation_claims, "Expected a claim about '其余线路正常运营'"
     # The subject should be injected from context
     assert "滨海地铁" in continuation_claims[0].claim
+
+
+# ---------------------------------------------------------------------------
+# Adverb-swallowing subject regression tests
+# ---------------------------------------------------------------------------
+
+
+def test_frequency_adverb_not_swallowed_into_subject():
+    """A frequency adverb between subject and verb ('公司又回应') must not be
+    captured into the subject candidate, which previously caused the subject to
+    be re-prepended as a doubled adverb ('公司又' -> '公司又又回应')."""
+    extractor = ClaimExtractor()
+    raw = "北城区化工厂夜间异味被居民连续投诉，区生态环境局已经进场核查，但媒体称工厂停产整顿，公司又回应只暂停一条产线。"
+    event = NormalizedEvent(summary=raw, input_type="text_news", raw_input=raw)
+
+    subjects = extractor._event_subject_candidates(event)
+    assert "公司又" not in subjects
+    assert "区生态环境局已经进场" not in subjects
+    # Bare adverbs / action fragments the pattern can slide onto are dropped too.
+    assert "已经" not in subjects
+    assert "进场" not in subjects
+
+    claims = extractor.extract(event)
+    claim_texts = [item.claim for item in claims]
+    # No claim should contain the doubled adverb.
+    assert not any("又又" in text for text in claim_texts), claim_texts
+    assert "公司又回应只暂停一条产线。" in claim_texts
