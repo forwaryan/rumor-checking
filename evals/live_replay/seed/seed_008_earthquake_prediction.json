@@ -1,0 +1,35 @@
+{
+  "case_id": "seed_008_earthquake_prediction",
+  "recorded_at": "2026-08-01T00:00:00Z",
+  "raw_input": "明天四川某地会发生7级地震",
+  "retrieval_results": [
+    {
+      "result_id": "r1",
+      "title": "中国地震台网：地震短临预报目前不能精确到某天某地",
+      "url": "https://www.cea.gov.cn/publish/dizhenju/468/2025/earthquake-prediction",
+      "source_name": "中国地震局",
+      "published_at": "2025-06-01",
+      "snippet": "地震部门明确表示，目前科学水平下无法对某天某地是否发生地震做出准确预报，网传具体日期地点的地震预测均为伪科学。",
+      "source_tier": "S"
+    }
+  ],
+  "expected_claims": [
+    {
+      "claim": "明天四川某地会发生7级地震",
+      "claim_type": "prediction",
+      "verdict": "refuted",
+      "confidence": "high",
+      "evidence": [
+        {
+          "url": "https://www.cea.gov.cn/publish/dizhenju/468/2025/earthquake-prediction",
+          "title": "地震短临预报"
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "source": "seed",
+    "topic": "science",
+    "note": "科学不可能"
+  }
+}

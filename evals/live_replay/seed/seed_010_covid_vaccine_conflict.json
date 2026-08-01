@@ -1,0 +1,48 @@
+{
+  "case_id": "seed_010_covid_vaccine_conflict",
+  "recorded_at": "2026-08-01T00:00:00Z",
+  "raw_input": "新冠疫苗会导致心肌炎",
+  "retrieval_results": [
+    {
+      "result_id": "r1",
+      "title": "研究显示mRNA疫苗与年轻男性心肌炎存在关联",
+      "url": "https://www.nejm.org/covid-myocarditis-study",
+      "source_name": "新英格兰医学杂志",
+      "published_at": "2025-08-01",
+      "snippet": "多国监测数据显示，mRNA新冠疫苗接种后年轻男性心肌炎发生率略高于基线水平，但绝对风险仍较低。",
+      "source_tier": "S"
+    },
+    {
+      "result_id": "r2",
+      "title": "国家卫健委：新冠疫苗严重不良反应罕见 收益大于风险",
+      "url": "https://www.nhc.gov.cn/xcs/nlxx/vaccine-safety",
+      "source_name": "国家卫生健康委员会",
+      "published_at": "2025-09-15",
+      "snippet": "国家卫健委表示，我国接种疫苗后严重不良反应发生率极低，接种收益远大于风险。",
+      "source_tier": "S"
+    }
+  ],
+  "expected_claims": [
+    {
+      "claim": "新冠疫苗会导致心肌炎",
+      "claim_type": "fact",
+      "verdict": "conflicting",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "url": "https://www.nejm.org/covid-myocarditis-study",
+          "title": "研究显示 mRNA 疫苗与心肌炎关联"
+        },
+        {
+          "url": "https://www.nhc.gov.cn/xcs/nlxx/vaccine-safety",
+          "title": "国家卫健委：不良反应罕见"
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "source": "seed",
+    "topic": "medical",
+    "note": "研究显示关联但绝对风险低，属半真半假"
+  }
+}

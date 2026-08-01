@@ -1,0 +1,35 @@
+{
+  "case_id": "seed_007_new_ev_subsidy",
+  "recorded_at": "2026-08-01T00:00:00Z",
+  "raw_input": "国家新出台新能源汽车购车补贴每辆5万元",
+  "retrieval_results": [
+    {
+      "result_id": "r1",
+      "title": "关于2026年新能源汽车推广应用财政补贴政策的通知",
+      "url": "https://www.mof.gov.cn/2026/ev-subsidy-notice",
+      "source_name": "财政部",
+      "published_at": "2026-01-05",
+      "snippet": "2026年继续实施新能源汽车推广应用财政补贴政策，纯电动乘用车最高单车补贴不超过1.2万元。",
+      "source_tier": "S"
+    }
+  ],
+  "expected_claims": [
+    {
+      "claim": "国家新出台新能源汽车购车补贴每辆5万元",
+      "claim_type": "fact",
+      "verdict": "refuted",
+      "confidence": "high",
+      "evidence": [
+        {
+          "url": "https://www.mof.gov.cn/2026/ev-subsidy-notice",
+          "title": "新能源汽车财政补贴政策"
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "source": "seed",
+    "topic": "policy",
+    "note": "官方政策与谣言数字矛盾"
+  }
+}

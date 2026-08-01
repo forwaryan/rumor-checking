@@ -1,0 +1,34 @@
+{
+  "case_id": "seed_009_alien_landing",
+  "recorded_at": "2026-08-01T00:00:00Z",
+  "raw_input": "美国某农场发现外星人飞船",
+  "retrieval_results": [
+    {
+      "result_id": "r1",
+      "title": "所谓\"外星人飞船\"实为气象气球残骸",
+      "url": "https://www.reuters.com/fact-check/alien-farm-hoax",
+      "source_name": "路透事实核查",
+      "published_at": "2026-04-01",
+      "snippet": "经当地科研机构鉴定，此前传闻中\"外星人飞船\"实为高空气象气球坠落残骸。",
+      "source_tier": "A"
+    }
+  ],
+  "expected_claims": [
+    {
+      "claim": "美国某农场发现外星人飞船",
+      "claim_type": "fact",
+      "verdict": "refuted",
+      "confidence": "high",
+      "evidence": [
+        {
+          "url": "https://www.reuters.com/fact-check/alien-farm-hoax",
+          "title": "外星人飞船实为气象气球"
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "source": "seed",
+    "topic": "hoax"
+  }
+}

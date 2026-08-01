@@ -1,0 +1,47 @@
+{
+  "case_id": "seed_003_fan_zhendong_return",
+  "recorded_at": "2026-08-01T00:00:00Z",
+  "raw_input": "樊振东重回国家队了",
+  "retrieval_results": [
+    {
+      "result_id": "r1",
+      "title": "国乒公布新一期集训名单 樊振东在列",
+      "url": "https://sports.cctv.com/2026/01/national-team-list",
+      "source_name": "央视体育",
+      "published_at": "2026-01-15",
+      "snippet": "中国乒乓球队公布最新一期集训大名单，樊振东、马龙等主力队员均在其中，将备战新周期赛事。",
+      "source_tier": "S"
+    },
+    {
+      "result_id": "r2",
+      "title": "樊振东正式回归国家队训练",
+      "url": "https://www.sport.gov.cn/n2001/2026-01-16",
+      "source_name": "国家体育总局",
+      "published_at": "2026-01-16",
+      "snippet": "樊振东已于本月归队，参加国家队冬训。",
+      "source_tier": "S"
+    }
+  ],
+  "expected_claims": [
+    {
+      "claim": "樊振东重回国家队",
+      "claim_type": "fact",
+      "verdict": "supported",
+      "confidence": "high",
+      "evidence": [
+        {
+          "url": "https://sports.cctv.com/2026/01/national-team-list",
+          "title": "国乒公布新一期集训名单"
+        },
+        {
+          "url": "https://www.sport.gov.cn/n2001/2026-01-16",
+          "title": "樊振东正式回归国家队训练"
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "source": "seed",
+    "topic": "sports"
+  }
+}

@@ -88,6 +88,55 @@ def load_snapshot(path: Path) -> EvalSnapshot:
     return EvalSnapshot(**data)
 
 
+def iter_snapshots(directory: Path) -> list[EvalSnapshot]:
+    """Load every *.json snapshot in a directory (skips aggregate cases.json).
+
+    Ordered by filename so replay runs are deterministic across machines."""
+    if not directory.exists():
+        return []
+    paths = sorted(p for p in directory.glob("*.json") if p.name != "cases.json")
+    snapshots: list[EvalSnapshot] = []
+    for p in paths:
+        try:
+            snapshots.append(load_snapshot(p))
+        except Exception as exc:
+            logger.warning("eval_snapshot_load_failed path=%s error=%s", p, exc)
+    return snapshots
+
+
+def bundle_from_snapshot(snapshot: EvalSnapshot):
+    """Rehydrate stored retrieval_results into a RetrievalBundle for replay.
+
+    Imported lazily so the module has no runtime dependency on retrieval_models
+    when only scoring is used (e.g. in a CI job that reads pre-computed outputs).
+    """
+    from backend.app.services.retrieval_models import RetrievalBundle, SearchResult
+
+    results = []
+    for i, r in enumerate(snapshot.retrieval_results):
+        results.append(
+            SearchResult(
+                case_id="replay",
+                query=snapshot.raw_input,
+                result_id=r.get("result_id", f"r{i}"),
+                title=r.get("title", ""),
+                url=r.get("url", ""),
+                source_name=r.get("source_name", ""),
+                published_at=r.get("published_at", ""),
+                snippet=r.get("snippet", ""),
+                source_tier=r.get("source_tier", "C"),
+                provider_name="replay",
+            )
+        )
+    return RetrievalBundle(
+        query=snapshot.raw_input,
+        matched_case_id="replay",
+        canonical_results=tuple(results),
+        raw_results=tuple(results),
+        provider_name="replay",
+    )
+
+
 def fever_score_claim(
     *,
     expected_verdict: str,

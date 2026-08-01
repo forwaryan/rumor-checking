@@ -1,0 +1,331 @@
+[
+  {
+    "case_id": "seed_001_pinduoduo_xiongan",
+    "recorded_at": "2026-08-01T00:00:00Z",
+    "raw_input": "拼多多在雄安招5000人是真的吗",
+    "retrieval_results": [
+      {
+        "result_id": "r1",
+        "title": "拼多多雄安新区总部启用 首批入驻员工超5000人",
+        "url": "https://www.thepaper.cn/newsDetail_forward_pinduoduo_xiongan",
+        "source_name": "澎湃新闻",
+        "published_at": "2025-11-15",
+        "snippet": "11月14日，拼多多雄安新区总部大楼正式启用，首批入驻员工超过5000人，主要涵盖技术、运营、客服等岗位。",
+        "source_tier": "A"
+      },
+      {
+        "result_id": "r2",
+        "title": "雄安新区管委会：拼多多总部正式落户 提供5000+就业岗位",
+        "url": "https://www.xiongan.gov.cn/news/pdd_headquarters",
+        "source_name": "雄安新区管委会",
+        "published_at": "2025-11-15",
+        "snippet": "官方通报显示拼多多雄安总部已投入运营，本年度招聘计划涉及5000余人。",
+        "source_tier": "S"
+      }
+    ],
+    "expected_claims": [
+      {
+        "claim": "拼多多在雄安招5000人",
+        "claim_type": "fact",
+        "verdict": "supported",
+        "confidence": "high",
+        "evidence": [
+          {"url": "https://www.xiongan.gov.cn/news/pdd_headquarters", "title": "雄安新区管委会：拼多多总部正式落户"},
+          {"url": "https://www.thepaper.cn/newsDetail_forward_pinduoduo_xiongan", "title": "拼多多雄安新区总部启用"}
+        ]
+      }
+    ],
+    "metadata": {"source": "seed", "topic": "corporate", "note": "官方+主流媒体一致确认"}
+  },
+  {
+    "case_id": "seed_002_meituan_layoff",
+    "recorded_at": "2026-08-01T00:00:00Z",
+    "raw_input": "美团裁员80%是真的吗",
+    "retrieval_results": [
+      {
+        "result_id": "r1",
+        "title": "美团回应\"裁员80%\"传言：不属实，正常人员调整",
+        "url": "https://tech.sina.com.cn/i/2025-12-03/meituan-response",
+        "source_name": "新浪科技",
+        "published_at": "2025-12-03",
+        "snippet": "针对网传美团裁员80%的消息，美团公司12月3日回应称该说法完全不实，公司正在进行常规的组织优化。",
+        "source_tier": "A"
+      },
+      {
+        "result_id": "r2",
+        "title": "美团公关：所谓\"80%裁员\"系恶意谣言 已报警",
+        "url": "https://www.jiemian.com/article/meituan_rumor",
+        "source_name": "界面新闻",
+        "published_at": "2025-12-03",
+        "snippet": "美团相关负责人表示，网络流传的\"80%裁员\"截图为伪造，公司已就此报警。",
+        "source_tier": "A"
+      }
+    ],
+    "expected_claims": [
+      {
+        "claim": "美团裁员80%",
+        "claim_type": "fact",
+        "verdict": "refuted",
+        "confidence": "high",
+        "evidence": [
+          {"url": "https://tech.sina.com.cn/i/2025-12-03/meituan-response", "title": "美团回应"},
+          {"url": "https://www.jiemian.com/article/meituan_rumor", "title": "美团公关"}
+        ]
+      }
+    ],
+    "metadata": {"source": "seed", "topic": "corporate", "note": "官方明确否认"}
+  },
+  {
+    "case_id": "seed_003_fan_zhendong_return",
+    "recorded_at": "2026-08-01T00:00:00Z",
+    "raw_input": "樊振东重回国家队了",
+    "retrieval_results": [
+      {
+        "result_id": "r1",
+        "title": "国乒公布新一期集训名单 樊振东在列",
+        "url": "https://sports.cctv.com/2026/01/national-team-list",
+        "source_name": "央视体育",
+        "published_at": "2026-01-15",
+        "snippet": "中国乒乓球队公布最新一期集训大名单，樊振东、马龙等主力队员均在其中，将备战新周期赛事。",
+        "source_tier": "S"
+      },
+      {
+        "result_id": "r2",
+        "title": "樊振东正式回归国家队训练",
+        "url": "https://www.sport.gov.cn/n2001/2026-01-16",
+        "source_name": "国家体育总局",
+        "published_at": "2026-01-16",
+        "snippet": "樊振东已于本月归队，参加国家队冬训。",
+        "source_tier": "S"
+      }
+    ],
+    "expected_claims": [
+      {
+        "claim": "樊振东重回国家队",
+        "claim_type": "fact",
+        "verdict": "supported",
+        "confidence": "high",
+        "evidence": [
+          {"url": "https://sports.cctv.com/2026/01/national-team-list", "title": "国乒公布新一期集训名单"},
+          {"url": "https://www.sport.gov.cn/n2001/2026-01-16", "title": "樊振东正式回归国家队训练"}
+        ]
+      }
+    ],
+    "metadata": {"source": "seed", "topic": "sports"}
+  },
+  {
+    "case_id": "seed_004_flying_car",
+    "recorded_at": "2026-08-01T00:00:00Z",
+    "raw_input": "某公司发明了可以载人飞行的滑板车",
+    "retrieval_results": [
+      {
+        "result_id": "r1",
+        "title": "\"载人飞行滑板车\"视频疯传 专家：物理上不可能",
+        "url": "https://www.xinhuanet.com/tech/fact-check-flying-scooter",
+        "source_name": "新华网",
+        "published_at": "2026-02-10",
+        "snippet": "近日网上流传一段\"载人飞行滑板车\"视频，物理学专家指出视频经过后期特效处理，此类装置在现有技术下无法实现。",
+        "source_tier": "S"
+      }
+    ],
+    "expected_claims": [
+      {
+        "claim": "存在可载人飞行的滑板车",
+        "claim_type": "fact",
+        "verdict": "refuted",
+        "confidence": "high",
+        "evidence": [
+          {"url": "https://www.xinhuanet.com/tech/fact-check-flying-scooter", "title": "载人飞行滑板车视频疯传"}
+        ]
+      }
+    ],
+    "metadata": {"source": "seed", "topic": "science", "note": "物理不可能"}
+  },
+  {
+    "case_id": "seed_005_shanghai_tunnel",
+    "recorded_at": "2026-08-01T00:00:00Z",
+    "raw_input": "上海某隧道要封闭三个月装修",
+    "retrieval_results": [
+      {
+        "result_id": "r1",
+        "title": "上海市交通委辟谣\"隧道封闭三个月\"传言",
+        "url": "https://jtw.sh.gov.cn/news/tunnel-rumor",
+        "source_name": "上海市交通委员会",
+        "published_at": "2026-03-05",
+        "snippet": "近期网传某某隧道将封闭三个月装修的消息不属实，目前无此类施工计划。",
+        "source_tier": "S"
+      },
+      {
+        "result_id": "r2",
+        "title": "官方回应：上海隧道近期无长期封闭计划",
+        "url": "https://www.eastday.com/traffic/2026-03-05",
+        "source_name": "东方网",
+        "published_at": "2026-03-05",
+        "snippet": "上海交通部门表示，网传隧道封闭消息为不实信息。",
+        "source_tier": "A"
+      }
+    ],
+    "expected_claims": [
+      {
+        "claim": "上海某隧道要封闭三个月装修",
+        "claim_type": "fact",
+        "verdict": "refuted",
+        "confidence": "high",
+        "evidence": [
+          {"url": "https://jtw.sh.gov.cn/news/tunnel-rumor", "title": "上海市交通委辟谣"}
+        ]
+      }
+    ],
+    "metadata": {"source": "seed", "topic": "public_infra"}
+  },
+  {
+    "case_id": "seed_006_school_holiday_extension",
+    "recorded_at": "2026-08-01T00:00:00Z",
+    "raw_input": "北京中小学延长寒假两周",
+    "retrieval_results": [
+      {
+        "result_id": "r1",
+        "title": "北京市教委：网传\"寒假延长两周\"消息不实",
+        "url": "https://jw.beijing.gov.cn/news/holiday-rumor",
+        "source_name": "北京市教委",
+        "published_at": "2026-01-20",
+        "snippet": "针对网上传播的\"寒假延长两周\"消息，北京市教委郑重声明该消息不属实，各中小学按原定校历安排开学。",
+        "source_tier": "S"
+      }
+    ],
+    "expected_claims": [
+      {
+        "claim": "北京中小学延长寒假两周",
+        "claim_type": "fact",
+        "verdict": "refuted",
+        "confidence": "high",
+        "evidence": [
+          {"url": "https://jw.beijing.gov.cn/news/holiday-rumor", "title": "北京市教委辟谣"}
+        ]
+      }
+    ],
+    "metadata": {"source": "seed", "topic": "education"}
+  },
+  {
+    "case_id": "seed_007_new_ev_subsidy",
+    "recorded_at": "2026-08-01T00:00:00Z",
+    "raw_input": "国家新出台新能源汽车购车补贴每辆5万元",
+    "retrieval_results": [
+      {
+        "result_id": "r1",
+        "title": "关于2026年新能源汽车推广应用财政补贴政策的通知",
+        "url": "https://www.mof.gov.cn/2026/ev-subsidy-notice",
+        "source_name": "财政部",
+        "published_at": "2026-01-05",
+        "snippet": "2026年继续实施新能源汽车推广应用财政补贴政策，纯电动乘用车最高单车补贴不超过1.2万元。",
+        "source_tier": "S"
+      }
+    ],
+    "expected_claims": [
+      {
+        "claim": "国家新出台新能源汽车购车补贴每辆5万元",
+        "claim_type": "fact",
+        "verdict": "refuted",
+        "confidence": "high",
+        "evidence": [
+          {"url": "https://www.mof.gov.cn/2026/ev-subsidy-notice", "title": "新能源汽车财政补贴政策"}
+        ]
+      }
+    ],
+    "metadata": {"source": "seed", "topic": "policy", "note": "官方政策与谣言数字矛盾"}
+  },
+  {
+    "case_id": "seed_008_earthquake_prediction",
+    "recorded_at": "2026-08-01T00:00:00Z",
+    "raw_input": "明天四川某地会发生7级地震",
+    "retrieval_results": [
+      {
+        "result_id": "r1",
+        "title": "中国地震台网：地震短临预报目前不能精确到某天某地",
+        "url": "https://www.cea.gov.cn/publish/dizhenju/468/2025/earthquake-prediction",
+        "source_name": "中国地震局",
+        "published_at": "2025-06-01",
+        "snippet": "地震部门明确表示，目前科学水平下无法对某天某地是否发生地震做出准确预报，网传具体日期地点的地震预测均为伪科学。",
+        "source_tier": "S"
+      }
+    ],
+    "expected_claims": [
+      {
+        "claim": "明天四川某地会发生7级地震",
+        "claim_type": "prediction",
+        "verdict": "refuted",
+        "confidence": "high",
+        "evidence": [
+          {"url": "https://www.cea.gov.cn/publish/dizhenju/468/2025/earthquake-prediction", "title": "地震短临预报"}
+        ]
+      }
+    ],
+    "metadata": {"source": "seed", "topic": "science", "note": "科学不可能"}
+  },
+  {
+    "case_id": "seed_009_alien_landing",
+    "recorded_at": "2026-08-01T00:00:00Z",
+    "raw_input": "美国某农场发现外星人飞船",
+    "retrieval_results": [
+      {
+        "result_id": "r1",
+        "title": "所谓\"外星人飞船\"实为气象气球残骸",
+        "url": "https://www.reuters.com/fact-check/alien-farm-hoax",
+        "source_name": "路透事实核查",
+        "published_at": "2026-04-01",
+        "snippet": "经当地科研机构鉴定，此前传闻中\"外星人飞船\"实为高空气象气球坠落残骸。",
+        "source_tier": "A"
+      }
+    ],
+    "expected_claims": [
+      {
+        "claim": "美国某农场发现外星人飞船",
+        "claim_type": "fact",
+        "verdict": "refuted",
+        "confidence": "high",
+        "evidence": [
+          {"url": "https://www.reuters.com/fact-check/alien-farm-hoax", "title": "外星人飞船实为气象气球"}
+        ]
+      }
+    ],
+    "metadata": {"source": "seed", "topic": "hoax"}
+  },
+  {
+    "case_id": "seed_010_covid_vaccine_conflict",
+    "recorded_at": "2026-08-01T00:00:00Z",
+    "raw_input": "新冠疫苗会导致心肌炎",
+    "retrieval_results": [
+      {
+        "result_id": "r1",
+        "title": "研究显示mRNA疫苗与年轻男性心肌炎存在关联",
+        "url": "https://www.nejm.org/covid-myocarditis-study",
+        "source_name": "新英格兰医学杂志",
+        "published_at": "2025-08-01",
+        "snippet": "多国监测数据显示，mRNA新冠疫苗接种后年轻男性心肌炎发生率略高于基线水平，但绝对风险仍较低。",
+        "source_tier": "S"
+      },
+      {
+        "result_id": "r2",
+        "title": "国家卫健委：新冠疫苗严重不良反应罕见 收益大于风险",
+        "url": "https://www.nhc.gov.cn/xcs/nlxx/vaccine-safety",
+        "source_name": "国家卫生健康委员会",
+        "published_at": "2025-09-15",
+        "snippet": "国家卫健委表示，我国接种疫苗后严重不良反应发生率极低，接种收益远大于风险。",
+        "source_tier": "S"
+      }
+    ],
+    "expected_claims": [
+      {
+        "claim": "新冠疫苗会导致心肌炎",
+        "claim_type": "fact",
+        "verdict": "conflicting",
+        "confidence": "medium",
+        "evidence": [
+          {"url": "https://www.nejm.org/covid-myocarditis-study", "title": "研究显示 mRNA 疫苗与心肌炎关联"},
+          {"url": "https://www.nhc.gov.cn/xcs/nlxx/vaccine-safety", "title": "国家卫健委：不良反应罕见"}
+        ]
+      }
+    ],
+    "metadata": {"source": "seed", "topic": "medical", "note": "研究显示关联但绝对风险低，属半真半假"}
+  }
+]

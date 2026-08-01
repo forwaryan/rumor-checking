@@ -1,0 +1,35 @@
+{
+  "case_id": "seed_004_flying_car",
+  "recorded_at": "2026-08-01T00:00:00Z",
+  "raw_input": "某公司发明了可以载人飞行的滑板车",
+  "retrieval_results": [
+    {
+      "result_id": "r1",
+      "title": "\"载人飞行滑板车\"视频疯传 专家：物理上不可能",
+      "url": "https://www.xinhuanet.com/tech/fact-check-flying-scooter",
+      "source_name": "新华网",
+      "published_at": "2026-02-10",
+      "snippet": "近日网上流传一段\"载人飞行滑板车\"视频，物理学专家指出视频经过后期特效处理，此类装置在现有技术下无法实现。",
+      "source_tier": "S"
+    }
+  ],
+  "expected_claims": [
+    {
+      "claim": "存在可载人飞行的滑板车",
+      "claim_type": "fact",
+      "verdict": "refuted",
+      "confidence": "high",
+      "evidence": [
+        {
+          "url": "https://www.xinhuanet.com/tech/fact-check-flying-scooter",
+          "title": "载人飞行滑板车视频疯传"
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "source": "seed",
+    "topic": "science",
+    "note": "物理不可能"
+  }
+}

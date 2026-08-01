@@ -1,0 +1,34 @@
+{
+  "case_id": "seed_006_school_holiday_extension",
+  "recorded_at": "2026-08-01T00:00:00Z",
+  "raw_input": "北京中小学延长寒假两周",
+  "retrieval_results": [
+    {
+      "result_id": "r1",
+      "title": "北京市教委：网传\"寒假延长两周\"消息不实",
+      "url": "https://jw.beijing.gov.cn/news/holiday-rumor",
+      "source_name": "北京市教委",
+      "published_at": "2026-01-20",
+      "snippet": "针对网上传播的\"寒假延长两周\"消息，北京市教委郑重声明该消息不属实，各中小学按原定校历安排开学。",
+      "source_tier": "S"
+    }
+  ],
+  "expected_claims": [
+    {
+      "claim": "北京中小学延长寒假两周",
+      "claim_type": "fact",
+      "verdict": "refuted",
+      "confidence": "high",
+      "evidence": [
+        {
+          "url": "https://jw.beijing.gov.cn/news/holiday-rumor",
+          "title": "北京市教委辟谣"
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "source": "seed",
+    "topic": "education"
+  }
+}

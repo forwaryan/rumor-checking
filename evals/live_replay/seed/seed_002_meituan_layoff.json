@@ -1,0 +1,48 @@
+{
+  "case_id": "seed_002_meituan_layoff",
+  "recorded_at": "2026-08-01T00:00:00Z",
+  "raw_input": "美团裁员80%是真的吗",
+  "retrieval_results": [
+    {
+      "result_id": "r1",
+      "title": "美团回应\"裁员80%\"传言：不属实，正常人员调整",
+      "url": "https://tech.sina.com.cn/i/2025-12-03/meituan-response",
+      "source_name": "新浪科技",
+      "published_at": "2025-12-03",
+      "snippet": "针对网传美团裁员80%的消息，美团公司12月3日回应称该说法完全不实，公司正在进行常规的组织优化。",
+      "source_tier": "A"
+    },
+    {
+      "result_id": "r2",
+      "title": "美团公关：所谓\"80%裁员\"系恶意谣言 已报警",
+      "url": "https://www.jiemian.com/article/meituan_rumor",
+      "source_name": "界面新闻",
+      "published_at": "2025-12-03",
+      "snippet": "美团相关负责人表示，网络流传的\"80%裁员\"截图为伪造，公司已就此报警。",
+      "source_tier": "A"
+    }
+  ],
+  "expected_claims": [
+    {
+      "claim": "美团裁员80%",
+      "claim_type": "fact",
+      "verdict": "refuted",
+      "confidence": "high",
+      "evidence": [
+        {
+          "url": "https://tech.sina.com.cn/i/2025-12-03/meituan-response",
+          "title": "美团回应"
+        },
+        {
+          "url": "https://www.jiemian.com/article/meituan_rumor",
+          "title": "美团公关"
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "source": "seed",
+    "topic": "corporate",
+    "note": "官方明确否认"
+  }
+}

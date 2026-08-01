@@ -1,0 +1,43 @@
+{
+  "case_id": "seed_005_shanghai_tunnel",
+  "recorded_at": "2026-08-01T00:00:00Z",
+  "raw_input": "上海某隧道要封闭三个月装修",
+  "retrieval_results": [
+    {
+      "result_id": "r1",
+      "title": "上海市交通委辟谣\"隧道封闭三个月\"传言",
+      "url": "https://jtw.sh.gov.cn/news/tunnel-rumor",
+      "source_name": "上海市交通委员会",
+      "published_at": "2026-03-05",
+      "snippet": "近期网传某某隧道将封闭三个月装修的消息不属实，目前无此类施工计划。",
+      "source_tier": "S"
+    },
+    {
+      "result_id": "r2",
+      "title": "官方回应：上海隧道近期无长期封闭计划",
+      "url": "https://www.eastday.com/traffic/2026-03-05",
+      "source_name": "东方网",
+      "published_at": "2026-03-05",
+      "snippet": "上海交通部门表示，网传隧道封闭消息为不实信息。",
+      "source_tier": "A"
+    }
+  ],
+  "expected_claims": [
+    {
+      "claim": "上海某隧道要封闭三个月装修",
+      "claim_type": "fact",
+      "verdict": "refuted",
+      "confidence": "high",
+      "evidence": [
+        {
+          "url": "https://jtw.sh.gov.cn/news/tunnel-rumor",
+          "title": "上海市交通委辟谣"
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "source": "seed",
+    "topic": "public_infra"
+  }
+}

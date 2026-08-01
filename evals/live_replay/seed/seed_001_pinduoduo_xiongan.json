@@ -1,0 +1,48 @@
+{
+  "case_id": "seed_001_pinduoduo_xiongan",
+  "recorded_at": "2026-08-01T00:00:00Z",
+  "raw_input": "拼多多在雄安招5000人是真的吗",
+  "retrieval_results": [
+    {
+      "result_id": "r1",
+      "title": "拼多多雄安新区总部启用 首批入驻员工超5000人",
+      "url": "https://www.thepaper.cn/newsDetail_forward_pinduoduo_xiongan",
+      "source_name": "澎湃新闻",
+      "published_at": "2025-11-15",
+      "snippet": "11月14日，拼多多雄安新区总部大楼正式启用，首批入驻员工超过5000人，主要涵盖技术、运营、客服等岗位。",
+      "source_tier": "A"
+    },
+    {
+      "result_id": "r2",
+      "title": "雄安新区管委会：拼多多总部正式落户 提供5000+就业岗位",
+      "url": "https://www.xiongan.gov.cn/news/pdd_headquarters",
+      "source_name": "雄安新区管委会",
+      "published_at": "2025-11-15",
+      "snippet": "官方通报显示拼多多雄安总部已投入运营，本年度招聘计划涉及5000余人。",
+      "source_tier": "S"
+    }
+  ],
+  "expected_claims": [
+    {
+      "claim": "拼多多在雄安招5000人",
+      "claim_type": "fact",
+      "verdict": "supported",
+      "confidence": "high",
+      "evidence": [
+        {
+          "url": "https://www.xiongan.gov.cn/news/pdd_headquarters",
+          "title": "雄安新区管委会：拼多多总部正式落户"
+        },
+        {
+          "url": "https://www.thepaper.cn/newsDetail_forward_pinduoduo_xiongan",
+          "title": "拼多多雄安新区总部启用"
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "source": "seed",
+    "topic": "corporate",
+    "note": "官方+主流媒体一致确认"
+  }
+}
