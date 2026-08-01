@@ -35,6 +35,8 @@ import type {
   TimelineNode,
   TimelineSourceType,
   Verdict,
+  AgentTraceRecord,
+  AgentTraceSpan,
 } from "@/types/report";
 
 const DEFAULT_API_BASE = "";
@@ -591,20 +593,6 @@ function parseRunMetrics(value: unknown): RunMetrics {
   };
 }
 
-export async function analyzeReport(request: AnalyzeRequest): Promise<Report> {
-  const response = await fetch(`${getApiBase()}/api/v1/analyze`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(request),
-    cache: "no-store",
-  });
-
-  const payload = await parseJson<unknown>(response);
-  return parseReport(payload);
-}
-
 export async function analyzeReportStream(
   request: AnalyzeRequest,
   onEvent: (event: AnalysisLiveEvent) => void,
@@ -763,4 +751,53 @@ export async function getSearchSources(): Promise<SearchSourcesResponse> {
     return { sources };
   }
   return { sources: [] };
+}
+
+function coerceSpan(value: unknown): AgentTraceSpan | null {
+  if (!isObject(value)) return null;
+  return {
+    span_id: ensureString(value.span_id),
+    parent_span_id: typeof value.parent_span_id === "string" ? value.parent_span_id : null,
+    action: ensureString(value.action),
+    start_time: typeof value.start_time === "number" ? value.start_time : 0,
+    end_time: typeof value.end_time === "number" ? value.end_time : 0,
+    duration_ms: typeof value.duration_ms === "number" ? value.duration_ms : 0,
+    success: value.success === true,
+    error_type: typeof value.error_type === "string" ? value.error_type : null,
+    error_message: typeof value.error_message === "string" ? value.error_message : null,
+    token_usage: isObject(value.token_usage)
+      ? Object.fromEntries(
+          Object.entries(value.token_usage).filter((entry): entry is [string, number] => typeof entry[1] === "number"),
+        )
+      : {},
+    metadata: isObject(value.metadata) ? (value.metadata as Record<string, unknown>) : {},
+  };
+}
+
+/** Fetch the supervisor's parent/child span trace for one run.
+ *
+ * Returns null when tracing is off (404 from the backend) or the trace file
+ * hasn't been written yet — callers should treat that as "trace unavailable"
+ * and hide the panel instead of showing an error. Throws for real HTTP errors
+ * (500, network) so the caller sees them. */
+export async function getAgentTrace(runId: string): Promise<AgentTraceRecord | null> {
+  if (!runId) return null;
+  const response = await fetch(`${getApiBase()}/api/v1/agent-trace/${encodeURIComponent(runId)}`, {
+    cache: "no-store",
+  });
+  if (response.status === 404) return null;
+  const payload = await parseJson<unknown>(response);
+  if (!isObject(payload) || !Array.isArray(payload.spans)) return null;
+  return {
+    run_id: ensureString(payload.run_id),
+    start_time: typeof payload.start_time === "number" ? payload.start_time : 0,
+    end_time: typeof payload.end_time === "number" ? payload.end_time : 0,
+    duration_ms: typeof payload.duration_ms === "number" ? payload.duration_ms : 0,
+    total_tokens: typeof payload.total_tokens === "number" ? payload.total_tokens : 0,
+    span_count: typeof payload.span_count === "number" ? payload.span_count : payload.spans.length,
+    success_count: typeof payload.success_count === "number" ? payload.success_count : 0,
+    failure_count: typeof payload.failure_count === "number" ? payload.failure_count : 0,
+    spans: payload.spans.map(coerceSpan).filter((s): s is AgentTraceSpan => s !== null),
+    metadata: isObject(payload.metadata) ? (payload.metadata as Record<string, unknown>) : {},
+  };
 }

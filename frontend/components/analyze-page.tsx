@@ -16,6 +16,7 @@ import { PossibleAnswers, PossibilitiesDistribution } from "@/components/possibi
 import { TimelineSection } from "@/components/timeline-section";
 import { TraceTimeline } from "@/components/trace-timeline";
 import { RunMetricsPanel } from "@/components/run-metrics-panel";
+import { AgentSpanTree } from "@/components/agent-span-tree";
 
 type BackendState = "checking" | "online" | "offline" | "degraded";
 
@@ -47,6 +48,8 @@ export function AnalyzePage() {
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [traceOpen, setTraceOpen] = useState(false);
   const [metricsOpen, setMetricsOpen] = useState(false);
+  const [runId, setRunId] = useState<string | null>(null);
+  const [agentSpanTreeOpen, setAgentSpanTreeOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -89,6 +92,7 @@ export function AnalyzePage() {
 
   function handleStreamEvent(event: AnalysisLiveEvent) {
     setLiveEvents((current) => [...current, event]);
+    if (event.type === "session") setRunId(event.run_id);
     if (event.type === "report") { setReport(event.report); setReportProvenance(buildReportProvenance(event.report)); }
   }
 
@@ -109,6 +113,7 @@ export function AnalyzePage() {
     setStatus("submitting"); setErrorMessage(null); setReport(null);
     setReportProvenance(null); setLiveEvents([]); setClaimsOpen(true);
     setEvidenceOpen(false); setTimelineOpen(false); setTraceOpen(mode === "deep");
+    setRunId(null); setAgentSpanTreeOpen(false);
     try {
       const request: AnalyzeRequest = { raw_input: trimmed, input_type: "auto", request_context: { mode, ...(mode === "deep" && model ? { model } : {}), ...(activeSources.length > 0 ? { search_sources: activeSources } : {}) } };
       const nextReport = await analyzeReportStream(request, handleStreamEvent);
@@ -221,6 +226,7 @@ export function AnalyzePage() {
         {report && <RetrievalHitsList hits={retrievalOnlyHits} isOpen={retrievalHitsOpen} onToggle={() => setRetrievalHitsOpen(!retrievalHitsOpen)} />}
         {report && <TimelineSection timeline={report.timeline} isOpen={timelineOpen} onToggle={() => setTimelineOpen(!timelineOpen)} />}
         {runMetrics && <RunMetricsPanel metrics={runMetrics} isOpen={metricsOpen} onToggle={() => setMetricsOpen(!metricsOpen)} />}
+        {runId && report && <AgentSpanTree runId={runId} isOpen={agentSpanTreeOpen} onToggle={() => setAgentSpanTreeOpen(!agentSpanTreeOpen)} />}
         <TraceTimeline traceSteps={traceSteps} isStreaming={isStreaming} traceOpen={traceOpen} onToggleTrace={() => setTraceOpen(!traceOpen)} />
       </div>
     </main>

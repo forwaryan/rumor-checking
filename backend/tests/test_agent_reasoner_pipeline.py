@@ -70,8 +70,8 @@ class FakeAgentReasoner:
                 claim_type="fact",
                 verdict="supported",
                 confidence="high",
-                evidence=[primary.to_evidence(relevance_reason="Agent matched this hit as supporting evidence for the claim.")],
-                notes="Agent found grounded support in the supplied retrieval hits.",
+                evidence=[primary.to_evidence(relevance_reason="该来源被 agent 判定为支撑本核查点的证据。")],
+                notes="Agent 在检索命中中找到了明确支撑证据。",
             ),
             ClaimResult(
                 claim="当事人已经死亡。",
@@ -79,10 +79,10 @@ class FakeAgentReasoner:
                 verdict="refuted",
                 confidence="high",
                 evidence=[
-                    primary.to_evidence(relevance_reason="Agent matched this hit as refuting evidence for the claim."),
-                    secondary.to_evidence(relevance_reason="Agent matched this hit as refuting evidence for the claim."),
+                    primary.to_evidence(relevance_reason="该来源被 agent 判定为反驳本核查点的证据。"),
+                    secondary.to_evidence(relevance_reason="该来源被 agent 判定为反驳本核查点的证据。"),
                 ],
-                notes="Agent found grounded refutation in the supplied retrieval hits.",
+                notes="Agent 在检索命中中找到了明确反驳证据。",
             ),
         ]
         return AgentSynthesis(

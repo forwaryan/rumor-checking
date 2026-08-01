@@ -84,6 +84,47 @@ def test_correction_no_op_when_completion_fn_returns_empty():
     assert out[0].correction is None
 
 
+def test_page_body_injected_by_matching_evidence_url():
+    # page_bodies is keyed by url; the body for an evidence item must reach the
+    # prompt as its page_text. Regression: producers once keyed by result_id while
+    # this lookup used e.url, so the body silently never appeared.
+    ev = _ev("王励勤回应樊振东回归")
+    claims = [_claim("樊振东已回归国家队。", "conflicting", evidence=[ev])]
+    seen = {}
+
+    def capture(system: str, user: str) -> str:
+        seen["user"] = user
+        return json.dumps([{"correction": None}])
+
+    annotate_claim_corrections(
+        claims,
+        page_bodies={ev.url: "王励勤表示回归仍在联系过程中，尚未正式完成。"},
+        completion_fn=capture,
+    )
+    assert "page_text: 王励勤表示回归仍在联系过程中" in seen["user"]
+
+
+def test_unmatched_page_body_does_not_leak_into_prompt():
+    # Removed fallback regression: a body keyed under a DIFFERENT url must not be
+    # grabbed for this claim. Previously the code grabbed the first body in the
+    # dict for every claim regardless of which evidence it cited.
+    ev = _ev("樊振东回归传闻")
+    claims = [_claim("樊振东已回归国家队。", "conflicting", evidence=[ev])]
+    seen = {}
+
+    def capture(system: str, user: str) -> str:
+        seen["user"] = user
+        return json.dumps([{"correction": None}])
+
+    annotate_claim_corrections(
+        claims,
+        page_bodies={"https://other.example.com/unrelated": "完全无关的另一篇文章正文内容。"},
+        completion_fn=capture,
+    )
+    assert "page_text:" not in seen["user"]
+    assert "完全无关" not in seen["user"]
+
+
 def test_chinese_numeral_parser():
     from backend.app.services.claim_correction import _parse_chinese_numeral as p
     assert p("三千") == 3000

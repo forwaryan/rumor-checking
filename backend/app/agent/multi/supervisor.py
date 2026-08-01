@@ -576,20 +576,48 @@ class Supervisor:
             return self._run_agent_impl(agent, state, deadline)
         config = agent.config if hasattr(agent, "config") else None
         model_name = getattr(config, "model", None)
-        with self._trace_exporter.span(
-            f"agent.{agent.role.value}",
-            role=agent.role.value,
-            model=model_name,
-        ) as span_obj:
+        # Do NOT push onto the exporter's active stack — `_run_agent` runs on
+        # worker threads inside `ThreadPoolExecutor` when a batch fans out, and
+        # a shared LIFO stack would let one worker's end_span pop another
+        # worker's span. Instead, capture the current top (the supervisor.run
+        # span, pushed on the main thread) as our parent, run the agent, and
+        # record a completed child span under it — `record_child_span` is
+        # already lock-guarded and safe to call from any thread.
+        parent = self._trace_exporter.current_span()
+        start = time.time()
+        try:
             result = self._run_agent_impl(agent, state, deadline)
-            span_obj.metadata.update({
-                "status": result.status.value,
-                "elapsed_ms": result.elapsed_ms,
-                "actions": list(result.actions_taken),
-                "model_used": result.model_used,
-                "error": result.error,
-            })
-            return result
+        except Exception as exc:
+            if parent is not None:
+                self._trace_exporter.record_child_span(
+                    f"agent.{agent.role.value}",
+                    parent=parent,
+                    start_time=start,
+                    end_time=time.time(),
+                    success=False,
+                    error_type=exc.__class__.__name__,
+                    error_message=str(exc)[:200],
+                    role=agent.role.value,
+                    model=model_name,
+                )
+            raise
+        if parent is not None:
+            self._trace_exporter.record_child_span(
+                f"agent.{agent.role.value}",
+                parent=parent,
+                start_time=start,
+                end_time=time.time(),
+                success=result.status != AgentStatus.FAILED,
+                error_type=None,
+                error_message=result.error,
+                role=agent.role.value,
+                model=model_name,
+                status=result.status.value,
+                elapsed_ms=result.elapsed_ms,
+                actions=list(result.actions_taken),
+                model_used=result.model_used,
+            )
+        return result
 
     def _run_agent_impl(
         self,

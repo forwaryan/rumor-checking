@@ -462,3 +462,31 @@ export interface DemoCaseSummary {
   mode: OutputMode;
 }
 
+/** One recorded span from the supervisor's parent/child trace. */
+export interface AgentTraceSpan {
+  span_id: string;
+  parent_span_id: string | null;
+  action: string;
+  start_time: number;
+  end_time: number;
+  duration_ms: number;
+  success: boolean;
+  error_type: string | null;
+  error_message: string | null;
+  token_usage: Record<string, number>;
+  metadata: Record<string, unknown>;
+}
+
+export interface AgentTraceRecord {
+  run_id: string;
+  start_time: number;
+  end_time: number;
+  duration_ms: number;
+  total_tokens: number;
+  span_count: number;
+  success_count: number;
+  failure_count: number;
+  spans: AgentTraceSpan[];
+  metadata: Record<string, unknown>;
+}
+

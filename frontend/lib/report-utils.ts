@@ -95,11 +95,6 @@ export interface ReportProvenanceMeta {
   tone: "live" | "mock" | "unknown";
 }
 
-export interface LlmUsageMeta {
-  label: string;
-  tone: "live" | "fallback" | "unknown";
-}
-
 export interface VerificationScoreMeta {
   score: number;
   label: string;

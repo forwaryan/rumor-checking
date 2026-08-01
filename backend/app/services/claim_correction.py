@@ -70,12 +70,6 @@ def annotate_claim_corrections(
             chars_remaining = 400
             for e in cr.evidence[:5]:
                 body_text = page_bodies.get(e.url, "")
-                if not body_text:
-                    # Try matching by looking through page_bodies keys
-                    for _rid, body in page_bodies.items():
-                        if body:
-                            body_text = body
-                            break
                 if body_text and chars_remaining > 0:
                     chunk = body_text[:chars_remaining]
                     extra_context += f"\n   page_text: {chunk}"

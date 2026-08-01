@@ -108,11 +108,9 @@ class TraceExporter:
     supervisor span wraps its child-agent spans without callers having to thread
     parent ids manually.
 
-    For concurrent code (thread pool workers), pass `parent=` to `begin_span` /
-    `span` explicitly — worker threads share the exporter but must not push onto
-    the main stack, since parallel pushes would interleave and corrupt parent
-    relationships. `record_child_span` is the lock-safe form: it records a
-    completed span directly under a specified parent without touching the stack.
+    For concurrent code (thread pool workers), use `record_child_span` — it
+    records a completed span directly under a specified parent without touching
+    the stack, so parallel workers can't corrupt parent relationships.
     """
 
     def __init__(self, run_id: str, metadata: dict[str, Any] | None = None):
@@ -128,12 +126,21 @@ class TraceExporter:
     def _next_span_id(self) -> str:
         return f"span_{next(self._id_counter):04d}"
 
-    def begin_span(self, action: str, *, parent: TraceSpan | None = None, **metadata: Any) -> TraceSpan:
+    def current_span(self) -> TraceSpan | None:
+        """Peek the currently-active span without touching the stack. Callers
+        that need to record a child span from a worker thread should read the
+        parent this way, then use `record_child_span` — never `span()` /
+        `begin_span()`, which push onto a stack shared across threads."""
+        return self._active_stack[-1] if self._active_stack else None
+
+    def begin_span(self, action: str, **metadata: Any) -> TraceSpan:
         """Start a new span for the given action. Nests under the currently-active
-        span (if any) so parent-child structure is captured automatically. Pass
-        `parent=` to override the stack — required in concurrent workers so
-        threads don't fight over the shared stack top."""
-        parent_span = parent if parent is not None else (self._active_stack[-1] if self._active_stack else None)
+        span (if any) so parent-child structure is captured automatically.
+
+        For concurrent workers use `record_child_span` instead — pushing onto the
+        shared stack from multiple threads would interleave parents. This method
+        is intended for the single-threaded main flow only."""
+        parent_span = self._active_stack[-1] if self._active_stack else None
         span = TraceSpan(
             action=action,
             start_time=time.time(),
@@ -141,10 +148,7 @@ class TraceExporter:
             parent_span_id=parent_span.span_id if parent_span else None,
             metadata=metadata,
         )
-        # Only push onto the stack when we didn't get an explicit parent — the
-        # explicit-parent case is for concurrent workers that must not touch it.
-        if parent is None:
-            self._active_stack.append(span)
+        self._active_stack.append(span)
         return span
 
     def record_child_span(

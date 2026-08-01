@@ -31,15 +31,12 @@ export interface EvidenceCardProps {
 export function EvidenceCard({ item, claimAccents, hideClaimBacklink = false }: EvidenceCardProps) {
   const tier = getSourceTierMeta(item.source_tier);
   const accents = claimAccents ?? [];
-  const cardStyle = accents.length > 0
-    ? { boxShadow: `inset ${accents.length * 3}px 0 0 0 ${accents[0].color}` }
-    : undefined;
   const showBacklinks = !hideClaimBacklink && accents.length > 0;
   return (
-    <div className="evidence-item" style={cardStyle}>
-      {accents.length > 1 && (
+    <div className="evidence-item">
+      {accents.length > 0 && (
         <div className="evidence-item__accent-stack" aria-hidden="true">
-          {accents.slice(1).map((a) => (
+          {accents.map((a) => (
             <span key={a.index} className="evidence-item__accent" style={{ background: a.color }} />
           ))}
         </div>

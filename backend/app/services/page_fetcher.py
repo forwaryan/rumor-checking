@@ -18,9 +18,18 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _TAG_RE = re.compile(r"<[^>]+>")
+_SCRIPT_STYLE_RE = re.compile(r"<(script|style|noscript)\b[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)
 _WHITESPACE_RE = re.compile(r"\s+")
 _DIGIT_RE = re.compile(r"\d")
 _CHINESE_SEG_RE = re.compile(r"[一-鿿]{20,}")
+
+# Cache namespace for this module's entries. page_fetcher stores RAW html in
+# MockFetchResult.body and tag-strips it on read; UrlContentExtractor (the
+# fetch_url tool) stores already-extracted article text in the same field. They
+# share one UrlFetchCache keyed by URL, so without a namespace a raw-HTML write
+# here would be served verbatim to the extractor path (and vice versa). Keep the
+# two formats in disjoint keyspaces.
+_CACHE_NAMESPACE = "raw_html"
 
 # Module-level cache reference, set by the pipeline at startup so repeated
 # calls within the same request don't re-fetch the same URLs.
@@ -34,8 +43,13 @@ def set_page_fetch_cache(cache: UrlFetchCache | None) -> None:
 
 
 def _strip_tags(html: str) -> str:
-    """Remove HTML tags and collapse whitespace."""
-    text = _TAG_RE.sub(" ", html)
+    """Remove HTML tags and collapse whitespace.
+
+    Drops <script>/<style>/<noscript> blocks *before* tag removal — otherwise
+    their inner text (CSS rules, JS) would survive stripping and pollute the
+    body with noise like ``.g-layout-wrap{height:2.7rem}``."""
+    text = _SCRIPT_STYLE_RE.sub(" ", html)
+    text = _TAG_RE.sub(" ", text)
     return _WHITESPACE_RE.sub(" ", text).strip()
 
 
@@ -92,7 +106,7 @@ def _fetch_single_page(url: str) -> str | None:
     # Check cache first
     if _cache is not None:
         try:
-            cached = _cache.read(url=url)
+            cached = _cache.read(url=url, namespace=_CACHE_NAMESPACE)
             if cached is not None and cached.body:
                 return _strip_tags(cached.body)
         except Exception:
@@ -113,7 +127,7 @@ def _fetch_single_page(url: str) -> str | None:
     if _cache is not None and text:
         try:
             from backend.app.models.schemas import MockFetchResult
-            _cache.write(url=url, result=MockFetchResult(status="ok", body=resp.text))
+            _cache.write(url=url, result=MockFetchResult(status="ok", body=resp.text), namespace=_CACHE_NAMESPACE)
         except Exception:
             pass
 
@@ -126,9 +140,10 @@ def fetch_page_snippets(
 ) -> dict[str, str]:
     """Fetch page body text for the top search results sorted by source tier.
 
-    Returns a dict of {result_id: key_paragraphs} with up to 800 chars per page.
-    Silently returns empty dict on any failure (never crashes the pipeline).
-    """
+    Returns a dict of {url: key_paragraphs} with up to 800 chars per page.
+    Keyed by URL because the sole consumer (claim_correction) looks bodies up by
+    each evidence item's ``url``. Silently returns empty dict on any failure
+    (never crashes the pipeline)."""
     if not results:
         return {}
     real_results = [
@@ -153,7 +168,7 @@ def fetch_page_snippets(
             try:
                 text = _fetch_single_page(result.url)
                 if text:
-                    bodies[result.result_id] = _extract_key_paragraphs(text)
+                    bodies[result.url] = _extract_key_paragraphs(text)
             except Exception:
                 continue
 

@@ -467,9 +467,29 @@ class UrlContentExtractor:
             return False
         if UNWANTED_TEXT_RE.search(text):
             return False
+        if self._looks_like_nav_chrome(text):
+            return False
         if len(text) >= 30:
             return True
         return len(text) >= 18 and any(marker in text for marker in "。！？.!?")
+
+    @staticmethod
+    def _looks_like_nav_chrome(text: str) -> bool:
+        """Reject site navigation/menu chrome masquerading as article body.
+
+        Pages that render their body client-side (e.g. 163.com) leave only the nav
+        menu in the static HTML; block extraction then picks it up and a length
+        check labels it a valid body. Nav menus are many short space-separated
+        tokens with NO sentence terminators, whereas prose (Chinese especially) has
+        almost no spaces and always carries 。/！/？. Requiring ALL THREE — many
+        tokens, mostly short, zero terminators — keeps real prose and headlines."""
+        if any(marker in text for marker in "。！？"):
+            return False
+        tokens = text.split()
+        if len(tokens) < 8:
+            return False
+        short = sum(1 for t in tokens if len(t) <= 4)
+        return short / len(tokens) >= 0.6
 
     def _truncate(self, text: str | None, limit: int) -> str | None:
         cleaned = self._clean_optional_string(text)

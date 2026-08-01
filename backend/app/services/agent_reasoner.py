@@ -630,6 +630,39 @@ class LlmAgentReasoner:
         if not self.enabled or retrieval_bundle is None:
             return None
 
+        # Rule-based early exit: skip a 40s planner LLM call when evidence is
+        # already strong. Grade A/B means ≥1 high-trust source is present, and
+        # canonical_results ≥ 3 gives us breadth. In that regime, planners
+        # empirically choose should_continue=false anyway, so the network round
+        # trip only adds latency. The first round is exempt — round 1's planner
+        # is what generates the follow_up_query the caller feeds into round 2's
+        # retrieval, so we keep it even when initial evidence looks strong.
+        # `_run_investigation` calls this with round_index starting at 1, so
+        # only bail from round 2 onward.
+        if (
+            round_index >= 2
+            and retrieval_bundle.evidence_grade in {"A", "B"}
+            and len(retrieval_bundle.canonical_results) >= 3
+        ):
+            emit_log(
+                stage_key="investigation_plan",
+                title="Investigation planner 早停",
+                summary="证据已达 A/B 级且数量充足，跳过 planner LLM 直接停止调查。",
+                details=[
+                    f"evidence_grade={retrieval_bundle.evidence_grade}",
+                    f"canonical_count={len(retrieval_bundle.canonical_results)}",
+                    f"round_index={round_index}",
+                ],
+            )
+            return InvestigationPlan(
+                should_continue=False,
+                follow_up_query=None,
+                reason=(
+                    f"rule-based early exit: evidence_grade={retrieval_bundle.evidence_grade}, "
+                    f"canonical_results={len(retrieval_bundle.canonical_results)}"
+                ),
+            )
+
         content = self._request_completion(
             stage_key="investigation_plan",
             title="调用 Agent investigation planner",
@@ -1754,6 +1787,18 @@ class LlmAgentReasoner:
         all_titles = [
             r.title for r in retrieval_bundle.canonical_results if r.title.strip()
         ]
+        # fetched_bodies is keyed by result_id (the synthesis prompt needs that),
+        # but claim_correction looks bodies up by each evidence item's url. Re-key
+        # to url here so the correction stage actually sees the fetched full text
+        # instead of falling back to arbitrary page content.
+        page_bodies_by_url: dict[str, str] | None = None
+        if fetched_bodies:
+            id_to_url = {r.result_id: r.url for r in retrieval_bundle.canonical_results if r.url}
+            page_bodies_by_url = {
+                id_to_url[rid]: body
+                for rid, body in fetched_bodies.items()
+                if rid in id_to_url
+            } or None
 
         def _complete(system_prompt: str, user_prompt: str) -> str:
             # Route correction through the same retry/streaming layer synthesis uses,
@@ -1770,7 +1815,7 @@ class LlmAgentReasoner:
         try:
             annotated = annotate_claim_corrections(
                 claim_results,
-                page_bodies=fetched_bodies,
+                page_bodies=page_bodies_by_url,
                 all_evidence_titles=all_titles,
                 completion_fn=_complete,
             )
@@ -1898,27 +1943,27 @@ class LlmAgentReasoner:
 
     def _evidence_reason(self, verdict: str) -> str:
         if verdict == "supported":
-            return "Agent matched this hit as supporting evidence for the claim."
+            return "该来源被 agent 判定为支撑本核查点的证据。"
         if verdict == "refuted":
-            return "Agent matched this hit as refuting evidence for the claim."
+            return "该来源被 agent 判定为反驳本核查点的证据。"
         if verdict == "conflicting":
-            return "Agent matched this hit as part of a conflicting evidence set."
-        return "Agent considered this hit relevant but not decisive."
+            return "该来源属于本核查点冲突证据集合的一部分。"
+        return "该来源被 agent 视为相关，但不足以直接得出结论。"
 
     def _default_note(self, *, verdict: str, claim_type: str) -> str:
         if claim_type == "opinion":
-            return "This is an opinion-like statement and remains non-decidable."
+            return "该陈述偏观点表达，暂不作是非判定。"
         if claim_type == "prediction":
-            return "This is a forward-looking statement and remains non-decidable."
+            return "该陈述属于面向未来的预测，暂不作是非判定。"
         if claim_type == "unverifiable":
-            return "This statement is not directly verifiable from public sources."
+            return "该陈述难以直接从公开来源核实。"
         if verdict == "supported":
-            return "Agent found grounded support in the supplied retrieval hits."
+            return "Agent 在检索命中中找到了明确支撑证据。"
         if verdict == "refuted":
-            return "Agent found grounded refutation in the supplied retrieval hits."
+            return "Agent 在检索命中中找到了明确反驳证据。"
         if verdict == "conflicting":
-            return "Agent found conflicting grounded evidence across the supplied hits."
-        return "Agent could not reach a grounded decisive verdict from the supplied hits."
+            return "检索命中中同时出现支撑与反驳，agent 判定为冲突。"
+        return "Agent 未能从检索命中中形成确定性判定。"
 
     def _fallback_title(self, anchor_result: SearchResult | None) -> str | None:
         if anchor_result is None:

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from backend.app.models.schemas import MockFetchResult
 
-CACHE_SCHEMA_VERSION = 1
+CACHE_SCHEMA_VERSION = 2
 UTC = UTC
 
 
@@ -16,13 +16,14 @@ class UrlFetchCache:
         self.cache_root = cache_root
         self.ttl_seconds = ttl_seconds
 
-    def build_cache_key(self, *, url: str) -> str:
+    def build_cache_key(self, *, url: str, namespace: str = "") -> str:
         normalized_url = url.strip()
-        digest = hashlib.sha256(f"v{CACHE_SCHEMA_VERSION}|{normalized_url}".encode()).hexdigest()
+        seed = f"v{CACHE_SCHEMA_VERSION}|{namespace}|{normalized_url}"
+        digest = hashlib.sha256(seed.encode()).hexdigest()
         return digest[:24]
 
-    def read(self, *, url: str) -> MockFetchResult | None:
-        path = self._path_for(url=url)
+    def read(self, *, url: str, namespace: str = "") -> MockFetchResult | None:
+        path = self._path_for(url=url, namespace=namespace)
         if not path.exists():
             return None
 
@@ -36,8 +37,8 @@ class UrlFetchCache:
             return None
         return MockFetchResult(**result)
 
-    def write(self, *, url: str, result: MockFetchResult) -> Path:
-        path = self._path_for(url=url)
+    def write(self, *, url: str, result: MockFetchResult, namespace: str = "") -> Path:
+        path = self._path_for(url=url, namespace=namespace)
         path.parent.mkdir(parents=True, exist_ok=True)
 
         created_at = datetime.now(UTC)
@@ -45,7 +46,7 @@ class UrlFetchCache:
         payload = {
             "version": CACHE_SCHEMA_VERSION,
             "url": url,
-            "cache_key": self.build_cache_key(url=url),
+            "cache_key": self.build_cache_key(url=url, namespace=namespace),
             "created_at": created_at.isoformat(),
             "expires_at": expires_at.isoformat(),
             "result": result.model_dump(mode="json"),
@@ -53,8 +54,8 @@ class UrlFetchCache:
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         return path
 
-    def _path_for(self, *, url: str) -> Path:
-        key = self.build_cache_key(url=url)
+    def _path_for(self, *, url: str, namespace: str = "") -> Path:
+        key = self.build_cache_key(url=url, namespace=namespace)
         return self.cache_root / f"{key}.json"
 
     def _parse_datetime(self, value: object) -> datetime | None:
