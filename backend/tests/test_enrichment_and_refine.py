@@ -6,7 +6,7 @@ import json
 from dataclasses import replace
 
 from backend.app.core.config import get_settings
-from backend.app.models.schemas import ClaimResult, EvidenceItem, NormalizedEvent, AnalyzeRequest
+from backend.app.models.schemas import AnalyzeRequest, ClaimResult, EvidenceItem, NormalizedEvent
 from backend.app.services.agent_reasoner import LlmAgentReasoner
 from backend.app.services.progress import reset_progress_callback, set_progress_callback
 from backend.app.services.retrieval_models import RetrievalBundle, SearchResult

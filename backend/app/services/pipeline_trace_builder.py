@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import Iterable, Optional
+from collections.abc import Iterable
 
 from backend.app.models.schemas import AnalyzeRequest, NormalizedEvent, PipelineTrace, PipelineTraceStep, Report
 from backend.app.services.claim_extractor import ClaimExtraction
@@ -24,7 +24,7 @@ MODE_HINT_LABELS = {
 }
 
 
-def _preview(value: Optional[str], limit: int = 88) -> str:
+def _preview(value: str | None, limit: int = 88) -> str:
     if not value:
         return "无"
     compact = " ".join(value.split())
@@ -246,7 +246,7 @@ class PipelineTraceBuilder:
         self,
         *,
         normalized_event: NormalizedEvent,
-        follow_up_query: Optional[str],
+        follow_up_query: str | None,
         follow_up_bundle: RetrievalBundle | None,
         follow_up_used: bool,
     ) -> PipelineTraceStep:

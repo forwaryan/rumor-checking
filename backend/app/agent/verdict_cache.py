@@ -14,7 +14,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional, Protocol
+from typing import Any, Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +67,7 @@ class CachedVerdict:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "CachedVerdict":
+    def from_dict(cls, data: dict[str, Any]) -> CachedVerdict:
         return cls(
             fingerprint=data["fingerprint"],
             raw_input=data["raw_input"],
@@ -81,7 +81,7 @@ class CachedVerdict:
 
 
 class VerdictCache(Protocol):
-    def get(self, fp: str) -> Optional[CachedVerdict]:
+    def get(self, fp: str) -> CachedVerdict | None:
         ...
 
     def put(self, verdict: CachedVerdict) -> None:
@@ -99,7 +99,7 @@ class MemoryVerdictCache:
         self._max_entries = max_entries
         self._lock = threading.Lock()
 
-    def get(self, fp: str) -> Optional[CachedVerdict]:
+    def get(self, fp: str) -> CachedVerdict | None:
         with self._lock:
             entry = self._store.get(fp)
             if entry is None:
@@ -135,7 +135,7 @@ class DiskVerdictCache:
     def _path(self, fp: str) -> Path:
         return self._cache_dir / f"{fp}.json"
 
-    def get(self, fp: str) -> Optional[CachedVerdict]:
+    def get(self, fp: str) -> CachedVerdict | None:
         path = self._path(fp)
         if not path.exists():
             return None

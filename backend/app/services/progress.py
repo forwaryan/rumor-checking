@@ -1,25 +1,26 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextvars import ContextVar, Token
-from datetime import datetime, timezone
-from typing import Any, Callable, Dict, Optional
+from datetime import UTC, datetime
+from typing import Any
 
-ProgressCallback = Callable[[Dict[str, Any]], None]
+ProgressCallback = Callable[[dict[str, Any]], None]
 
-_progress_callback: ContextVar[Optional[ProgressCallback]] = ContextVar("progress_callback", default=None)
+_progress_callback: ContextVar[ProgressCallback | None] = ContextVar("progress_callback", default=None)
 # The stage_key that owns the retrieval currently in flight. Providers emit their
 # own HTTP/LLM sub-events without knowing which pipeline step invoked them, so the
 # retrieval service publishes the owning stage here and providers read it back —
 # otherwise every provider event lands in a hardcoded "retrieval_initial" card
 # regardless of whether it was the initial, follow-up, or investigation round.
-_retrieval_stage_key: ContextVar[Optional[str]] = ContextVar("retrieval_stage_key", default=None)
+_retrieval_stage_key: ContextVar[str | None] = ContextVar("retrieval_stage_key", default=None)
 
 
 def set_progress_callback(callback: ProgressCallback) -> Token:
     return _progress_callback.set(callback)
 
 
-def get_progress_callback() -> Optional[ProgressCallback]:
+def get_progress_callback() -> ProgressCallback | None:
     return _progress_callback.get()
 
 
@@ -27,11 +28,11 @@ def reset_progress_callback(token: Token) -> None:
     _progress_callback.reset(token)
 
 
-def set_retrieval_stage_key(stage_key: Optional[str]) -> Token:
+def set_retrieval_stage_key(stage_key: str | None) -> Token:
     return _retrieval_stage_key.set(stage_key)
 
 
-def get_retrieval_stage_key() -> Optional[str]:
+def get_retrieval_stage_key() -> str | None:
     return _retrieval_stage_key.get()
 
 
@@ -45,7 +46,7 @@ def emit_progress(event_type: str, **payload: Any) -> None:
         return
     event = {
         "type": event_type,
-        "emitted_at": datetime.now(timezone.utc).isoformat(),
+        "emitted_at": datetime.now(UTC).isoformat(),
         **payload,
     }
     callback(event)

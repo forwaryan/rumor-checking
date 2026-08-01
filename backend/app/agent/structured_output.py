@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Callable, Optional, Type, TypeVar
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
@@ -38,7 +39,7 @@ class StructuredOutputError(Exception):
         super().__init__(f"Schema validation failed for {schema_name}: {errors}")
 
 
-def schema_validator(schema: Type[T], *, lenient_json: bool = True) -> Callable[[str], bool]:
+def schema_validator(schema: type[T], *, lenient_json: bool = True) -> Callable[[str], bool]:
     """Return an `is_valid` callback for _request_completion that checks schema.
 
     Args:
@@ -63,7 +64,7 @@ def schema_validator(schema: Type[T], *, lenient_json: bool = True) -> Callable[
     return validator
 
 
-def parse_validated(content: str, schema: Type[T], *, lenient_json: bool = True) -> Optional[T]:
+def parse_validated(content: str, schema: type[T], *, lenient_json: bool = True) -> T | None:
     """Parse LLM content into a validated pydantic model.
 
     Returns None if parsing fails — caller should handle gracefully.
@@ -80,7 +81,7 @@ def parse_validated(content: str, schema: Type[T], *, lenient_json: bool = True)
         return None
 
 
-def parse_validated_or_raise(content: str, schema: Type[T], *, lenient_json: bool = True) -> T:
+def parse_validated_or_raise(content: str, schema: type[T], *, lenient_json: bool = True) -> T:
     """Parse LLM content into a validated pydantic model, raising on failure."""
     if not content or not content.strip():
         raise StructuredOutputError(content or "", schema.__name__, "empty content")
@@ -114,7 +115,7 @@ def _extract_json(content: str, *, lenient: bool = True) -> Any:
 
 class InvestigationPlanSchema(BaseModel):
     should_continue: bool
-    follow_up_query: Optional[str] = None
+    follow_up_query: str | None = None
     reason: str = ""
 
 
@@ -140,8 +141,8 @@ class SynthesisClaimSchema(BaseModel):
     claim_type: str = "fact"
     verdict: str = "insufficient"
     confidence: str = "medium"
-    truth_probability: Optional[int] = None
-    probability_basis: Optional[str] = None
+    truth_probability: int | None = None
+    probability_basis: str | None = None
     evidence_result_ids: list[str] = []
     notes: str = ""
 
@@ -173,9 +174,9 @@ class RefineResponseSchema(BaseModel):
 
 
 class QuestionResolutionSchema(BaseModel):
-    selected_result_id: Optional[str] = None
-    resolved_summary: Optional[str] = None
-    follow_up_query: Optional[str] = None
+    selected_result_id: str | None = None
+    resolved_summary: str | None = None
+    follow_up_query: str | None = None
     reason: str = ""
 
 
@@ -199,6 +200,6 @@ class EnrichmentEventSchema(BaseModel):
 
 
 class EnrichmentResponseSchema(BaseModel):
-    event: Optional[EnrichmentEventSchema] = None
+    event: EnrichmentEventSchema | None = None
     scenarios: list[EnrichmentScenarioSchema] = []
     timeline: list[EnrichmentTimelineSchema] = []

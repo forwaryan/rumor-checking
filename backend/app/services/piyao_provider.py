@@ -12,8 +12,7 @@ from __future__ import annotations
 import logging
 import re
 import time
-from datetime import datetime, timezone
-from typing import List, Optional
+from datetime import UTC, datetime
 from urllib.parse import quote_plus
 
 from backend.app.core.config import Settings, get_settings
@@ -39,14 +38,14 @@ _TAG_RE = re.compile(r"<[^>]+>")
 class PiyaoSearchProvider:
     name = "piyao"
 
-    def __init__(self, settings: Optional[Settings] = None) -> None:
+    def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
 
     @property
     def enabled(self) -> bool:
         return getattr(self.settings, "piyao_search_enabled", True)
 
-    def search(self, query_text: str, *, max_results: int = 5) -> List[SearchResult]:
+    def search(self, query_text: str, *, max_results: int = 5) -> list[SearchResult]:
         if not self.enabled:
             return []
 
@@ -120,8 +119,8 @@ class PiyaoSearchProvider:
             )
             return []
 
-    def _parse_results(self, html: str, query_text: str, max_results: int) -> List[SearchResult]:
-        results: List[SearchResult] = []
+    def _parse_results(self, html: str, query_text: str, max_results: int) -> list[SearchResult]:
+        results: list[SearchResult] = []
 
         items = _ITEM_RE.findall(html)
         if not items:
@@ -152,7 +151,7 @@ class PiyaoSearchProvider:
             if date_match:
                 try:
                     y, m, d = int(date_match.group(1)), int(date_match.group(2)), int(date_match.group(3))
-                    published_at = datetime(y, m, d, tzinfo=timezone.utc).isoformat()
+                    published_at = datetime(y, m, d, tzinfo=UTC).isoformat()
                 except (ValueError, OverflowError):
                     pass
 

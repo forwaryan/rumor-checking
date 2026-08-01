@@ -15,7 +15,6 @@ import logging
 import subprocess
 import time
 from shutil import which
-from typing import List, Optional
 
 from backend.app.core.config import Settings, get_settings
 from backend.app.services.progress import emit_api_call, get_retrieval_stage_key
@@ -29,9 +28,9 @@ _XHS_NOTE_URL = "https://www.xiaohongshu.com/explore/{note_id}"
 class XhsSearchProvider:
     name = "xhs"
 
-    def __init__(self, settings: Optional[Settings] = None) -> None:
+    def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
-        self._xhs_path: Optional[str] = which("xhs")
+        self._xhs_path: str | None = which("xhs")
 
     @property
     def enabled(self) -> bool:
@@ -40,7 +39,7 @@ class XhsSearchProvider:
             and self._xhs_path is not None
         )
 
-    def search(self, query_text: str, *, max_results: int = 5) -> List[SearchResult]:
+    def search(self, query_text: str, *, max_results: int = 5) -> list[SearchResult]:
         if not self.enabled:
             return []
 
@@ -122,8 +121,8 @@ class XhsSearchProvider:
             )
             return []
 
-    def _parse_items(self, items: list, *, query_text: str, max_results: int) -> List[SearchResult]:
-        results: List[SearchResult] = []
+    def _parse_items(self, items: list, *, query_text: str, max_results: int) -> list[SearchResult]:
+        results: list[SearchResult] = []
         for item in items[:max_results]:
             card = item.get("note_card", {})
             note_id = item.get("id", "")

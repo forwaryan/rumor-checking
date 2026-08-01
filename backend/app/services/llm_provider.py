@@ -1,9 +1,8 @@
 ﻿from __future__ import annotations
 
-import json
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import httpx
 
@@ -94,9 +93,9 @@ JSON 结构如下：
 
 
 class LlmStructuredProvider:
-    def __init__(self, settings: Optional[Settings] = None) -> None:
+    def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
-        self.model_override: Optional[str] = None
+        self.model_override: str | None = None
 
     def _model(self) -> str:
         return self.model_override or self.settings.llm_model
@@ -105,7 +104,7 @@ class LlmStructuredProvider:
     def enabled(self) -> bool:
         return self.settings.analysis_provider == "kimi" and bool(self.settings.llm_api_key)
 
-    def analyze(self, event: NormalizedEvent) -> Optional[ProviderAnalysis]:
+    def analyze(self, event: NormalizedEvent) -> ProviderAnalysis | None:
         if not self.enabled:
             raise RuntimeError("LLM structured analysis is not configured.")
         if event.input_type == "question_only" and is_broad_trend_question(event.raw_input):
@@ -199,7 +198,7 @@ class LlmStructuredProvider:
         if isinstance(content, str):
             return content.strip()
         if isinstance(content, list):
-            parts: List[str] = []
+            parts: list[str] = []
             for item in content:
                 if isinstance(item, dict):
                     text = item.get("text")
@@ -208,7 +207,7 @@ class LlmStructuredProvider:
             return "\n".join(parts)
         raise ValueError("Unsupported LLM content format")
 
-    def _parse_content(self, content: str) -> Optional[ProviderAnalysis]:
+    def _parse_content(self, content: str) -> ProviderAnalysis | None:
         payload = self._extract_json_payload(content)
         if payload is None:
             return None
@@ -230,14 +229,14 @@ class LlmStructuredProvider:
             return None
         return ProviderAnalysis(event=provider_event, claims=claims)
 
-    def _extract_json_payload(self, content: str) -> Optional[Dict[str, Any]]:
+    def _extract_json_payload(self, content: str) -> dict[str, Any] | None:
         return loads_lenient_json(content)
 
-    def _extract_claims(self, value: Any) -> List[ClaimItem]:
+    def _extract_claims(self, value: Any) -> list[ClaimItem]:
         if not isinstance(value, list):
             return []
 
-        claims: List[ClaimItem] = []
+        claims: list[ClaimItem] = []
         seen = set()
         for item in value:
             claim_text = self._extract_claim_text(item)
@@ -260,7 +259,7 @@ class LlmStructuredProvider:
                 break
         return claims
 
-    def _extract_claim_text(self, item: Any) -> Optional[str]:
+    def _extract_claim_text(self, item: Any) -> str | None:
         if isinstance(item, str):
             return self._clean_optional_string(item)
         if not isinstance(item, dict):
@@ -297,7 +296,7 @@ class LlmStructuredProvider:
             return "unverifiable"
         return "fact"
 
-    def _normalize_claim_text(self, value: str) -> Optional[str]:
+    def _normalize_claim_text(self, value: str) -> str | None:
         cleaned = self._clean_optional_string(value)
         if not cleaned:
             return None
@@ -319,7 +318,7 @@ class LlmStructuredProvider:
             return True
         return any(pattern.match(compact) for pattern in GENERIC_CLAIM_PATTERNS)
 
-    def _normalize_event_title(self, value: Any) -> Optional[str]:
+    def _normalize_event_title(self, value: Any) -> str | None:
         cleaned = self._clean_optional_string(value)
         if not cleaned:
             return None
@@ -329,7 +328,7 @@ class LlmStructuredProvider:
             return None
         return cleaned[:40]
 
-    def _normalize_event_summary(self, value: Any) -> Optional[str]:
+    def _normalize_event_summary(self, value: Any) -> str | None:
         cleaned = self._clean_optional_string(value)
         if not cleaned:
             return None
@@ -339,13 +338,13 @@ class LlmStructuredProvider:
             return cleaned[:157] + "..."
         return cleaned
 
-    def _normalize_source_name(self, value: Any) -> Optional[str]:
+    def _normalize_source_name(self, value: Any) -> str | None:
         cleaned = self._clean_optional_string(value)
         if not cleaned or cleaned in GENERIC_SOURCE_NAMES:
             return None
         return cleaned
 
-    def _derive_title_from_text(self, text: str) -> Optional[str]:
+    def _derive_title_from_text(self, text: str) -> str | None:
         sentence = re.split(r"[。！？?!]", text, maxsplit=1)[0].strip("，,：:；; ")
         if not sentence:
             return None
@@ -362,18 +361,18 @@ class LlmStructuredProvider:
     def _has_specific_signal(self, text: str) -> bool:
         return bool(ENTITY_PATTERN.search(text) or EVENT_ACTION_PATTERN.search(text) or re.search(r"\d", text))
 
-    def _clean_optional_string(self, value: Any) -> Optional[str]:
+    def _clean_optional_string(self, value: Any) -> str | None:
         if not isinstance(value, str):
             return None
         compact = re.sub(r"\s+", " ", value).strip(" \n\t\r\"'")
         return compact or None
 
-    def _clean_string_list(self, value: Any) -> List[str]:
+    def _clean_string_list(self, value: Any) -> list[str]:
         if isinstance(value, str):
             value = re.split(r"[,，、/]+", value)
         if not isinstance(value, list):
             return []
-        ordered: List[str] = []
+        ordered: list[str] = []
         seen = set()
         for item in value:
             cleaned = self._clean_optional_string(item)
@@ -385,7 +384,7 @@ class LlmStructuredProvider:
                 break
         return ordered
 
-    def _clean_optional_datetime(self, value: Any) -> Optional[str]:
+    def _clean_optional_datetime(self, value: Any) -> str | None:
         cleaned = self._clean_optional_string(value)
         if not cleaned:
             return None

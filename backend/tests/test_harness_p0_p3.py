@@ -9,13 +9,14 @@ import pytest
 
 from backend.app.agent.planner import RulePlanner, _budget_exhausted, legal_actions
 from backend.app.agent.runner import (
-    AgentRunner,
     _CRITICAL_ACTIONS,
     _RETRY_BACKOFF_BASE,
     _RETRY_POLICY,
+    AgentRunner,
 )
 from backend.app.agent.state import AgentState, StepOutcome, TokenUsage
 from backend.app.agent_tools.base import (
+    _TOOL_REGISTRY,
     HookContext,
     HookRegistry,
     ToolContext,
@@ -23,7 +24,6 @@ from backend.app.agent_tools.base import (
     get_all_tool_specs,
     get_tool_spec,
     tool,
-    _TOOL_REGISTRY,
 )
 from backend.app.core.config import get_settings
 from backend.app.models.schemas import AnalyzeRequest

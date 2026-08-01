@@ -8,8 +8,9 @@ from backend.app.services.agent_reasoner import LlmAgentReasoner
 from backend.app.services.claim_extractor import ClaimExtractor
 from backend.app.services.content_check_builder import ContentCheckBuilder
 from backend.app.services.input_normalizer import InputNormalizer
-from backend.app.services.per_claim_retriever import enrich_retrieval_for_claims
+from backend.app.services.model_health import diff_snapshot, get_model_health_registry
 from backend.app.services.page_fetcher import set_page_fetch_cache
+from backend.app.services.per_claim_retriever import enrich_retrieval_for_claims
 from backend.app.services.pipeline_trace_builder import PipelineTraceBuilder
 from backend.app.services.progress import emit_log, emit_stage
 from backend.app.services.provider_enricher import ProviderEnricher
@@ -19,7 +20,6 @@ from backend.app.services.retrieval_service import RetrievalService
 from backend.app.services.timeline_builder import TimelineBuilder
 from backend.app.services.url_fetch_cache import UrlFetchCache
 from backend.app.services.verdict_engine import VerdictEngine
-from backend.app.services.model_health import diff_snapshot, get_model_health_registry
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +133,7 @@ class AnalyzePipeline:
             self._verdict_cache_built = True
         return self._verdict_cache
 
-    def _report_from_cache(self, cached) -> "Report | None":
+    def _report_from_cache(self, cached) -> Report | None:
         raw = cached.metadata.get("report_json")
         if not raw:
             return None
@@ -151,8 +151,9 @@ class AnalyzePipeline:
             if report.mode == "safe_mode":
                 return
             verdict = report.overall_credibility_label or report.mode
-            from backend.app.agent.verdict_cache import CachedVerdict
             import json as _json
+
+            from backend.app.agent.verdict_cache import CachedVerdict
             cache.put(CachedVerdict(
                 fingerprint=fp,
                 raw_input=request.raw_input,

@@ -2,8 +2,8 @@
 
 import re
 from collections import defaultdict
+from collections.abc import Sequence
 from itertools import combinations
-from typing import Optional, Sequence
 
 from backend.app.services.retrieval_models import SearchResult
 
@@ -101,7 +101,7 @@ def canonical_sort_key(item: SearchResult, group_items: list[SearchResult]) -> t
     )
 
 
-def classify_relation(left: SearchResult, right: SearchResult) -> Optional[str]:
+def classify_relation(left: SearchResult, right: SearchResult) -> str | None:
     if left.result_id == right.result_id:
         return None
     if left.duplicate_of == right.result_id or right.duplicate_of == left.result_id:

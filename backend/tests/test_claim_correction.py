@@ -109,8 +109,10 @@ def test_bare_scale_units_do_not_pollute_grounding_pool():
     # Regression: a bare "万" in "万元营收" must not inject 10000 into the pool, or a
     # hallucinated "10000人" would ground against unrelated revenue wording.
     from backend.app.services.claim_correction import (
-        _extract_numbers_from_text as f,
         _actual_is_grounded as g,
+    )
+    from backend.app.services.claim_correction import (
+        _extract_numbers_from_text as f,
     )
     assert f("公司万元营收增长") == set() or "10000" not in f("公司万元营收增长")
     assert f("万达广场十字路口") == set() or not (f("万达广场十字路口") & {"10000", "10"})

@@ -5,10 +5,24 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
+from backend.app.agent.context_window import (
+    build_evidence_budget,
+    compact_to_budget,
+    estimate_tokens,
+    truncate_to_budget,
+)
+from backend.app.agent.structured_output import (
+    ActionSequenceSchema,
+    CriticResponseSchema,
+    InvestigationPlanSchema,
+    NextActionSchema,
+    RefineResponseSchema,
+    schema_validator,
+)
 from backend.app.core.config import Settings, get_settings
 from backend.app.models.schemas import (
     AnalyzeRequest,
@@ -20,30 +34,23 @@ from backend.app.models.schemas import (
     PossibilityItem,
     TimelineNode,
 )
-from backend.app.services.claim_extractor import ClaimExtraction
 from backend.app.services.claim_correction import annotate_claim_corrections
-from backend.app.services.contract_utils import default_source_name, default_source_url, ensure_datetime_string, ensure_datetime_string_or_empty, loads_lenient_json
+from backend.app.services.claim_extractor import ClaimExtraction
+from backend.app.services.contract_utils import (
+    default_source_name,
+    default_source_url,
+    ensure_datetime_string,
+    ensure_datetime_string_or_empty,
+    loads_lenient_json,
+)
 from backend.app.services.model_health import get_model_health_registry
 from backend.app.services.progress import emit_api_call, emit_log
 from backend.app.services.question_intent import is_broad_trend_question
 from backend.app.services.question_resolver import QuestionResolution
+from backend.app.services.report_builder import TIMELINE_COMPLETENESS_WEIGHTS
 from backend.app.services.retrieval_models import RetrievalBundle, SearchResult
 from backend.app.services.timeline_builder import TimelineBuild
 from backend.app.services.verdict_engine import VerdictEvaluation
-from backend.app.agent.structured_output import (
-    schema_validator,
-    InvestigationPlanSchema,
-    NextActionSchema,
-    ActionSequenceSchema,
-    CriticResponseSchema,
-    RefineResponseSchema,
-)
-from backend.app.agent.context_window import (
-    estimate_tokens,
-    build_evidence_budget,
-    compact_to_budget,
-    truncate_to_budget,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -373,7 +380,7 @@ class AgentSynthesis:
 @dataclass(frozen=True)
 class InvestigationPlan:
     should_continue: bool
-    follow_up_query: Optional[str]
+    follow_up_query: str | None
     reason: str
 
 
@@ -406,20 +413,20 @@ _KNOWN_ACTION_NAMES = frozenset(
 
 
 class LlmAgentReasoner:
-    def __init__(self, settings: Optional[Settings] = None) -> None:
+    def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
         # Optional per-request model override (validated against the whitelist by
         # the caller). None means use the configured default.
-        self.model_override: Optional[str] = None
+        self.model_override: str | None = None
         # Token usage callback: set by the runner to accumulate usage stats.
         # Called with (prompt_tokens, completion_tokens, total_tokens) after each
         # streamed completion. None means no tracking (standalone/test usage).
-        self._on_token_usage: Optional[Any] = None
+        self._on_token_usage: Any | None = None
         # Lazily-built per-model token-bucket limiter; None when rate limiting is
         # disabled. Guards the gateway from high-concurrency bursts (a slow
         # reasoning model already holds a connection for minutes — piling more on
         # is what trips the 300s gateway cutoff).
-        self._rate_limiter: Optional[Any] = None
+        self._rate_limiter: Any | None = None
         self._rate_limiter_built = False
 
     @property
@@ -431,7 +438,7 @@ class LlmAgentReasoner:
         *,
         event: NormalizedEvent,
         retrieval_bundle: RetrievalBundle | None,
-    ) -> Optional[QuestionResolution]:
+    ) -> QuestionResolution | None:
         if not self.enabled:
             return None
         if event.input_type != "question_only" or retrieval_bundle is None or not retrieval_bundle.canonical_results:
@@ -487,8 +494,8 @@ class LlmAgentReasoner:
         request: AnalyzeRequest,
         event: NormalizedEvent,
         retrieval_bundle: RetrievalBundle | None,
-        fetched_bodies: Optional[dict[str, str]] = None,
-    ) -> Optional[AgentSynthesis]:
+        fetched_bodies: dict[str, str] | None = None,
+    ) -> AgentSynthesis | None:
         if not self.enabled:
             return None
         if retrieval_bundle is None or not retrieval_bundle.canonical_results:
@@ -618,7 +625,7 @@ class LlmAgentReasoner:
         event: NormalizedEvent,
         retrieval_bundle: RetrievalBundle | None,
         round_index: int,
-    ) -> Optional[InvestigationPlan]:
+    ) -> InvestigationPlan | None:
         if not self.enabled or retrieval_bundle is None:
             return None
 
@@ -658,7 +665,7 @@ class LlmAgentReasoner:
         *,
         evidence_snapshot: dict[str, Any],
         allowed_actions: list[str],
-    ) -> Optional[NextActionPlan]:
+    ) -> NextActionPlan | None:
         if not self.enabled or not allowed_actions:
             return None
 
@@ -702,7 +709,7 @@ class LlmAgentReasoner:
         *,
         evidence_snapshot: dict[str, Any],
         allowed_actions: list[str],
-    ) -> Optional[ActionSequencePlan]:
+    ) -> ActionSequencePlan | None:
         """Propose an ordered plan of intended actions at a branch point.
 
         Returns None when disabled/unparseable or when the proposed head is not a
@@ -760,7 +767,7 @@ class LlmAgentReasoner:
         reason = self._clean_optional_string(payload.get("reason")) or "planner 未给出理由。"
         return ActionSequencePlan(actions=actions, reason=reason)
 
-    def extract_query_terms(self, *, event: NormalizedEvent) -> Optional[QueryTerms]:
+    def extract_query_terms(self, *, event: NormalizedEvent) -> QueryTerms | None:
         """Turn a colloquial claim into entity-focused search terms.
 
         Returns None when disabled or unparseable, so callers fall back to the
@@ -823,9 +830,9 @@ class LlmAgentReasoner:
         title: str,
         system_prompt: str,
         user_prompt: str,
-        is_valid: Optional[Any] = None,
+        is_valid: Any | None = None,
         timeout_multiplier: float = 1.0,
-        model: Optional[str] = None,
+        model: str | None = None,
     ) -> str:
         primary = model or self._reasoning_model()
         # An empty completion is always retryable — the caller can't parse it either
@@ -855,7 +862,7 @@ class LlmAgentReasoner:
             return ""
         attempts = self.settings.llm_reasoning_retries + 1
         content = ""
-        prev_model: Optional[str] = None
+        prev_model: str | None = None
         for attempt in range(1, attempts + 1):
             current_model = candidates[(attempt - 1) % len(candidates)]
             if prev_model is not None and current_model != prev_model:
@@ -1016,7 +1023,7 @@ class LlmAgentReasoner:
         collected = 0
         reasoning_chars = 0
         truncated = False
-        usage_data: Optional[dict] = None
+        usage_data: dict | None = None
         try:
             with httpx.stream(
                 "POST",
@@ -1095,8 +1102,11 @@ class LlmAgentReasoner:
                     usage_data.get("completion_tokens", 0),
                     usage_data.get("total_tokens", 0),
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug(
+                    "token_usage_callback_failed model=%s error=%s",
+                    model, exc, exc_info=True,
+                )
         # Prompt-cache visibility: OpenAI-compatible gateways report reused input
         # tokens under prompt_tokens_details.cached_tokens. Log it only when the
         # feature is on and the gateway actually returned a hit, so we can confirm
@@ -1165,7 +1175,7 @@ class LlmAgentReasoner:
         request: AnalyzeRequest,
         event: NormalizedEvent,
         retrieval_bundle: RetrievalBundle,
-        fetched_bodies: Optional[dict[str, str]] = None,
+        fetched_bodies: dict[str, str] | None = None,
     ) -> str:
         # Estimate available tokens for evidence based on model context
         model = self._synthesis_model()
@@ -1528,7 +1538,7 @@ class LlmAgentReasoner:
         *,
         downgraded_indices: set[int],
         retrieval_bundle: RetrievalBundle,
-        fetched_bodies: Optional[dict[str, str]],
+        fetched_bodies: dict[str, str] | None,
     ) -> list[ClaimResult]:
         """Re-verdict claims that the critic downgraded, using the full evidence pool.
 
@@ -1618,7 +1628,7 @@ class LlmAgentReasoner:
         event: NormalizedEvent,
         claim_results: list[ClaimResult],
         retrieval_bundle: RetrievalBundle,
-        fetched_bodies: Optional[dict[str, str]],
+        fetched_bodies: dict[str, str] | None,
         result_map: dict[str, SearchResult],
     ) -> dict[str, Any]:
         """Second-phase enrichment: timeline, scenarios, and event refinement.
@@ -1713,7 +1723,7 @@ class LlmAgentReasoner:
         self,
         claim_results: list[ClaimResult],
         retrieval_bundle: RetrievalBundle | None,
-        fetched_bodies: Optional[dict[str, str]],
+        fetched_bodies: dict[str, str] | None,
     ) -> list[ClaimResult]:
         """Attach structured number corrections to synthesized claims.
 
@@ -1837,14 +1847,7 @@ class LlmAgentReasoner:
         return nodes
 
     def _timeline_completeness(self, nodes: list[TimelineNode]) -> int:
-        weights = {
-            "origin": 30,
-            "amplification": 15,
-            "peak": 15,
-            "turn": 20,
-            "clarification": 20,
-        }
-        return min(sum(weights.get(item.node_type, 0) for item in nodes), 100)
+        return min(sum(TIMELINE_COMPLETENESS_WEIGHTS.get(item.node_type, 0) for item in nodes), 100)
 
     def _timeline_confidence(self, retrieval_bundle: RetrievalBundle, nodes: list[TimelineNode]) -> int:
         if not nodes:
@@ -1900,12 +1903,12 @@ class LlmAgentReasoner:
             return "Agent found conflicting grounded evidence across the supplied hits."
         return "Agent could not reach a grounded decisive verdict from the supplied hits."
 
-    def _fallback_title(self, anchor_result: SearchResult | None) -> Optional[str]:
+    def _fallback_title(self, anchor_result: SearchResult | None) -> str | None:
         if anchor_result is None:
             return None
         return anchor_result.title
 
-    def _normalize_follow_up_query(self, value: Any) -> Optional[str]:
+    def _normalize_follow_up_query(self, value: Any) -> str | None:
         cleaned = self._clean_optional_string(value)
         if not cleaned:
             return None
@@ -1932,7 +1935,7 @@ class LlmAgentReasoner:
             return cleaned
         return "low"
 
-    def _clamp_probability(self, value: Any) -> Optional[float]:
+    def _clamp_probability(self, value: Any) -> float | None:
         if isinstance(value, bool):
             return None
         if not isinstance(value, (int, float)):
@@ -1957,7 +1960,7 @@ class LlmAgentReasoner:
 
     def _normalize_probability(
         self, raw_probability: Any, raw_basis: Any, *, has_evidence: bool
-    ) -> tuple[Optional[float], Optional[str]]:
+    ) -> tuple[float | None, str | None]:
         probability = self._clamp_probability(raw_probability)
         if probability is None:
             return None, None
@@ -2016,7 +2019,7 @@ class LlmAgentReasoner:
         ]
 
     @staticmethod
-    def _likelihood_from_probability(probability: Optional[float]) -> str:
+    def _likelihood_from_probability(probability: float | None) -> str:
         if probability is None:
             return "low"
         if probability >= 66:
@@ -2031,7 +2034,7 @@ class LlmAgentReasoner:
             return cleaned
         return "origin"
 
-    def _normalize_claim_text(self, value: Any) -> Optional[str]:
+    def _normalize_claim_text(self, value: Any) -> str | None:
         cleaned = self._clean_optional_string(value)
         if not cleaned:
             return None
@@ -2053,7 +2056,7 @@ class LlmAgentReasoner:
             ordered.append(cleaned)
         return ordered
 
-    def _result_by_id(self, *, retrieval_bundle: RetrievalBundle, result_id: Optional[str]) -> Optional[SearchResult]:
+    def _result_by_id(self, *, retrieval_bundle: RetrievalBundle, result_id: str | None) -> SearchResult | None:
         if not result_id:
             return None
         for item in retrieval_bundle.canonical_results:
@@ -2061,7 +2064,7 @@ class LlmAgentReasoner:
                 return item
         return None
 
-    def _extract_json_payload(self, content: str) -> Optional[dict[str, Any]]:
+    def _extract_json_payload(self, content: str) -> dict[str, Any] | None:
         return loads_lenient_json(content)
 
     def _json_with_key_usable(self, key: str):
@@ -2086,20 +2089,7 @@ class LlmAgentReasoner:
         claims = payload.get("claims")
         return isinstance(claims, list) and len(claims) > 0
 
-    def _coerce_content(self, content: Any) -> str:
-        if isinstance(content, str):
-            return content.strip()
-        if isinstance(content, list):
-            parts: list[str] = []
-            for item in content:
-                if isinstance(item, dict):
-                    text = item.get("text")
-                    if isinstance(text, str) and text.strip():
-                        parts.append(text.strip())
-            return "\n".join(parts)
-        raise ValueError("Unsupported LLM agent content format")
-
-    def _clean_optional_string(self, value: Any) -> Optional[str]:
+    def _clean_optional_string(self, value: Any) -> str | None:
         if not isinstance(value, str):
             return None
         compact = re.sub(r"\s+", " ", value).strip()

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Optional
 
 from backend.app.agent import planner as planner_mod
 from backend.app.agent.checkpoint import (
@@ -13,7 +12,14 @@ from backend.app.agent.checkpoint import (
 from backend.app.agent.planner import Planner, RulePlanner
 from backend.app.agent.state import AgentState, StepOutcome
 from backend.app.agent_tools import tools  # noqa: F401 — import triggers @tool registration
-from backend.app.agent_tools.base import HookContext, HookRegistry, PermissionGate, ToolContext, get_tool_spec, get_tool_fn
+from backend.app.agent_tools.base import (
+    HookContext,
+    HookRegistry,
+    PermissionGate,
+    ToolContext,
+    get_tool_fn,
+    get_tool_spec,
+)
 from backend.app.models.schemas import AnalyzeRequest, Report
 from backend.app.services.progress import emit_log
 
@@ -58,7 +64,7 @@ class AgentRunner:
         self.hooks = hooks or HookRegistry()
         self.checkpoint_store = checkpoint_store
         self.permission_gate = permission_gate or PermissionGate()
-        self._state: Optional[AgentState] = None
+        self._state: AgentState | None = None
 
     def cancel(self) -> None:
         """Set the cooperative cancellation flag. The loop checks it before each step."""

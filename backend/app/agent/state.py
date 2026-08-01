@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set
 
 from backend.app.models.schemas import (
     AnalyzeRequest,
@@ -25,8 +24,8 @@ class StepOutcome:
     action: str
     success: bool
     summary: str = ""
-    error_type: Optional[str] = None
-    error_message: Optional[str] = None
+    error_type: str | None = None
+    error_message: str | None = None
 
 
 @dataclass
@@ -55,7 +54,7 @@ class AgentStep:
 
     action: str
     summary: str = ""
-    details: List[str] = field(default_factory=list)
+    details: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -70,33 +69,33 @@ class AgentState:
 
     request: AnalyzeRequest
 
-    normalized_event: Optional[NormalizedEvent] = None
-    resolved_event: Optional[NormalizedEvent] = None
-    final_event: Optional[NormalizedEvent] = None
+    normalized_event: NormalizedEvent | None = None
+    resolved_event: NormalizedEvent | None = None
+    final_event: NormalizedEvent | None = None
 
-    initial_retrieval_bundle: Optional[RetrievalBundle] = None
-    retrieval_bundle: Optional[RetrievalBundle] = None
-    follow_up_bundle: Optional[RetrievalBundle] = None
+    initial_retrieval_bundle: RetrievalBundle | None = None
+    retrieval_bundle: RetrievalBundle | None = None
+    follow_up_bundle: RetrievalBundle | None = None
     follow_up_used: bool = False
     # Parallel-DAG scratch: each source agent writes its own bundle under a
     # source key ("baidu"/"xiaohongshu"/...); the merge agent recombines them
     # into retrieval_bundle. Empty on the sequential DAG.
-    source_bundles: Dict[str, RetrievalBundle] = field(default_factory=dict)
+    source_bundles: dict[str, RetrievalBundle] = field(default_factory=dict)
     # Primary search query computed once by the normalize agent so parallel
     # source agents reuse it (via force_retrieval_query) instead of each
     # re-running the query planner (which can cost an LLM round-trip).
-    primary_query: Optional[str] = None
+    primary_query: str | None = None
 
-    question_resolution: Optional[QuestionResolution] = None
+    question_resolution: QuestionResolution | None = None
 
-    provider_claims: Optional[List[ClaimItem]] = None
-    claim_extraction: Optional[ClaimExtraction] = None
-    verdict: Optional[VerdictEvaluation] = None
-    timeline: Optional[TimelineBuild] = None
+    provider_claims: list[ClaimItem] | None = None
+    claim_extraction: ClaimExtraction | None = None
+    verdict: VerdictEvaluation | None = None
+    timeline: TimelineBuild | None = None
     # LLM-produced mutually-exclusive whole-message scenarios. When synthesis
     # succeeds these override the rule-based possibilities in the final report;
     # empty when synthesis fell back to the rule chain.
-    possibilities: List[PossibilityItem] = field(default_factory=list)
+    possibilities: list[PossibilityItem] = field(default_factory=list)
 
     agent_synthesized: bool = False
     synthesis_attempted: bool = False
@@ -112,21 +111,21 @@ class AgentState:
 
     # Full-body pages fetched by the fetch_url tool, keyed by the canonical
     # SearchResult.result_id they enrich (grounding-safe: no new evidence ids).
-    fetched_bodies: Dict[str, str] = field(default_factory=dict)
-    fetched_urls: Set[str] = field(default_factory=set)
+    fetched_bodies: dict[str, str] = field(default_factory=dict)
+    fetched_urls: set[str] = field(default_factory=set)
     # Upper bound on fetch_url actions; the runner sets it from settings so the
     # planner stays a pure function of state.
     max_url_fetches: int = 0
 
-    report: Optional[Report] = None
-    steps: List[AgentStep] = field(default_factory=list)
-    done_actions: List[str] = field(default_factory=list)
+    report: Report | None = None
+    steps: list[AgentStep] = field(default_factory=list)
+    done_actions: list[str] = field(default_factory=list)
 
     # --- New harness fields ---
 
     # Outcome of the most recent dispatch step. The planner reads this to make
     # informed decisions after a failure (retry, skip, or re-plan).
-    last_step_outcome: Optional[StepOutcome] = None
+    last_step_outcome: StepOutcome | None = None
 
     # Accumulated token usage from all LLM calls this run.
     token_usage: TokenUsage = field(default_factory=TokenUsage)
@@ -146,13 +145,13 @@ class AgentState:
     debate_rounds: int = 0
     # Indices of claims the critic just downgraded — tells the AnalysisAgent to
     # focus its per-claim search loop only on these (not all insufficient claims).
-    debate_focus_indices: Optional[Set[int]] = None
+    debate_focus_indices: set[int] | None = None
 
     # Cooperative cancellation flag. The runner checks this before each step;
     # external code (e.g. SSE disconnect handler) sets it to abort the loop.
     cancelled: bool = False
 
-    def record(self, action: str, summary: str = "", details: Optional[List[str]] = None) -> None:
+    def record(self, action: str, summary: str = "", details: list[str] | None = None) -> None:
         self.steps.append(AgentStep(action=action, summary=summary, details=details or []))
 
     @property

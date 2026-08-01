@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 from backend.app.models.schemas import MockFetchResult
 
 CACHE_SCHEMA_VERSION = 1
-UTC = timezone.utc
+UTC = UTC
 
 
 class UrlFetchCache:
@@ -19,10 +18,10 @@ class UrlFetchCache:
 
     def build_cache_key(self, *, url: str) -> str:
         normalized_url = url.strip()
-        digest = hashlib.sha256(f"v{CACHE_SCHEMA_VERSION}|{normalized_url}".encode("utf-8")).hexdigest()
+        digest = hashlib.sha256(f"v{CACHE_SCHEMA_VERSION}|{normalized_url}".encode()).hexdigest()
         return digest[:24]
 
-    def read(self, *, url: str) -> Optional[MockFetchResult]:
+    def read(self, *, url: str) -> MockFetchResult | None:
         path = self._path_for(url=url)
         if not path.exists():
             return None
@@ -58,7 +57,7 @@ class UrlFetchCache:
         key = self.build_cache_key(url=url)
         return self.cache_root / f"{key}.json"
 
-    def _parse_datetime(self, value: object) -> Optional[datetime]:
+    def _parse_datetime(self, value: object) -> datetime | None:
         if not isinstance(value, str) or not value:
             return None
         normalized = value.replace("Z", "+00:00")

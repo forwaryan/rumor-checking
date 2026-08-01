@@ -5,11 +5,11 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING
 
 import httpx
 
-from backend.app.services.retrieval_models import SearchResult, TIER_WEIGHTS
+from backend.app.services.retrieval_models import TIER_WEIGHTS, SearchResult
 from backend.app.services.url_validator import is_safe_url
 
 if TYPE_CHECKING:
@@ -24,10 +24,10 @@ _CHINESE_SEG_RE = re.compile(r"[一-鿿]{20,}")
 
 # Module-level cache reference, set by the pipeline at startup so repeated
 # calls within the same request don't re-fetch the same URLs.
-_cache: Optional["UrlFetchCache"] = None
+_cache: UrlFetchCache | None = None
 
 
-def set_page_fetch_cache(cache: Optional["UrlFetchCache"]) -> None:
+def set_page_fetch_cache(cache: UrlFetchCache | None) -> None:
     """Inject a UrlFetchCache instance so page fetches can be deduplicated."""
     global _cache
     _cache = cache
@@ -84,7 +84,7 @@ def _extract_key_paragraphs(text: str, max_chars: int = 800) -> str:
     return "\n\n".join(selected) if selected else text[:max_chars]
 
 
-def _fetch_single_page(url: str) -> Optional[str]:
+def _fetch_single_page(url: str) -> str | None:
     """Fetch one page, using the module-level cache when available."""
     if not is_safe_url(url):
         return None
@@ -121,9 +121,9 @@ def _fetch_single_page(url: str) -> Optional[str]:
 
 
 def fetch_page_snippets(
-    results: List[SearchResult],
+    results: list[SearchResult],
     max_results: int = 5,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """Fetch page body text for the top search results sorted by source tier.
 
     Returns a dict of {result_id: key_paragraphs} with up to 800 chars per page.
@@ -148,7 +148,7 @@ def fetch_page_snippets(
         )
         top = sorted_results[:max_results]
 
-        bodies: Dict[str, str] = {}
+        bodies: dict[str, str] = {}
         for result in top:
             try:
                 text = _fetch_single_page(result.url)

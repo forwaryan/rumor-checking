@@ -7,7 +7,6 @@ verdicts for each claim on the shared state.
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
 
 from backend.app.agent.multi import AgentConfig, AgentRole, AgentStatus, SubAgentResult
 from backend.app.agent.state import AgentState
@@ -24,18 +23,18 @@ class AnalysisAgent:
     role = AgentRole.ANALYSIS
     description = "Extract claims, judge verdicts, and run iterative evidence refinement."
 
-    def __init__(self, config: Optional[AgentConfig] = None, depends_on: Optional[List[AgentRole]] = None) -> None:
+    def __init__(self, config: AgentConfig | None = None, depends_on: list[AgentRole] | None = None) -> None:
         self.config = config or AgentConfig()
         # Which upstream role produces the retrieval bundle: RETRIEVAL on the
         # sequential DAG, RETRIEVAL_MERGE on the parallel DAG.
         self._depends_on = depends_on if depends_on is not None else [AgentRole.RETRIEVAL]
 
     @property
-    def dependencies(self) -> List[AgentRole]:
+    def dependencies(self) -> list[AgentRole]:
         return list(self._depends_on)
 
     def run(self, state: AgentState, ctx: ToolContext) -> SubAgentResult:
-        actions_taken: List[str] = []
+        actions_taken: list[str] = []
         model_used = self._apply_model(ctx)
 
         is_debate_round = state.debate_rounds > 0 and state.debate_focus_indices
@@ -111,7 +110,7 @@ class AnalysisAgent:
             model_used=model_used,
         )
 
-    def _apply_model(self, ctx: ToolContext) -> Optional[str]:
+    def _apply_model(self, ctx: ToolContext) -> str | None:
         if self.config.model:
             reasoner = ctx.agent_reasoner
             if hasattr(reasoner, "model_override"):
@@ -119,7 +118,7 @@ class AnalysisAgent:
             return self.config.model
         return None
 
-    def _try_synthesis(self, state: AgentState, ctx: ToolContext, actions_taken: List[str]) -> bool:
+    def _try_synthesis(self, state: AgentState, ctx: ToolContext, actions_taken: list[str]) -> bool:
         try:
             tool_fn = get_tool_fn("synthesize")
             if tool_fn is None:
@@ -135,7 +134,7 @@ class AnalysisAgent:
             state.done_actions.append("synthesize")
             return False
 
-    def _per_claim_loop(self, state: AgentState, ctx: ToolContext, actions_taken: List[str]) -> None:
+    def _per_claim_loop(self, state: AgentState, ctx: ToolContext, actions_taken: list[str]) -> None:
         for iteration in range(_MAX_PER_CLAIM_ITERATIONS):
             if not self._has_weak_claims(state):
                 break
@@ -172,7 +171,7 @@ class AnalysisAgent:
             for cr in state.verdict.claim_results
         )
 
-    def _debate_rejudge(self, state: AgentState, ctx: ToolContext, actions_taken: List[str]) -> None:
+    def _debate_rejudge(self, state: AgentState, ctx: ToolContext, actions_taken: list[str]) -> None:
         """In a debate round, run per-claim search + re-judge only on focused claims.
 
         This targets just the claims the critic downgraded, potentially finding

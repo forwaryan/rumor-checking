@@ -1,7 +1,6 @@
 ﻿from __future__ import annotations
 
 import re
-from typing import List, Optional, Tuple
 
 from backend.app.models.schemas import ClaimItem, NormalizedEvent
 from backend.app.services.llm_provider import LlmStructuredProvider
@@ -13,16 +12,16 @@ EVENT_ACTION_PATTERN = re.compile(r"通报|回应|辟谣|核查|暂停|恢复|�
 ENTITY_PATTERN = re.compile(r"[\u4e00-\u9fff]{2,}(局|公司|医院|学校|平台|部门|政府|警方|管理局|运营公司)")
 
 
-def _clean_text(value: Optional[str]) -> Optional[str]:
+def _clean_text(value: str | None) -> str | None:
     if not value:
         return None
     compact = re.sub(r"\s+", " ", value).strip()
     return compact or None
 
 
-def _merge_keywords(primary: List[str], fallback: List[str]) -> List[str]:
+def _merge_keywords(primary: list[str], fallback: list[str]) -> list[str]:
     seen = set()
-    ordered: List[str] = []
+    ordered: list[str] = []
     for item in primary + fallback:
         cleaned = item.strip()
         if not cleaned or cleaned in seen:
@@ -44,7 +43,7 @@ def _looks_generic(text: str, *, field: str) -> bool:
     return any(marker in text for marker in GENERIC_SUMMARY_MARKERS) and not _has_specific_signal(text)
 
 
-def _derive_title_from_summary(summary: Optional[str]) -> Optional[str]:
+def _derive_title_from_summary(summary: str | None) -> str | None:
     cleaned = _clean_text(summary)
     if not cleaned:
         return None
@@ -62,7 +61,7 @@ def _derive_title_from_summary(summary: Optional[str]) -> Optional[str]:
     return sentence
 
 
-def _text_score(text: Optional[str], *, field: str) -> int:
+def _text_score(text: str | None, *, field: str) -> int:
     cleaned = _clean_text(text)
     if not cleaned:
         return -100
@@ -91,7 +90,7 @@ def _text_score(text: Optional[str], *, field: str) -> int:
     return score
 
 
-def _choose_better_text(field: str, preferred: Optional[str], fallback: Optional[str]) -> Optional[str]:
+def _choose_better_text(field: str, preferred: str | None, fallback: str | None) -> str | None:
     preferred_clean = _clean_text(preferred)
     fallback_clean = _clean_text(fallback)
     if not preferred_clean:
@@ -103,7 +102,7 @@ def _choose_better_text(field: str, preferred: Optional[str], fallback: Optional
     return preferred_clean if preferred_score >= fallback_score else fallback_clean
 
 
-def _choose_source_name(preferred: Optional[str], fallback: Optional[str]) -> Optional[str]:
+def _choose_source_name(preferred: str | None, fallback: str | None) -> str | None:
     preferred_clean = _clean_text(preferred)
     fallback_clean = _clean_text(fallback)
     if preferred_clean and preferred_clean not in GENERIC_SOURCE_NAMES:
@@ -112,10 +111,10 @@ def _choose_source_name(preferred: Optional[str], fallback: Optional[str]) -> Op
 
 
 class ProviderEnricher:
-    def __init__(self, provider: Optional[LlmStructuredProvider] = None) -> None:
+    def __init__(self, provider: LlmStructuredProvider | None = None) -> None:
         self.provider = provider or LlmStructuredProvider()
 
-    def enrich(self, event: NormalizedEvent) -> Tuple[NormalizedEvent, Optional[List[ClaimItem]]]:
+    def enrich(self, event: NormalizedEvent) -> tuple[NormalizedEvent, list[ClaimItem] | None]:
         if getattr(self.provider, "enabled", True) is False:
             return event, None
 

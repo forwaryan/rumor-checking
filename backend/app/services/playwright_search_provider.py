@@ -3,9 +3,8 @@ from __future__ import annotations
 import logging
 import re
 import time
-from datetime import date, datetime, timedelta, timezone
 from dataclasses import dataclass
-from typing import List, Optional
+from datetime import date, datetime, timedelta, timezone
 from urllib.parse import quote_plus, urlparse
 
 from backend.app.core.config import Settings, get_settings
@@ -64,14 +63,14 @@ class PlaywrightSearchProvider:
     # aliasing + trace field + frontend match) rather than just the class name.
     name = "playwright"
 
-    def __init__(self, settings: Optional[Settings] = None) -> None:
+    def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
 
     @property
     def enabled(self) -> bool:
         return self.settings.retrieval_provider == "playwright"
 
-    def search(self, query_text: str) -> List[SearchResult]:
+    def search(self, query_text: str) -> list[SearchResult]:
         if not self.enabled:
             return []
 
@@ -128,7 +127,7 @@ class PlaywrightSearchProvider:
         matched_singles = sum(1 for unit in single_units if unit in haystack)
         return matched_singles < 3
 
-    def _drop_tokenization_junk(self, query_text: str, results: List[SearchResult]) -> List[SearchResult]:
+    def _drop_tokenization_junk(self, query_text: str, results: list[SearchResult]) -> list[SearchResult]:
         compound_units, single_units = self._query_topical_units(query_text)
         if not compound_units and len(single_units) < 2:
             return results
@@ -151,7 +150,7 @@ class PlaywrightSearchProvider:
             )
         return kept
 
-    def _search_baidu(self, query_text: str) -> List[SearchResult]:
+    def _search_baidu(self, query_text: str) -> list[SearchResult]:
         url = _BAIDU_URL.format(
             query=quote_plus(query_text),
             count=self.settings.retrieval_max_results,
@@ -195,7 +194,7 @@ class PlaywrightSearchProvider:
             )
             return []
 
-    def _search_bing(self, query_text: str) -> List[SearchResult]:
+    def _search_bing(self, query_text: str) -> list[SearchResult]:
         url = _BING_URL.format(
             query=quote_plus(query_text),
             count=self.settings.retrieval_max_results,
@@ -294,10 +293,10 @@ class PlaywrightSearchProvider:
             logger.info("baidu_redirect_resolve_failed url=%s error=%s", url[:80], exc)
         return url
 
-    def _parse_baidu(self, query_text: str, html: str) -> List[SearchResult]:
+    def _parse_baidu(self, query_text: str, html: str) -> list[SearchResult]:
         import html as _html
 
-        results: List[SearchResult] = []
+        results: list[SearchResult] = []
         items = _extract_baidu_items(html)
         for index, item in enumerate(items, start=1):
             if not item.get("title") or not item.get("url"):
@@ -329,8 +328,8 @@ class PlaywrightSearchProvider:
         logger.info("playwright_baidu_results query=%s count=%s", query_text, len(results))
         return results
 
-    def _parse_bing(self, query_text: str, html: str) -> List[SearchResult]:
-        results: List[SearchResult] = []
+    def _parse_bing(self, query_text: str, html: str) -> list[SearchResult]:
+        results: list[SearchResult] = []
         items = _extract_bing_items(html)
         for index, item in enumerate(items, start=1):
             if not item.get("title") or not item.get("url"):
@@ -374,7 +373,7 @@ def _clean_text(text: str) -> str:
 _SHANGHAI_TZ = timezone(timedelta(hours=8))
 
 
-def _parse_baidu_date(raw: str, *, now: Optional[datetime] = None) -> Optional[str]:
+def _parse_baidu_date(raw: str, *, now: datetime | None = None) -> str | None:
     """Turn Baidu's SERP date markers into an ISO date string (YYYY-MM-DD).
 
     Baidu prefixes results with a `prefix-time` span that carries one of:
@@ -424,9 +423,9 @@ def _parse_baidu_date(raw: str, *, now: Optional[datetime] = None) -> Optional[s
     return None
 
 
-def _extract_baidu_items(html: str) -> List[dict]:
+def _extract_baidu_items(html: str) -> list[dict]:
     """Extract search results from Baidu SERP HTML using regex patterns."""
-    items: List[dict] = []
+    items: list[dict] = []
     content_left = re.search(r'id="content_left"(.*?)id="content_right"', html, re.DOTALL)
     if not content_left:
         content_left = re.search(r'id="content_left"(.*)', html, re.DOTALL)
@@ -466,7 +465,7 @@ def _extract_baidu_items(html: str) -> List[dict]:
         # ("昨天", "6天前"). If that span is absent, look inside the embedded
         # <!--s-data:...prefixTime":"..."--> JSON blob Baidu sometimes uses
         # in the "generalLines" summary layout.
-        published_at: Optional[str] = None
+        published_at: str | None = None
         time_match = re.search(r'class="[^"]*prefix-time[^"]*"[^>]*>(.*?)</span>', segment, re.DOTALL)
         if time_match:
             published_at = _parse_baidu_date(_clean_text(time_match.group(1)))
@@ -482,9 +481,9 @@ def _extract_baidu_items(html: str) -> List[dict]:
     return items
 
 
-def _extract_bing_items(html: str) -> List[dict]:
+def _extract_bing_items(html: str) -> list[dict]:
     """Extract search results from Bing SERP HTML using regex patterns."""
-    items: List[dict] = []
+    items: list[dict] = []
     results_section = re.search(r'id="b_results"(.*?)(?:id="b_context"|$)', html, re.DOTALL)
     if not results_section:
         return items

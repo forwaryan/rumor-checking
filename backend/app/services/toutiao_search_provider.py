@@ -13,7 +13,6 @@ import json
 import logging
 import re
 import time
-from typing import List, Optional
 from urllib.parse import quote_plus
 
 from backend.app.core.config import Settings, get_settings
@@ -29,14 +28,14 @@ _SCRIPT_RE = re.compile(r"<script[^>]*>(\{.*?\})</script>", re.DOTALL)
 class ToutiaoSearchProvider:
     name = "toutiao"
 
-    def __init__(self, settings: Optional[Settings] = None) -> None:
+    def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
 
     @property
     def enabled(self) -> bool:
         return getattr(self.settings, "toutiao_search_enabled", True)
 
-    def search(self, query_text: str, *, max_results: int = 8) -> List[SearchResult]:
+    def search(self, query_text: str, *, max_results: int = 8) -> list[SearchResult]:
         if not self.enabled:
             return []
 
@@ -106,9 +105,9 @@ class ToutiaoSearchProvider:
             )
             return []
 
-    def _parse_results(self, query_text: str, html: str, *, max_results: int) -> List[SearchResult]:
+    def _parse_results(self, query_text: str, html: str, *, max_results: int) -> list[SearchResult]:
         """Extract articles from SSR JSON blobs embedded in <script> tags."""
-        results: List[SearchResult] = []
+        results: list[SearchResult] = []
 
         for match in _SCRIPT_RE.finditer(html):
             if len(results) >= max_results:

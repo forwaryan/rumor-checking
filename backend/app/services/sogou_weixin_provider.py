@@ -15,8 +15,7 @@ from __future__ import annotations
 import logging
 import re
 import time
-from datetime import datetime, timezone
-from typing import List, Optional
+from datetime import UTC, datetime
 from urllib.parse import quote_plus
 
 from backend.app.core.config import Settings, get_settings
@@ -42,14 +41,14 @@ _TAG_RE = re.compile(r"<[^>]+>")
 class SogouWeixinSearchProvider:
     name = "sogou_weixin"
 
-    def __init__(self, settings: Optional[Settings] = None) -> None:
+    def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
 
     @property
     def enabled(self) -> bool:
         return getattr(self.settings, "sogou_weixin_search_enabled", True)
 
-    def search(self, query_text: str, *, max_results: int = 8) -> List[SearchResult]:
+    def search(self, query_text: str, *, max_results: int = 8) -> list[SearchResult]:
         if not self.enabled:
             return []
 
@@ -122,8 +121,8 @@ class SogouWeixinSearchProvider:
             )
             return []
 
-    def _parse_results(self, query_text: str, html: str, *, max_results: int) -> List[SearchResult]:
-        results: List[SearchResult] = []
+    def _parse_results(self, query_text: str, html: str, *, max_results: int) -> list[SearchResult]:
+        results: list[SearchResult] = []
 
         for match in _ITEM_RE.finditer(html):
             if len(results) >= max_results:
@@ -158,7 +157,7 @@ class SogouWeixinSearchProvider:
             ts_match = _TIMESTAMP_RE.search(item_html)
             if ts_match:
                 try:
-                    dt = datetime.fromtimestamp(int(ts_match.group(1)), tz=timezone.utc)
+                    dt = datetime.fromtimestamp(int(ts_match.group(1)), tz=UTC)
                     published_at = dt.isoformat()
                 except (ValueError, OSError):
                     pass

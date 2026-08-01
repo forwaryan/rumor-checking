@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
-from typing import List, Optional, Sequence
+from collections.abc import Sequence
+from dataclasses import dataclass
 
 from backend.app.models.schemas import NormalizedEvent
 from backend.app.services.entity_anchor import (
@@ -20,7 +20,6 @@ QUESTION_STOPWORDS = {
     "有一个",
     "是不是",
     "是否",
-    "真的假的",
     "真的假的",
     "真的吗",
     "属实吗",
@@ -94,8 +93,8 @@ _CLARIFY_MAX_CANDIDATES = 3
 @dataclass(frozen=True)
 class QuestionResolution:
     event: NormalizedEvent
-    follow_up_query: Optional[str]
-    selected_result: Optional[SearchResult]
+    follow_up_query: str | None
+    selected_result: SearchResult | None
     # When the question maps to several distinct, similarly-scored events, the
     # resolver still anchors to the best guess (so a report is always produced)
     # but flags the ambiguity here and lists the competing events so the caller
@@ -103,7 +102,7 @@ class QuestionResolution:
     needs_clarification: bool = False
     candidates: tuple[SearchResult, ...] = ()
 
-    def clarification_note(self) -> Optional[str]:
+    def clarification_note(self) -> str | None:
         """A user-facing line naming the competing events, or None when there is
         no ambiguity. Rendered into the report's risks so the reader can tell us
         which event they meant instead of trusting a silent guess."""
@@ -140,7 +139,7 @@ def _cjk_bigrams(text: str) -> set[str]:
     return bigrams
 
 
-def _normalize_text(value: Optional[str]) -> str:
+def _normalize_text(value: str | None) -> str:
     if not value:
         return ""
     normalized = value.strip().lower()
@@ -166,8 +165,8 @@ def _normalize_text(value: Optional[str]) -> str:
     return _collapse_whitespace(strip_question_tail(normalized))
 
 
-def _extract_terms(text: str) -> List[str]:
-    ordered: List[str] = []
+def _extract_terms(text: str) -> list[str]:
+    ordered: list[str] = []
     seen = set()
 
     def push(term: str) -> None:
@@ -194,8 +193,8 @@ def _extract_terms(text: str) -> List[str]:
     return ordered
 
 
-def _extract_time_tokens(text: str) -> List[str]:
-    ordered: List[str] = []
+def _extract_time_tokens(text: str) -> list[str]:
+    ordered: list[str] = []
     seen = set()
     for match in TIME_TOKEN_PATTERN.finditer(text):
         token = _collapse_whitespace(match.group(0))
@@ -205,8 +204,8 @@ def _extract_time_tokens(text: str) -> List[str]:
     return ordered
 
 
-def _extract_query_focus_terms(text: str) -> List[str]:
-    ordered: List[str] = []
+def _extract_query_focus_terms(text: str) -> list[str]:
+    ordered: list[str] = []
     seen = set()
 
     def push(term: str) -> None:
@@ -273,8 +272,8 @@ def _claim_is_generic(claim: str) -> bool:
     return len(unique_terms) < 2 or any(marker in claim for marker in GENERIC_CLAIM_MARKERS)
 
 
-def _merge_keywords(primary: Sequence[str], fallback: Sequence[str]) -> List[str]:
-    ordered: List[str] = []
+def _merge_keywords(primary: Sequence[str], fallback: Sequence[str]) -> list[str]:
+    ordered: list[str] = []
     seen = set()
     for item in list(primary) + list(fallback):
         cleaned = _collapse_whitespace(item)
@@ -347,13 +346,13 @@ class QuestionResolver:
         self,
         question: str,
         candidates: Sequence[SearchResult],
-    ) -> List[tuple[int, int, str, int, SearchResult]]:
+    ) -> list[tuple[int, int, str, int, SearchResult]]:
         """Score every candidate against the question and return them sorted
         best-first. Both _select_result and ambiguity detection consume this so
         the two never drift out of sync."""
         question_terms = _extract_terms(question)
         subject_anchors = extract_subject_anchors(question)
-        scored: List[tuple[int, int, str, int, SearchResult]] = []
+        scored: list[tuple[int, int, str, int, SearchResult]] = []
         for item in candidates:
             if subject_anchors and not candidate_matches_subject_anchors(
                 subject_anchors,
@@ -387,7 +386,7 @@ class QuestionResolver:
         self,
         question: str,
         candidates: Sequence[SearchResult],
-    ) -> Optional[SearchResult]:
+    ) -> SearchResult | None:
         scored = self._score_candidates(question, candidates)
         if not scored:
             return None
@@ -422,7 +421,7 @@ class QuestionResolver:
         if top_score <= 0:
             return False, ()
 
-        distinct: List[SearchResult] = [selected]
+        distinct: list[SearchResult] = [selected]
         for cand_score, _, _, _, item in scored[1:]:
             if cand_score < _CLARIFY_MIN_SCORE:
                 break
@@ -486,10 +485,10 @@ class QuestionResolver:
         )
 
     def _build_follow_up_query(self, summary: str, selected_result: SearchResult) -> str:
-        tokens: List[str] = []
+        tokens: list[str] = []
         seen = set()
 
-        def push(value: Optional[str]) -> None:
+        def push(value: str | None) -> None:
             if not value:
                 return
             cleaned = _collapse_whitespace(value)

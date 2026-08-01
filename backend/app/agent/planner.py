@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from typing import List, Protocol
+from typing import Protocol
 
 from backend.app.agent.state import AgentState
-
 
 # Action names the runner knows how to dispatch (see runner._SIMPLE_TOOLS).
 NORMALIZE = "normalize"
@@ -28,7 +27,7 @@ DONE = "done"
 _LLM_DECIDABLE = {INVESTIGATE, FETCH_URL, SYNTHESIZE, PER_CLAIM_SEARCH, TIMELINE}
 
 
-def legal_actions(state: AgentState) -> List[str]:
+def legal_actions(state: AgentState) -> list[str]:
     """Actions that are valid to run next given current progress.
 
     This is the single source of truth for sequencing. RulePlanner takes the

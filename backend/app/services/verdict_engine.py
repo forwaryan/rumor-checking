@@ -2,7 +2,6 @@
 
 import re
 from dataclasses import dataclass
-from typing import List, Tuple
 
 from backend.app.models.schemas import (
     AnalyzeRequest,
@@ -12,15 +11,15 @@ from backend.app.models.schemas import (
     EvidenceSourceType,
     NormalizedEvent,
 )
+from backend.app.services.claim_correction import annotate_claim_corrections
 from backend.app.services.entity_anchor import (
     candidate_matches_subject_anchors,
     extract_subject_anchors,
     text_contains_subject_mismatch,
 )
-from backend.app.services.question_intent import detect_trend_topic, is_broad_trend_claim
-from backend.app.services.claim_correction import annotate_claim_corrections
 from backend.app.services.llm_verdict import llm_judge_claims
 from backend.app.services.page_fetcher import fetch_page_snippets
+from backend.app.services.question_intent import detect_trend_topic, is_broad_trend_claim
 from backend.app.services.retrieval_models import RetrievalBundle
 
 CLAIM_NEGATION_MARKERS = (
@@ -102,7 +101,7 @@ _COARSE_PROBABILITY_TABLE = {
 
 def coarse_truth_probability(
     verdict: str, confidence: object, *, has_evidence: bool = True
-) -> Tuple[float, str]:
+) -> tuple[float, str]:
     """Map a rule verdict+confidence to a coarse P(true) and its basis.
 
     Used only by the fast path, which never invokes an LLM: it turns the existing
@@ -187,8 +186,8 @@ TIER_PRIORITY = {"S": 0, "A": 1, "B": 2, "C": 3}
 
 @dataclass(frozen=True)
 class VerdictEvaluation:
-    claim_results: List[ClaimResult]
-    evidence: List[EvidenceItem]
+    claim_results: list[ClaimResult]
+    evidence: list[EvidenceItem]
     evidence_grade: str
     evidence_source: EvidenceSourceType
 
@@ -199,9 +198,9 @@ class VerdictEngine:
         *,
         request: AnalyzeRequest,
         event: NormalizedEvent,
-        claims: List[ClaimItem],
+        claims: list[ClaimItem],
         retrieval_bundle: RetrievalBundle | None = None,
-    ) -> Tuple[List[ClaimResult], List[EvidenceItem], str]:
+    ) -> tuple[list[ClaimResult], list[EvidenceItem], str]:
         result = self.evaluate_with_source(
             request=request,
             event=event,
@@ -215,7 +214,7 @@ class VerdictEngine:
         *,
         request: AnalyzeRequest,
         event: NormalizedEvent,
-        claims: List[ClaimItem],
+        claims: list[ClaimItem],
         retrieval_bundle: RetrievalBundle | None = None,
         completion_fn=None,
     ) -> VerdictEvaluation:
@@ -230,7 +229,7 @@ class VerdictEngine:
         if retrieval_bundle and retrieval_bundle.canonical_results:
             page_bodies = fetch_page_snippets(retrieval_bundle.canonical_results)
 
-        results: List[ClaimResult] = []
+        results: list[ClaimResult] = []
         for claim in claims:
             if claim.claim_type in {"opinion", "prediction", "unverifiable"}:
                 results.append(
@@ -317,7 +316,7 @@ class VerdictEngine:
         request: AnalyzeRequest,
         event: NormalizedEvent,
         retrieval_bundle: RetrievalBundle | None = None,
-    ) -> Tuple[List[EvidenceItem], str, EvidenceSourceType]:
+    ) -> tuple[list[EvidenceItem], str, EvidenceSourceType]:
         if request.mock_evidence:
             items = list(request.mock_evidence)
             return items, self._grade_evidence_items(items), "request_mock"
@@ -330,7 +329,7 @@ class VerdictEngine:
             return [], "D", "none"
         return [], "D", "none"
 
-    def _grade_evidence_items(self, evidence_items: List[EvidenceItem]) -> str:
+    def _grade_evidence_items(self, evidence_items: list[EvidenceItem]) -> str:
         high_trust_count = sum(1 for item in evidence_items if item.source_tier in {"S", "A"})
         if high_trust_count >= 2:
             return "A"
@@ -351,9 +350,9 @@ class VerdictEngine:
         self,
         *,
         claim_text: str,
-        evidence_pool: List[EvidenceItem],
-        subject_anchors: List[str],
-    ) -> Tuple[str, str, str, List[EvidenceItem]]:
+        evidence_pool: list[EvidenceItem],
+        subject_anchors: list[str],
+    ) -> tuple[str, str, str, list[EvidenceItem]]:
         normalized_claim = self._normalize_claim(claim_text)
         trend_result = self._evaluate_broad_trend_claim(
             claim_text=claim_text,
@@ -382,9 +381,9 @@ class VerdictEngine:
 
         claim_is_negative = self._contains_claim_negation(normalized_claim)
         full_scope_claim = any(marker in claim_text or marker in normalized_claim for marker in FULL_SCOPE_CLAIM_MARKERS)
-        supporting: List[EvidenceItem] = []
-        refuting: List[EvidenceItem] = []
-        relevant: List[EvidenceItem] = []
+        supporting: list[EvidenceItem] = []
+        refuting: list[EvidenceItem] = []
+        relevant: list[EvidenceItem] = []
         for item in evidence_pool:
             item_text = f"{item.title} {item.snippet} {item.source_name}"
             if text_contains_subject_mismatch(
@@ -434,8 +433,8 @@ class VerdictEngine:
         if supporting and refuting:
             supporting_high_trust = [item for item in supporting if item.source_tier in HIGH_TRUST_SOURCE_TIERS]
             refuting_high_trust = [item for item in refuting if item.source_tier in HIGH_TRUST_SOURCE_TIERS]
-            supporting_decisive = self._has_decisive_high_trust_hits(supporting_high_trust)
-            refuting_decisive = self._has_decisive_high_trust_hits(refuting_high_trust)
+            supporting_decisive = self._has_any_high_trust_hit(supporting_high_trust)
+            refuting_decisive = self._has_any_high_trust_hit(refuting_high_trust)
             if supporting_decisive and not refuting_decisive:
                 confidence = self._confidence_from_high_trust_hits(supporting_high_trust)
                 return "supported", confidence, "高可信来源主要支持该说法，反向线索仍停留在低可信传播节点，当前先按支持处理。", (supporting + refuting)[:2]
@@ -446,13 +445,13 @@ class VerdictEngine:
             return "conflicting", confidence, "公开来源中同时出现了支持和否定线索，当前应保持冲突态。", (refuting + supporting)[:2]
         if refuting:
             high_trust_hits = [item for item in refuting if item.source_tier in HIGH_TRUST_SOURCE_TIERS]
-            if self._has_decisive_high_trust_hits(high_trust_hits):
+            if self._has_any_high_trust_hit(high_trust_hits):
                 confidence = self._confidence_from_high_trust_hits(high_trust_hits)
                 return "refuted", confidence, "检索到与该说法高度相关的辟谣或否认来源，当前更倾向于判定为不成立。", refuting[:2]
             return "insufficient", "low", "相关证据存在否定信号，但可信度还不足以强判。", refuting[:2]
         if supporting:
             high_trust_hits = [item for item in supporting if item.source_tier in HIGH_TRUST_SOURCE_TIERS]
-            if self._has_decisive_high_trust_hits(high_trust_hits):
+            if self._has_any_high_trust_hit(high_trust_hits):
                 confidence = self._confidence_from_high_trust_hits(high_trust_hits)
                 return "supported", confidence, "检索到与该说法高度相关的公开来源，当前更倾向于判定为成立。", supporting[:2]
             return "insufficient", "low", "找到了一些相关来源，但可信度还不足以强判。", supporting[:2]
@@ -462,7 +461,7 @@ class VerdictEngine:
             return "insufficient", "low", f"已联网检索，未找到直接提及「{'、'.join(subject_anchors[:2])}」与该说法相关的公开报道。", []
         return "insufficient", "low", "检索结果与该说法的语义重合仍不足，先保持保守。", []
 
-    def _subject_anchors_for_claim(self, *, claim_text: str, event: NormalizedEvent) -> List[str]:
+    def _subject_anchors_for_claim(self, *, claim_text: str, event: NormalizedEvent) -> list[str]:
         if is_broad_trend_claim(claim_text):
             return []
         claim_anchors = self._filter_subject_anchors(extract_subject_anchors(claim_text))
@@ -472,10 +471,10 @@ class VerdictEngine:
             return []
         return self._filter_subject_anchors(extract_subject_anchors(" ".join(filter(None, [event.title, event.summary, event.raw_input]))))
 
-    def _filter_subject_anchors(self, anchors: List[str]) -> List[str]:
+    def _filter_subject_anchors(self, anchors: list[str]) -> list[str]:
         return [anchor for anchor in anchors if not any(marker in anchor for marker in UNRELIABLE_ANCHOR_MARKERS)]
 
-    def _evaluate_source_gap_claim(self, evidence_pool: List[EvidenceItem]) -> Tuple[str, str, str, List[EvidenceItem]] | None:
+    def _evaluate_source_gap_claim(self, evidence_pool: list[EvidenceItem]) -> tuple[str, str, str, list[EvidenceItem]] | None:
         supporting = [item for item in evidence_pool if self._looks_like_source_gap_evidence(item)]
         if not supporting:
             return None
@@ -493,9 +492,9 @@ class VerdictEngine:
         *,
         claim_text: str,
         normalized_claim: str,
-        evidence_pool: List[EvidenceItem],
-        subject_anchors: List[str],
-    ) -> Tuple[str, str, str, List[EvidenceItem]] | None:
+        evidence_pool: list[EvidenceItem],
+        subject_anchors: list[str],
+    ) -> tuple[str, str, str, list[EvidenceItem]] | None:
         if subject_anchors or not is_broad_trend_claim(claim_text):
             return None
 
@@ -503,7 +502,7 @@ class VerdictEngine:
         if topic is None:
             return None
 
-        supporting: List[EvidenceItem] = []
+        supporting: list[EvidenceItem] = []
         for item in evidence_pool:
             haystack = self._normalize_claim(f"{item.title} {item.snippet} {item.source_name}")
             if topic not in haystack or self._contains_evidence_refutation(haystack):
@@ -511,7 +510,7 @@ class VerdictEngine:
             supporting.append(item)
 
         high_trust_hits = [item for item in supporting if item.source_tier in HIGH_TRUST_SOURCE_TIERS]
-        if self._has_decisive_high_trust_hits(high_trust_hits):
+        if self._has_any_high_trust_hit(high_trust_hits):
             confidence = self._confidence_from_high_trust_hits(high_trust_hits)
             return (
                 "supported",
@@ -528,13 +527,13 @@ class VerdictEngine:
         *,
         claim_text: str,
         normalized_claim: str,
-        evidence_pool: List[EvidenceItem],
-        subject_anchors: List[str],
-    ) -> Tuple[str, str, str, List[EvidenceItem]] | None:
+        evidence_pool: list[EvidenceItem],
+        subject_anchors: list[str],
+    ) -> tuple[str, str, str, list[EvidenceItem]] | None:
         if not any(marker in claim_text or marker in normalized_claim for marker in RESOLUTION_CLAIM_MARKERS):
             return None
 
-        unresolved_signals: List[EvidenceItem] = []
+        unresolved_signals: list[EvidenceItem] = []
         for item in evidence_pool:
             if subject_anchors and not candidate_matches_subject_anchors(
                 subject_anchors,
@@ -589,8 +588,8 @@ class VerdictEngine:
             normalized = normalized.replace(old, new)
         return normalized
 
-    def _extract_terms(self, text: str) -> List[str]:
-        ordered: List[str] = []
+    def _extract_terms(self, text: str) -> list[str]:
+        ordered: list[str] = []
         seen = set()
 
         def push(term: str) -> None:
@@ -631,11 +630,11 @@ class VerdictEngine:
         self,
         *,
         segment_text: str,
-        claim_terms: List[str],
+        claim_terms: list[str],
         claim_is_negative: bool,
         full_scope_claim: bool,
-        subject_anchors: List[str] | None = None,
-    ) -> Tuple[bool, bool, bool]:
+        subject_anchors: list[str] | None = None,
+    ) -> tuple[bool, bool, bool]:
         matched_segment = False
         segment_supports = False
         segment_refutes = False
@@ -665,7 +664,7 @@ class VerdictEngine:
         return matched_segment, segment_supports, segment_refutes
 
     @staticmethod
-    def _anchor_cores(anchors: List[str]) -> List[str]:
+    def _anchor_cores(anchors: list[str]) -> list[str]:
         cores = []
         for anchor in anchors:
             core = anchor[:4] if len(anchor) > 4 else anchor
@@ -673,10 +672,10 @@ class VerdictEngine:
                 cores.append(core)
         return cores
 
-    def _overlap_terms(self, claim_terms: List[str], haystack: str) -> List[str]:
+    def _overlap_terms(self, claim_terms: list[str], haystack: str) -> list[str]:
         return [term for term in claim_terms if term in haystack]
 
-    def _has_sufficient_overlap(self, claim_terms: List[str], overlap: List[str]) -> bool:
+    def _has_sufficient_overlap(self, claim_terms: list[str], overlap: list[str]) -> bool:
         if any(len(term) >= 3 or term in STRONG_OVERLAP_TERMS or self._is_strong_numeric_term(term) for term in overlap):
             return True
         return len(overlap) >= 2 or (len(claim_terms) <= 2 and bool(overlap))
@@ -697,33 +696,37 @@ class VerdictEngine:
         lowered = text.lower()
         return any(marker in lowered for marker in SUBJECT_DISCLAIMER_MARKERS)
 
-    def _has_negative_claim_refutation_overlap(self, overlap: List[str]) -> bool:
+    def _has_negative_claim_refutation_overlap(self, overlap: list[str]) -> bool:
         return any(len(term) >= 3 or self._is_strong_numeric_term(term) for term in overlap)
 
-    def _confidence_from_high_trust_hits(self, items: List[EvidenceItem]) -> str:
+    def _confidence_from_high_trust_hits(self, items: list[EvidenceItem]) -> str:
         if len(items) >= 2 or any(item.source_tier == DECISIVE_HIGH_CONFIDENCE_TIER for item in items):
             return "high"
         if items:
             return "medium"
         return "low"
 
-    def _has_decisive_high_trust_hits(self, items: List[EvidenceItem]) -> bool:
+    def _has_any_high_trust_hit(self, items: list[EvidenceItem]) -> bool:
+        """Callers pass an already-tier-filtered list, so any hit here is a
+        tier-S/A source. One such hit is sufficient to move a claim off the
+        insufficient bucket — the finer decisiveness gradation (single vs.
+        multiple, A vs. S) is done in ``_confidence_from_high_trust_hits``."""
         return bool(items)
 
-    def _extract_quantity_tokens(self, text: str) -> List[str]:
+    def _extract_quantity_tokens(self, text: str) -> list[str]:
         return [match.group(0) for match in QUANTITY_TOKEN_PATTERN.finditer(text)]
 
     def _detect_quantitative_conflict(
         self,
         *,
         claim_text: str,
-        evidence_pool: List[EvidenceItem],
-    ) -> Tuple[str, str, str, List[EvidenceItem]] | None:
+        evidence_pool: list[EvidenceItem],
+    ) -> tuple[str, str, str, list[EvidenceItem]] | None:
         claim_quantity_tokens = set(self._extract_quantity_tokens(claim_text))
         if not claim_quantity_tokens:
             return None
 
-        evidence_with_quantities: List[Tuple[EvidenceItem, set[str]]] = []
+        evidence_with_quantities: list[tuple[EvidenceItem, set[str]]] = []
         distinct_quantities = set()
         for item in evidence_pool:
             haystack = self._normalize_claim(f"{item.title} {item.snippet} {item.source_name}")
@@ -788,11 +791,11 @@ class VerdictEngine:
         haystack = self._normalize_claim(f"{item.title} {item.snippet} {item.relevance_reason}")
         return any(marker in haystack for marker in SOURCE_GAP_EVIDENCE_MARKERS)
 
-    def _append_evidence_context(self, *, notes: str, selected: List[EvidenceItem]) -> str:
+    def _append_evidence_context(self, *, notes: str, selected: list[EvidenceItem]) -> str:
         if not selected:
             return notes
         ranked_tiers = sorted({item.source_tier for item in selected}, key=lambda tier: TIER_PRIORITY.get(tier, 99))
-        source_names: List[str] = []
+        source_names: list[str] = []
         for item in selected:
             if item.source_name not in source_names:
                 source_names.append(item.source_name)

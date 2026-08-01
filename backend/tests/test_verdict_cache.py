@@ -12,7 +12,6 @@ from backend.app.agent.verdict_cache import (
     fingerprint,
 )
 
-
 # --- Fingerprinting ---
 
 

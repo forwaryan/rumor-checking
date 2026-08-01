@@ -1,0 +1,38 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+extend-exclude = [
+    ".venv",
+    "node_modules",
+    "backend/backend.err.log",
+    "backend/backend.out.log",
+    ".playwright-mcp",
+]
+
+[tool.ruff.lint]
+# Start conservative: dead code, unused imports, import order, obvious mistakes.
+# Style/formatting handled separately.
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes (unused imports, undefined names, dead vars)
+    "I",    # isort
+    "B",    # bugbear
+    "UP",   # pyupgrade
+    "W",    # pycodestyle warnings
+]
+ignore = [
+    "E501",  # line too long - keep manual
+    "B008",  # function call in default argument - fastapi Depends pattern
+    "UP042", # str/Enum → StrEnum — cross-version pydantic-serialization risk
+    "UP047", # Generic function type params — style-only, mass renames not worth it
+    "UP007", # X | Y for Optional in type hints — pydantic-v1 legacy interop
+]
+
+[tool.ruff.lint.per-file-ignores]
+"backend/tests/**/*.py" = ["B011", "F401", "F811", "UP031"]
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: tests that intentionally sleep or hit real services",
+]
+testpaths = ["backend/tests"]

@@ -20,9 +20,10 @@ Each agent has:
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable, List, Optional, Protocol
+from typing import Protocol
 
 from backend.app.agent.state import AgentState
 from backend.app.agent_tools.base import ToolContext
@@ -62,12 +63,12 @@ class AgentConfig:
     and LangGraph (retry policy, conditional routing).
     """
 
-    model: Optional[str] = None
+    model: str | None = None
     max_retries: int = 1
-    timeout_seconds: Optional[float] = None
+    timeout_seconds: float | None = None
     goal: str = ""
-    tools: List[str] = field(default_factory=list)
-    skip_when: Optional[SkipCondition] = None
+    tools: list[str] = field(default_factory=list)
+    skip_when: SkipCondition | None = None
 
 
 @dataclass
@@ -76,14 +77,14 @@ class SubAgentResult:
 
     role: AgentRole
     status: AgentStatus
-    actions_taken: List[str] = field(default_factory=list)
-    error: Optional[str] = None
-    model_used: Optional[str] = None
+    actions_taken: list[str] = field(default_factory=list)
+    error: str | None = None
+    model_used: str | None = None
     # Wall-clock spent inside _run_agent (incl. retries). Set by the supervisor;
     # feeds the end-of-run observability summary.
     elapsed_ms: int = 0
     # Indices of claims downgraded by critic — used by the debate loop.
-    downgraded_indices: Optional[set] = None
+    downgraded_indices: set | None = None
 
 
 class SubAgent(Protocol):
@@ -98,7 +99,7 @@ class SubAgent(Protocol):
         ...
 
     @property
-    def dependencies(self) -> List[AgentRole]:
+    def dependencies(self) -> list[AgentRole]:
         """Roles that must complete before this agent can run."""
         ...
 

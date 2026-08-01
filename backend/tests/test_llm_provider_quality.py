@@ -1,7 +1,6 @@
 ﻿from __future__ import annotations
 
 import backend.app.services.llm_provider as llm_provider_module
-
 from backend.app.api.v1.endpoints import analyze as analyze_endpoint
 from backend.app.core.config import get_settings
 from backend.app.models.schemas import ClaimItem, NormalizedEvent, ProviderAnalysis, ProviderEventDraft

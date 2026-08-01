@@ -219,7 +219,7 @@ class Settings:
         return self.analysis_provider == "kimi" or self.uses_agent_retrieval
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     project_root = Path(__file__).resolve().parents[3]
     _load_env_defaults(project_root)

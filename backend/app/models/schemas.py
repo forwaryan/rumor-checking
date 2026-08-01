@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Literal, Union
 
 from pydantic import BaseModel, Field, model_validator
-
 
 InternalInputType = Literal["text_news", "url_news", "url_unknown", "question_only"]
 ClaimType = Literal["fact", "opinion", "prediction", "unverifiable"]
@@ -33,15 +32,15 @@ ContributionLabel = Literal["supports", "weakens", "mixed", "neutral"]
 
 class MockFetchResult(BaseModel):
     status: UrlFetchStatus = "ok"
-    title: Optional[str] = None
-    body: Optional[str] = None
-    snippet: Optional[str] = None
-    source_name: Optional[str] = None
-    published_at: Optional[str] = None
-    final_url: Optional[str] = None
-    content_type: Optional[str] = None
-    fallback_reason: Optional[str] = None
-    error_message: Optional[str] = None
+    title: str | None = None
+    body: str | None = None
+    snippet: str | None = None
+    source_name: str | None = None
+    published_at: str | None = None
+    final_url: str | None = None
+    content_type: str | None = None
+    fallback_reason: str | None = None
+    error_message: str | None = None
 
 
 class EvidenceItem(BaseModel):
@@ -65,16 +64,16 @@ class TimelineNode(BaseModel):
 
 
 class NormalizedEvent(BaseModel):
-    title: Optional[str] = None
+    title: str | None = None
     summary: str
-    keywords: List[str] = Field(default_factory=list)
-    source_name: Optional[str] = None
-    source_url: Optional[str] = None
-    published_at: Optional[str] = None
+    keywords: list[str] = Field(default_factory=list)
+    source_name: str | None = None
+    source_url: str | None = None
+    published_at: str | None = None
     input_type: InternalInputType
     mode_hint: str = "partial"
     fallback_used: bool = False
-    fallback_reason: Optional[str] = None
+    fallback_reason: str | None = None
     event_source: EventSourceType = "input_normalized"
     raw_input: str
 
@@ -85,7 +84,7 @@ class Event(BaseModel):
     source_url: str
     source_name: str
     published_at: str
-    keywords: List[str] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
     mode: ReportMode
 
 
@@ -95,16 +94,16 @@ class ClaimItem(BaseModel):
 
 
 class ProviderEventDraft(BaseModel):
-    title: Optional[str] = None
-    summary: Optional[str] = None
-    keywords: List[str] = Field(default_factory=list)
-    source_name: Optional[str] = None
-    published_at: Optional[str] = None
+    title: str | None = None
+    summary: str | None = None
+    keywords: list[str] = Field(default_factory=list)
+    source_name: str | None = None
+    published_at: str | None = None
 
 
 class ProviderAnalysis(BaseModel):
     event: ProviderEventDraft = Field(default_factory=ProviderEventDraft)
-    claims: List[ClaimItem] = Field(default_factory=list)
+    claims: list[ClaimItem] = Field(default_factory=list)
 
 
 class ClaimResult(BaseModel):
@@ -112,11 +111,11 @@ class ClaimResult(BaseModel):
     claim_type: ClaimType
     verdict: VerdictType
     confidence: ConfidenceValue
-    truth_probability: Optional[float] = Field(default=None, ge=0, le=100)
-    probability_basis: Optional[ProbabilityBasis] = None
-    evidence: List[EvidenceItem] = Field(default_factory=list)
+    truth_probability: float | None = Field(default=None, ge=0, le=100)
+    probability_basis: ProbabilityBasis | None = None
+    evidence: list[EvidenceItem] = Field(default_factory=list)
     notes: str
-    correction: Optional[Dict[str, str]] = None
+    correction: dict[str, str] | None = None
 
 
 class ReportProvenance(BaseModel):
@@ -128,21 +127,21 @@ class ReportProvenance(BaseModel):
     claim_source: ClaimSourceType
     evidence_source: EvidenceSourceType
     timeline_source: TimelineSourceType
-    retrieval_provider: Optional[str] = None
-    retrieval_cache_status: Optional[str] = None
+    retrieval_provider: str | None = None
+    retrieval_cache_status: str | None = None
     provider_used: bool = False
     fallback_used: bool = False
-    fallback_reasons: List[str] = Field(default_factory=list)
+    fallback_reasons: list[str] = Field(default_factory=list)
 
 
 class RetrievalDiagnostics(BaseModel):
     query: str = ""
-    provider_name: Optional[str] = None
-    cache_status: Optional[str] = None
-    retrieved_at: Optional[str] = None
+    provider_name: str | None = None
+    cache_status: str | None = None
+    retrieved_at: str | None = None
     raw_result_count: int = 0
     canonical_result_count: int = 0
-    failure_detail: Optional[str] = None
+    failure_detail: str | None = None
 
 
 class InvestigationStep(BaseModel):
@@ -153,16 +152,16 @@ class InvestigationStep(BaseModel):
 class PossibilityItem(BaseModel):
     scenario: str
     likelihood: ConfidenceLevel
-    probability: Optional[float] = Field(default=None, ge=0, le=100)
-    basis: Optional[ProbabilityBasis] = None
+    probability: float | None = Field(default=None, ge=0, le=100)
+    basis: ProbabilityBasis | None = None
     summary: str
 
 
 class Investigation(BaseModel):
     question: str
     reframed_question: str
-    thinking_process: List[InvestigationStep] = Field(default_factory=list)
-    possibilities: List[PossibilityItem] = Field(default_factory=list)
+    thinking_process: list[InvestigationStep] = Field(default_factory=list)
+    possibilities: list[PossibilityItem] = Field(default_factory=list)
     final_conclusion: str
 
 
@@ -171,8 +170,8 @@ class ContentCheckItem(BaseModel):
     claim_type: ClaimType
     verdict: VerdictType
     confidence: ConfidenceValue
-    truth_probability: Optional[float] = Field(default=None, ge=0, le=100)
-    probability_basis: Optional[ProbabilityBasis] = None
+    truth_probability: float | None = Field(default=None, ge=0, le=100)
+    probability_basis: ProbabilityBasis | None = None
     reason: str
 
 
@@ -182,12 +181,12 @@ class AnswerSuggestion(BaseModel):
 
 
 class ContentCheck(BaseModel):
-    likely_true: List[ContentCheckItem] = Field(default_factory=list)
-    likely_false: List[ContentCheckItem] = Field(default_factory=list)
-    controversial: List[ContentCheckItem] = Field(default_factory=list)
-    opinions: List[ContentCheckItem] = Field(default_factory=list)
-    uncertain: List[ContentCheckItem] = Field(default_factory=list)
-    possible_answers: List[AnswerSuggestion] = Field(default_factory=list)
+    likely_true: list[ContentCheckItem] = Field(default_factory=list)
+    likely_false: list[ContentCheckItem] = Field(default_factory=list)
+    controversial: list[ContentCheckItem] = Field(default_factory=list)
+    opinions: list[ContentCheckItem] = Field(default_factory=list)
+    uncertain: list[ContentCheckItem] = Field(default_factory=list)
+    possible_answers: list[AnswerSuggestion] = Field(default_factory=list)
 
 
 class PipelineTraceStep(BaseModel):
@@ -195,11 +194,11 @@ class PipelineTraceStep(BaseModel):
     title: str
     status: PipelineStepStatus = "completed"
     summary: str
-    details: List[str] = Field(default_factory=list)
+    details: list[str] = Field(default_factory=list)
 
 
 class PipelineTrace(BaseModel):
-    steps: List[PipelineTraceStep] = Field(default_factory=list)
+    steps: list[PipelineTraceStep] = Field(default_factory=list)
 
 
 class ScoreWeights(BaseModel):
@@ -216,7 +215,7 @@ class ScoreBreakdown(BaseModel):
     timeline_score: float = Field(..., ge=0, le=100)
     weights: ScoreWeights = Field(default_factory=ScoreWeights)
     summary: str
-    limiting_factors: List[str] = Field(default_factory=list)
+    limiting_factors: list[str] = Field(default_factory=list)
 
 
 class ClaimContribution(BaseModel):
@@ -231,31 +230,31 @@ class ClaimContribution(BaseModel):
 class Report(BaseModel):
     mode: ReportMode
     event: Event
-    timeline: List[TimelineNode] = Field(default_factory=list)
-    claim_results: List[ClaimResult] = Field(default_factory=list)
+    timeline: list[TimelineNode] = Field(default_factory=list)
+    claim_results: list[ClaimResult] = Field(default_factory=list)
     final_summary: str
-    risks: List[str] = Field(default_factory=list)
-    sources: List[EvidenceItem] = Field(default_factory=list)
-    retrieval_hits: List[EvidenceItem] = Field(default_factory=list)
-    retrieval_diagnostics: Optional[RetrievalDiagnostics] = None
-    overall_credibility_score: Optional[float] = Field(default=None, ge=0, le=100)
-    overall_credibility_label: Optional[CredibilityLabel] = None
-    score_breakdown: Optional[ScoreBreakdown] = None
-    claim_contributions: Optional[List[ClaimContribution]] = None
-    timeline_confidence: Optional[float] = Field(default=None, ge=0, le=100)
-    independent_source_count: Optional[int] = Field(default=None, ge=0)
-    investigation: Optional[Investigation] = None
-    content_check: Optional[ContentCheck] = None
-    pipeline_trace: Optional[PipelineTrace] = None
+    risks: list[str] = Field(default_factory=list)
+    sources: list[EvidenceItem] = Field(default_factory=list)
+    retrieval_hits: list[EvidenceItem] = Field(default_factory=list)
+    retrieval_diagnostics: RetrievalDiagnostics | None = None
+    overall_credibility_score: float | None = Field(default=None, ge=0, le=100)
+    overall_credibility_label: CredibilityLabel | None = None
+    score_breakdown: ScoreBreakdown | None = None
+    claim_contributions: list[ClaimContribution] | None = None
+    timeline_confidence: float | None = Field(default=None, ge=0, le=100)
+    independent_source_count: int | None = Field(default=None, ge=0)
+    investigation: Investigation | None = None
+    content_check: ContentCheck | None = None
+    pipeline_trace: PipelineTrace | None = None
     provenance: ReportProvenance
 
 
 class AnalyzeRequest(BaseModel):
     raw_input: str = Field(..., min_length=1)
-    input_type: Optional[str] = None
-    mock_fetch_result: Optional[MockFetchResult] = None
-    mock_evidence: List[EvidenceItem] = Field(default_factory=list)
-    request_context: Dict[str, Any] = Field(default_factory=dict)
+    input_type: str | None = None
+    mock_fetch_result: MockFetchResult | None = None
+    mock_evidence: list[EvidenceItem] = Field(default_factory=list)
+    request_context: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="before")
     @classmethod

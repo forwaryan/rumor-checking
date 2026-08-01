@@ -2,10 +2,17 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Iterable, List, Optional
+from collections.abc import Iterable
 
 from backend.app.core.config import get_settings
-from backend.app.models.schemas import AnswerSuggestion, ClaimResult, ContentCheck, ContentCheckItem, EvidenceItem, Report
+from backend.app.models.schemas import (
+    AnswerSuggestion,
+    ClaimResult,
+    ContentCheck,
+    ContentCheckItem,
+    EvidenceItem,
+    Report,
+)
 from backend.app.services.model_health import complete_once
 from backend.app.services.question_intent import (
     is_broad_trend_question,
@@ -18,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 _STOP_WORDS = frozenset("的了在是和与被把给让从到也都还就才又而且")
-_SPLIT_PATTERN = re.compile(r"[，。？！、；：""''（）\[\]{}【】\s,.\-?!;:\"'()\d买卖招了而且在是从到]+")
+_SPLIT_PATTERN = re.compile(r"[，。？！、；：""''（）\\[\\]{}【】\\s,.\\-?!;:\"'()\\d买卖招了而且在是从到]+")
 
 
 def _extract_keywords(text: str) -> set[str]:
@@ -36,7 +43,7 @@ def _extract_keywords(text: str) -> set[str]:
     return tokens
 
 
-def _filter_relevant_hits(original_input: str, hits: List[EvidenceItem]) -> List[EvidenceItem]:
+def _filter_relevant_hits(original_input: str, hits: list[EvidenceItem]) -> list[EvidenceItem]:
     """Keep only hits whose title contains at least 2 different keywords from the input.
     A single common keyword (e.g. a company name) is too weak to confirm relevance."""
     input_kws = _extract_keywords(original_input)
@@ -112,7 +119,7 @@ class ContentCheckBuilder:
             possible_answers=possible_answers,
         )
 
-    def _to_items(self, claim_results: Iterable[ClaimResult]) -> List[ContentCheckItem]:
+    def _to_items(self, claim_results: Iterable[ClaimResult]) -> list[ContentCheckItem]:
         ordered = sorted(
             claim_results,
             key=lambda item: (_confidence_score(item.confidence), len(item.evidence)),
@@ -136,13 +143,13 @@ class ContentCheckBuilder:
         *,
         original_input: str,
         report: Report,
-        likely_true: List[ContentCheckItem],
-        likely_false: List[ContentCheckItem],
-        controversial: List[ContentCheckItem],
-        opinions: List[ContentCheckItem],
-        uncertain: List[ContentCheckItem],
-    ) -> List[AnswerSuggestion]:
-        suggestions: List[AnswerSuggestion] = []
+        likely_true: list[ContentCheckItem],
+        likely_false: list[ContentCheckItem],
+        controversial: list[ContentCheckItem],
+        opinions: list[ContentCheckItem],
+        uncertain: list[ContentCheckItem],
+    ) -> list[AnswerSuggestion]:
+        suggestions: list[AnswerSuggestion] = []
         seen: set[str] = set()
         trend_question = is_broad_trend_question(original_input)
 
@@ -253,8 +260,8 @@ class ContentCheckBuilder:
         return suggestions
 
     def _evidence_based_correction(
-        self, original_input: str, hits: List[EvidenceItem]
-    ) -> Optional[str]:
+        self, original_input: str, hits: list[EvidenceItem]
+    ) -> str | None:
         """Call LLM with a short prompt to produce a factual correction based on
         retrieval snippets. Returns None on any failure so the caller silently
         falls back to the generic answer."""

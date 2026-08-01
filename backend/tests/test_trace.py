@@ -9,7 +9,6 @@ from pathlib import Path
 
 from backend.app.agent.trace import TraceExporter, TraceRecord, TraceSpan
 
-
 # --- TraceSpan ---
 
 

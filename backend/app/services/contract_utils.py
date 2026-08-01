@@ -3,7 +3,7 @@
 import json
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import urlparse
 
 from backend.app.models.schemas import InternalInputType
@@ -84,7 +84,7 @@ def repair_unescaped_inner_quotes(json_text: str) -> str:
     return "".join(out)
 
 
-def _recover_truncated_json(text: str) -> Optional[str]:
+def _recover_truncated_json(text: str) -> str | None:
     """Rebuild a parseable object from JSON that was cut off mid-stream.
 
     LLM completions on this gateway are frequently truncated part-way through a
@@ -98,7 +98,7 @@ def _recover_truncated_json(text: str) -> Optional[str]:
     stack: list[str] = []
     in_string = False
     escape = False
-    best_cut: Optional[int] = None
+    best_cut: int | None = None
     best_stack: list[str] = []
     for i, ch in enumerate(text):
         if in_string:
@@ -203,7 +203,7 @@ def repair_structural_defects(json_text: str) -> str:
     return "".join(out)
 
 
-def loads_lenient_json(text: str) -> Optional[dict[str, Any]]:
+def loads_lenient_json(text: str) -> dict[str, Any] | None:
     """Parse a JSON object from an LLM response, tolerating common defects.
 
     Tries, in order: the text as-is, a ```json fenced block, the outermost
@@ -254,7 +254,7 @@ def looks_like_url(value: str) -> bool:
     return compact.startswith(("http://", "https://"))
 
 
-def ensure_datetime_string(value: Optional[str]) -> str:
+def ensure_datetime_string(value: str | None) -> str:
     if value:
         compact = value.strip()
         if re.fullmatch(r"\d{4}-\d{2}-\d{2}", compact):
@@ -272,7 +272,7 @@ def ensure_datetime_string(value: Optional[str]) -> str:
     return datetime.now(SHANGHAI_TZ).isoformat()
 
 
-def ensure_datetime_string_or_empty(value: Optional[str]) -> str:
+def ensure_datetime_string_or_empty(value: str | None) -> str:
     """Normalize a datetime string, or return "" when the source has none.
 
     Use this for user-visible SOURCE dates (evidence.published_at,
@@ -297,7 +297,7 @@ def ensure_datetime_string_or_empty(value: Optional[str]) -> str:
         return ""
 
 
-def source_name_from_url(url: str) -> Optional[str]:
+def source_name_from_url(url: str) -> str | None:
     parsed = urlparse(url.strip())
     host = parsed.netloc.lower().strip()
     if not host:

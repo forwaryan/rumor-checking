@@ -9,7 +9,7 @@ import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclass
@@ -20,8 +20,8 @@ class TraceSpan:
     start_time: float
     end_time: float = 0.0
     success: bool = False
-    error_type: Optional[str] = None
-    error_message: Optional[str] = None
+    error_type: str | None = None
+    error_message: str | None = None
     token_usage: dict[str, int] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -95,7 +95,7 @@ class TraceExporter:
 
     def __init__(self, run_id: str, metadata: dict[str, Any] | None = None):
         self._record = TraceRecord(run_id=run_id, metadata=metadata or {})
-        self._active_span: Optional[TraceSpan] = None
+        self._active_span: TraceSpan | None = None
 
     @property
     def record(self) -> TraceRecord:

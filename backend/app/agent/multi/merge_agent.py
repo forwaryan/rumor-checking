@@ -15,13 +15,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
-from typing import List, Optional
 
 from backend.app.agent.multi import AgentConfig, AgentRole, AgentStatus, SubAgentResult
 from backend.app.agent.multi.source_agents import SOURCE_ROLES
 from backend.app.agent.state import AgentState
 from backend.app.agent_tools.base import ToolContext, get_tool_fn
-from backend.app.models.schemas import NormalizedEvent
 from backend.app.services.progress import emit_log
 from backend.app.services.retrieval_deduper import chronological_sort_key, merge_search_results
 from backend.app.services.retrieval_models import RetrievalBundle
@@ -35,15 +33,15 @@ class MergeAgent:
     role = AgentRole.RETRIEVAL_MERGE
     description = "Merge parallel source bundles and run retrieval refinement."
 
-    def __init__(self, config: Optional[AgentConfig] = None) -> None:
+    def __init__(self, config: AgentConfig | None = None) -> None:
         self.config = config or AgentConfig()
 
     @property
-    def dependencies(self) -> List[AgentRole]:
+    def dependencies(self) -> list[AgentRole]:
         return list(SOURCE_ROLES)
 
     def run(self, state: AgentState, ctx: ToolContext) -> SubAgentResult:
-        actions_taken: List[str] = []
+        actions_taken: list[str] = []
 
         merged = self._merge_source_bundles(state)
         if merged is None:
@@ -81,7 +79,7 @@ class MergeAgent:
             actions_taken=actions_taken,
         )
 
-    def _merge_source_bundles(self, state: AgentState) -> Optional[RetrievalBundle]:
+    def _merge_source_bundles(self, state: AgentState) -> RetrievalBundle | None:
         bundles = [(key, b) for key, b in state.source_bundles.items() if b is not None]
         if not bundles:
             return None
@@ -143,7 +141,7 @@ class MergeAgent:
         return "safe"
 
     @staticmethod
-    def _run_step(ctx: ToolContext, state: AgentState, action: str, actions_taken: List[str]) -> None:
+    def _run_step(ctx: ToolContext, state: AgentState, action: str, actions_taken: list[str]) -> None:
         tool_fn = get_tool_fn(action)
         if tool_fn is None:
             return

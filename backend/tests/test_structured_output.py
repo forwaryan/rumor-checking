@@ -21,7 +21,6 @@ from backend.app.agent.structured_output import (
     schema_validator,
 )
 
-
 # --- schema_validator callback tests ---
 
 

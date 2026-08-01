@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import List, Optional
 
 from fastapi import status
 
@@ -21,7 +20,6 @@ from backend.app.services.entity_anchor import (
     extract_subject_anchors,
 )
 from backend.app.services.url_content_extractor import UrlContentExtractor
-
 
 FRONTEND_INPUT_TYPE_MAP = {
     "text": "text_news",
@@ -119,8 +117,8 @@ def _collapse_whitespace(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def _extract_time_keywords(text: str) -> List[str]:
-    ordered: List[str] = []
+def _extract_time_keywords(text: str) -> list[str]:
+    ordered: list[str] = []
     seen = set()
     for pattern in TIME_PATTERNS:
         for item in re.findall(pattern, text):
@@ -154,7 +152,7 @@ def _infer_input_type(raw_input: str) -> InternalInputType:
     return "text_news"
 
 
-def _normalize_requested_input_type(raw_input: str, requested: Optional[str]) -> InternalInputType:
+def _normalize_requested_input_type(raw_input: str, requested: str | None) -> InternalInputType:
     if not requested or requested == "auto":
         return _infer_input_type(raw_input)
     if requested in FRONTEND_INPUT_TYPE_MAP:
@@ -169,9 +167,9 @@ def _normalize_requested_input_type(raw_input: str, requested: Optional[str]) ->
     )
 
 
-def _extract_keywords(text: str) -> List[str]:
+def _extract_keywords(text: str) -> list[str]:
     compact = _collapse_whitespace(text)
-    candidates: List[str] = []
+    candidates: list[str] = []
 
     for phrase in KEYWORD_PHRASES:
         if phrase in compact:
@@ -200,7 +198,7 @@ def _extract_keywords(text: str) -> List[str]:
     return ordered[:6]
 
 
-def _extract_date(text: str) -> Optional[str]:
+def _extract_date(text: str) -> str | None:
     match = re.search(r"(\d{4})[-/年](\d{1,2})[-/月](\d{1,2})日?", text)
     if match:
         return f"{match.group(1)}-{int(match.group(2)):02d}-{int(match.group(3)):02d}"
@@ -214,9 +212,9 @@ def _infer_mode_hint(
     *,
     input_type: InternalInputType,
     summary: str,
-    source_name: Optional[str],
-    published_at: Optional[str],
-    keywords: List[str],
+    source_name: str | None,
+    published_at: str | None,
+    keywords: list[str],
     fallback_used: bool,
 ) -> str:
     if input_type == "question_only" or fallback_used:
@@ -232,7 +230,7 @@ def _infer_mode_hint(
 
 
 class InputNormalizer:
-    def __init__(self, url_content_extractor: Optional[UrlContentExtractor] = None) -> None:
+    def __init__(self, url_content_extractor: UrlContentExtractor | None = None) -> None:
         self.url_content_extractor = url_content_extractor or UrlContentExtractor()
 
     def normalize(self, payload: AnalyzeRequest) -> NormalizedEvent:
@@ -241,10 +239,10 @@ class InputNormalizer:
 
         fallback_used = False
         fallback_reason = None
-        title: Optional[str] = None
-        source_name: Optional[str] = None
-        source_url: Optional[str] = None
-        published_at: Optional[str] = None
+        title: str | None = None
+        source_name: str | None = None
+        source_url: str | None = None
+        published_at: str | None = None
         event_source = "input_normalized"
 
         if input_type in {"url_news", "url_unknown"}:
@@ -291,7 +289,7 @@ class InputNormalizer:
             raw_input=payload.raw_input,
         )
 
-    def _resolve_fetch_result(self, payload: AnalyzeRequest, input_type: InternalInputType) -> Optional[MockFetchResult]:
+    def _resolve_fetch_result(self, payload: AnalyzeRequest, input_type: InternalInputType) -> MockFetchResult | None:
         if input_type not in {"url_news", "url_unknown"}:
             return payload.mock_fetch_result
         if payload.mock_fetch_result is not None:
@@ -305,8 +303,8 @@ class InputNormalizer:
         *,
         payload: AnalyzeRequest,
         input_type: InternalInputType,
-        fetch: Optional[MockFetchResult],
-    ) -> tuple[Optional[str], str, str, str, Optional[str], InternalInputType, bool, Optional[str], str]:
+        fetch: MockFetchResult | None,
+    ) -> tuple[str | None, str, str, str, str | None, InternalInputType, bool, str | None, str]:
         source_url = payload.raw_input.strip() if looks_like_url(payload.raw_input) else default_source_url(input_type, payload.raw_input)
         if fetch and fetch.final_url:
             source_url = fetch.final_url
@@ -400,7 +398,7 @@ class InputNormalizer:
             return window[:boundary]
         return window
 
-    def _derive_url_title(self, extracted_text: str) -> Optional[str]:
+    def _derive_url_title(self, extracted_text: str) -> str | None:
         if not extracted_text:
             return None
         title = self._derive_title(extracted_text)
@@ -415,16 +413,16 @@ class InputNormalizer:
             return "链接页面抓取超时，当前只能先给出保守提示"
         return "链接页面抽取失败，当前只能先给出保守提示"
 
-    def _extract_source_name(self, raw_input: str) -> Optional[str]:
+    def _extract_source_name(self, raw_input: str) -> str | None:
         match = re.search(
             r"([A-Za-z0-9一-龥]{2,24}(?:市场监管局|监管局|交通局|教育局|生态环境局|运营公司|日报|晚报|电视台|中学|学校|大学|化工厂|集团|公司|医院|政府|警方|平台|委员会))",
             raw_input,
         )
         return match.group(1) if match else None
 
-    def _dedupe_keywords(self, extracted_keywords: List[str]) -> List[str]:
+    def _dedupe_keywords(self, extracted_keywords: list[str]) -> list[str]:
         seen = set()
-        ordered: List[str] = []
+        ordered: list[str] = []
         for item in extracted_keywords:
             if item and item not in seen:
                 seen.add(item)

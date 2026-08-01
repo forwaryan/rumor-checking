@@ -6,7 +6,6 @@ final Report object. Always runs last after all other agents complete.
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
 
 from backend.app.agent.multi import AgentConfig, AgentRole, AgentStatus, SubAgentResult
 from backend.app.agent.state import AgentState
@@ -22,15 +21,15 @@ class ReportAgent:
     role = AgentRole.REPORT
     description = "Build timeline and assemble the final verification report."
 
-    def __init__(self, config: Optional[AgentConfig] = None) -> None:
+    def __init__(self, config: AgentConfig | None = None) -> None:
         self.config = config or AgentConfig()
 
     @property
-    def dependencies(self) -> List[AgentRole]:
+    def dependencies(self) -> list[AgentRole]:
         return [AgentRole.CRITIC]
 
     def run(self, state: AgentState, ctx: ToolContext) -> SubAgentResult:
-        actions_taken: List[str] = []
+        actions_taken: list[str] = []
 
         emit_log(
             stage_key=_STAGE_KEY,

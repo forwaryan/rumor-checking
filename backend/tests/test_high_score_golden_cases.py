@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from backend.tests.conftest import load_eval_fixture
 
-
 HIGH_SCORE_GOLDEN_CASES = (
     {
         "case_id": "GC01",

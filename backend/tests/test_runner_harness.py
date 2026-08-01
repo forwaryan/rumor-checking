@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from backend.app.agent.planner import RulePlanner, _evidence_snapshot
-from backend.app.agent.runner import AgentRunner, _CRITICAL_ACTIONS
+from backend.app.agent.runner import _CRITICAL_ACTIONS, AgentRunner
 from backend.app.agent.state import AgentState, StepOutcome, TokenUsage
 from backend.app.agent_tools.base import ToolContext
 from backend.app.core.config import get_settings
@@ -90,15 +90,15 @@ def test_runner_survives_non_critical_tool_failure(monkeypatch):
         elif action == "enrich":
             state.final_event = state.resolved_event
         elif action == "extract_claims":
-            from backend.app.services.claim_extractor import ClaimExtraction
             from backend.app.models.schemas import ClaimItem
+            from backend.app.services.claim_extractor import ClaimExtraction
             state.claim_extraction = ClaimExtraction(
                 claims=[ClaimItem(claim="X。", claim_type="fact")],
                 source="rule", query_hints={},
             )
         elif action == "judge_claims":
-            from backend.app.services.verdict_engine import VerdictEvaluation
             from backend.app.models.schemas import ClaimResult
+            from backend.app.services.verdict_engine import VerdictEvaluation
             state.verdict = VerdictEvaluation(
                 claim_results=[ClaimResult(
                     claim="X。", claim_type="fact", verdict="insufficient",
@@ -110,7 +110,7 @@ def test_runner_survives_non_critical_tool_failure(monkeypatch):
             from backend.app.services.timeline_builder import TimelineBuild
             state.timeline = TimelineBuild(nodes=[], source="none", completeness=0, confidence=0)
         elif action == "finalize_report":
-            from backend.app.models.schemas import Report, Event, ReportProvenance
+            from backend.app.models.schemas import Event, Report, ReportProvenance
             state.report = Report(
                 mode="safe_mode",
                 event=Event(title="t", summary="s", source_name="n", source_url="u", published_at="2026-07-01", mode="safe_mode"),

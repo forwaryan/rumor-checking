@@ -15,9 +15,8 @@ from __future__ import annotations
 
 import json
 import logging
-import re
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Callable, List, Optional, Tuple
 
 from backend.app.core.config import Settings, get_settings
 from backend.app.models.schemas import ClaimResult
@@ -47,10 +46,10 @@ _VALID_CONFIDENCES = {"high", "medium", "low"}
 
 
 def llm_judge_claims(
-    claim_results: List[ClaimResult],
-    settings: Optional[Settings] = None,
-    completion_fn: Optional[Callable[[str, str], str]] = None,
-) -> List[ClaimResult]:
+    claim_results: list[ClaimResult],
+    settings: Settings | None = None,
+    completion_fn: Callable[[str, str], str] | None = None,
+) -> list[ClaimResult]:
     """Judge all fact claims with evidence using LLM as primary arbiter.
 
     The LLM verdict REPLACES the rule verdict for any fact claim that has
@@ -84,7 +83,7 @@ def llm_judge_claims(
     updated = list(claim_results)
     judged_count = 0
 
-    def _judge_one(idx_cr: Tuple[int, "ClaimResult"]) -> Tuple[int, Optional["ClaimResult"]]:
+    def _judge_one(idx_cr: tuple[int, ClaimResult]) -> tuple[int, ClaimResult | None]:
         i, cr = idx_cr
         result = _judge_single_claim(cr, settings, completion_fn=completion_fn)
         return i, result
@@ -135,8 +134,8 @@ def _judge_single_claim(
     claim_result: ClaimResult,
     settings: Settings,
     *,
-    completion_fn: Optional[Callable[[str, str], str]] = None,
-) -> Optional[ClaimResult]:
+    completion_fn: Callable[[str, str], str] | None = None,
+) -> ClaimResult | None:
     """Ask LLM to judge a single claim against its evidence."""
     evidence_text = "\n".join(
         f"- [{e.source_tier}] {e.title}: {e.snippet}"
@@ -173,7 +172,7 @@ def _judge_single_claim(
 def _parse_verdict_response(
     content: str,
     original: ClaimResult,
-) -> Optional[ClaimResult]:
+) -> ClaimResult | None:
     """Parse LLM response and return updated ClaimResult if valid."""
     try:
         start = content.index("{")

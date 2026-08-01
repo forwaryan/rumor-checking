@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Optional, Set
 
 from backend.app.agent.multi import AgentConfig, AgentRole, AgentStatus, SubAgentResult
 from backend.app.agent.state import AgentState
@@ -81,17 +80,17 @@ class CriticAgent:
     role = AgentRole.CRITIC
     description = "Adversarially verify verdicts — can only downgrade, never upgrade."
 
-    def __init__(self, config: Optional[AgentConfig] = None) -> None:
+    def __init__(self, config: AgentConfig | None = None) -> None:
         self.config = config or AgentConfig()
 
     @property
-    def dependencies(self) -> List[AgentRole]:
+    def dependencies(self) -> list[AgentRole]:
         return [AgentRole.ANALYSIS]
 
     def run(self, state: AgentState, ctx: ToolContext) -> SubAgentResult:
-        actions_taken: List[str] = []
+        actions_taken: list[str] = []
         model_used = self._apply_model(ctx)
-        all_downgraded: Set[int] = set()
+        all_downgraded: set[int] = set()
 
         if state.verdict is None:
             emit_log(
@@ -140,7 +139,7 @@ class CriticAgent:
             downgraded_indices=all_downgraded if all_downgraded else None,
         )
 
-    def _apply_model(self, ctx: ToolContext) -> Optional[str]:
+    def _apply_model(self, ctx: ToolContext) -> str | None:
         if self.config.model:
             reasoner = ctx.agent_reasoner
             if hasattr(reasoner, "model_override"):
@@ -148,7 +147,7 @@ class CriticAgent:
             return self.config.model
         return None
 
-    def _critique_via_llm(self, state: AgentState, ctx: ToolContext) -> Optional[Set[int]]:
+    def _critique_via_llm(self, state: AgentState, ctx: ToolContext) -> set[int] | None:
         """Run diverse-lens adversarial verification of the current verdicts.
 
         Uses 3 structurally different perspectives (factual accuracy, source quality,
@@ -173,7 +172,7 @@ class CriticAgent:
         emit_log(
             stage_key=_STAGE_KEY,
             title="LLM 多视角对抗复检",
-            summary=f"对判定进行 {len(lenses)} 视角对抗性验证：{', '.join(l['label'] for l in lenses)}。",
+            summary=f"对判定进行 {len(lenses)} 视角对抗性验证：{', '.join(lens['label'] for lens in lenses)}。",
         )
 
         try:
@@ -205,7 +204,7 @@ class CriticAgent:
         return all_downgraded
 
     @staticmethod
-    def _collect_diverse_votes(reasoner, claim_results, lenses: list) -> list[Set[int]]:
+    def _collect_diverse_votes(reasoner, claim_results, lenses: list) -> list[set[int]]:
         """Run each lens in parallel and return per-lens sets of flagged indices."""
         if len(lenses) == 1:
             _, downgraded = reasoner.critique_claims(claim_results)
@@ -213,7 +212,7 @@ class CriticAgent:
 
         parent_callback = get_progress_callback()
 
-        def _one_lens(lens: dict) -> Set[int]:
+        def _one_lens(lens: dict) -> set[int]:
             token = set_progress_callback(parent_callback) if parent_callback is not None else None
             try:
                 _, downgraded = reasoner.critique_claims(
@@ -224,7 +223,7 @@ class CriticAgent:
                 if token is not None:
                     reset_progress_callback(token)
 
-        results: list[Set[int]] = []
+        results: list[set[int]] = []
         with ThreadPoolExecutor(max_workers=len(lenses)) as pool:
             futures = [pool.submit(_one_lens, lens) for lens in lenses]
             for future in as_completed(futures):
@@ -235,7 +234,7 @@ class CriticAgent:
         return results
 
     @staticmethod
-    def _apply_downgrades(claim_results, indices: Set[int]) -> None:
+    def _apply_downgrades(claim_results, indices: set[int]) -> None:
         """Force each flagged claim to insufficient/low (monotone). Idempotent."""
         for idx in indices:
             if 0 <= idx < len(claim_results):
@@ -293,7 +292,7 @@ class CriticAgent:
         return len(evidence) >= 2
 
     @staticmethod
-    def _rule_downgraded_indices(state: "AgentState") -> Set[int]:
+    def _rule_downgraded_indices(state: AgentState) -> set[int]:
         """Identify indices of claims that the rule path just downgraded to insufficient."""
         if state.verdict is None:
             return set()

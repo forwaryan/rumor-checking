@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import List, Optional, Sequence
 
 from backend.app.models.schemas import NormalizedEvent, TimelineNode, TimelineSourceType
-from backend.app.services.contract_utils import ensure_datetime_string, ensure_datetime_string_or_empty
+from backend.app.services.contract_utils import ensure_datetime_string_or_empty
 from backend.app.services.retrieval_models import RetrievalBundle, SearchResult
 
 TURN_KEYWORDS = ("回应", "否认", "辟谣", "澄清", "调查", "核查", "纠正", "致歉", "responds", "denies")
@@ -25,14 +25,14 @@ COMPLETENESS_WEIGHTS = {
 
 @dataclass(frozen=True)
 class TimelineBuild:
-    nodes: List[TimelineNode]
+    nodes: list[TimelineNode]
     source: TimelineSourceType
     completeness: int = 0
     confidence: int = 0
 
 
 class TimelineBuilder:
-    def build(self, event: NormalizedEvent, retrieval_bundle: RetrievalBundle | None = None) -> List[TimelineNode]:
+    def build(self, event: NormalizedEvent, retrieval_bundle: RetrievalBundle | None = None) -> list[TimelineNode]:
         return self.build_with_source(event, retrieval_bundle=retrieval_bundle).nodes
 
     def build_with_source(self, event: NormalizedEvent, retrieval_bundle: RetrievalBundle | None = None) -> TimelineBuild:
@@ -72,7 +72,7 @@ class TimelineBuilder:
         turn = self._select_turn(results, origin)
         clarification = self._select_clarification(results, origin, turn)
 
-        candidates: list[tuple[str, Optional[SearchResult]]] = [
+        candidates: list[tuple[str, SearchResult | None]] = [
             ("origin", origin),
             ("amplification", amplification),
             ("peak", peak),
@@ -162,7 +162,7 @@ class TimelineBuilder:
             )[0]
         return ordered[0]
 
-    def _select_amplification(self, results: Sequence[SearchResult], origin: Optional[SearchResult]) -> Optional[SearchResult]:
+    def _select_amplification(self, results: Sequence[SearchResult], origin: SearchResult | None) -> SearchResult | None:
         if origin is None:
             return None
         candidates = []
@@ -193,7 +193,7 @@ class TimelineBuilder:
             ),
         )[0]
 
-    def _select_peak(self, results: Sequence[SearchResult], origin: Optional[SearchResult]) -> Optional[SearchResult]:
+    def _select_peak(self, results: Sequence[SearchResult], origin: SearchResult | None) -> SearchResult | None:
         if origin is None or len(results) < 3:
             return None
         post_origin = [item for item in results if item.effective_published_dt >= origin.effective_published_dt]
@@ -219,7 +219,7 @@ class TimelineBuilder:
             ),
         )[0]
 
-    def _select_turn(self, results: Sequence[SearchResult], origin: Optional[SearchResult]) -> Optional[SearchResult]:
+    def _select_turn(self, results: Sequence[SearchResult], origin: SearchResult | None) -> SearchResult | None:
         candidates = []
         for item in sorted(results, key=self._sort_key):
             if origin is not None and item.effective_published_dt <= origin.effective_published_dt:
@@ -242,9 +242,9 @@ class TimelineBuilder:
     def _select_clarification(
         self,
         results: Sequence[SearchResult],
-        origin: Optional[SearchResult],
-        turn: Optional[SearchResult],
-    ) -> Optional[SearchResult]:
+        origin: SearchResult | None,
+        turn: SearchResult | None,
+    ) -> SearchResult | None:
         boundary = turn or origin
         candidates = []
         for item in sorted(results, key=self._sort_key):
@@ -264,7 +264,7 @@ class TimelineBuilder:
             ),
         )[0]
 
-    def _first_authoritative_response(self, results: Sequence[SearchResult]) -> Optional[SearchResult]:
+    def _first_authoritative_response(self, results: Sequence[SearchResult]) -> SearchResult | None:
         for item in sorted(results, key=self._sort_key):
             if item.is_high_trust and (item.has_response_signal or self._looks_official(item)):
                 return item
@@ -277,8 +277,8 @@ class TimelineBuilder:
         result: SearchResult,
         results: Sequence[SearchResult],
         retrieval_bundle: RetrievalBundle,
-        origin: Optional[SearchResult],
-        turn: Optional[SearchResult],
+        origin: SearchResult | None,
+        turn: SearchResult | None,
     ) -> str:
         reasons: list[str] = []
         earliest = min(results, key=self._sort_key)

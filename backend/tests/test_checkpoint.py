@@ -11,13 +11,13 @@ from backend.app.agent.checkpoint import (
     Checkpoint,
     DiskCheckpointStore,
     MemoryCheckpointStore,
+    _deserialize_value,
+    _serialize_value,
     restore_state,
     snapshot_state,
-    _serialize_value,
-    _deserialize_value,
 )
 from backend.app.agent.state import AgentState, StepOutcome, TokenUsage
-from backend.app.models.schemas import AnalyzeRequest, NormalizedEvent, PossibilityItem, Event, Report, ReportProvenance
+from backend.app.models.schemas import AnalyzeRequest, Event, NormalizedEvent, PossibilityItem, Report, ReportProvenance
 
 
 def _fake_report():

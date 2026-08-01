@@ -8,7 +8,6 @@ planner — which on the deep path can cost an LLM round-trip per agent.
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
 
 from backend.app.agent.multi import AgentConfig, AgentRole, AgentStatus, SubAgentResult
 from backend.app.agent.state import AgentState
@@ -24,15 +23,15 @@ class NormalizeAgent:
     role = AgentRole.NORMALIZE
     description = "Normalize input and precompute the shared primary query."
 
-    def __init__(self, config: Optional[AgentConfig] = None) -> None:
+    def __init__(self, config: AgentConfig | None = None) -> None:
         self.config = config or AgentConfig()
 
     @property
-    def dependencies(self) -> List[AgentRole]:
+    def dependencies(self) -> list[AgentRole]:
         return []
 
     def run(self, state: AgentState, ctx: ToolContext) -> SubAgentResult:
-        actions_taken: List[str] = []
+        actions_taken: list[str] = []
 
         emit_log(
             stage_key=_STAGE_KEY,
@@ -75,7 +74,7 @@ class NormalizeAgent:
         )
 
     @staticmethod
-    def _compute_primary_query(state: AgentState, ctx: ToolContext) -> Optional[str]:
+    def _compute_primary_query(state: AgentState, ctx: ToolContext) -> str | None:
         """Best-effort primary query from the shared planner. Degrades to None
         (source agents then plan their own) so a planner hiccup never blocks."""
         event = state.normalized_event

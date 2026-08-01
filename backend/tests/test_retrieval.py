@@ -16,7 +16,6 @@ from backend.app.services.retrieval_service import RetrievalService
 from backend.app.services.timeline_builder import TimelineBuilder
 from backend.tests.conftest import load_eval_fixture
 
-
 RETRIEVAL_CASES = load_eval_fixture("retrieval_cases.json")
 
 

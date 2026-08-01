@@ -19,11 +19,11 @@ import dataclasses
 import json
 import logging
 import time
-from dataclasses import asdict, fields, is_dataclass
+from dataclasses import fields, is_dataclass
 from pathlib import Path
-from typing import Any, Optional, Protocol
+from typing import Any, Protocol
 
-from backend.app.agent.state import AgentState, AgentStep, StepOutcome, TokenUsage
+from backend.app.agent.state import AgentState
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +140,7 @@ class Checkpoint:
         )
 
     @classmethod
-    def from_json(cls, raw: str) -> "Checkpoint":
+    def from_json(cls, raw: str) -> Checkpoint:
         data = json.loads(raw)
         return cls(
             step_index=data["step_index"],
@@ -157,7 +157,7 @@ class CheckpointStore(Protocol):
     def save(self, run_id: str, checkpoint: Checkpoint) -> None:
         ...
 
-    def latest(self, run_id: str) -> Optional[Checkpoint]:
+    def latest(self, run_id: str) -> Checkpoint | None:
         ...
 
     def all_checkpoints(self, run_id: str) -> list[Checkpoint]:
@@ -176,7 +176,7 @@ class MemoryCheckpointStore:
     def save(self, run_id: str, checkpoint: Checkpoint) -> None:
         self._store.setdefault(run_id, []).append(checkpoint)
 
-    def latest(self, run_id: str) -> Optional[Checkpoint]:
+    def latest(self, run_id: str) -> Checkpoint | None:
         checkpoints = self._store.get(run_id)
         return checkpoints[-1] if checkpoints else None
 
@@ -204,7 +204,7 @@ class DiskCheckpointStore:
         filename = f"{checkpoint.step_index:04d}_{checkpoint.action}.json"
         (run_dir / filename).write_text(checkpoint.to_json(), encoding="utf-8")
 
-    def latest(self, run_id: str) -> Optional[Checkpoint]:
+    def latest(self, run_id: str) -> Checkpoint | None:
         all_cp = self.all_checkpoints(run_id)
         return all_cp[-1] if all_cp else None
 

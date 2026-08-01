@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Tuple
 from urllib.parse import urlparse
 
 from backend.app.models.schemas import (
@@ -14,13 +13,12 @@ from backend.app.models.schemas import (
     NormalizedEvent,
     PossibilityItem,
     Report,
-    RetrievalDiagnostics,
     ReportProvenance,
+    RetrievalDiagnostics,
     ScoreBreakdown,
     TimelineNode,
 )
 from backend.app.services.contract_utils import default_source_name, default_source_url, ensure_datetime_string
-from backend.app.services.verdict_engine import coarse_truth_probability
 from backend.app.services.question_intent import (
     is_broad_trend_question,
     rewrite_broad_trend_question_as_claim,
@@ -28,6 +26,7 @@ from backend.app.services.question_intent import (
     supported_trend_summary,
     trend_follow_up_hint,
 )
+from backend.app.services.verdict_engine import coarse_truth_probability
 
 URL_FALLBACK_RISK_MAP = {
     "url_content_incomplete": "\u9875\u9762\u53ea\u62ff\u5230\u90e8\u5206\u6b63\u6587\u6216\u7247\u6bb5\uff0c\u5f53\u524d\u53ea\u80fd\u6309\u4fdd\u5b88\u8f93\u51fa\u7406\u89e3\u3002",
@@ -75,7 +74,7 @@ class ScoreComputation:
     overall_score: float | None
     label: str | None
     breakdown: ScoreBreakdown | None
-    claim_contributions: List[ClaimContribution] | None
+    claim_contributions: list[ClaimContribution] | None
     timeline_confidence: float | None
     independent_source_count: int
 
@@ -85,15 +84,15 @@ class ReportBuilder:
         self,
         *,
         event: NormalizedEvent,
-        claim_results: List[ClaimResult],
-        timeline: List[TimelineNode],
-        evidence: List[EvidenceItem],
+        claim_results: list[ClaimResult],
+        timeline: list[TimelineNode],
+        evidence: list[EvidenceItem],
         evidence_grade: str,
         provenance: ReportProvenance,
-        retrieval_hits: List[EvidenceItem] | None = None,
+        retrieval_hits: list[EvidenceItem] | None = None,
         retrieval_diagnostics: RetrievalDiagnostics | None = None,
         original_input: str | None = None,
-        possibilities_override: List[PossibilityItem] | None = None,
+        possibilities_override: list[PossibilityItem] | None = None,
     ) -> Report:
         retrieval_hits = list(retrieval_hits or [])
         claim_results = self._backfill_claim_probabilities(claim_results)
@@ -166,11 +165,11 @@ class ReportBuilder:
 
     def _cited_sources(
         self,
-        claim_results: List[ClaimResult],
+        claim_results: list[ClaimResult],
         *,
-        fallback: List[EvidenceItem],
+        fallback: list[EvidenceItem],
         mode: str,
-    ) -> List[EvidenceItem]:
+    ) -> list[EvidenceItem]:
         """Sources actually cited by at least one claim, de-duplicated by url.
 
         `report.sources` drives the user-facing "证据 N 条" count and the "证据来源"
@@ -180,7 +179,7 @@ class ReportBuilder:
         safe_mode (nothing was grounded, so "0 条证据" is the honest answer) but
         keep the full pool in decisive modes, where an empty card would hide the
         evidence a supported/refuted verdict must be standing on."""
-        cited: List[EvidenceItem] = []
+        cited: list[EvidenceItem] = []
         seen: set[str] = set()
         for claim in claim_results:
             for item in claim.evidence:
@@ -194,14 +193,14 @@ class ReportBuilder:
             return []
         return fallback
 
-    def _backfill_claim_probabilities(self, claim_results: List[ClaimResult]) -> List[ClaimResult]:
+    def _backfill_claim_probabilities(self, claim_results: list[ClaimResult]) -> list[ClaimResult]:
         """Ensure every claim carries a truth_probability + basis.
 
         The fast (zero-LLM) path never sets these, so we derive a coarse number
         from the existing verdict/confidence. The deep path's LLM already fills
         them; we only backfill the ones it left empty. Runs in both modes, so the
         off+mock parity (legacy vs agent orchestrator) stays byte-identical."""
-        updated: List[ClaimResult] = []
+        updated: list[ClaimResult] = []
         for claim in claim_results:
             if claim.truth_probability is not None:
                 updated.append(claim)
@@ -220,8 +219,8 @@ class ReportBuilder:
         self,
         *,
         event: NormalizedEvent,
-        claim_results: List[ClaimResult],
-        timeline: List[TimelineNode],
+        claim_results: list[ClaimResult],
+        timeline: list[TimelineNode],
         evidence_grade: str,
         provenance: ReportProvenance,
     ) -> str:
@@ -250,11 +249,11 @@ class ReportBuilder:
         mode: str,
         event: NormalizedEvent,
         original_input: str,
-        claim_results: List[ClaimResult],
-        timeline: List[TimelineNode],
-        evidence: List[EvidenceItem],
+        claim_results: list[ClaimResult],
+        timeline: list[TimelineNode],
+        evidence: list[EvidenceItem],
         provenance: ReportProvenance,
-    ) -> Tuple[str, List[str]]:
+    ) -> tuple[str, list[str]]:
         strong_claims = [item for item in claim_results if item.verdict in {"supported", "refuted", "conflicting"}]
         supported_claims = [item for item in claim_results if item.verdict == "supported"]
         refuted_claims = [item for item in claim_results if item.verdict == "refuted"]
@@ -292,7 +291,7 @@ class ReportBuilder:
         else:
             summary = "当前证据仍不足，系统保持 safe mode，只展示核查边界与原始检索命中。"
 
-        risks: List[str] = []
+        risks: list[str] = []
         if conflicting_claims:
             risks.append("\u516c\u5f00\u6765\u6e90\u4e4b\u95f4\u4ecd\u6709\u51b2\u7a81\uff0c\u4e0d\u80fd\u76f4\u63a5\u4e0b\u5355\u4e00\u7ed3\u8bba\u3002")
         if provenance.source_type == "backend_mock":
@@ -320,13 +319,13 @@ class ReportBuilder:
         event: NormalizedEvent,
         public_event: Event,
         original_input: str,
-        claim_results: List[ClaimResult],
-        timeline: List[TimelineNode],
-        evidence: List[EvidenceItem],
-        retrieval_hits: List[EvidenceItem],
+        claim_results: list[ClaimResult],
+        timeline: list[TimelineNode],
+        evidence: list[EvidenceItem],
+        retrieval_hits: list[EvidenceItem],
         final_summary: str,
         provenance: ReportProvenance,
-        possibilities_override: List[PossibilityItem] | None = None,
+        possibilities_override: list[PossibilityItem] | None = None,
     ) -> Investigation:
         reframed_question = self._derive_reframed_question(
             original_input=original_input,
@@ -375,7 +374,7 @@ class ReportBuilder:
         *,
         original_input: str,
         public_event: Event,
-        claim_results: List[ClaimResult],
+        claim_results: list[ClaimResult],
     ) -> str:
         trend_claim = rewrite_broad_trend_question_as_claim(original_input)
         if trend_claim:
@@ -394,12 +393,12 @@ class ReportBuilder:
         *,
         original_input: str,
         reframed_question: str,
-        claim_results: List[ClaimResult],
-        timeline: List[TimelineNode],
-        evidence: List[EvidenceItem],
-        retrieval_hits: List[EvidenceItem],
+        claim_results: list[ClaimResult],
+        timeline: list[TimelineNode],
+        evidence: list[EvidenceItem],
+        retrieval_hits: list[EvidenceItem],
         provenance: ReportProvenance,
-    ) -> List[InvestigationStep]:
+    ) -> list[InvestigationStep]:
         fact_count = sum(1 for item in claim_results if item.claim_type == "fact")
         opinion_count = sum(1 for item in claim_results if item.claim_type == "opinion")
         prediction_count = sum(1 for item in claim_results if item.claim_type == "prediction")
@@ -465,12 +464,12 @@ class ReportBuilder:
         mode: str,
         original_input: str,
         public_event: Event,
-        claim_results: List[ClaimResult],
-        evidence: List[EvidenceItem],
-        retrieval_hits: List[EvidenceItem],
+        claim_results: list[ClaimResult],
+        evidence: list[EvidenceItem],
+        retrieval_hits: list[EvidenceItem],
         provenance: ReportProvenance,
-    ) -> List[PossibilityItem]:
-        possibilities: List[PossibilityItem] = []
+    ) -> list[PossibilityItem]:
+        possibilities: list[PossibilityItem] = []
         seen: set[str] = set()
         refuted = next((item for item in claim_results if item.verdict == "refuted"), None)
         supported = next((item for item in claim_results if item.verdict == "supported"), None)
@@ -553,10 +552,10 @@ class ReportBuilder:
         mode: str,
         original_input: str,
         public_event: Event,
-        claim_results: List[ClaimResult],
-        timeline: List[TimelineNode],
-        evidence: List[EvidenceItem],
-        retrieval_hits: List[EvidenceItem],
+        claim_results: list[ClaimResult],
+        timeline: list[TimelineNode],
+        evidence: list[EvidenceItem],
+        retrieval_hits: list[EvidenceItem],
         provenance: ReportProvenance,
         final_summary: str,
     ) -> str:
@@ -570,9 +569,9 @@ class ReportBuilder:
         elif trend_question and mode == "safe_mode":
             conclusion = safe_trend_summary(original_input) or "当前还不能直接下结论，这更像一个范围型问题。"
         elif refuted is not None:
-            conclusion = f"当前更倾向于：这句话对应的核心说法不成立，或至少已经被公开回应明显削弱。"
+            conclusion = "当前更倾向于：这句话对应的核心说法不成立，或至少已经被公开回应明显削弱。"
         elif supported is not None:
-            conclusion = f"当前更倾向于：相关事件大体存在，但原句仍可能省略了限定条件或夸大了细节。"
+            conclusion = "当前更倾向于：相关事件大体存在，但原句仍可能省略了限定条件或夸大了细节。"
         elif conflicting is not None:
             conclusion = "当前结论只能停在冲突态：公开来源没有收敛到单一版本，不能直接判真或判假。"
         elif retrieval_hits and provenance.event_source != "retrieval_resolved":
@@ -599,10 +598,10 @@ class ReportBuilder:
         self,
         *,
         mode: str,
-        claim_results: List[ClaimResult],
-        timeline: List[TimelineNode],
-        evidence: List[EvidenceItem],
-        retrieval_hits: List[EvidenceItem],
+        claim_results: list[ClaimResult],
+        timeline: list[TimelineNode],
+        evidence: list[EvidenceItem],
+        retrieval_hits: list[EvidenceItem],
     ) -> ScoreComputation:
         independent_source_count = self._estimate_independent_source_count(retrieval_hits or evidence)
         timeline_confidence = self._estimate_timeline_confidence(
@@ -675,8 +674,8 @@ class ReportBuilder:
             independent_source_count=independent_source_count,
         )
 
-    def _build_claim_contributions(self, claim_results: List[ClaimResult]) -> List[ClaimContribution]:
-        contributions: List[ClaimContribution] = []
+    def _build_claim_contributions(self, claim_results: list[ClaimResult]) -> list[ClaimContribution]:
+        contributions: list[ClaimContribution] = []
         for item in claim_results:
             contribution_label = self._contribution_label_for_result(item)
             contribution_score = self._contribution_score_for_result(item)
@@ -698,8 +697,8 @@ class ReportBuilder:
 
     def _compute_claim_score(
         self,
-        claim_results: List[ClaimResult],
-        claim_contributions: List[ClaimContribution],
+        claim_results: list[ClaimResult],
+        claim_contributions: list[ClaimContribution],
     ) -> float:
         fact_results = [item for item in claim_results if item.claim_type == "fact"]
         if not fact_results:
@@ -719,8 +718,8 @@ class ReportBuilder:
     def _compute_source_quality_score(
         self,
         *,
-        evidence: List[EvidenceItem],
-        retrieval_hits: List[EvidenceItem],
+        evidence: list[EvidenceItem],
+        retrieval_hits: list[EvidenceItem],
         independent_source_count: int,
     ) -> float:
         source_pool = retrieval_hits or evidence
@@ -738,8 +737,8 @@ class ReportBuilder:
     def _compute_cross_source_agreement_score(
         self,
         *,
-        claim_results: List[ClaimResult],
-        evidence: List[EvidenceItem],
+        claim_results: list[ClaimResult],
+        evidence: list[EvidenceItem],
         independent_source_count: int,
     ) -> float:
         fact_results = [item for item in claim_results if item.claim_type == "fact"]
@@ -771,8 +770,8 @@ class ReportBuilder:
     def _estimate_timeline_confidence(
         self,
         *,
-        timeline: List[TimelineNode],
-        retrieval_hits: List[EvidenceItem],
+        timeline: list[TimelineNode],
+        retrieval_hits: list[EvidenceItem],
         independent_source_count: int,
     ) -> float | None:
         if not timeline and not retrieval_hits:
@@ -800,7 +799,7 @@ class ReportBuilder:
             score = min(score, 35.0)
         return round(max(0.0, min(100.0, score)), 1)
 
-    def _timeline_completeness(self, timeline: List[TimelineNode]) -> float:
+    def _timeline_completeness(self, timeline: list[TimelineNode]) -> float:
         score = 0.0
         seen_node_types = set()
         for node in timeline:
@@ -810,7 +809,7 @@ class ReportBuilder:
             score += TIMELINE_COMPLETENESS_WEIGHTS.get(node.node_type, 0)
         return min(score, 100.0)
 
-    def _estimate_independent_source_count(self, source_pool: List[EvidenceItem]) -> int:
+    def _estimate_independent_source_count(self, source_pool: list[EvidenceItem]) -> int:
         keys = {self._source_key(item) for item in source_pool if self._source_key(item)}
         return len(keys)
 
@@ -827,8 +826,8 @@ class ReportBuilder:
         self,
         *,
         overall_score: float,
-        claim_results: List[ClaimResult],
-        evidence: List[EvidenceItem],
+        claim_results: list[ClaimResult],
+        evidence: list[EvidenceItem],
     ) -> str:
         fact_results = [item for item in claim_results if item.claim_type == "fact"]
         # A supported debunking claim ("…辟谣/否认/不实") denies the rumor, so it
@@ -877,17 +876,17 @@ class ReportBuilder:
     def _build_limiting_factors(
         self,
         *,
-        claim_results: List[ClaimResult],
-        evidence: List[EvidenceItem],
+        claim_results: list[ClaimResult],
+        evidence: list[EvidenceItem],
         independent_source_count: int,
         timeline_confidence: float | None,
-    ) -> List[str]:
+    ) -> list[str]:
         fact_results = [item for item in claim_results if item.claim_type == "fact"]
         supported_count = sum(1 for item in fact_results if item.verdict == "supported")
         refuted_count = sum(1 for item in fact_results if item.verdict == "refuted")
         conflicting_count = sum(1 for item in fact_results if item.verdict == "conflicting")
         insufficient_count = sum(1 for item in fact_results if item.verdict == "insufficient")
-        limiting_factors: List[str] = []
+        limiting_factors: list[str] = []
         if not any(item.source_tier in HIGH_TRUST_TIERS for item in evidence):
             limiting_factors.append("当前缺少 S/A 级来源，公开证据仍偏弱。")
         if supported_count and refuted_count:
@@ -906,10 +905,10 @@ class ReportBuilder:
         self,
         *,
         label: str,
-        claim_results: List[ClaimResult],
+        claim_results: list[ClaimResult],
         independent_source_count: int,
         timeline_confidence: float | None,
-        limiting_factors: List[str],
+        limiting_factors: list[str],
     ) -> str:
         supported_count = sum(1 for item in claim_results if item.verdict == "supported")
         refuted_count = sum(1 for item in claim_results if item.verdict == "refuted")
@@ -979,7 +978,7 @@ class ReportBuilder:
             return f"{claim_result.notes} {evidence_detail} 当前先不把它当作总分主贡献。"
         return f"{claim_result.notes} {evidence_detail}"
 
-    def _highest_tier(self, evidence: List[EvidenceItem]) -> str:
+    def _highest_tier(self, evidence: list[EvidenceItem]) -> str:
         if not evidence:
             return "none"
         for tier in ("S", "A", "B", "C"):

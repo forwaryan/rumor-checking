@@ -3,9 +3,9 @@
 import hashlib
 import html
 import re
-from datetime import datetime, timezone
+from collections.abc import Callable, Sequence
+from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
-from typing import Callable, Sequence
 from urllib.parse import quote_plus, urlparse
 from xml.etree import ElementTree
 
@@ -103,7 +103,7 @@ class GoogleNewsRSSProvider:
     ) -> None:
         self.endpoint_template = endpoint_template
         self.fetch_text = fetch_text or self._default_fetch_text
-        self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self.clock = clock or (lambda: datetime.now(UTC))
 
     def search(self, query_text: str, *, timeout_seconds: float, limit: int) -> Sequence[SearchResult]:
         encoded_query = quote_plus(query_text)
@@ -123,7 +123,7 @@ class GoogleNewsRSSProvider:
             raise RetrievalProviderError("provider returned invalid rss") from exc
 
         results: list[SearchResult] = []
-        retrieved_at = self.clock().astimezone(timezone.utc).isoformat()
+        retrieved_at = self.clock().astimezone(UTC).isoformat()
         for index, item in enumerate(root.findall(".//item"), start=1):
             if len(results) >= limit:
                 break
@@ -196,7 +196,7 @@ class GoogleNewsRSSProvider:
             try:
                 parsed = parsedate_to_datetime(value)
                 if parsed.tzinfo is None:
-                    parsed = parsed.replace(tzinfo=timezone.utc)
+                    parsed = parsed.replace(tzinfo=UTC)
                 return parsed.isoformat()
             except (TypeError, ValueError, IndexError):
                 pass
@@ -220,7 +220,7 @@ class GoogleNewsRSSProvider:
         return "B"
 
     def _build_result_id(self, *, query_text: str, link: str, title: str, index: int) -> str:
-        digest = hashlib.sha1(f"{query_text}|{link}|{title}".encode("utf-8")).hexdigest()[:10]
+        digest = hashlib.sha1(f"{query_text}|{link}|{title}".encode()).hexdigest()[:10]
         return f"gnr-{index}-{digest}"
 
     def _clean_text(self, value: str | None) -> str:

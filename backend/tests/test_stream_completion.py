@@ -175,8 +175,6 @@ def test_read_timeout_keeps_partial_content(monkeypatch):
     def raising_stream(method, url, *, headers, json, timeout):
         class _Ctx:
             def __enter__(self_inner):
-                request = httpx.Request(method, url)
-
                 class _Resp:
                     def raise_for_status(self_r):
                         return None

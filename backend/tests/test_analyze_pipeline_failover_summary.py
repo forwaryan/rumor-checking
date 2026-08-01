@@ -92,8 +92,9 @@ def test_analyze_error_propagates_verbatim_through_observability(monkeypatch):
     monkeypatch.setattr(pipeline, "_analyze_uncached", boom_analyze)
     monkeypatch.setattr(pipeline, "_emit_failover_summary", boom_emit)
 
-    from backend.app.models.schemas import AnalyzeRequest
     import pytest
+
+    from backend.app.models.schemas import AnalyzeRequest
     with pytest.raises(RuntimeError) as excinfo:
         pipeline._run_with_failover_summary(AnalyzeRequest(raw_input="x", input_type="text"))
     assert excinfo.value is original  # original error, NOT "progress callback died"

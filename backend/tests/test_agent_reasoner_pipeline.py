@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from backend.app.agent.planner import SYNTHESIZE
 from backend.app.core.config import get_settings
 from backend.app.models.schemas import AnalyzeRequest, ClaimItem, ClaimResult, PossibilityItem, TimelineNode
 from backend.app.services.agent_reasoner import AgentSynthesis, LlmAgentReasoner
 from backend.app.services.analyze_pipeline import AnalyzePipeline
-from backend.app.agent.planner import SYNTHESIZE
 from backend.app.services.claim_extractor import ClaimExtraction
 from backend.app.services.question_resolver import QuestionResolution
 from backend.app.services.retrieval_cache import RetrievalCache

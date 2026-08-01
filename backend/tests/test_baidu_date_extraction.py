@@ -15,7 +15,6 @@ from backend.app.services.playwright_search_provider import (
     _parse_baidu_date,
 )
 
-
 _REF = datetime(2026, 7, 29, 12, 0, tzinfo=timezone(timedelta(hours=8)))
 
 

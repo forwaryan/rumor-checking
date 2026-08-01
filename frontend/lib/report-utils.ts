@@ -78,26 +78,12 @@ const timelineSourceTone = {
   none: "时间线: 暂未建立",
 } as const;
 
-const genericEventMarkers = ["待核", "网传", "某女网红", "某网红", "某主播", "用户提问", "真假", "待核事件"];
-const genericSummaryMarkers = ["用户提问", "网络流传", "当前输入", "待核查", "真假"];
-const genericSourceNames = new Set(["用户问题输入", "用户提供文本", "用户提供链接"]);
-
 const sourceTierWeight = {
   S: 4,
   A: 3,
   B: 2,
   C: 1,
 } as const;
-
-export interface TopLineAssessment {
-  title: string;
-  summary: string;
-  tone: Verdict | "neutral";
-  confidenceLabel: string;
-  decisiveClaim: string | null;
-  evidenceCount: number;
-  sourceCount: number;
-}
 
 export interface ReportProvenanceMeta {
   sourceKind: ReportSourceKind;
@@ -130,10 +116,6 @@ export function getVerdictLabel(verdict: Verdict) {
   return verdictTone[verdict];
 }
 
-export function getClaimTypeLabel(claimType: ClaimType) {
-  return claimTypeTone[claimType];
-}
-
 export function getStatusFromMode(mode: OutputMode): AnalysisStatus {
   switch (mode) {
     case "complete_mode":
@@ -143,10 +125,6 @@ export function getStatusFromMode(mode: OutputMode): AnalysisStatus {
     default:
       return "safe_mode";
   }
-}
-
-export function getVerificationScoreRuleText() {
-  return "基础分：证据较完整 8 分、已有局部结论 5 分、证据稀缺 2 分；明确 claim >= 2 +1；有效证据 >= 3 且含 A/S 来源 +1；时间线 >= 2 且来自检索 +1；存在冲突 -1；缺少来源信息或证据链不足 -1；后端 mock 结果最高 7 分。";
 }
 
 function getFallbackLabel(reason?: ReportFallbackReason) {
@@ -264,50 +242,6 @@ export function getReportProvenanceMeta(
   }
 }
 
-export function getLlmUsageMeta(
-  report: Report | null,
-  provenance: ReportProvenanceState | null,
-): LlmUsageMeta | null {
-  if (!report) {
-    return null;
-  }
-
-  const effectiveProvenance = getEffectiveProvenanceState(report, provenance);
-  const backendProvenance = effectiveProvenance.reportProvenance ?? report.provenance ?? null;
-  if (!backendProvenance) {
-    return {
-      label: "LLM 检索：状态未知",
-      tone: "unknown",
-    };
-  }
-
-  if (backendProvenance.retrieval_provider !== "kimi") {
-    return {
-      label: `LLM 检索：未走${backendProvenance.retrieval_provider ? `（当前是 ${backendProvenance.retrieval_provider}）` : ""}`,
-      tone: "fallback",
-    };
-  }
-
-  if (backendProvenance.provider_used && !backendProvenance.fallback_used) {
-    return {
-      label: "LLM 检索：检索 + 结构化",
-      tone: "live",
-    };
-  }
-
-  if (backendProvenance.provider_used) {
-    return {
-      label: "LLM 检索：已走但发生降级",
-      tone: "fallback",
-    };
-  }
-
-  return {
-    label: "LLM 检索：仅检索 / 结构化未命中",
-    tone: "fallback",
-  };
-}
-
 export function getVerificationScoreMeta(
   report: Report,
   provenance: ReportProvenanceState | null,
@@ -375,20 +309,6 @@ export function getVerificationScoreMeta(
   };
 }
 
-export function formatDisplayTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "时间待补充";
-  }
-
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
-
 export function formatConfidence(value: ConfidenceValue) {
   if (typeof value === "number") {
     return `${Math.round(value * 100)}%`;
@@ -419,12 +339,6 @@ function getConfidenceScore(value: ConfidenceValue) {
   }
 }
 
-export function sortTimeline<T extends { published_at: string }>(items: T[]) {
-  return [...items].sort((left, right) => {
-    return new Date(left.published_at).getTime() - new Date(right.published_at).getTime();
-  });
-}
-
 export function collectEvidence(report: Report) {
   const seen = new Map<string, Evidence>();
 
@@ -443,147 +357,6 @@ export function collectEvidence(report: Report) {
   return Array.from(seen.values()).sort((left, right) => {
     return new Date(right.published_at).getTime() - new Date(left.published_at).getTime();
   });
-}
-
-function isGenericText(text: string, markers: string[]) {
-  const compact = text.trim();
-  if (!compact) {
-    return true;
-  }
-
-  return markers.some((marker) => compact.includes(marker));
-}
-
-function getLeadEvidence(report: Report) {
-  return collectEvidence(report)
-    .slice()
-    .sort((left, right) => {
-      const tierDelta = sourceTierWeight[right.source_tier] - sourceTierWeight[left.source_tier];
-      if (tierDelta !== 0) {
-        return tierDelta;
-      }
-
-      return new Date(right.published_at).getTime() - new Date(left.published_at).getTime();
-    })[0];
-}
-
-export function getDisplayEventTitle(report: Report) {
-  if (!isGenericText(report.event.title, genericEventMarkers)) {
-    return report.event.title;
-  }
-
-  return getLeadEvidence(report)?.title ?? report.event.title;
-}
-
-export function getDisplayEventSummary(report: Report) {
-  if (!isGenericText(report.event.summary, genericSummaryMarkers)) {
-    return report.event.summary;
-  }
-
-  const leadEvidence = getLeadEvidence(report);
-  if (leadEvidence?.snippet) {
-    return leadEvidence.snippet;
-  }
-
-  return report.final_summary;
-}
-
-export function getDisplayEventSource(report: Report) {
-  const leadEvidence = getLeadEvidence(report);
-  const useLeadEvidence =
-    genericSourceNames.has(report.event.source_name) ||
-    report.event.source_url.includes("example.org/input/");
-
-  if (useLeadEvidence && leadEvidence) {
-    return {
-      sourceName: leadEvidence.source_name,
-      sourceUrl: leadEvidence.url,
-      publishedAt: leadEvidence.published_at,
-      isDerived: true,
-    };
-  }
-
-  return {
-    sourceName: report.event.source_name,
-    sourceUrl: report.event.source_url,
-    publishedAt: report.event.published_at,
-    isDerived: false,
-  };
-}
-
-export function getTopLineAssessment(report: Report): TopLineAssessment {
-  const decisiveClaims = report.claim_results.filter((item) => item.verdict !== "insufficient");
-  const supportedCount = decisiveClaims.filter((item) => item.verdict === "supported").length;
-  const refutedCount = decisiveClaims.filter((item) => item.verdict === "refuted").length;
-  const conflictingCount = decisiveClaims.filter((item) => item.verdict === "conflicting").length;
-  const sortedClaims = report.claim_results
-    .slice()
-    .sort((left, right) => {
-      const verdictRank = {
-        conflicting: 4,
-        refuted: 3,
-        supported: 2,
-        insufficient: 1,
-      } as const;
-
-      const verdictDelta = verdictRank[right.verdict] - verdictRank[left.verdict];
-      if (verdictDelta !== 0) {
-        return verdictDelta;
-      }
-
-      const confidenceDelta = getConfidenceScore(right.confidence) - getConfidenceScore(left.confidence);
-      if (confidenceDelta !== 0) {
-        return confidenceDelta;
-      }
-
-      return right.evidence.length - left.evidence.length;
-    });
-  const leadClaim = sortedClaims[0] ?? null;
-  const evidence = collectEvidence(report);
-  const credibilityLabel = (report as Report & Record<string, unknown>).overall_credibility_label;
-  const hasInsufficientEvidenceLabel = credibilityLabel === "insufficient_evidence";
-
-  let title = "当前仍需补证";
-  let summary = "现有公开来源还不足以给出稳定结论，建议先看关键证据和时间线边界。";
-  let tone: TopLineAssessment["tone"] = "neutral";
-
-  if (hasInsufficientEvidenceLabel && supportedCount > 0) {
-    title = "当前只能边界化支持";
-    summary = "部分 claim 找到支持线索，但整体来源等级或传播链仍不足，不能把整句话包装成属实。";
-    tone = "neutral";
-  } else if (conflictingCount > 0 || (supportedCount > 0 && refutedCount > 0)) {
-    title = "当前存在冲突信号";
-    summary = "公开来源里同时出现了支持和反向线索，暂时不能讲成单向确定结论。";
-    tone = "conflicting";
-  } else if (refutedCount > 0) {
-    title = "当前更倾向不实";
-    summary = "已有公开来源对这条说法形成反驳，现阶段更适合按“不实”理解。";
-    tone = "refuted";
-  } else if (supportedCount > 0) {
-    title = "当前更倾向属实";
-    summary = "已有公开来源支持这条说法，现阶段更适合按“属实”理解。";
-    tone = "supported";
-  } else if (report.mode === "partial_mode") {
-    title = "已拿到部分可用结论";
-    summary = "页面已经找到部分可核查证据，但仍有缺口，不应包装成完整复盘。";
-  } else if (report.mode === "complete_mode") {
-    title = "核心链路已跑通";
-    summary = "当前事件、claim 和证据都已建立，可以继续看细节和来源。";
-  }
-
-  if (leadClaim?.notes && !hasInsufficientEvidenceLabel) {
-    summary = leadClaim.notes;
-  }
-
-  return {
-    title,
-    summary,
-    tone,
-    confidenceLabel: leadClaim ? formatConfidence(leadClaim.confidence) : "待补充",
-    decisiveClaim: leadClaim?.claim ?? null,
-    evidenceCount: leadClaim?.evidence.length ?? evidence.length,
-    sourceCount: evidence.length,
-  };
 }
 
 export function formatProbability(value?: number | null): string | null {

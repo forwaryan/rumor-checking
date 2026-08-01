@@ -7,7 +7,6 @@ shared state for downstream agents to consume.
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
 
 from backend.app.agent.multi import AgentConfig, AgentRole, AgentStatus, SubAgentResult
 from backend.app.agent.state import AgentState
@@ -23,15 +22,15 @@ class RetrievalAgent:
     role = AgentRole.RETRIEVAL
     description = "Normalize input and gather all evidence from web sources."
 
-    def __init__(self, config: Optional[AgentConfig] = None) -> None:
+    def __init__(self, config: AgentConfig | None = None) -> None:
         self.config = config or AgentConfig()
 
     @property
-    def dependencies(self) -> List[AgentRole]:
+    def dependencies(self) -> list[AgentRole]:
         return []
 
     def run(self, state: AgentState, ctx: ToolContext) -> SubAgentResult:
-        actions_taken: List[str] = []
+        actions_taken: list[str] = []
         model_used = self._apply_model(ctx)
 
         emit_log(
@@ -103,7 +102,7 @@ class RetrievalAgent:
             model_used=model_used,
         )
 
-    def _apply_model(self, ctx: ToolContext) -> Optional[str]:
+    def _apply_model(self, ctx: ToolContext) -> str | None:
         if self.config.model:
             reasoner = ctx.agent_reasoner
             if hasattr(reasoner, "model_override"):

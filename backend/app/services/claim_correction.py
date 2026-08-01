@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Callable, Dict, List, Optional, Set
+from collections.abc import Callable
 
 from backend.app.core.config import get_settings
 from backend.app.models.schemas import ClaimResult
@@ -17,11 +17,11 @@ logger = logging.getLogger(__name__)
 
 
 def annotate_claim_corrections(
-    claim_results: List[ClaimResult],
-    page_bodies: Optional[Dict[str, str]] = None,
-    all_evidence_titles: Optional[List[str]] = None,
-    completion_fn: Optional[Callable[[str, str], str]] = None,
-) -> List[ClaimResult]:
+    claim_results: list[ClaimResult],
+    page_bodies: dict[str, str] | None = None,
+    all_evidence_titles: list[str] | None = None,
+    completion_fn: Callable[[str, str], str] | None = None,
+) -> list[ClaimResult]:
     """For each claim that has evidence, call a lightweight LLM to generate a
     per-claim structured correction if the evidence contradicts the claim's specifics
     (numbers, names, dates). Returns a new list with `correction` field set.
@@ -62,7 +62,7 @@ def annotate_claim_corrections(
 
     # Build a single batch prompt for all candidates
     claim_lines = []
-    for idx, (i, cr) in enumerate(candidates):
+    for idx, (_i, cr) in enumerate(candidates):
         snippets = " | ".join(e.title for e in cr.evidence[:3] if e.title.strip())
         # Include page body content from ALL available pages for richer context
         extra_context = ""
@@ -72,7 +72,7 @@ def annotate_claim_corrections(
                 body_text = page_bodies.get(e.url, "")
                 if not body_text:
                     # Try matching by looking through page_bodies keys
-                    for rid, body in page_bodies.items():
+                    for _rid, body in page_bodies.items():
                         if body:
                             body_text = body
                             break
@@ -126,12 +126,12 @@ def annotate_claim_corrections(
         # not just each claim's bound evidence — decisive verdicts (esp. "refuted")
         # frequently carry no bound evidence ids, so restricting grounding to
         # cr.evidence would discard every correction whose figure lives in the pool.
-        pool_numbers: Set[str] = set()
+        pool_numbers: set[str] = set()
         for t in all_evidence_titles or []:
             pool_numbers |= _extract_numbers_from_text(t)
         evidence_numbers = _extract_evidence_numbers(candidates, page_bodies)
         updated = list(claim_results)
-        for (i, _cr), corr in zip(candidates, corrections):
+        for (i, _cr), corr in zip(candidates, corrections, strict=True):
             if corr and isinstance(corr, dict):
                 # Validate the structured correction has required fields
                 original = corr.get("original", "")
@@ -171,7 +171,7 @@ _CN_NUM_RE = re.compile(r"[零一二两三四五六七八九十百千万亿]{1,}
 _NUMBER_RE = re.compile(r"\d+(?:\.\d+)?(?:[万亿千百十])?")
 
 
-def _parse_chinese_numeral(text: str) -> Optional[int]:
+def _parse_chinese_numeral(text: str) -> int | None:
     """Parse a contiguous Chinese-numeral run into an int (万/亿 close a section).
     Returns None unless the run contains an actual digit word (一二三…): a run of
     bare unit chars alone ("万" in 万元/万达, "十" in 十字路口, "千" in 千米) is NOT a
@@ -206,7 +206,7 @@ def _parse_chinese_numeral(text: str) -> Optional[int]:
     return total + section + cur
 
 
-def _extract_numbers_from_text(text: str) -> Set[str]:
+def _extract_numbers_from_text(text: str) -> set[str]:
     """Extract all numbers from text as strings for cross-referencing: Arabic
     digits (with optional Chinese scale suffix stripped) AND Chinese numerals
     converted to their Arabic value, so "三千" and "3000" ground each other."""
@@ -228,12 +228,12 @@ def _extract_numbers_from_text(text: str) -> Set[str]:
 
 
 def _extract_evidence_numbers(
-    candidates: List[tuple],
-    page_bodies: Optional[Dict[str, str]],
-) -> Dict[int, Set[str]]:
+    candidates: list[tuple],
+    page_bodies: dict[str, str] | None,
+) -> dict[int, set[str]]:
     """For each candidate (by original index), extract all numbers found in its
     evidence titles and page bodies."""
-    result: Dict[int, Set[str]] = {}
+    result: dict[int, set[str]] = {}
     for i, cr in candidates:
         pool = set()
         # Numbers from evidence titles
@@ -253,7 +253,7 @@ def _extract_evidence_numbers(
     return result
 
 
-def _actual_is_grounded(actual: str, evidence_numbers: Set[str]) -> bool:
+def _actual_is_grounded(actual: str, evidence_numbers: set[str]) -> bool:
     """Check if numbers mentioned in the 'actual' field appear in the evidence.
     If actual contains no numbers at all (purely qualitative), it passes.
     If it contains numbers, at least one must appear in evidence_numbers."""
@@ -268,10 +268,10 @@ def _actual_is_grounded(actual: str, evidence_numbers: Set[str]) -> bool:
     return bool(actual_numbers & evidence_numbers)
 
 
-def _parse_corrections(content: str) -> Optional[List[Optional[Dict[str, str]]]]:
+def _parse_corrections(content: str) -> list[dict[str, str] | None] | None:
     """Extract a JSON array of structured correction objects from LLM output."""
 
-    def _extract_item(item: object) -> Optional[Dict[str, str]]:
+    def _extract_item(item: object) -> dict[str, str] | None:
         if not isinstance(item, dict):
             return None
         corr = item.get("correction")

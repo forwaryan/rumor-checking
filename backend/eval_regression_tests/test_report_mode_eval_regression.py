@@ -6,7 +6,6 @@ from backend.app.models.schemas import ClaimResult, EvidenceItem, NormalizedEven
 from backend.app.services.report_builder import ReportBuilder
 from backend.eval_regression_tests.conftest import CaseEvaluation, load_eval_fixture, summarize_results
 
-
 REPORT_MODE_CASES = load_eval_fixture("report_mode_cases.json")
 DECISIVE_VERDICTS = {"supported", "refuted", "conflicting"}
 BOUNDARY_MARKERS = ("保守", "不足", "不完整", "不能", "待核", "冲突", "safe mode")

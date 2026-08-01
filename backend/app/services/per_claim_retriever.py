@@ -12,7 +12,6 @@ import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
-from typing import List, Optional, Tuple
 
 from backend.app.models.schemas import ClaimItem, NormalizedEvent
 from backend.app.services.progress import (
@@ -111,7 +110,7 @@ def _claim_needs_retrieval(
     return claim.claim_type == "fact"
 
 
-def _namespace_batch(results: List[SearchResult], batch: int) -> List[SearchResult]:
+def _namespace_batch(results: list[SearchResult], batch: int) -> list[SearchResult]:
     """Prefix every result_id in one batch with b{batch}- so ids are unique
     across batches that were each numbered from q0- independently.
 
@@ -120,7 +119,7 @@ def _namespace_batch(results: List[SearchResult], batch: int) -> List[SearchResu
     exactly what result_id collisions were suppressing.
     """
     prefix = f"b{batch}-"
-    namespaced: List[SearchResult] = []
+    namespaced: list[SearchResult] = []
     for item in results:
         namespaced.append(
             replace(
@@ -133,9 +132,9 @@ def _namespace_batch(results: List[SearchResult], batch: int) -> List[SearchResu
 
 
 def enrich_retrieval_for_claims(
-    claims: List[ClaimItem],
+    claims: list[ClaimItem],
     retrieval_bundle: RetrievalBundle,
-    retrieval_service: "RetrievalService",  # noqa: F821 — forward ref to avoid circular import
+    retrieval_service: RetrievalService,  # noqa: F821 — forward ref to avoid circular import
     resolved_event: NormalizedEvent,
     iteration: int = 0,
 ) -> RetrievalBundle:
@@ -183,7 +182,7 @@ def enrich_retrieval_for_claims(
         details=[f"claim_{i}={c.claim[:40]}" for i, c in enumerate(candidates)],
     )
 
-    new_results: List[SearchResult] = []
+    new_results: list[SearchResult] = []
     queries_executed = 0
     queries_failed = 0
 
@@ -195,7 +194,7 @@ def enrich_retrieval_for_claims(
     # deterministic regardless of completion order.
     parent_callback = get_progress_callback()
 
-    def _run_claim_query(index: int, claim: ClaimItem) -> Tuple[int, Optional[List[SearchResult]], Optional[Exception]]:
+    def _run_claim_query(index: int, claim: ClaimItem) -> tuple[int, list[SearchResult] | None, Exception | None]:
         callback_token = set_progress_callback(parent_callback) if parent_callback is not None else None
         stage_token = set_retrieval_stage_key("per_claim_retrieval")
         try:
@@ -221,7 +220,7 @@ def enrich_retrieval_for_claims(
             if callback_token is not None:
                 reset_progress_callback(callback_token)
 
-    outcomes: dict[int, Tuple[Optional[List[SearchResult]], Optional[Exception]]] = {}
+    outcomes: dict[int, tuple[list[SearchResult] | None, Exception | None]] = {}
     with ThreadPoolExecutor(max_workers=len(candidates)) as executor:
         futures = [executor.submit(_run_claim_query, i, c) for i, c in enumerate(candidates)]
         for future in futures:

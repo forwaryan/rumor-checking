@@ -2,7 +2,7 @@
 
 import logging
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -19,7 +19,7 @@ class AppError(Exception):
         status_code: int,
         code: str,
         message: str,
-        details: Optional[Dict[str, Any]] = None,
+        details: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
@@ -33,7 +33,7 @@ class ErrorBody:
     code: str
     message: str
     trace_id: str
-    details: Optional[Dict[str, Any]] = None
+    details: dict[str, Any] | None = None
 
 
 def _trace_id_from_request(request: Request) -> str:
@@ -46,7 +46,7 @@ def _error_response(
     status_code: int,
     code: str,
     message: str,
-    details: Optional[Dict[str, Any]] = None,
+    details: dict[str, Any] | None = None,
 ) -> JSONResponse:
     body = ErrorBody(
         code=code,

@@ -4,11 +4,11 @@ from __future__ import annotations
 import pytest
 
 from backend.app.agent.multi import AgentRole, AgentStatus
-from backend.app.agent.multi.supervisor import Supervisor
-from backend.app.agent.multi.retrieval_agent import RetrievalAgent
 from backend.app.agent.multi.analysis_agent import AnalysisAgent
 from backend.app.agent.multi.critic_agent import CriticAgent
 from backend.app.agent.multi.report_agent import ReportAgent
+from backend.app.agent.multi.retrieval_agent import RetrievalAgent
+from backend.app.agent.multi.supervisor import Supervisor
 from backend.app.agent.state import AgentState
 from backend.app.models.schemas import AnalyzeRequest
 from backend.app.services.analyze_pipeline import AnalyzePipeline
@@ -60,8 +60,8 @@ def test_supervisor_default_agents():
 
 def test_parallel_dag_fans_out_sources():
     """Parallel DAG: normalize -> 4 source agents (all dep only on normalize) -> merge -> chain."""
-    from backend.app.agent_tools.base import ToolContext
     from backend.app.agent.multi.source_agents import SOURCE_ROLES
+    from backend.app.agent_tools.base import ToolContext
     ctx = ToolContext.__new__(ToolContext)
     supervisor = Supervisor(ctx, retrieval_mode="parallel")
     roles = [a.role for a in supervisor.agents]
@@ -316,8 +316,8 @@ def test_llm_routing_disabled_falls_back_to_rule():
     """With routing off, loop-back uses the >70% insufficient rule threshold."""
     from backend.app.agent.multi.supervisor import Supervisor
     from backend.app.agent.state import AgentState
-    from backend.app.models.schemas import AnalyzeRequest
     from backend.app.agent_tools.base import ToolContext
+    from backend.app.models.schemas import AnalyzeRequest
 
     class _S:
         multi_agent_llm_routing_enabled = False
@@ -344,8 +344,8 @@ def test_llm_routing_enabled_uses_reasoner():
     """With routing on, the reasoner's plan_next_action decides loop-back."""
     from backend.app.agent.multi.supervisor import Supervisor
     from backend.app.agent.state import AgentState
-    from backend.app.models.schemas import AnalyzeRequest
     from backend.app.agent_tools.base import ToolContext
+    from backend.app.models.schemas import AnalyzeRequest
     from backend.app.services.agent_reasoner import NextActionPlan
 
     class _S:
@@ -374,8 +374,8 @@ def test_loop_back_fires_at_most_once():
     """The supervisor_loop_back marker prevents infinite re-entry."""
     from backend.app.agent.multi.supervisor import Supervisor
     from backend.app.agent.state import AgentState
-    from backend.app.models.schemas import AnalyzeRequest
     from backend.app.agent_tools.base import ToolContext
+    from backend.app.models.schemas import AnalyzeRequest
 
     class _S:
         multi_agent_llm_routing_enabled = False
@@ -439,6 +439,7 @@ def test_retrieval_mode_selects_dag():
 def test_fan_out_is_parallel():
     """4 source agents each sleeping 0.4s must finish in well under their 1.6s sum."""
     import time
+
     from backend.app.agent.multi import AgentRole as R
     from backend.app.agent.multi import AgentStatus, SubAgentResult
     from backend.app.agent_tools.base import ToolContext
@@ -479,7 +480,7 @@ def test_parallel_batch_propagates_progress_context():
     from backend.app.agent.multi import AgentRole as R
     from backend.app.agent.multi import AgentStatus, SubAgentResult
     from backend.app.agent_tools.base import ToolContext
-    from backend.app.services.progress import emit_log, set_progress_callback, reset_progress_callback
+    from backend.app.services.progress import emit_log, reset_progress_callback, set_progress_callback
 
     class _EmittingAgent:
         def __init__(self, role):
@@ -515,7 +516,8 @@ def test_parallel_batch_propagates_progress_context():
 
 def test_parallel_batch_rejects_model_override():
     """A parallel batch with any agent declaring a model must raise (race guard)."""
-    from backend.app.agent.multi import AgentConfig, AgentRole as R, AgentStatus, SubAgentResult
+    from backend.app.agent.multi import AgentConfig, AgentStatus, SubAgentResult
+    from backend.app.agent.multi import AgentRole as R
     from backend.app.agent_tools.base import ToolContext
 
     class _A:
@@ -581,6 +583,7 @@ def test_merge_agent_handles_all_empty():
 def test_token_usage_add_threadsafe():
     """Concurrent add() from many threads must not lose increments."""
     import threading
+
     from backend.app.agent.state import TokenUsage
 
     usage = TokenUsage()
@@ -604,8 +607,8 @@ def test_token_usage_add_threadsafe():
 def test_source_agent_skips_when_deselected():
     """A source agent must SKIP when its key isn't in request_context.search_sources,
     so the frontend source toggle actually takes effect on the parallel DAG."""
-    from backend.app.agent.multi.source_agents import SourceRetrievalAgent
     from backend.app.agent.multi import AgentRole as R
+    from backend.app.agent.multi.source_agents import SourceRetrievalAgent
     from backend.app.agent_tools.base import ToolContext
 
     ctx = ToolContext.__new__(ToolContext)
@@ -624,8 +627,8 @@ def test_source_agent_runs_when_no_filter():
     """With no search_sources filter, the source agent proceeds to retrieval (it
     fails fast here only because the bare ToolContext has no retriever — the point
     is it does NOT short-circuit to SKIPPED)."""
-    from backend.app.agent.multi.source_agents import SourceRetrievalAgent
     from backend.app.agent.multi import AgentRole as R
+    from backend.app.agent.multi.source_agents import SourceRetrievalAgent
     from backend.app.agent_tools.base import ToolContext
 
     ctx = ToolContext.__new__(ToolContext)
@@ -638,7 +641,7 @@ def test_source_agent_runs_when_no_filter():
 def test_run_summary_emits_metrics_event(tool_context):
     """The supervisor emits a structured `metrics` progress event at end of run,
     carrying mode, timings, token usage, and per-source hit counts."""
-    from backend.app.services.progress import set_progress_callback, reset_progress_callback
+    from backend.app.services.progress import reset_progress_callback, set_progress_callback
 
     events: list = []
     token = set_progress_callback(lambda e: events.append(e))

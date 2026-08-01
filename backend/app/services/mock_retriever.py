@@ -5,7 +5,6 @@ import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
 
 from backend.app.core.config import Settings, get_settings
 from backend.app.models.schemas import NormalizedEvent
@@ -22,13 +21,13 @@ class RetrievalCase:
     results: tuple[SearchResult, ...]
     min_related_results: int
     min_high_trust_results: int
-    expected_origin_result_id: Optional[str]
-    expected_turning_point_result_id: Optional[str]
+    expected_origin_result_id: str | None
+    expected_turning_point_result_id: str | None
     expected_mode_hint: str
 
 
 class MockRetriever:
-    def __init__(self, settings: Optional[Settings] = None) -> None:
+    def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
 
     def retrieve_for_event(self, event: NormalizedEvent) -> RetrievalBundle:
@@ -61,9 +60,9 @@ class MockRetriever:
             provider_name="mock",
         )
 
-    def _match_case(self, query_text: str) -> Optional[RetrievalCase]:
+    def _match_case(self, query_text: str) -> RetrievalCase | None:
         compact_query = compact_text(query_text)
-        best_case: Optional[RetrievalCase] = None
+        best_case: RetrievalCase | None = None
         best_score = 0
         for case in _load_cases(self.settings.evals_root):
             score = self._score_case_match(compact_query, case)
@@ -81,7 +80,7 @@ class MockRetriever:
         return sum(1 for term in case.query_terms if term in compact_query)
 
 
-@lru_cache()
+@lru_cache
 def _load_cases(evals_root: Path) -> tuple[RetrievalCase, ...]:
     payload = json.loads((evals_root / "retrieval_cases.json").read_text(encoding="utf-8-sig"))
     cases: list[RetrievalCase] = []

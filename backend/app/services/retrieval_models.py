@@ -2,11 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Tuple
 from urllib.parse import urlparse
 
 from backend.app.models.schemas import EvidenceItem, RetrievalDiagnostics, SourceTier
-from backend.app.services.contract_utils import ensure_datetime_string, ensure_datetime_string_or_empty
+from backend.app.services.contract_utils import ensure_datetime_string_or_empty
 
 TIER_WEIGHTS = {"S": 4, "A": 3, "B": 2, "C": 1}
 
@@ -117,7 +116,7 @@ class RetrievalQuerySpec:
     query: str
     rationale: str
     claim_hint: str = ""
-    cache_scope: Optional[str] = None
+    cache_scope: str | None = None
 
     def normalized_query(self) -> str:
         return compact_retrieval_text(self.query)
@@ -138,7 +137,7 @@ class RetrievalQuerySpec:
         }
 
     @classmethod
-    def from_dict(cls, payload: dict[str, object]) -> "RetrievalQuerySpec":
+    def from_dict(cls, payload: dict[str, object]) -> RetrievalQuerySpec:
         return cls(
             label=str(payload.get("label") or "query"),
             query=str(payload.get("query") or ""),
@@ -159,25 +158,25 @@ class SearchResult:
     published_at: str
     snippet: str
     source_tier: SourceTier
-    duplicate_of: Optional[str] = None
-    canonical_result_id: Optional[str] = None
-    duplicate_reason: Optional[str] = None
-    merged_result_ids: Tuple[str, ...] = ()
-    merged_notes: Tuple[str, ...] = ()
+    duplicate_of: str | None = None
+    canonical_result_id: str | None = None
+    duplicate_reason: str | None = None
+    merged_result_ids: tuple[str, ...] = ()
+    merged_notes: tuple[str, ...] = ()
     provider_name: str = "mock"
-    retrieved_at: Optional[str] = None
+    retrieved_at: str | None = None
     source_category: str = "other"
-    independence_key: Optional[str] = None
-    relation_type: Optional[str] = None
-    signal_tags: Tuple[str, ...] = ()
-    query_label: Optional[str] = None
+    independence_key: str | None = None
+    relation_type: str | None = None
+    signal_tags: tuple[str, ...] = ()
+    query_label: str | None = None
 
     @property
     def canonical_id(self) -> str:
         return self.canonical_result_id or self.result_id
 
     @property
-    def published_dt(self) -> Optional[datetime]:
+    def published_dt(self) -> datetime | None:
         if not self.published_at:
             return None
         try:
@@ -297,12 +296,12 @@ class SearchResult:
     def with_merge_metadata(
         self,
         *,
-        canonical_result_id: Optional[str] = None,
-        duplicate_reason: Optional[str] = None,
-        merged_result_ids: Tuple[str, ...] = (),
-        merged_notes: Tuple[str, ...] = (),
-        relation_type: Optional[str] = None,
-    ) -> "SearchResult":
+        canonical_result_id: str | None = None,
+        duplicate_reason: str | None = None,
+        merged_result_ids: tuple[str, ...] = (),
+        merged_notes: tuple[str, ...] = (),
+        relation_type: str | None = None,
+    ) -> SearchResult:
         return replace(
             self,
             canonical_result_id=canonical_result_id,
@@ -315,9 +314,9 @@ class SearchResult:
     def with_runtime_metadata(
         self,
         *,
-        provider_name: Optional[str] = None,
-        retrieved_at: Optional[str] = None,
-    ) -> "SearchResult":
+        provider_name: str | None = None,
+        retrieved_at: str | None = None,
+    ) -> SearchResult:
         return replace(
             self,
             provider_name=provider_name or self.provider_name,
@@ -327,12 +326,12 @@ class SearchResult:
     def with_enrichment_metadata(
         self,
         *,
-        source_category: Optional[str] = None,
-        independence_key: Optional[str] = None,
-        relation_type: Optional[str] = None,
-        signal_tags: Optional[Tuple[str, ...]] = None,
-        query_label: Optional[str] = None,
-    ) -> "SearchResult":
+        source_category: str | None = None,
+        independence_key: str | None = None,
+        relation_type: str | None = None,
+        signal_tags: tuple[str, ...] | None = None,
+        query_label: str | None = None,
+    ) -> SearchResult:
         return replace(
             self,
             source_category=source_category or self.source_category,
@@ -368,7 +367,7 @@ class SearchResult:
         }
 
     @classmethod
-    def from_dict(cls, payload: dict[str, object]) -> "SearchResult":
+    def from_dict(cls, payload: dict[str, object]) -> SearchResult:
         return cls(
             case_id=str(payload.get("case_id") or "live"),
             query=str(payload.get("query") or ""),
@@ -408,21 +407,21 @@ class SearchResult:
 @dataclass(frozen=True)
 class RetrievalBundle:
     query: str
-    matched_case_id: Optional[str] = None
+    matched_case_id: str | None = None
     mode_hint: str = "safe"
-    raw_results: Tuple[SearchResult, ...] = ()
-    canonical_results: Tuple[SearchResult, ...] = ()
-    expected_origin_result_id: Optional[str] = None
-    expected_turning_point_result_id: Optional[str] = None
+    raw_results: tuple[SearchResult, ...] = ()
+    canonical_results: tuple[SearchResult, ...] = ()
+    expected_origin_result_id: str | None = None
+    expected_turning_point_result_id: str | None = None
     provider_name: str = "mock"
-    cache_key: Optional[str] = None
+    cache_key: str | None = None
     cache_status: str = "not_used"
     fallback_used: bool = False
-    fallback_reason: Optional[str] = None
-    retrieved_at: Optional[str] = None
-    failure_detail: Optional[str] = None
-    query_groups: Tuple[RetrievalQuerySpec, ...] = ()
-    query_failures: Tuple[str, ...] = ()
+    fallback_reason: str | None = None
+    retrieved_at: str | None = None
+    failure_detail: str | None = None
+    query_groups: tuple[RetrievalQuerySpec, ...] = ()
+    query_failures: tuple[str, ...] = ()
 
     @property
     def related_result_count(self) -> int:
@@ -500,16 +499,16 @@ class RetrievalBundle:
     def with_runtime_metadata(
         self,
         *,
-        provider_name: Optional[str] = None,
-        cache_key: Optional[str] = None,
-        cache_status: Optional[str] = None,
-        fallback_used: Optional[bool] = None,
-        fallback_reason: Optional[str] = None,
-        retrieved_at: Optional[str] = None,
-        failure_detail: Optional[str] = None,
-        query_groups: Optional[Tuple[RetrievalQuerySpec, ...]] = None,
-        query_failures: Optional[Tuple[str, ...]] = None,
-    ) -> "RetrievalBundle":
+        provider_name: str | None = None,
+        cache_key: str | None = None,
+        cache_status: str | None = None,
+        fallback_used: bool | None = None,
+        fallback_reason: str | None = None,
+        retrieved_at: str | None = None,
+        failure_detail: str | None = None,
+        query_groups: tuple[RetrievalQuerySpec, ...] | None = None,
+        query_failures: tuple[str, ...] | None = None,
+    ) -> RetrievalBundle:
         return replace(
             self,
             provider_name=provider_name or self.provider_name,
@@ -581,7 +580,7 @@ class RetrievalBundle:
         }
 
     @classmethod
-    def from_dict(cls, payload: dict[str, object]) -> "RetrievalBundle":
+    def from_dict(cls, payload: dict[str, object]) -> RetrievalBundle:
         return cls(
             query=str(payload.get("query") or ""),
             matched_case_id=payload.get("matched_case_id") if isinstance(payload.get("matched_case_id"), str) else None,

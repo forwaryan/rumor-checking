@@ -25,18 +25,18 @@ from __future__ import annotations
 
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout, wait
+from concurrent.futures import ThreadPoolExecutor, wait
+from concurrent.futures import TimeoutError as FuturesTimeout
 from contextvars import copy_context
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING
 
-from backend.app.agent.multi import AgentRole, AgentStatus, SubAgent, SubAgentResult
 from backend.app.agent.checkpoint import (
-    Checkpoint,
     DiskCheckpointStore,
     MemoryCheckpointStore,
     restore_state,
     snapshot_state,
 )
+from backend.app.agent.multi import AgentRole, AgentStatus, SubAgent, SubAgentResult
 from backend.app.agent.multi.analysis_agent import AnalysisAgent
 from backend.app.agent.multi.critic_agent import CriticAgent
 from backend.app.agent.multi.merge_agent import MergeAgent
@@ -45,8 +45,8 @@ from backend.app.agent.multi.report_agent import ReportAgent
 from backend.app.agent.multi.retrieval_agent import RetrievalAgent
 from backend.app.agent.multi.source_agents import SOURCE_ROLES, build_source_agents
 from backend.app.agent.state import AgentState
-from backend.app.agent_tools.base import ToolContext
 from backend.app.agent_tools import tools as _tools  # noqa: F401 — triggers @tool registration
+from backend.app.agent_tools.base import ToolContext
 from backend.app.models.schemas import AnalyzeRequest, Report
 from backend.app.services.progress import (
     emit_log,
@@ -55,6 +55,9 @@ from backend.app.services.progress import (
     reset_progress_callback,
     set_progress_callback,
 )
+
+if TYPE_CHECKING:
+    from backend.app.agent.multi import AgentConfig
 
 logger = logging.getLogger(__name__)
 
@@ -75,25 +78,20 @@ class Supervisor:
     def __init__(
         self,
         ctx: ToolContext,
-        agents: Optional[List[SubAgent]] = None,
-        agent_configs: Optional[Dict[AgentRole, "AgentConfig"]] = None,
+        agents: list[SubAgent] | None = None,
+        agent_configs: dict[AgentRole, AgentConfig] | None = None,
         max_parallel: int = 2,
-        retrieval_mode: Optional[str] = None,
+        retrieval_mode: str | None = None,
     ) -> None:
         self.ctx = ctx
         self.max_parallel = max_parallel
-        self._results: Dict[AgentRole, SubAgentResult] = {}
-        self.retrieval_mode = (
-            retrieval_mode
-            or getattr(ctx, "settings", None)
-            and getattr(ctx.settings, "multi_agent_retrieval_mode", "parallel")
-            or "parallel"
-        )
+        self._results: dict[AgentRole, SubAgentResult] = {}
+        settings_mode = getattr(getattr(ctx, "settings", None), "multi_agent_retrieval_mode", None)
+        self.retrieval_mode = retrieval_mode or settings_mode or "parallel"
 
         if agents:
-            self.agents: List[SubAgent] = agents
+            self.agents: list[SubAgent] = agents
         else:
-            from backend.app.agent.multi import AgentConfig
             configs = agent_configs or self._load_configs_from_settings()
             self.agents = self._default_agents(configs, mode=self.retrieval_mode)
 
@@ -105,7 +103,7 @@ class Supervisor:
             if a.role in {AgentRole.RETRIEVAL, AgentRole.NORMALIZE, AgentRole.RETRIEVAL_MERGE, *SOURCE_ROLES}
         ]
 
-    def run(self, request: AnalyzeRequest, run_id: Optional[str] = None) -> Report:
+    def run(self, request: AnalyzeRequest, run_id: str | None = None) -> Report:
         checkpoint_enabled = getattr(self.ctx.settings, "agent_checkpoint_enabled", False)
         checkpoint_store = None
         if checkpoint_enabled:
@@ -398,7 +396,7 @@ class Supervisor:
         downgraded = getattr(critic_result, "downgraded_indices", None)
         return bool(downgraded)
 
-    def _llm_route_loop_back(self, state: AgentState, fact_claims: list) -> Optional[bool]:
+    def _llm_route_loop_back(self, state: AgentState, fact_claims: list) -> bool | None:
         """LLM router: choose 'loop_back' vs 'finalize' from an evidence snapshot.
 
         Returns None (→ rule fallback) when routing is disabled, the reasoner is
@@ -466,10 +464,10 @@ class Supervisor:
 
     def _ready_agents(
         self,
-        agent_map: Dict[AgentRole, SubAgent],
+        agent_map: dict[AgentRole, SubAgent],
         completed: set[AgentRole],
         failed: set[AgentRole],
-    ) -> List[SubAgent]:
+    ) -> list[SubAgent]:
         """Find agents whose dependencies are all satisfied and haven't run yet."""
         done = completed | failed
         ready = []
@@ -492,10 +490,10 @@ class Supervisor:
 
     def _execute_batch(
         self,
-        agents: List[SubAgent],
+        agents: list[SubAgent],
         state: AgentState,
-        deadline: Optional[float],
-    ) -> List[SubAgentResult]:
+        deadline: float | None,
+    ) -> list[SubAgentResult]:
         """Execute a batch of ready agents. Parallel if >1 and max_parallel allows."""
         if len(agents) == 1 or self.max_parallel <= 1:
             results = []
@@ -512,7 +510,7 @@ class Supervisor:
         if offenders:
             raise RuntimeError(f"parallel_batch_declares_model_override:{','.join(offenders)}")
 
-        results: List[SubAgentResult] = []
+        results: list[SubAgentResult] = []
         with ThreadPoolExecutor(max_workers=min(len(agents), self.max_parallel)) as pool:
             # ContextVars (progress callback, retrieval stage key) do NOT cross into
             # pool threads — on 3.12 submit() runs the callable with a fresh empty
@@ -548,7 +546,7 @@ class Supervisor:
         self,
         agent: SubAgent,
         state: AgentState,
-        deadline: Optional[float],
+        deadline: float | None,
     ) -> SubAgentResult:
         """Run a single sub-agent with error containment, model isolation, and retry."""
         config = agent.config if hasattr(agent, "config") else None
@@ -580,7 +578,7 @@ class Supervisor:
 
         max_retries = getattr(config, "max_retries", 1) if config else 1
         timeout_seconds = getattr(config, "timeout_seconds", None) if config else None
-        result: Optional[SubAgentResult] = None
+        result: SubAgentResult | None = None
 
         for attempt in range(max_retries + 1):
             if attempt > 0:
@@ -636,7 +634,7 @@ class Supervisor:
         self,
         agent: SubAgent,
         state: AgentState,
-        timeout_seconds: Optional[float],
+        timeout_seconds: float | None,
     ) -> SubAgentResult:
         """Run agent.run, optionally bounded by a per-agent timeout.
 
@@ -683,8 +681,15 @@ class Supervisor:
                     try:
                         timeline_fn(self.ctx, state)
                         state.done_actions.append("build_timeline")
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        # build_timeline may have partially mutated state.timeline
+                        # before failing; finalize_report will still run and read
+                        # whatever landed. Log so the observability tail shows the
+                        # half-built state rather than a silent success.
+                        logger.warning(
+                            "supervisor_force_finalize_timeline_failed error=%s type=%s",
+                            exc, type(exc).__name__,
+                        )
 
             finalize_fn = get_tool_fn("finalize_report")
             if finalize_fn:
@@ -695,10 +700,10 @@ class Supervisor:
 
     @staticmethod
     def _default_agents(
-        configs: Optional[Dict[AgentRole, "AgentConfig"]] = None,
+        configs: dict[AgentRole, AgentConfig] | None = None,
         *,
         mode: str = "parallel",
-    ) -> List[SubAgent]:
+    ) -> list[SubAgent]:
         from backend.app.agent.multi import AgentConfig
         configs = configs or {}
 
@@ -752,7 +757,7 @@ class Supervisor:
             )
 
         analysis_upstream = AgentRole.RETRIEVAL if mode == "sequential" else AgentRole.RETRIEVAL_MERGE
-        analysis_chain: List[SubAgent] = [
+        analysis_chain: list[SubAgent] = [
             AnalysisAgent(config=cfg(AgentRole.ANALYSIS), depends_on=[analysis_upstream]),
             CriticAgent(config=cfg(AgentRole.CRITIC)),
             ReportAgent(config=cfg(AgentRole.REPORT)),
@@ -771,7 +776,7 @@ class Supervisor:
             *analysis_chain,
         ]
 
-    def _load_configs_from_settings(self) -> Dict[AgentRole, "AgentConfig"]:
+    def _load_configs_from_settings(self) -> dict[AgentRole, AgentConfig]:
         """Load per-agent model configs from environment/settings.
 
         Env vars:
@@ -781,9 +786,10 @@ class Supervisor:
           MULTI_AGENT_REPORT_MODEL=model-name
         """
         import os
+
         from backend.app.agent.multi import AgentConfig
 
-        configs: Dict[AgentRole, AgentConfig] = {}
+        configs: dict[AgentRole, AgentConfig] = {}
         for role in AgentRole:
             env_key = f"MULTI_AGENT_{role.value.upper()}_MODEL"
             model = os.environ.get(env_key, "").strip()

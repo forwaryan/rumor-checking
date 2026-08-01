@@ -1,7 +1,6 @@
 ﻿from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List
 
 from backend.app.models.schemas import ClaimItem, EvidenceItem, TimelineNode
 
@@ -11,12 +10,12 @@ class ScenarioTemplate:
     scenario_id: str
     title: str
     summary: str
-    keywords: List[str]
+    keywords: list[str]
     default_mode_hint: str
     default_evidence_grade: str
-    claims: List[ClaimItem] = field(default_factory=list)
-    evidence: List[EvidenceItem] = field(default_factory=list)
-    timeline: List[TimelineNode] = field(default_factory=list)
+    claims: list[ClaimItem] = field(default_factory=list)
+    evidence: list[EvidenceItem] = field(default_factory=list)
+    timeline: list[TimelineNode] = field(default_factory=list)
 
 
 SCENARIOS = {

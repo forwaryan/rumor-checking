@@ -1,7 +1,7 @@
 ﻿from __future__ import annotations
 
-from contextlib import contextmanager
 import json
+from contextlib import contextmanager
 
 import httpx
 from fastapi.testclient import TestClient
@@ -12,7 +12,6 @@ from backend.app.models.schemas import ClaimItem, EvidenceItem, ProviderAnalysis
 from backend.app.services.llm_provider import LlmStructuredProvider
 from backend.app.services.url_content_extractor import UrlContentExtractor
 from backend.tests.conftest import load_eval_fixture
-
 
 REPORT_KEYS = {
     "mode",

@@ -4,14 +4,25 @@ import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from backend.app.core.config import Settings, get_settings
 from backend.app.core.exceptions import AppError
 from backend.app.models.schemas import NormalizedEvent
-from backend.app.services.contract_utils import ensure_datetime_string, INPUT_PLACEHOLDER_SOURCE_NAMES
+from backend.app.services.contract_utils import INPUT_PLACEHOLDER_SOURCE_NAMES, ensure_datetime_string
 from backend.app.services.mock_retriever import MockRetriever
+from backend.app.services.piyao_provider import PiyaoSearchProvider
+from backend.app.services.playwright_search_provider import PlaywrightSearchProvider
+from backend.app.services.progress import (
+    emit_log,
+    emit_retrieval,
+    get_progress_callback,
+    reset_progress_callback,
+    reset_retrieval_stage_key,
+    set_progress_callback,
+    set_retrieval_stage_key,
+)
 from backend.app.services.question_intent import detect_trend_topic, is_broad_trend_question
 from backend.app.services.question_text import clean_question_term, strip_question_tail
 from backend.app.services.retrieval_cache import RetrievalCache
@@ -25,24 +36,13 @@ from backend.app.services.retrieval_models import (
     infer_source_category,
     looks_like_repost,
 )
-from backend.app.services.playwright_search_provider import PlaywrightSearchProvider
-from backend.app.services.piyao_provider import PiyaoSearchProvider
+from backend.app.services.retrieval_provider import GdeltNewsProvider, LlmWebSearchProvider, RetrievalProvider
 from backend.app.services.sogou_weixin_provider import SogouWeixinSearchProvider
 from backend.app.services.toutiao_search_provider import ToutiaoSearchProvider
 from backend.app.services.xhs_search_provider import XhsSearchProvider
-from backend.app.services.progress import (
-    emit_log,
-    emit_retrieval,
-    get_progress_callback,
-    reset_progress_callback,
-    reset_retrieval_stage_key,
-    set_progress_callback,
-    set_retrieval_stage_key,
-)
-from backend.app.services.retrieval_provider import GdeltNewsProvider, LlmWebSearchProvider, RetrievalProvider
 
 logger = logging.getLogger(__name__)
-UTC = timezone.utc
+UTC = UTC
 
 QUESTION_REWRITE_REPLACEMENTS = (
     (r"[\uFF1F?]", " "),
@@ -94,10 +94,10 @@ CLAUSE_SPLIT_RE = re.compile(r"[\u3002\uff01\uff1f!?;；，,\n]+")
 class RetrievalService:
     def __init__(
         self,
-        settings: Optional[Settings] = None,
-        provider: Optional[RetrievalProvider] = None,
-        cache: Optional[RetrievalCache] = None,
-        agent_reasoner: Optional[Any] = None,
+        settings: Settings | None = None,
+        provider: RetrievalProvider | None = None,
+        cache: RetrievalCache | None = None,
+        agent_reasoner: Any | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.provider = provider or self._build_provider()
@@ -112,7 +112,7 @@ class RetrievalService:
             ttl_seconds=self.settings.retrieval_cache_ttl_seconds,
         )
 
-    def _build_provider(self) -> Optional[RetrievalProvider]:
+    def _build_provider(self) -> RetrievalProvider | None:
         if self.settings.retrieval_provider == "gdelt":
             return GdeltNewsProvider(settings=self.settings)
         if self.settings.retrieval_provider == "playwright":
@@ -125,7 +125,7 @@ class RetrievalService:
         self,
         event: NormalizedEvent,
         *,
-        request_context: Optional[dict[str, Any]] = None,
+        request_context: dict[str, Any] | None = None,
     ) -> RetrievalBundle:
         request_context = request_context or {}
         # The caller (agent tool) owns the pipeline step this retrieval belongs to
@@ -160,7 +160,7 @@ class RetrievalService:
         return bundle
 
     @staticmethod
-    def _source_enabled(source_name: str, search_sources: Optional[list[str]]) -> bool:
+    def _source_enabled(source_name: str, search_sources: list[str] | None) -> bool:
         """Check if a source should run. If search_sources is None (no filter),
         all sources run. If it's a list, only listed sources run."""
         if search_sources is None:
@@ -278,11 +278,11 @@ class RetrievalService:
         # run the cache-miss fetches in parallel instead of summing their latencies.
         # ContextVar-based progress callbacks and the retrieval stage key don't cross
         # threads, so rebind both inside each worker.
-        fetch_outcomes: dict[int, tuple[Optional[list[SearchResult]], Optional[Exception]]] = {}
+        fetch_outcomes: dict[int, tuple[list[SearchResult] | None, Exception | None]] = {}
         if fetch_indices:
             parent_callback = get_progress_callback()
 
-            def _run_fetch(index: int) -> tuple[Optional[list[SearchResult]], Optional[Exception]]:
+            def _run_fetch(index: int) -> tuple[list[SearchResult] | None, Exception | None]:
                 spec = query_plan[index]
                 token = set_progress_callback(parent_callback) if parent_callback is not None else None
                 stage_token = set_retrieval_stage_key(stage_key)
@@ -570,41 +570,53 @@ class RetrievalService:
         )
         return combined
 
-    def _append_xhs_results(
-        self, bundle: RetrievalBundle, primary_query: str, *, stage_key: str
+    def _append_supplementary_results(
+        self,
+        bundle: RetrievalBundle,
+        primary_query: str,
+        *,
+        provider,
+        log_prefix: str,
+        override_source_category: str | None = None,
     ) -> RetrievalBundle:
-        """Append XHS social search results to an existing bundle.
+        """Run a supplementary provider (XHS / Toutiao / Sogou-WeChat / Piyao) and
+        merge its hits into ``bundle`` under the standard enrichment schema.
 
-        Fires a single xhs-cli search for a short query derived from the primary.
-        Results are merged into canonical_results as tier-C social evidence.
-        Degrades silently on failure — XHS is supplementary, never blocks.
+        Supplementary providers are best-effort: any exception is logged and the
+        original bundle is returned unchanged.
+
+        ``override_source_category`` pins a fixed source_category (e.g. Piyao's
+        ``official_debunking``); otherwise the category is inferred per hit.
         """
-        if not self.xhs_provider.enabled:
+        if not provider.enabled:
             return bundle
-        xhs_query = self._shorten_for_xhs(primary_query)
-        if not xhs_query:
+        short_query = self._shorten_for_supplementary(primary_query)
+        if not short_query:
             return bundle
         try:
-            xhs_results = self.xhs_provider.search(xhs_query, max_results=5)
+            hits = provider.search(short_query, max_results=5)
         except Exception as exc:
-            logger.warning("xhs_append_failed error=%s", exc)
+            logger.warning("%s_append_failed error=%s", log_prefix, exc)
             return bundle
-        if not xhs_results:
+        if not hits:
             return bundle
 
-        # Enrich with standard metadata (independence key, signal tags, etc.)
         retrieved_at = ensure_datetime_string(datetime.now(UTC).isoformat())
-        enriched = []
-        for item in xhs_results:
-            enriched.append(replace(
+        enriched = [
+            replace(
                 item,
                 retrieved_at=retrieved_at,
-                source_category=infer_source_category(item.url, item.source_name),
+                source_category=(
+                    override_source_category
+                    if override_source_category
+                    else infer_source_category(item.url, item.source_name)
+                ),
                 independence_key=build_independence_key(item.url, item.source_name),
                 signal_tags=detect_signal_tags(item.title, item.snippet, item.source_name),
-            ))
+            )
+            for item in hits
+        ]
 
-        # Merge with existing canonical results (dedup by independence_key)
         existing_keys = {r.independence_key for r in bundle.canonical_results if r.independence_key}
         new_results = [r for r in enriched if r.independence_key not in existing_keys]
         if not new_results:
@@ -616,150 +628,47 @@ class RetrievalService:
             bundle,
             canonical_results=combined_canonical,
             raw_results=combined_raw,
+        )
+
+    def _append_xhs_results(
+        self, bundle: RetrievalBundle, primary_query: str, *, stage_key: str
+    ) -> RetrievalBundle:
+        return self._append_supplementary_results(
+            bundle, primary_query, provider=self.xhs_provider, log_prefix="xhs"
         )
 
     def _append_toutiao_results(
         self, bundle: RetrievalBundle, primary_query: str, *, stage_key: str
     ) -> RetrievalBundle:
-        """Append Toutiao search results to an existing bundle.
-
-        Similar to XHS — fires a single search and merges results as tier-B evidence.
-        Degrades silently on failure.
-        """
-        if not self.toutiao_provider.enabled:
-            return bundle
-        toutiao_query = self._shorten_for_xhs(primary_query)
-        if not toutiao_query:
-            return bundle
-        try:
-            toutiao_results = self.toutiao_provider.search(toutiao_query, max_results=5)
-        except Exception as exc:
-            logger.warning("toutiao_append_failed error=%s", exc)
-            return bundle
-        if not toutiao_results:
-            return bundle
-
-        retrieved_at = ensure_datetime_string(datetime.now(UTC).isoformat())
-        enriched = []
-        for item in toutiao_results:
-            enriched.append(replace(
-                item,
-                retrieved_at=retrieved_at,
-                source_category=infer_source_category(item.url, item.source_name),
-                independence_key=build_independence_key(item.url, item.source_name),
-                signal_tags=detect_signal_tags(item.title, item.snippet, item.source_name),
-            ))
-
-        existing_keys = {r.independence_key for r in bundle.canonical_results if r.independence_key}
-        new_results = [r for r in enriched if r.independence_key not in existing_keys]
-        if not new_results:
-            return bundle
-
-        combined_canonical = tuple(list(bundle.canonical_results) + new_results)
-        combined_raw = tuple(list(bundle.raw_results) + new_results)
-        return replace(
-            bundle,
-            canonical_results=combined_canonical,
-            raw_results=combined_raw,
+        return self._append_supplementary_results(
+            bundle, primary_query, provider=self.toutiao_provider, log_prefix="toutiao"
         )
 
     def _append_sogou_weixin_results(
         self, bundle: RetrievalBundle, primary_query: str, *, stage_key: str
     ) -> RetrievalBundle:
-        """Append Sogou WeChat article results to an existing bundle.
-
-        Searches weixin.sogou.com for WeChat Official Account articles — the
-        primary distribution channel for Chinese fact-checkers (腾讯较真, etc.).
-        Degrades silently on failure.
-        """
-        if not self.sogou_weixin_provider.enabled:
-            return bundle
-        wx_query = self._shorten_for_xhs(primary_query)
-        if not wx_query:
-            return bundle
-        try:
-            wx_results = self.sogou_weixin_provider.search(wx_query, max_results=5)
-        except Exception as exc:
-            logger.warning("sogou_weixin_append_failed error=%s", exc)
-            return bundle
-        if not wx_results:
-            return bundle
-
-        retrieved_at = ensure_datetime_string(datetime.now(UTC).isoformat())
-        enriched = []
-        for item in wx_results:
-            enriched.append(replace(
-                item,
-                retrieved_at=retrieved_at,
-                source_category=infer_source_category(item.url, item.source_name),
-                independence_key=build_independence_key(item.url, item.source_name),
-                signal_tags=detect_signal_tags(item.title, item.snippet, item.source_name),
-            ))
-
-        existing_keys = {r.independence_key for r in bundle.canonical_results if r.independence_key}
-        new_results = [r for r in enriched if r.independence_key not in existing_keys]
-        if not new_results:
-            return bundle
-
-        combined_canonical = tuple(list(bundle.canonical_results) + new_results)
-        combined_raw = tuple(list(bundle.raw_results) + new_results)
-        return replace(
-            bundle,
-            canonical_results=combined_canonical,
-            raw_results=combined_raw,
+        return self._append_supplementary_results(
+            bundle, primary_query, provider=self.sogou_weixin_provider, log_prefix="sogou_weixin"
         )
 
     def _append_piyao_results(
         self, bundle: RetrievalBundle, primary_query: str, *, stage_key: str
     ) -> RetrievalBundle:
-        """Append results from the Chinese Internet Joint Rumor Debunking Platform.
-
-        piyao.org.cn is the authoritative government-backed debunking source.
-        Hits from this platform are S-tier by definition. Degrades silently on failure.
-        """
-        if not self.piyao_provider.enabled:
-            return bundle
-        piyao_query = self._shorten_for_xhs(primary_query)
-        if not piyao_query:
-            return bundle
-        try:
-            piyao_results = self.piyao_provider.search(piyao_query, max_results=5)
-        except Exception as exc:
-            logger.warning("piyao_append_failed error=%s", exc)
-            return bundle
-        if not piyao_results:
-            return bundle
-
-        retrieved_at = ensure_datetime_string(datetime.now(UTC).isoformat())
-        enriched = []
-        for item in piyao_results:
-            enriched.append(replace(
-                item,
-                retrieved_at=retrieved_at,
-                source_category="official_debunking",
-                independence_key=build_independence_key(item.url, item.source_name),
-                signal_tags=detect_signal_tags(item.title, item.snippet, item.source_name),
-            ))
-
-        existing_keys = {r.independence_key for r in bundle.canonical_results if r.independence_key}
-        new_results = [r for r in enriched if r.independence_key not in existing_keys]
-        if not new_results:
-            return bundle
-
-        combined_canonical = tuple(list(bundle.canonical_results) + new_results)
-        combined_raw = tuple(list(bundle.raw_results) + new_results)
-        return replace(
+        return self._append_supplementary_results(
             bundle,
-            canonical_results=combined_canonical,
-            raw_results=combined_raw,
+            primary_query,
+            provider=self.piyao_provider,
+            log_prefix="piyao",
+            override_source_category="official_debunking",
         )
 
-    def _shorten_for_xhs(self, query: str) -> str:
-        """Produce a short XHS-friendly query from the primary query.
+    def _shorten_for_supplementary(self, query: str) -> str:
+        """Produce a short query suitable for supplementary providers (XHS,
+        Toutiao, Sogou-WeChat, Piyao).
 
-        XHS works best with concise natural-language queries (4-8 chars).
-        Strategy: extract the first entity-like segment and first action-like
-        segment from the space-separated terms.
+        These providers all work best with concise natural-language queries
+        (4-8 Chinese chars). Strategy: extract the first entity-like segment and
+        first action-like segment from the space-separated terms.
         """
         # The primary_query is already term-extracted (e.g. "美团 裁了 30% 产品 美团")
         tokens = query.split()
@@ -1169,7 +1078,7 @@ class RetrievalService:
         return [s for s in segments if len(s) >= 2][:3]
 
     def build_query_plan(
-        self, event: NormalizedEvent, *, request_context: Optional[dict[str, Any]] = None
+        self, event: NormalizedEvent, *, request_context: dict[str, Any] | None = None
     ) -> list[RetrievalQuerySpec]:
         """Public entry to the query planner.
 
@@ -1355,7 +1264,7 @@ class RetrievalService:
                 )
         return query_plan[:5]
 
-    def _real_source_name(self, source_name: Optional[str]) -> Optional[str]:
+    def _real_source_name(self, source_name: str | None) -> str | None:
         # default_source_name emits UI placeholders ("用户提供文本") for inputs with
         # no real publisher. Those are provenance labels, never search terms — folding
         # them into a query drags in unrelated hits, so drop them before query build.
@@ -1378,7 +1287,7 @@ class RetrievalService:
         )
         return term_query or event.raw_input.strip()
 
-    def _build_term_query(self, *texts: Optional[str], max_terms: int = 8) -> str:
+    def _build_term_query(self, *texts: str | None, max_terms: int = 8) -> str:
         terms: list[str] = []
         seen: set[str] = set()
         for text in texts:
@@ -1394,7 +1303,7 @@ class RetrievalService:
                     return " ".join(terms)
         return " ".join(terms)
 
-    def _extract_claim_clauses(self, *texts: Optional[str]) -> list[str]:
+    def _extract_claim_clauses(self, *texts: str | None) -> list[str]:
         clauses: list[str] = []
         seen: set[str] = set()
         for text in texts:
@@ -1410,7 +1319,7 @@ class RetrievalService:
                     return clauses
         return clauses
 
-    def _extend_query(self, base_query: str, *extra_terms: Optional[str]) -> str:
+    def _extend_query(self, base_query: str, *extra_terms: str | None) -> str:
         return self._build_term_query(base_query, " ".join(term for term in extra_terms if term))
 
     _NUMERIC_PERCENT_RE = re.compile(r"\d+(?:\.\d+)?%?")
@@ -1453,7 +1362,7 @@ class RetrievalService:
             )
         )
 
-    def _combine_cache_keys(self, bundles: list[RetrievalBundle]) -> Optional[str]:
+    def _combine_cache_keys(self, bundles: list[RetrievalBundle]) -> str | None:
         keys = [bundle.cache_key for bundle in bundles if bundle.cache_key]
         if not keys:
             return None
@@ -1491,7 +1400,7 @@ class RetrievalService:
         fallback_used: bool = False,
         fallback_reason: str | None = None,
         failure_detail: str | None = None,
-        query_plan: Optional[list[RetrievalQuerySpec]] = None,
+        query_plan: list[RetrievalQuerySpec] | None = None,
         query_failures: tuple[str, ...] = (),
     ) -> RetrievalBundle:
         return RetrievalBundle(
@@ -1631,7 +1540,7 @@ class RetrievalService:
     def _normalize_query(self, query: str) -> str:
         return re.sub(r"\s+", " ", query).strip()
 
-    def _summarize_query_failures(self, failures: list[str]) -> Optional[str]:
+    def _summarize_query_failures(self, failures: list[str]) -> str | None:
         normalized = [failure for failure in failures if failure]
         if not normalized:
             return None

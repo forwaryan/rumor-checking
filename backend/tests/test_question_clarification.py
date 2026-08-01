@@ -115,8 +115,8 @@ def test_resolution_details_do_not_leak_ambiguity_when_flag_off(monkeypatch):
     leak into the pipeline-trace details either."""
     from dataclasses import replace
 
-    from backend.app.core import config
     import backend.app.services.analyze_pipeline as ap
+    from backend.app.core import config
     from backend.app.services.analyze_pipeline import _question_resolution_details
 
     event = NormalizedEvent(summary="s", input_type="question_only", raw_input="r")
@@ -135,8 +135,8 @@ def test_resolution_details_do_not_leak_ambiguity_when_flag_off(monkeypatch):
 def test_resolution_details_show_ambiguity_when_flag_on(monkeypatch):
     from dataclasses import replace
 
-    from backend.app.core import config
     import backend.app.services.analyze_pipeline as ap
+    from backend.app.core import config
     from backend.app.services.analyze_pipeline import _question_resolution_details
 
     event = NormalizedEvent(summary="s", input_type="question_only", raw_input="r")

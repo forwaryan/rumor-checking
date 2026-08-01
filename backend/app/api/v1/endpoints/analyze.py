@@ -4,7 +4,7 @@ import json
 import logging
 import queue
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from threading import Thread
 from typing import Any
 from uuid import uuid4
@@ -43,7 +43,7 @@ def analyze_stream(payload: AnalyzeRequest, request: Request) -> StreamingRespon
     def push_event(event: dict[str, Any]) -> None:
         event_queue.put(
             {
-                "emitted_at": datetime.now(timezone.utc).isoformat(),
+                "emitted_at": datetime.now(UTC).isoformat(),
                 **event,
             }
         )
@@ -156,7 +156,7 @@ def analyze_stream(payload: AnalyzeRequest, request: Request) -> StreamingRespon
                     {
                         "type": "heartbeat",
                         "run_id": run_id,
-                        "emitted_at": datetime.now(timezone.utc).isoformat(),
+                        "emitted_at": datetime.now(UTC).isoformat(),
                     },
                     ensure_ascii=False,
                 ) + "\n"

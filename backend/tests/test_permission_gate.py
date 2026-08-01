@@ -99,10 +99,10 @@ def test_gate_selective_by_name():
 
 
 def test_runner_skips_denied_tool(monkeypatch):
+    import backend.app.agent_tools.base as base_mod
     from backend.app.agent.runner import AgentRunner
     from backend.app.agent.state import AgentState, StepOutcome
     from backend.app.agent_tools.base import ToolContext
-    import backend.app.agent_tools.base as base_mod
 
     class FakeSettings:
         agent_max_url_fetches = 0

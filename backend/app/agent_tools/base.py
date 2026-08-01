@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any
 
 
 @dataclass
@@ -76,13 +77,13 @@ def tool(
     return decorator
 
 
-def get_tool_spec(name: str) -> Optional[ToolSpec]:
+def get_tool_spec(name: str) -> ToolSpec | None:
     """Look up a tool's metadata by action name."""
     entry = _TOOL_REGISTRY.get(name)
     return entry[0] if entry else None
 
 
-def get_tool_fn(name: str) -> Optional[Callable]:
+def get_tool_fn(name: str) -> Callable | None:
     """Look up a tool's callable by action name."""
     entry = _TOOL_REGISTRY.get(name)
     return entry[1] if entry else None
@@ -107,7 +108,7 @@ class PermissionGate:
     is skipped. Once approved, it's remembered for the rest of the run.
     """
 
-    def __init__(self, callback: Optional[PermissionCallback] = None):
+    def __init__(self, callback: PermissionCallback | None = None):
         self._callback = callback
         self._approved: set[str] = set()
         self._denied: set[str] = set()
@@ -147,8 +148,8 @@ class HookContext:
     action: str
     state: Any
     ctx: Any
-    outcome: Optional[Any] = None
-    error: Optional[Exception] = None
+    outcome: Any | None = None
+    error: Exception | None = None
 
 
 PreHook = Callable[[HookContext], None]

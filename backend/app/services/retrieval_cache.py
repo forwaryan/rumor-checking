@@ -2,15 +2,14 @@
 
 import hashlib
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 from backend.app.services.retrieval_deduper import compact_text
 from backend.app.services.retrieval_models import RetrievalBundle
 
 CACHE_SCHEMA_VERSION = 2
-UTC = timezone.utc
+UTC = UTC
 
 
 class RetrievalCache:
@@ -18,11 +17,11 @@ class RetrievalCache:
         self.cache_root = cache_root
         self.ttl_seconds = ttl_seconds
 
-    def build_cache_key(self, *, query_text: str, provider_name: str, scope_key: Optional[str] = None) -> str:
+    def build_cache_key(self, *, query_text: str, provider_name: str, scope_key: str | None = None) -> str:
         normalized_query = compact_text(query_text)
         normalized_scope = compact_text(scope_key or "")
         digest = hashlib.sha256(
-            f"v{CACHE_SCHEMA_VERSION}|{provider_name}|{normalized_scope}|{normalized_query}".encode("utf-8")
+            f"v{CACHE_SCHEMA_VERSION}|{provider_name}|{normalized_scope}|{normalized_query}".encode()
         ).hexdigest()
         return digest[:24]
 
@@ -32,8 +31,8 @@ class RetrievalCache:
         query_text: str,
         provider_name: str,
         allow_stale: bool = False,
-        scope_key: Optional[str] = None,
-    ) -> Optional[RetrievalBundle]:
+        scope_key: str | None = None,
+    ) -> RetrievalBundle | None:
         path = self._path_for(query_text=query_text, provider_name=provider_name, scope_key=scope_key)
         if not path.exists():
             return None
@@ -61,7 +60,7 @@ class RetrievalCache:
         query_text: str,
         provider_name: str,
         bundle: RetrievalBundle,
-        scope_key: Optional[str] = None,
+        scope_key: str | None = None,
     ) -> Path:
         path = self._path_for(query_text=query_text, provider_name=provider_name, scope_key=scope_key)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -83,11 +82,11 @@ class RetrievalCache:
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         return path
 
-    def _path_for(self, *, query_text: str, provider_name: str, scope_key: Optional[str] = None) -> Path:
+    def _path_for(self, *, query_text: str, provider_name: str, scope_key: str | None = None) -> Path:
         key = self.build_cache_key(query_text=query_text, provider_name=provider_name, scope_key=scope_key)
         return self.cache_root / provider_name / f"{key}.json"
 
-    def _parse_datetime(self, value: object) -> Optional[datetime]:
+    def _parse_datetime(self, value: object) -> datetime | None:
         if not isinstance(value, str) or not value:
             return None
         normalized = value.replace("Z", "+00:00")

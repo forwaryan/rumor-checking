@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from backend.app.services.sogou_weixin_provider import SogouWeixinSearchProvider
 
-
 SOGOU_WEIXIN_HTML = """
 <html><body>
 <ul class="news-list">

@@ -19,7 +19,6 @@ matters, and its query plan already fans out internally.
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
 
 from backend.app.agent.multi import AgentConfig, AgentRole, AgentStatus, SubAgentResult
 from backend.app.agent.state import AgentState
@@ -38,7 +37,7 @@ class SourceRetrievalAgent:
         role: AgentRole,
         source_key: str,
         force_primary_query: bool,
-        config: Optional[AgentConfig] = None,
+        config: AgentConfig | None = None,
     ) -> None:
         self.role = role
         self.source_key = source_key
@@ -48,7 +47,7 @@ class SourceRetrievalAgent:
         self.description = f"Retrieve evidence from source={source_key} in isolation."
 
     @property
-    def dependencies(self) -> List[AgentRole]:
+    def dependencies(self) -> list[AgentRole]:
         return [AgentRole.NORMALIZE]
 
     def run(self, state: AgentState, ctx: ToolContext) -> SubAgentResult:
@@ -137,7 +136,7 @@ _SOURCE_SPECS = [
 ]
 
 
-def build_source_agents() -> List[SourceRetrievalAgent]:
+def build_source_agents() -> list[SourceRetrievalAgent]:
     return [
         SourceRetrievalAgent(role=role, source_key=key, force_primary_query=force)
         for role, key, force in _SOURCE_SPECS

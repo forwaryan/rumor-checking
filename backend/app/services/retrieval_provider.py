@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import datetime, timezone
-from typing import Any, List, Optional, Protocol
+from datetime import UTC, datetime
+from typing import Any, Protocol
 from urllib.parse import urlparse
 
 import httpx
@@ -70,7 +70,7 @@ Rules:
 """.strip()
 
 
-def _clean_text(value: Any) -> Optional[str]:
+def _clean_text(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
     compact = re.sub(r"\s+", " ", value).strip()
@@ -87,7 +87,7 @@ def _published_at(raw_value: Any) -> str:
     if not value:
         return ensure_datetime_string(None)
     if re.fullmatch(r"\d{8}T\d{6}Z", value):
-        parsed = datetime.strptime(value, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+        parsed = datetime.strptime(value, "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
         return parsed.isoformat()
     return ensure_datetime_string(value)
 
@@ -107,21 +107,21 @@ class RetrievalProvider(Protocol):
     name: str
     enabled: bool
 
-    def search(self, query_text: str) -> List[SearchResult]:
+    def search(self, query_text: str) -> list[SearchResult]:
         ...
 
 
 class GdeltNewsProvider:
     name = "gdelt"
 
-    def __init__(self, settings: Optional[Settings] = None) -> None:
+    def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
 
     @property
     def enabled(self) -> bool:
         return self.settings.retrieval_provider == self.name
 
-    def search(self, query_text: str) -> List[SearchResult]:
+    def search(self, query_text: str) -> list[SearchResult]:
         if not self.enabled:
             return []
 
@@ -162,12 +162,12 @@ class GdeltNewsProvider:
         )
         return results
 
-    def _parse_articles(self, query_text: str, payload: Any) -> List[SearchResult]:
+    def _parse_articles(self, query_text: str, payload: Any) -> list[SearchResult]:
         articles = payload.get("articles") if isinstance(payload, dict) else None
         if not isinstance(articles, list):
             return []
 
-        results: List[SearchResult] = []
+        results: list[SearchResult] = []
         for index, article in enumerate(articles, start=1):
             if not isinstance(article, dict):
                 continue
@@ -212,14 +212,14 @@ class GdeltNewsProvider:
 class LlmWebSearchProvider:
     name = "kimi"
 
-    def __init__(self, settings: Optional[Settings] = None) -> None:
+    def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
 
     @property
     def enabled(self) -> bool:
         return self.settings.uses_agent_retrieval and bool(self.settings.llm_api_key)
 
-    def search(self, query_text: str) -> List[SearchResult]:
+    def search(self, query_text: str) -> list[SearchResult]:
         if not self.enabled:
             raise RuntimeError("LLM web search is not configured.")
 
@@ -363,7 +363,7 @@ class LlmWebSearchProvider:
         if isinstance(content, str):
             return content.strip()
         if isinstance(content, list):
-            parts: List[str] = []
+            parts: list[str] = []
             for item in content:
                 if isinstance(item, dict):
                     text = item.get("text")
@@ -372,7 +372,7 @@ class LlmWebSearchProvider:
             return "\n".join(parts)
         return ""
 
-    def _parse_results(self, query_text: str, content: str) -> List[SearchResult]:
+    def _parse_results(self, query_text: str, content: str) -> list[SearchResult]:
         payload = loads_lenient_json(content)
         if payload is None:
             return []
@@ -381,7 +381,7 @@ class LlmWebSearchProvider:
         if not isinstance(raw_results, list):
             return []
 
-        results: List[SearchResult] = []
+        results: list[SearchResult] = []
         for index, item in enumerate(raw_results, start=1):
             if not isinstance(item, dict):
                 continue

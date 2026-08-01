@@ -4,7 +4,7 @@ import json
 import logging
 import re
 from html import unescape
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -45,7 +45,7 @@ DATE_RE = re.compile(
 
 
 class UrlContentExtractor:
-    def __init__(self, settings: Optional[Settings] = None) -> None:
+    def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
 
     def extract(self, url: str) -> MockFetchResult:
@@ -171,7 +171,7 @@ class UrlContentExtractor:
         return response.text
 
     @staticmethod
-    def _sniff_meta_charset(raw: bytes) -> Optional[str]:
+    def _sniff_meta_charset(raw: bytes) -> str | None:
         # Only the first ~2KB carries the <head> charset declaration.
         head = raw[:2048].decode("ascii", errors="ignore").lower()
         match = re.search(r'charset\s*=\s*["\']?\s*([a-z0-9_\-]+)', head)
@@ -188,7 +188,7 @@ class UrlContentExtractor:
         html: str,
         final_url: str,
         content_type: str,
-        fallback_source_name: Optional[str],
+        fallback_source_name: str | None,
     ) -> MockFetchResult:
         meta = self._extract_meta_map(html)
         json_ld_nodes = self._extract_json_ld_nodes(html)
@@ -293,7 +293,7 @@ class UrlContentExtractor:
                 items.extend(self._walk_json_ld(nested))
         return items
 
-    def _extract_body_text(self, html: str, *, json_ld_body: Optional[str]) -> Optional[str]:
+    def _extract_body_text(self, html: str, *, json_ld_body: str | None) -> str | None:
         candidates = [self._extract_blocks(fragment) for fragment in ARTICLE_RE.findall(html)]
         candidates.extend(self._extract_blocks(fragment) for fragment in MAIN_RE.findall(html))
         candidates.append(self._extract_blocks(html))
@@ -326,7 +326,7 @@ class UrlContentExtractor:
     def _score_blocks(self, blocks: list[str]) -> int:
         return sum(len(item) for item in blocks) + len(blocks) * 40
 
-    def _join_blocks(self, blocks: list[str]) -> Optional[str]:
+    def _join_blocks(self, blocks: list[str]) -> str | None:
         if not blocks:
             return None
 
@@ -350,7 +350,7 @@ class UrlContentExtractor:
             return None
         return "\n\n".join(joined)
 
-    def _build_snippet(self, *, description: Optional[str], body: Optional[str]) -> Optional[str]:
+    def _build_snippet(self, *, description: str | None, body: str | None) -> str | None:
         if description:
             return self._truncate(description, 180)
         if not body:
@@ -360,7 +360,7 @@ class UrlContentExtractor:
         preview = " ".join(sentences[:2]) if sentences else body
         return self._truncate(preview, 180)
 
-    def _determine_status(self, *, title: Optional[str], body: Optional[str], snippet: Optional[str]) -> str:
+    def _determine_status(self, *, title: str | None, body: str | None, snippet: str | None) -> str:
         body_length = len(body or "")
         if (title and body_length >= 140) or body_length >= 280:
             return "ok"
@@ -382,13 +382,13 @@ class UrlContentExtractor:
             attrs[key.lower()] = unescape(cleaned.strip())
         return attrs
 
-    def _extract_tag_text(self, pattern: re.Pattern[str], html: str) -> Optional[str]:
+    def _extract_tag_text(self, pattern: re.Pattern[str], html: str) -> str | None:
         match = pattern.search(html)
         if not match:
             return None
         return self._clean_html_text(match.group(1))
 
-    def _extract_time_value(self, html: str) -> Optional[str]:
+    def _extract_time_value(self, html: str) -> str | None:
         for candidate in TIME_RE.findall(html):
             for raw_value in candidate:
                 cleaned = self._clean_html_text(raw_value)
@@ -396,7 +396,7 @@ class UrlContentExtractor:
                     return cleaned
         return None
 
-    def _extract_name_field(self, value: Any) -> Optional[str]:
+    def _extract_name_field(self, value: Any) -> str | None:
         if isinstance(value, str):
             return self._clean_optional_string(value)
         if isinstance(value, dict):
@@ -408,7 +408,7 @@ class UrlContentExtractor:
                     return candidate
         return None
 
-    def _normalize_date_candidate(self, value: Any) -> Optional[str]:
+    def _normalize_date_candidate(self, value: Any) -> str | None:
         cleaned = self._clean_optional_string(value)
         if not cleaned:
             return None
@@ -429,7 +429,7 @@ class UrlContentExtractor:
             normalized += tz
         return normalized
 
-    def _clean_html_text(self, raw_html: str) -> Optional[str]:
+    def _clean_html_text(self, raw_html: str) -> str | None:
         compact = COMMENT_RE.sub(" ", raw_html)
         compact = BLOCK_BREAK_RE.sub("\n", compact)
         compact = TAG_RE.sub(" ", compact)
@@ -438,13 +438,13 @@ class UrlContentExtractor:
         merged = "\n".join(line for line in lines if line)
         return self._clean_optional_string(merged)
 
-    def _clean_optional_string(self, value: Any) -> Optional[str]:
+    def _clean_optional_string(self, value: Any) -> str | None:
         if not isinstance(value, str):
             return None
         compact = re.sub(r"\s+", " ", value).strip()
         return compact or None
 
-    def _pick_first(self, *values: Optional[str]) -> Optional[str]:
+    def _pick_first(self, *values: str | None) -> str | None:
         for value in values:
             cleaned = self._clean_optional_string(value)
             if cleaned:
@@ -462,7 +462,7 @@ class UrlContentExtractor:
             ordered.append(cleaned)
         return ordered
 
-    def _is_body_block(self, text: Optional[str]) -> bool:
+    def _is_body_block(self, text: str | None) -> bool:
         if not text:
             return False
         if UNWANTED_TEXT_RE.search(text):
@@ -471,7 +471,7 @@ class UrlContentExtractor:
             return True
         return len(text) >= 18 and any(marker in text for marker in "。！？.!?")
 
-    def _truncate(self, text: Optional[str], limit: int) -> Optional[str]:
+    def _truncate(self, text: str | None, limit: int) -> str | None:
         cleaned = self._clean_optional_string(text)
         if not cleaned:
             return None

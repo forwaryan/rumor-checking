@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence, Tuple
 
 from backend.app.models.schemas import ClaimItem, ClaimSourceType, NormalizedEvent
 from backend.app.services.contract_utils import INPUT_PLACEHOLDER_SOURCE_NAMES
@@ -219,19 +219,19 @@ def _strip_trailing_subject_adverbs(text: str) -> str:
 
 @dataclass(frozen=True)
 class ClaimExtraction:
-    claims: List[ClaimItem]
+    claims: list[ClaimItem]
     source: ClaimSourceType
-    query_hints: Dict[str, List[str]] = field(default_factory=dict)
+    query_hints: dict[str, list[str]] = field(default_factory=dict)
 
 
 class ClaimExtractor:
-    def extract(self, event: NormalizedEvent, provider_claims: Optional[List[ClaimItem]] = None) -> List[ClaimItem]:
+    def extract(self, event: NormalizedEvent, provider_claims: list[ClaimItem] | None = None) -> list[ClaimItem]:
         return self.extract_with_source(event, provider_claims=provider_claims).claims
 
     def extract_with_source(
         self,
         event: NormalizedEvent,
-        provider_claims: Optional[List[ClaimItem]] = None,
+        provider_claims: list[ClaimItem] | None = None,
     ) -> ClaimExtraction:
         if provider_claims:
             merged = self._refine_provider_claims(event, provider_claims)
@@ -255,7 +255,7 @@ class ClaimExtractor:
             query_hints=self._build_query_hints(event, rule_claims),
         )
 
-    def classify(self, claim: str, provider_type: Optional[str] = None) -> str:
+    def classify(self, claim: str, provider_type: str | None = None) -> str:
         normalized = claim.strip()
         if any(token in normalized for token in OPINION_MARKERS):
             return "opinion"
@@ -269,19 +269,19 @@ class ClaimExtractor:
             return provider_type
         return "fact"
 
-    def _extract_rule_claims(self, event: NormalizedEvent) -> List[ClaimItem]:
+    def _extract_rule_claims(self, event: NormalizedEvent) -> list[ClaimItem]:
         broad_trend_claim = rewrite_broad_trend_question_as_claim(event.raw_input)
         if event.input_type == "question_only" and broad_trend_claim:
             return [ClaimItem(claim=broad_trend_claim, claim_type="fact")]
 
         fragments = self._candidate_fragments(event)
-        claims: List[ClaimItem] = []
+        claims: list[ClaimItem] = []
         seen: set[str] = set()
 
         if event.fallback_used and event.input_type in {"url_news", "url_unknown"}:
             self._push_claim("当前链接页面缺少完整正文或正式来源。", claims, seen)
 
-        last_subject: Optional[str] = None
+        last_subject: str | None = None
         for fragment in fragments:
             cleaned = self._normalize_fragment(fragment, context_subjects=self._event_subject_candidates(event), last_subject=last_subject)
             if not cleaned or len(cleaned) < 6 or self._looks_like_scaffolding(cleaned):
@@ -296,14 +296,14 @@ class ClaimExtractor:
                 break
         return claims[:6]
 
-    def _refine_provider_claims(self, event: NormalizedEvent, provider_claims: Sequence[ClaimItem]) -> List[ClaimItem]:
+    def _refine_provider_claims(self, event: NormalizedEvent, provider_claims: Sequence[ClaimItem]) -> list[ClaimItem]:
         context_subjects = self._event_subject_candidates(event)
-        best_by_claim: Dict[str, Tuple[int, int, int, ClaimItem]] = {}
+        best_by_claim: dict[str, tuple[int, int, int, ClaimItem]] = {}
         order = 0
 
         for item in provider_claims:
             fragments = self._expand_provider_claim(item.claim)
-            last_subject: Optional[str] = None
+            last_subject: str | None = None
             for fragment in fragments:
                 cleaned = self._normalize_fragment(fragment, context_subjects=context_subjects, last_subject=last_subject)
                 if not cleaned or self._looks_like_scaffolding(cleaned):
@@ -327,8 +327,8 @@ class ClaimExtractor:
         ordered = [item[3] for item in sorted(best_by_claim.values(), key=lambda value: (value[0], value[1], value[2]))]
         return ordered[:6]
 
-    def _candidate_fragments(self, event: NormalizedEvent) -> List[str]:
-        fragments: List[str] = []
+    def _candidate_fragments(self, event: NormalizedEvent) -> list[str]:
+        fragments: list[str] = []
         source_texts = [event.raw_input, event.summary]
         if event.input_type != "question_only":
             source_texts.append(event.title)
@@ -346,16 +346,16 @@ class ClaimExtractor:
                 fragments.extend(self._split_compound_fragment(sentence))
         return fragments
 
-    def _expand_provider_claim(self, claim: str) -> List[str]:
-        fragments: List[str] = []
+    def _expand_provider_claim(self, claim: str) -> list[str]:
+        fragments: list[str] = []
         for sentence in SPLIT_PATTERN.split(claim):
             if not sentence.strip():
                 continue
             fragments.extend(self._split_compound_fragment(sentence))
         return fragments or [claim]
 
-    def _split_compound_fragment(self, fragment: str) -> List[str]:
-        clauses: List[str] = []
+    def _split_compound_fragment(self, fragment: str) -> list[str]:
+        clauses: list[str] = []
         comma_parts = [part.strip() for part in CLAUSE_SPLIT_PATTERN.split(fragment) if part.strip()]
         if not comma_parts:
             return []
@@ -389,7 +389,7 @@ class ClaimExtractor:
 
         return clauses or [fragment]
 
-    def _split_at_verb_boundary(self, text: str) -> List[str]:
+    def _split_at_verb_boundary(self, text: str) -> list[str]:
         """Split a clause at action-verb boundaries (买了/招了/建了 etc.) when
         it contains multiple independent sub-facts without connectors."""
         matches = list(_VERB_BOUNDARY_RE.finditer(text))
@@ -406,7 +406,7 @@ class ClaimExtractor:
             segments.append(text[bounds[i] : end].strip())
         return [s for s in segments if len(s) >= 4]
 
-    def _push_claim(self, raw_text: str, claims: List[ClaimItem], seen: set[str]) -> None:
+    def _push_claim(self, raw_text: str, claims: list[ClaimItem], seen: set[str]) -> None:
         normalized = re.sub(r"[。！？?!]+$", "", raw_text).strip()
         if not normalized or normalized in seen:
             return
@@ -419,7 +419,7 @@ class ClaimExtractor:
         fragment: str,
         *,
         context_subjects: Sequence[str],
-        last_subject: Optional[str],
+        last_subject: str | None,
     ) -> str:
         cleaned = self._clean_fragment(fragment)
         if not cleaned:
@@ -471,8 +471,8 @@ class ClaimExtractor:
         self,
         fragment: str,
         context_subjects: Sequence[str],
-        last_subject: Optional[str],
-    ) -> Optional[str]:
+        last_subject: str | None,
+    ) -> str | None:
         for prefix, hints in COMPATIBILITY_HINTS.items():
             if fragment.startswith(prefix):
                 for candidate in list(filter(None, [last_subject])) + list(context_subjects):
@@ -520,11 +520,11 @@ class ClaimExtractor:
             score -= 1
         return score
 
-    def _event_subject_candidates(self, event: NormalizedEvent) -> List[str]:
-        ordered: List[str] = []
+    def _event_subject_candidates(self, event: NormalizedEvent) -> list[str]:
+        ordered: list[str] = []
         seen = set()
 
-        def push(candidate: Optional[str]) -> None:
+        def push(candidate: str | None) -> None:
             if not candidate:
                 return
             cleaned = candidate.strip(" ，,：:；;。")
@@ -543,8 +543,8 @@ class ClaimExtractor:
             push(candidate)
         return ordered
 
-    def _extract_subject_candidates(self, text: str) -> List[str]:
-        ordered: List[str] = []
+    def _extract_subject_candidates(self, text: str) -> list[str]:
+        ordered: list[str] = []
         seen = set()
 
         def push(candidate: str) -> None:
@@ -563,7 +563,7 @@ class ClaimExtractor:
             push(candidate)
         return ordered
 
-    def _topic_subject(self, candidates: Sequence[str]) -> Optional[str]:
+    def _topic_subject(self, candidates: Sequence[str]) -> str | None:
         if not candidates:
             return None
         preferred = [item for item in candidates if not item.endswith(("公司", "集团", "运营公司"))]
@@ -571,8 +571,8 @@ class ClaimExtractor:
             return min(preferred, key=len)
         return min(candidates, key=len)
 
-    def _build_query_hints(self, event: NormalizedEvent, claims: Sequence[ClaimItem]) -> Dict[str, List[str]]:
-        query_hints: Dict[str, List[str]] = {}
+    def _build_query_hints(self, event: NormalizedEvent, claims: Sequence[ClaimItem]) -> dict[str, list[str]]:
+        query_hints: dict[str, list[str]] = {}
         context_subjects = self._event_subject_candidates(event)
 
         for item in claims:
@@ -582,7 +582,7 @@ class ClaimExtractor:
             numbers = re.findall(r"\d+(?:\.\d+)?%?", item.claim)
             times = [match.group(0) for match in TIME_PATTERN.finditer(item.claim)]
 
-            queries: List[str] = []
+            queries: list[str] = []
             base_tokens = self._dedupe_tokens(([topic_subject] if topic_subject else []) + actions + numbers + times)
             if base_tokens:
                 queries.append(" ".join(base_tokens[:6]))
@@ -598,8 +598,8 @@ class ClaimExtractor:
             query_hints[item.claim] = self._dedupe_tokens(queries)[:3]
         return query_hints
 
-    def _dedupe_tokens(self, values: Sequence[str]) -> List[str]:
-        ordered: List[str] = []
+    def _dedupe_tokens(self, values: Sequence[str]) -> list[str]:
+        ordered: list[str] = []
         seen = set()
         for item in values:
             cleaned = item.strip()

@@ -21,8 +21,9 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -37,7 +38,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class _ModelState:
     consecutive_errors: int = 0
-    unhealthy_since: Optional[float] = None
+    unhealthy_since: float | None = None
     total_failures: int = 0
     total_evictions: int = 0
     total_successes: int = 0
@@ -57,7 +58,7 @@ class ModelHealthRegistry:
 
     failure_threshold: int = 3
     recovery_seconds: float = 300.0
-    _states: Dict[str, _ModelState] = field(default_factory=dict)
+    _states: dict[str, _ModelState] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
     def _now(self) -> float:
@@ -99,7 +100,7 @@ class ModelHealthRegistry:
                 state.unhealthy_since = self._now()
                 state.total_evictions += 1
 
-    def order_by_health(self, models: Sequence[str]) -> List[str]:
+    def order_by_health(self, models: Sequence[str]) -> list[str]:
         """Return ``models`` with healthy ones first, preserving input order
         within each group. Deduplicates while keeping first occurrence.
 
@@ -108,8 +109,8 @@ class ModelHealthRegistry:
         best-effort candidate to try (mirrors HappyClaw's last-resort fallback).
         """
         seen: set[str] = set()
-        healthy: List[str] = []
-        unhealthy: List[str] = []
+        healthy: list[str] = []
+        unhealthy: list[str] = []
         for model in models:
             if not model or model in seen:
                 continue
@@ -117,13 +118,13 @@ class ModelHealthRegistry:
             (healthy if self.is_healthy(model) else unhealthy).append(model)
         return healthy + unhealthy
 
-    def snapshot(self) -> Dict[str, Dict[str, Any]]:
+    def snapshot(self) -> dict[str, dict[str, Any]]:
         """Return a copy of every seen model's health counters. Ops-facing:
         a model never touched is absent (fresh models start healthy by default,
         so the empty state is the correct default). Values are plain dicts so
         callers can json-serialize the result without touching internals."""
         with self._lock:
-            out: Dict[str, Dict[str, Any]] = {}
+            out: dict[str, dict[str, Any]] = {}
             for name, state in self._states.items():
                 out[name] = {
                     "healthy": state.unhealthy_since is None,
@@ -136,9 +137,9 @@ class ModelHealthRegistry:
 
 
 def diff_snapshot(
-    before: Dict[str, Dict[str, Any]],
-    after: Dict[str, Dict[str, Any]],
-) -> Dict[str, Dict[str, int]]:
+    before: dict[str, dict[str, Any]],
+    after: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, int]]:
     """Return per-model failure/success/eviction deltas between two snapshots.
 
     Used to attribute failover activity to a single analysis run: the registry
@@ -146,7 +147,7 @@ def diff_snapshot(
     every earlier request. Only models with a positive delta on any counter
     appear in the result — no-op models are omitted to keep the summary compact.
     """
-    diffs: Dict[str, Dict[str, int]] = {}
+    diffs: dict[str, dict[str, int]] = {}
     for name in set(before) | set(after):
         b = before.get(name) or {}
         a = after.get(name) or {}
@@ -162,7 +163,7 @@ def diff_snapshot(
     return diffs
 
 
-_registry: Optional[ModelHealthRegistry] = None
+_registry: ModelHealthRegistry | None = None
 _registry_lock = threading.Lock()
 
 
@@ -182,7 +183,7 @@ def get_model_health_registry() -> ModelHealthRegistry:
     return _registry
 
 
-def _fast_model_candidates(settings: "Settings") -> List[str]:
+def _fast_model_candidates(settings: Settings) -> list[str]:
     """Health-ordered non-reasoning models for a one-shot completion.
 
     The bare LLM calls (verdict/correction) want a fast model: reasoning models
@@ -201,12 +202,12 @@ def complete_once(
     system_prompt: str,
     user_prompt: str,
     *,
-    settings: "Settings",
+    settings: Settings,
     temperature: float,
     max_tokens: int,
     timeout: float,
     include_reasoning: bool = False,
-    stage_key: Optional[str] = None,
+    stage_key: str | None = None,
 ) -> str:
     """One-shot chat completion with health-aware model failover.
 
@@ -231,7 +232,7 @@ def complete_once(
         return ""
     registry = get_model_health_registry()
 
-    prev_model: Optional[str] = None
+    prev_model: str | None = None
     for model in candidates:
         if stage_key and prev_model is not None and model != prev_model:
             emit_log(

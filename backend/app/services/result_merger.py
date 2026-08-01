@@ -1,8 +1,8 @@
 ﻿from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from itertools import combinations
-from typing import Optional, Sequence
 
 from backend.app.services.retrieval_models import SearchResult
 
@@ -74,7 +74,7 @@ class SearchResultMerger:
 
         return merged_results
 
-    def classify_relation(self, left: SearchResult, right: SearchResult) -> Optional[str]:
+    def classify_relation(self, left: SearchResult, right: SearchResult) -> str | None:
         if left.result_id == right.result_id:
             return None
         if left.duplicate_of == right.result_id or right.duplicate_of == left.result_id:
