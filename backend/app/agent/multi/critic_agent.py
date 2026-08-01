@@ -18,6 +18,7 @@ prompt that forces the model to evaluate from a specific angle.
 from __future__ import annotations
 
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from backend.app.agent.multi import AgentConfig, AgentRole, AgentStatus, SubAgentResult
@@ -176,7 +177,7 @@ class CriticAgent:
         )
 
         try:
-            all_votes = self._collect_diverse_votes(reasoner, claim_results, lenses)
+            all_votes = self._collect_diverse_votes(reasoner, claim_results, lenses, ctx=ctx)
         except Exception as exc:
             logger.warning("critic_llm_failed error=%s", exc)
             return None
@@ -204,24 +205,60 @@ class CriticAgent:
         return all_downgraded
 
     @staticmethod
-    def _collect_diverse_votes(reasoner, claim_results, lenses: list) -> list[set[int]]:
-        """Run each lens in parallel and return per-lens sets of flagged indices."""
+    def _collect_diverse_votes(reasoner, claim_results, lenses: list, *, ctx=None) -> list[set[int]]:
+        """Run each lens in parallel and return per-lens sets of flagged indices.
+
+        When `ctx.trace_exporter` is present, each lens's runtime becomes its own
+        child span under whatever `agent.critic` span is currently active, so the
+        Gantt shows which lens is the bottleneck instead of one opaque critic bar.
+        """
         if len(lenses) == 1:
             _, downgraded = reasoner.critique_claims(claim_results)
             return [set(downgraded)]
 
         parent_callback = get_progress_callback()
 
+        # Snapshot exporter + current parent span in the caller thread — workers
+        # must NOT read `_active_stack` themselves (it's the main-thread stack).
+        exporter = getattr(ctx, "trace_exporter", None) if ctx is not None else None
+        parent_span = None
+        if exporter is not None:
+            stack = getattr(exporter, "_active_stack", [])
+            parent_span = stack[-1] if stack else None
+
         def _one_lens(lens: dict) -> set[int]:
             token = set_progress_callback(parent_callback) if parent_callback is not None else None
+            t0 = time.time()
+            success = True
+            error_type: str | None = None
+            error_message: str | None = None
             try:
                 _, downgraded = reasoner.critique_claims(
                     claim_results, lens_instruction=lens.get("instruction")
                 )
                 return set(downgraded)
+            except Exception as exc:
+                success = False
+                error_type = exc.__class__.__name__
+                error_message = str(exc)[:200]
+                raise
             finally:
                 if token is not None:
                     reset_progress_callback(token)
+                if exporter is not None and parent_span is not None:
+                    try:
+                        exporter.record_child_span(
+                            f"critic.lens.{lens.get('key') or lens.get('label') or '?'}",
+                            parent=parent_span,
+                            start_time=t0,
+                            end_time=time.time(),
+                            success=success,
+                            error_type=error_type,
+                            error_message=error_message,
+                            lens_label=lens.get("label"),
+                        )
+                    except Exception:
+                        pass
 
         results: list[set[int]] = []
         with ThreadPoolExecutor(max_workers=len(lenses)) as pool:

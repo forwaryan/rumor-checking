@@ -612,13 +612,20 @@ class AnalyzePipeline:
             summary="Supervisor 多 Agent 模式接管本次分析。",
         )
 
+        run_id = self._agent_run_id(request)
+        trace_exporter = None
+        if self.settings.agent_trace_enabled:
+            from backend.app.agent.trace import TraceExporter
+            trace_exporter = TraceExporter(run_id=run_id, metadata={"path": "supervisor"})
+
         supervisor = Supervisor(
             ctx,
             max_parallel=int(getattr(self.settings, "multi_agent_max_parallel", 4) or 4),
             retrieval_mode=getattr(self.settings, "multi_agent_retrieval_mode", "parallel"),
+            trace_exporter=trace_exporter,
         )
         try:
-            return supervisor.run(request)
+            return supervisor.run(request, run_id=run_id)
         except Exception as exc:
             emit_log(
                 stage_key="multi_agent",
@@ -628,6 +635,8 @@ class AnalyzePipeline:
                 details=[f"error_type={exc.__class__.__name__}", f"error={str(exc)[:100]}"],
             )
             return None
+        finally:
+            self._export_trace(trace_exporter)
 
     def _run_agent_orchestrator(self, request: AnalyzeRequest):
         from backend.app.agent.planner import LlmPlanner, RulePlanner

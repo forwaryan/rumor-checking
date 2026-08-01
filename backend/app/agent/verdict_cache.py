@@ -126,16 +126,32 @@ class MemoryVerdictCache:
 
 
 class DiskVerdictCache:
-    """File-backed cache — persists across process restarts."""
+    """File-backed cache — persists across process restarts.
 
-    def __init__(self, cache_dir: Path, ttl_seconds: float = DEFAULT_TTL_SECONDS):
+    Fronted by a small in-process LRU so repeated lookups for the same claim
+    within one process (e.g. critic re-checks a claim mid-run) don't re-parse
+    JSON from disk each time. The LRU mirrors puts too, so a just-written entry
+    is immediately hot without a round-trip. Invalidate clears both sides.
+    """
+
+    def __init__(
+        self,
+        cache_dir: Path,
+        ttl_seconds: float = DEFAULT_TTL_SECONDS,
+        *,
+        memory_cache_size: int = 128,
+    ):
         self._cache_dir = cache_dir
         self._ttl = ttl_seconds
+        self._memory = MemoryVerdictCache(max_entries=memory_cache_size)
 
     def _path(self, fp: str) -> Path:
         return self._cache_dir / f"{fp}.json"
 
     def get(self, fp: str) -> CachedVerdict | None:
+        cached = self._memory.get(fp)
+        if cached is not None:
+            return cached
         path = self._path(fp)
         if not path.exists():
             return None
@@ -145,6 +161,8 @@ class DiskVerdictCache:
             if not verdict.is_fresh:
                 path.unlink(missing_ok=True)
                 return None
+            # Warm the in-process cache so the next lookup avoids re-parsing.
+            self._memory.put(verdict)
             return verdict
         except (json.JSONDecodeError, KeyError):
             path.unlink(missing_ok=True)
@@ -156,6 +174,8 @@ class DiskVerdictCache:
             json.dumps(verdict.to_dict(), ensure_ascii=False),
             encoding="utf-8",
         )
+        self._memory.put(verdict)
 
     def invalidate(self, fp: str) -> None:
         self._path(fp).unlink(missing_ok=True)
+        self._memory.invalidate(fp)

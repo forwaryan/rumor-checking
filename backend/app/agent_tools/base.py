@@ -29,6 +29,10 @@ class ToolContext:
     content_check_builder: object
     pipeline_trace_builder: object
     url_fetch_cache: object | None = None
+    # Present when the supervisor path is running with tracing on; None otherwise
+    # so tools/agents can guard `if ctx.trace_exporter is not None` without
+    # importing the concrete class.
+    trace_exporter: object | None = None
 
 
 @dataclass(frozen=True)

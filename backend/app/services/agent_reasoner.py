@@ -43,6 +43,7 @@ from backend.app.services.contract_utils import (
     ensure_datetime_string_or_empty,
     loads_lenient_json,
 )
+from backend.app.services import agent_reasoner_pure as _pure
 from backend.app.services.model_health import get_model_health_registry
 from backend.app.services.progress import emit_api_call, emit_log
 from backend.app.services.question_intent import is_broad_trend_question
@@ -1151,6 +1152,18 @@ class LlmAgentReasoner:
             return self.model_override
         return self.settings.llm_synthesis_model.strip() or self._reasoning_model()
 
+    def _fast_model(self) -> str:
+        """Cheap-and-fast model for lightweight follow-ups (single-claim refine,
+        report polishing) where the heavy synthesis model is overkill.
+
+        Opt-in via LLM_FAST_MODEL. Empty falls back to the reasoning default so
+        behavior is unchanged unless the operator explicitly sets it. A per-run
+        model_override still wins — the user asked for that exact model, so we
+        don't silently reroute to a different one."""
+        if self.model_override:
+            return self.model_override
+        return self.settings.llm_fast_model.strip() or self._reasoning_model()
+
     def _request_temperature(self, model: str) -> float:
         return self.settings.llm_temperature
 
@@ -1574,6 +1587,10 @@ class LlmAgentReasoner:
             system_prompt=CRITIC_REFINE_SYSTEM_PROMPT,
             user_prompt=user_prompt,
             is_valid=schema_validator(RefineResponseSchema),
+            # Only one claim to re-judge → the heavy reasoning model is overkill.
+            # Route to the fast model when configured; falls back to the reasoning
+            # default when LLM_FAST_MODEL is unset, so this is a no-op unless opt-in.
+            model=self._fast_model() if len(downgraded) <= 1 else None,
         )
         payload = self._extract_json_payload(content)
         if payload is None:
@@ -1909,152 +1926,43 @@ class LlmAgentReasoner:
         return anchor_result.title
 
     def _normalize_follow_up_query(self, value: Any) -> str | None:
-        cleaned = self._clean_optional_string(value)
-        if not cleaned:
-            return None
-        tokens = re.findall(r"[A-Za-z0-9%._-]{2,}|[\u4e00-\u9fff]{2,16}", cleaned)
-        if not tokens:
-            return None
-        return " ".join(tokens[:10])
+        return _pure.normalize_follow_up_query(value)
 
     def _normalize_claim_type(self, value: Any) -> str:
-        cleaned = self._clean_optional_string(value)
-        if cleaned in ALLOWED_CLAIM_TYPES:
-            return cleaned
-        return "fact"
+        return _pure.normalize_claim_type(value)
 
     def _normalize_verdict(self, value: Any) -> str:
-        cleaned = self._clean_optional_string(value)
-        if cleaned in ALLOWED_VERDICTS:
-            return cleaned
-        return "insufficient"
+        return _pure.normalize_verdict(value)
 
     def _normalize_confidence(self, value: Any) -> ConfidenceValue:
-        cleaned = self._clean_optional_string(value)
-        if cleaned in ALLOWED_CONFIDENCE:
-            return cleaned
-        return "low"
+        return _pure.normalize_confidence(value)
 
     def _clamp_probability(self, value: Any) -> float | None:
-        if isinstance(value, bool):
-            return None
-        if not isinstance(value, (int, float)):
-            cleaned = self._clean_optional_string(value)
-            if cleaned is None:
-                return None
-            try:
-                value = float(cleaned.rstrip("%"))
-            except ValueError:
-                return None
-        return max(0.0, min(100.0, float(value)))
+        return _pure.clamp_probability(value)
 
     def _normalize_probability_basis(self, value: Any, *, has_evidence: bool) -> str:
-        cleaned = self._clean_optional_string(value)
-        if cleaned in {"evidence", "prior"}:
-            # Never let the model claim "evidence" basis when nothing grounded it —
-            # keeps the probability honest about where the number came from.
-            if cleaned == "evidence" and not has_evidence:
-                return "prior"
-            return cleaned
-        return "evidence" if has_evidence else "prior"
+        return _pure.normalize_probability_basis(value, has_evidence=has_evidence)
 
     def _normalize_probability(
         self, raw_probability: Any, raw_basis: Any, *, has_evidence: bool
     ) -> tuple[float | None, str | None]:
-        probability = self._clamp_probability(raw_probability)
-        if probability is None:
-            return None, None
-        basis = self._normalize_probability_basis(raw_basis, has_evidence=has_evidence)
-        return probability, basis
+        return _pure.normalize_probability(raw_probability, raw_basis, has_evidence=has_evidence)
 
     def _build_scenarios(self, scenarios_payload: Any) -> list[PossibilityItem]:
-        """Parse the LLM's mutually-exclusive whole-message scenarios into
-        PossibilityItem, clamping probabilities and renormalizing to ~100 when the
-        model's numbers drift. Returns [] when nothing parseable, so the caller
-        falls back to the rule-based possibilities."""
-        if not isinstance(scenarios_payload, list):
-            return []
-        parsed: list[dict[str, Any]] = []
-        for item in scenarios_payload:
-            if not isinstance(item, dict):
-                continue
-            label = self._clean_optional_string(item.get("label")) or self._clean_optional_string(item.get("scenario"))
-            if not label:
-                continue
-            probability = self._clamp_probability(item.get("probability"))
-            basis_value = self._clean_optional_string(item.get("basis"))
-            basis = basis_value if basis_value in {"evidence", "prior"} else None
-            summary = self._clean_optional_string(item.get("summary")) or label
-            parsed.append(
-                {"scenario": label, "probability": probability, "basis": basis, "summary": summary}
-            )
-            if len(parsed) >= 4:
-                break
-        if not parsed:
-            return []
-
-        total = sum(entry["probability"] for entry in parsed if entry["probability"] is not None)
-        counted = [entry for entry in parsed if entry["probability"] is not None]
-        if counted and (total <= 0 or abs(total - 100.0) > 1.0):
-            emit_log(
-                stage_key="agent_synthesis",
-                level="info",
-                title="情形分布已归一化",
-                summary=f"scenarios 概率合计为 {round(total, 1)}，已按比例缩放到 100。",
-                details=[],
-            )
-            if total > 0:
-                for entry in counted:
-                    entry["probability"] = round(entry["probability"] / total * 100.0, 1)
-
-        return [
-            PossibilityItem(
-                scenario=entry["scenario"],
-                likelihood=self._likelihood_from_probability(entry["probability"]),
-                probability=entry["probability"],
-                basis=entry["basis"],
-                summary=entry["summary"],
-            )
-            for entry in parsed
-        ]
+        return _pure.build_scenarios(scenarios_payload)
 
     @staticmethod
     def _likelihood_from_probability(probability: float | None) -> str:
-        if probability is None:
-            return "low"
-        if probability >= 66:
-            return "high"
-        if probability >= 33:
-            return "medium"
-        return "low"
+        return _pure.likelihood_from_probability(probability)
 
     def _normalize_timeline_type(self, value: Any) -> str:
-        cleaned = self._clean_optional_string(value)
-        if cleaned in ALLOWED_TIMELINE_TYPES:
-            return cleaned
-        return "origin"
+        return _pure.normalize_timeline_type(value)
 
     def _normalize_claim_text(self, value: Any) -> str | None:
-        cleaned = self._clean_optional_string(value)
-        if not cleaned:
-            return None
-        compact = re.sub(r"\s+", " ", cleaned).strip().rstrip("。！？?!；; ")
-        if not compact:
-            return None
-        return f"{compact}。"
+        return _pure.normalize_claim_text(value)
 
     def _normalize_string_list(self, value: Any) -> list[str]:
-        if not isinstance(value, list):
-            return []
-        ordered: list[str] = []
-        seen: set[str] = set()
-        for item in value:
-            cleaned = self._clean_optional_string(item)
-            if not cleaned or cleaned in seen:
-                continue
-            seen.add(cleaned)
-            ordered.append(cleaned)
-        return ordered
+        return _pure.normalize_string_list(value)
 
     def _result_by_id(self, *, retrieval_bundle: RetrievalBundle, result_id: str | None) -> SearchResult | None:
         if not result_id:
@@ -2065,32 +1973,13 @@ class LlmAgentReasoner:
         return None
 
     def _extract_json_payload(self, content: str) -> dict[str, Any] | None:
-        return loads_lenient_json(content)
+        return _pure.extract_json_payload(content)
 
     def _json_with_key_usable(self, key: str):
-        """Build an is_valid callback that accepts a completion only when the lenient
-        parser recovers a dict containing `key`. A truncated planner response (stream
-        cut before the decision field) fails this and triggers a retry instead of
-        silently giving up — which, for a planner, means prematurely ending the
-        investigation loop."""
-        def _check(content: str) -> bool:
-            payload = self._extract_json_payload(content)
-            return isinstance(payload, dict) and key in payload
-        return _check
+        return _pure.json_with_key_usable(key)
 
     def _synthesis_content_usable(self, content: str) -> bool:
-        """A synthesis completion is worth keeping only if the lenient parser can
-        recover an object with at least one claim. A truncated fragment (stream cut
-        mid-JSON) or a claim-less object fails this, triggering a retry rather than a
-        silent drop to the rule fallback."""
-        payload = self._extract_json_payload(content)
-        if not isinstance(payload, dict):
-            return False
-        claims = payload.get("claims")
-        return isinstance(claims, list) and len(claims) > 0
+        return _pure.synthesis_content_usable(content)
 
     def _clean_optional_string(self, value: Any) -> str | None:
-        if not isinstance(value, str):
-            return None
-        compact = re.sub(r"\s+", " ", value).strip()
-        return compact or None
+        return _pure.clean_optional_string(value)

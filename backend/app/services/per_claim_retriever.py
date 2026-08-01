@@ -186,6 +186,32 @@ def enrich_retrieval_for_claims(
     queries_executed = 0
     queries_failed = 0
 
+    # Deduplicate identical focused queries across candidates. Two claims that
+    # share subject + numbers (e.g. "A 招了 5000 人" and "A 招聘 5000 员工")
+    # produce the same _build_focused_query output; running the SERP fetch
+    # twice would waste a full network round-trip and burn provider budget.
+    # Compute the query for every candidate up front, keep the first candidate
+    # that owns each unique query as the executor, and reuse its results for
+    # subsequent duplicates so the merge below still sees per-candidate output.
+    candidate_queries = [_build_focused_query(c.claim, iteration=iteration) for c in candidates]
+    query_owner: dict[str, int] = {}
+    duplicate_of: dict[int, int] = {}
+    for i, q in enumerate(candidate_queries):
+        if q in query_owner:
+            duplicate_of[i] = query_owner[q]
+        else:
+            query_owner[q] = i
+    if duplicate_of:
+        emit_log(
+            stage_key="per_claim_retrieval",
+            title="Per-claim query 去重",
+            summary=f"发现 {len(duplicate_of)} 条 claim 的定向 query 与前面重复，跳过重复请求。",
+            details=[f"dup_index={k}->owner_index={v}" for k, v in sorted(duplicate_of.items())],
+        )
+        candidate_queries_effective = [i for i in range(len(candidates)) if i not in duplicate_of]
+    else:
+        candidate_queries_effective = list(range(len(candidates)))
+
     # Each per-claim query is an independent network round-trip, so fan them out
     # concurrently instead of summing their latencies. ContextVar-based progress
     # callbacks and the retrieval stage key don't cross threads, so rebind both
@@ -198,7 +224,7 @@ def enrich_retrieval_for_claims(
         callback_token = set_progress_callback(parent_callback) if parent_callback is not None else None
         stage_token = set_retrieval_stage_key("per_claim_retrieval")
         try:
-            focused_query = _build_focused_query(claim.claim, iteration=iteration)
+            focused_query = candidate_queries[index]
             emit_log(
                 stage_key="per_claim_retrieval",
                 title="Per-claim query",
@@ -221,11 +247,18 @@ def enrich_retrieval_for_claims(
                 reset_progress_callback(callback_token)
 
     outcomes: dict[int, tuple[list[SearchResult] | None, Exception | None]] = {}
-    with ThreadPoolExecutor(max_workers=len(candidates)) as executor:
-        futures = [executor.submit(_run_claim_query, i, c) for i, c in enumerate(candidates)]
+    with ThreadPoolExecutor(max_workers=max(1, len(candidate_queries_effective))) as executor:
+        futures = [executor.submit(_run_claim_query, i, candidates[i]) for i in candidate_queries_effective]
         for future in futures:
             index, results, exc = future.result()
             outcomes[index] = (results, exc)
+    # Fill in results for candidates whose query was a duplicate — reuse the
+    # owner's outcome so downstream merge/attribution still sees per-candidate
+    # data. We copy the list so per-candidate namespacing below doesn't mutate
+    # a shared reference (each _namespace_batch call rebuilds SearchResults).
+    for dup_idx, owner_idx in duplicate_of.items():
+        owner_results, owner_exc = outcomes.get(owner_idx, (None, None))
+        outcomes[dup_idx] = (list(owner_results) if owner_results else owner_results, owner_exc)
 
     # Reassemble in candidate order for a deterministic merge. Each per-claim
     # query ran its own retrieve_for_event, which numbers result_ids from q0-

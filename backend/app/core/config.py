@@ -139,6 +139,7 @@ class Settings:
     llm_reasoning_retries: int
     llm_synthesis_timeout_multiplier: float
     llm_synthesis_model: str
+    llm_fast_model: str
     model_health_failure_threshold: int
     model_health_recovery_seconds: float
     agent_synthesis_critic_enabled: bool
@@ -281,6 +282,7 @@ def get_settings() -> Settings:
         llm_reasoning_retries=max(_as_int(os.getenv("LLM_REASONING_RETRIES"), 2), 0),
         llm_synthesis_timeout_multiplier=max(_as_float(os.getenv("LLM_SYNTHESIS_TIMEOUT_MULTIPLIER"), 1.5), 1.0),
         llm_synthesis_model=(os.getenv("LLM_SYNTHESIS_MODEL") or "").strip(),
+        llm_fast_model=(os.getenv("LLM_FAST_MODEL") or "").strip(),
         model_health_failure_threshold=max(_as_int(os.getenv("MODEL_HEALTH_FAILURE_THRESHOLD"), 3), 1),
         model_health_recovery_seconds=max(_as_float(os.getenv("MODEL_HEALTH_RECOVERY_SECONDS"), 300.0), 0.0),
         agent_synthesis_critic_enabled=_as_bool(os.getenv("AGENT_SYNTHESIS_CRITIC_ENABLED"), default=True),

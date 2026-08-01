@@ -58,6 +58,7 @@ from backend.app.services.progress import (
 
 if TYPE_CHECKING:
     from backend.app.agent.multi import AgentConfig
+    from backend.app.agent.trace import TraceExporter
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,6 @@ _STAGE_KEY = "supervisor"
 
 class Supervisor:
     """Multi-agent orchestrator.
-
     Manages a set of sub-agents, resolves their dependency graph, and executes
     them in topological order with parallel fan-out where possible.
 
@@ -75,6 +75,10 @@ class Supervisor:
     bleed-through.
     """
 
+    # Class-level default so tests that bypass __init__ via Supervisor.__new__
+    # still get a valid attribute (None disables tracing gracefully).
+    _trace_exporter: TraceExporter | None = None
+
     def __init__(
         self,
         ctx: ToolContext,
@@ -82,10 +86,12 @@ class Supervisor:
         agent_configs: dict[AgentRole, AgentConfig] | None = None,
         max_parallel: int = 2,
         retrieval_mode: str | None = None,
+        trace_exporter: TraceExporter | None = None,
     ) -> None:
         self.ctx = ctx
         self.max_parallel = max_parallel
         self._results: dict[AgentRole, SubAgentResult] = {}
+        self._trace_exporter = trace_exporter
         settings_mode = getattr(getattr(ctx, "settings", None), "multi_agent_retrieval_mode", None)
         self.retrieval_mode = retrieval_mode or settings_mode or "parallel"
 
@@ -104,6 +110,23 @@ class Supervisor:
         ]
 
     def run(self, request: AnalyzeRequest, run_id: str | None = None) -> Report:
+        if self._trace_exporter is None:
+            return self._run_impl(request, run_id)
+        # Expose the exporter to sub-agents (e.g. critic) through ctx so they can
+        # open their own child spans without threading it through every signature.
+        try:
+            self.ctx.trace_exporter = self._trace_exporter
+        except Exception:
+            pass
+        with self._trace_exporter.span(
+            "supervisor.run",
+            run_id=run_id,
+            agents=[a.role.value for a in self.agents],
+            retrieval_mode=self.retrieval_mode,
+        ):
+            return self._run_impl(request, run_id)
+
+    def _run_impl(self, request: AnalyzeRequest, run_id: str | None = None) -> Report:
         checkpoint_enabled = getattr(self.ctx.settings, "agent_checkpoint_enabled", False)
         checkpoint_store = None
         if checkpoint_enabled:
@@ -549,6 +572,40 @@ class Supervisor:
         deadline: float | None,
     ) -> SubAgentResult:
         """Run a single sub-agent with error containment, model isolation, and retry."""
+        if self._trace_exporter is None:
+            return self._run_agent_impl(agent, state, deadline)
+        config = agent.config if hasattr(agent, "config") else None
+        model_name = getattr(config, "model", None)
+        with self._trace_exporter.span(
+            f"agent.{agent.role.value}",
+            role=agent.role.value,
+            model=model_name,
+        ) as span_obj:
+            result = self._run_agent_impl(agent, state, deadline)
+            span_obj.metadata.update({
+                "status": result.status.value,
+                "elapsed_ms": result.elapsed_ms,
+                "actions": list(result.actions_taken),
+                "model_used": result.model_used,
+                "error": result.error,
+            })
+            return result
+
+    def _run_agent_impl(
+        self,
+        agent: SubAgent,
+        state: AgentState,
+        deadline: float | None,
+    ) -> SubAgentResult:
+        config = agent.config if hasattr(agent, "config") else None
+        model_name = getattr(config, "model", None)
+
+    def _run_agent_impl(
+        self,
+        agent: SubAgent,
+        state: AgentState,
+        deadline: float | None,
+    ) -> SubAgentResult:
         config = agent.config if hasattr(agent, "config") else None
         model_name = getattr(config, "model", None)
 
