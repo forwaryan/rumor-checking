@@ -22,7 +22,7 @@ from backend.app.agent.state import AgentState
 from backend.app.agent_tools.base import ToolContext, get_tool_fn
 from backend.app.services.progress import emit_log
 from backend.app.services.retrieval_deduper import chronological_sort_key, merge_search_results
-from backend.app.services.retrieval_models import RetrievalBundle
+from backend.app.services.retrieval_models import LOW_EVIDENCE_GRADES, RetrievalBundle
 
 logger = logging.getLogger(__name__)
 
@@ -159,7 +159,7 @@ class MergeAgent:
         bundle = state.retrieval_bundle
         if bundle is None:
             return False
-        return bundle.evidence_grade in ("weak", "none")
+        return bundle.evidence_grade in LOW_EVIDENCE_GRADES
 
     @staticmethod
     def _should_fetch_url(state: AgentState, ctx: ToolContext) -> bool:

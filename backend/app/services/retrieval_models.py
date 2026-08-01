@@ -9,6 +9,13 @@ from backend.app.services.contract_utils import ensure_datetime_string_or_empty
 
 TIER_WEIGHTS = {"S": 4, "A": 3, "B": 2, "C": 1}
 
+# Evidence grades that mean the retrieval bundle is too thin to decide on and
+# should trigger another investigation round. Kept as a named constant next to
+# RetrievalBundle.evidence_grade (the sole producer, which emits A/B/C/D) so the
+# consuming agents can't drift back to stale labels like "weak"/"none" that the
+# property never returns — a bug that once silently disabled deep-path re-search.
+LOW_EVIDENCE_GRADES = ("C", "D")
+
 # Fixed minimum used to order dateless SERP hits without crashing datetime
 # comparisons. Timezone-aware (+08:00) to match real published_dt values, which
 # are offset-aware — a naive sentinel would raise on `naive < aware` comparisons.

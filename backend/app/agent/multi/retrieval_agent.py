@@ -12,6 +12,7 @@ from backend.app.agent.multi import AgentConfig, AgentRole, AgentStatus, SubAgen
 from backend.app.agent.state import AgentState
 from backend.app.agent_tools.base import ToolContext, get_tool_fn
 from backend.app.services.progress import emit_log
+from backend.app.services.retrieval_models import LOW_EVIDENCE_GRADES
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +118,7 @@ class RetrievalAgent:
         bundle = state.retrieval_bundle
         if bundle is None:
             return False
-        return bundle.evidence_grade in ("weak", "none")
+        return bundle.evidence_grade in LOW_EVIDENCE_GRADES
 
     def _should_fetch_url(self, state: AgentState, ctx: ToolContext) -> bool:
         if len(state.fetched_bodies) >= state.max_url_fetches:
