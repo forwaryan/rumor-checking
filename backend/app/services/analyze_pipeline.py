@@ -306,6 +306,7 @@ class AnalyzePipeline:
             verdict = agent_synthesis.verdict
             timeline = agent_synthesis.timeline
             agent_possibilities = agent_synthesis.possibilities
+            self._maybe_record_eval(request, retrieval_bundle, verdict)
             emit_stage(
                 stage_key="agent_synthesis",
                 title="Agent 综合判断",
@@ -584,6 +585,46 @@ class AnalyzePipeline:
                 details=[f"error_type={exc.__class__.__name__}"],
             )
             return None
+
+    def _maybe_record_eval(self, request, retrieval_bundle, verdict) -> None:
+        if not getattr(self.settings, "eval_record_enabled", False):
+            return
+        if retrieval_bundle is None or verdict is None:
+            return
+        try:
+            import hashlib
+            from backend.app.services.eval_recorder import record_snapshot
+            case_id = hashlib.sha256(request.raw_input.encode()).hexdigest()[:12]
+            retrieval_data = [
+                {
+                    "result_id": r.result_id,
+                    "title": r.title,
+                    "url": r.url,
+                    "source_name": r.source_name,
+                    "published_at": r.published_at,
+                    "snippet": r.snippet,
+                    "source_tier": r.source_tier,
+                }
+                for r in retrieval_bundle.canonical_results
+            ]
+            claim_data = [
+                {
+                    "claim": cr.claim,
+                    "verdict": cr.verdict,
+                    "confidence": cr.confidence,
+                    "evidence": [{"url": e.url, "title": e.title} for e in cr.evidence],
+                }
+                for cr in verdict.claim_results
+            ]
+            record_snapshot(
+                case_id=case_id,
+                raw_input=request.raw_input,
+                retrieval_results=retrieval_data,
+                claim_results=claim_data,
+                metadata={"provider": retrieval_bundle.provider_name},
+            )
+        except Exception:
+            pass
 
     def _run_multi_agent(self, request: AnalyzeRequest):
         from backend.app.agent.multi.supervisor import Supervisor

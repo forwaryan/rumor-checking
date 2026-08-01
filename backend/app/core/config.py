@@ -165,6 +165,7 @@ class Settings:
     url_fetch_cache_dir: Path
     url_fetch_cache_ttl_seconds: float
     rendered_fetch_enabled: bool
+    eval_record_enabled: bool
     cors_allow_origin_regex: str
 
     @property
@@ -315,6 +316,7 @@ def get_settings() -> Settings:
         url_fetch_cache_dir=Path(os.getenv("URL_FETCH_CACHE_DIR", str(project_root / "data" / "cache" / "url_fetch"))),
         url_fetch_cache_ttl_seconds=_as_float(os.getenv("URL_FETCH_CACHE_TTL_SECONDS"), 43200.0),
         rendered_fetch_enabled=_as_bool(os.getenv("RENDERED_FETCH_ENABLED"), default=False),
+        eval_record_enabled=_as_bool(os.getenv("EVAL_RECORD_ENABLED"), default=False),
         cors_allow_origin_regex=os.getenv(
             "CORS_ALLOW_ORIGIN_REGEX",
             r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
