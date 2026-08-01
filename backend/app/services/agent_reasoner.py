@@ -1256,7 +1256,12 @@ class LlmAgentReasoner:
         )
 
         # Serialize retrieval hits with budget-aware truncation
-        raw_hits = [self._serialize_result(item) for item in retrieval_bundle.canonical_results[:8]]
+        ranked_results = self._rank_evidence(
+            retrieval_bundle.canonical_results,
+            query_text=retrieval_bundle.query,
+            event_title=event.title,
+        )
+        raw_hits = [self._serialize_result(item) for item in ranked_results]
         if getattr(self.settings, "agent_evidence_compaction_enabled", False):
             # Degrade overflow hits to stubs instead of dropping the tail, so a
             # low-ranked debunking/official hit still reaches synthesis.
@@ -1322,6 +1327,16 @@ class LlmAgentReasoner:
             "source_category": result.effective_source_category,
             "query_label": result.query_label,
         }
+
+    def _rank_evidence(
+        self,
+        results: tuple | list,
+        query_text: str,
+        event_title: str,
+        limit: int = 8,
+    ) -> list[SearchResult]:
+        from backend.app.services.evidence_ranker import rank_results
+        return rank_results(list(results), query_text=query_text, event_title=event_title, limit=limit)
 
     def _build_investigation_prompt(
         self,
