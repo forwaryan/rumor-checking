@@ -306,6 +306,30 @@ def _pick_fetch_target(state: AgentState):
     return max(candidates, key=score)
 
 
+def _try_rendered_fallback(url: str, ctx: ToolContext) -> str | None:
+    """Attempt a Playwright-rendered fetch when static extraction failed.
+
+    Gated by RENDERED_FETCH_ENABLED setting. Returns extracted body text or None.
+    """
+    if not getattr(ctx.settings, "rendered_fetch_enabled", False):
+        return None
+    from backend.app.services.rendered_page_fetcher import render_page
+    html = render_page(url)
+    if not html:
+        return None
+    from backend.app.services.url_content_extractor import UrlContentExtractor
+    extractor = UrlContentExtractor(settings=ctx.settings)
+    result = extractor._extract_from_html(
+        html=html[:ctx.settings.url_fetch_max_chars],
+        final_url=url,
+        content_type="text/html",
+        fallback_source_name=None,
+    )
+    if result.status == "ok" and result.body:
+        return result.body[:_FETCH_BODY_MAX_CHARS]
+    return None
+
+
 @tool("fetch_url", description="抓取高置信源全文以增强证据", retries=1)
 def fetch_url(ctx: ToolContext, state: AgentState) -> None:
     """Fetch the full body of a high-value evidence page to strengthen grounding.
@@ -374,14 +398,20 @@ def fetch_url(ctx: ToolContext, state: AgentState) -> None:
     body = (fetch.body or "").strip()
     state.fetched_urls.add(target.url)
     if fetch.status != "ok" or not body:
-        emit_stage(
-            stage_key="investigation_fetch",
-            title="抓取正文",
-            status="warning",
-            summary="页面未返回可用正文，沿用检索摘要继续。",
-            details=[f"url={target.url}", f"status={fetch.status}"],
-        )
-        return
+        # Attempt rendered fallback for JS-heavy pages (e.g. 163.com)
+        rendered_body = _try_rendered_fallback(target.url, ctx)
+        if rendered_body:
+            body = rendered_body
+            fetch = type(fetch)(status="ok", body=rendered_body)
+        else:
+            emit_stage(
+                stage_key="investigation_fetch",
+                title="抓取正文",
+                status="warning",
+                summary="页面未返回可用正文，沿用检索摘要继续。",
+                details=[f"url={target.url}", f"status={fetch.status}"],
+            )
+            return
 
     body = body[:_FETCH_BODY_MAX_CHARS]
     state.fetched_bodies[target.result_id] = body
