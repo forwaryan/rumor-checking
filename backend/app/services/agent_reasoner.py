@@ -131,7 +131,13 @@ Return one JSON object with this schema:
       "confidence": "high|medium|low",
       "truth_probability": 0-100,
       "probability_basis": "evidence|prior",
-      "evidence_result_ids": ["result_id"],
+      "evidence": [
+        {
+          "result_id": "string",
+          "stance": "supports|refutes|irrelevant|ambiguous",
+          "quote": "≤40 chars key phrase from that source"
+        }
+      ],
       "notes": "string (≤60 Chinese chars)"
     }
   ]
@@ -146,6 +152,12 @@ Rules:
   - When the hits support the core but NOT a specific quantifier/qualifier, emit TWO claims:
     1. the CORE (supported), and 2. the DETAIL alone (insufficient).
   - Keep each split claim self-contained (name the subject; no back-references).
+- EVIDENCE STANCE — for each evidence entry in a claim:
+  - "supports": this source DIRECTLY affirms the claim.
+  - "refutes": this source EXPLICITLY contradicts the claim.
+  - "irrelevant": cited for context but does not bear on truth value.
+  - "ambiguous": could be read either way or is inconclusive.
+  - The quote must come verbatim from that source's title or snippet.
 - PROBABILITY (independent of verdict):
   - `truth_probability` = P(this claim is literally true), 0-100.
   - `probability_basis` = "evidence" ONLY if hits bear on this claim; else "prior".
@@ -158,7 +170,7 @@ Rules:
   4. `supported` only with evidence that directly affirms the claim (respect scope).
   5. `conflicting` when reputable hits both affirm and deny the SAME claim.
 - Scope discipline: absolute-scope claims need full-scope evidence for `supported`.
-- Do not emit `supported`/`refuted`/`conflicting` without at least one valid evidence_result_id.
+- Do not emit `supported`/`refuted`/`conflicting` without at least one valid evidence entry.
 - Output a single raw JSON object ONLY: no markdown, no ```json code fences, no prose before or after. Escape every double-quote that appears inside a string value as \\".
 """.strip()
 
@@ -327,6 +339,13 @@ Return one JSON object with this schema:
       "verdict": "supported|refuted|insufficient|conflicting",
       "confidence": "high|medium|low",
       "evidence_result_ids": ["result_id"],
+      "evidence": [
+        {
+          "result_id": "string",
+          "stance": "supports|refutes|irrelevant|ambiguous",
+          "quote": "≤40 chars key phrase from that source"
+        }
+      ],
       "notes": "string (≤60 Chinese chars)"
     }
   ]
@@ -336,7 +355,8 @@ Rules:
 - Only re-judge the claims listed. Do not add or remove claims.
 - Use the same verdict decision procedure as synthesis: evidence must directly
   affirm/contradict the claim for supported/refuted. Without clear grounding, stay insufficient.
-- evidence_result_ids must come from the supplied retrieval hits. Do not invent ids.
+- Prefer the structured evidence array over evidence_result_ids. If you supply both, the array takes precedence.
+- evidence result_ids must come from the supplied retrieval hits. Do not invent ids.
 - Output a single raw JSON object ONLY: no markdown, no ```json code fences, no prose before or after. Escape every double-quote that appears inside a string value as \\".
 """.strip()
 
@@ -1401,8 +1421,10 @@ class LlmAgentReasoner:
             confidence = self._normalize_confidence(item.get("confidence"))
             notes = self._clean_optional_string(item.get("notes")) or self._default_note(verdict=verdict, claim_type=claim_type)
             evidence_ids = self._normalize_string_list(item.get("evidence_result_ids"))
-            selected_evidence = self._evidence_from_ids(
+            evidence_entries = item.get("evidence") if isinstance(item.get("evidence"), list) else None
+            selected_evidence = self._evidence_from_entries(
                 result_map=result_map,
+                evidence_entries=evidence_entries,
                 evidence_ids=evidence_ids,
                 verdict=verdict,
             )
@@ -1646,8 +1668,10 @@ class LlmAgentReasoner:
             verdict = self._normalize_verdict(item.get("verdict"))
             confidence = self._normalize_confidence(item.get("confidence"))
             evidence_ids = self._normalize_string_list(item.get("evidence_result_ids"))
-            selected_evidence = self._evidence_from_ids(
-                result_map=result_map, evidence_ids=evidence_ids, verdict=verdict,
+            evidence_entries = item.get("evidence") if isinstance(item.get("evidence"), list) else None
+            selected_evidence = self._evidence_from_entries(
+                result_map=result_map, evidence_entries=evidence_entries,
+                evidence_ids=evidence_ids, verdict=verdict,
             )
             if verdict != "insufficient" and not selected_evidence:
                 continue
@@ -1920,6 +1944,47 @@ class LlmAgentReasoner:
         confidence += min(retrieval_bundle.independent_source_count * 4, 16)
         return min(confidence, 100)
 
+    def _evidence_from_entries(
+        self,
+        *,
+        result_map: dict[str, SearchResult],
+        evidence_entries: list | None,
+        evidence_ids: list[str],
+        verdict: str,
+    ) -> list:
+        """Build EvidenceItem list from the new structured evidence array.
+
+        Falls back to the legacy evidence_result_ids path when the LLM returns
+        the old format (backward compat during rollout).
+        """
+        if not evidence_entries:
+            return self._evidence_from_ids(result_map=result_map, evidence_ids=evidence_ids, verdict=verdict)
+
+        valid_stances = {"supports", "refutes", "irrelevant", "ambiguous"}
+        items = []
+        for entry in evidence_entries:
+            if not isinstance(entry, dict):
+                continue
+            result_id = entry.get("result_id", "")
+            if not isinstance(result_id, str) or not result_id:
+                continue
+            result = result_map.get(result_id)
+            if result is None:
+                continue
+            stance = entry.get("stance", "")
+            if stance not in valid_stances:
+                stance = self._infer_stance_from_verdict(verdict)
+            quote = self._clean_optional_string(entry.get("quote"))
+            item = result.to_evidence(
+                relevance_reason=self._evidence_reason_from_stance(stance),
+            )
+            item.stance = stance
+            item.stance_quote = quote
+            items.append(item)
+            if len(items) >= 4:
+                break
+        return items
+
     def _evidence_from_ids(
         self,
         *,
@@ -1949,6 +2014,24 @@ class LlmAgentReasoner:
         if verdict == "conflicting":
             return "该来源属于本核查点冲突证据集合的一部分。"
         return "该来源被 agent 视为相关，但不足以直接得出结论。"
+
+    def _evidence_reason_from_stance(self, stance: str) -> str:
+        mapping = {
+            "supports": "该来源直接支持本核查点。",
+            "refutes": "该来源明确反驳本核查点。",
+            "ambiguous": "该来源对本核查点的立场不明确。",
+            "irrelevant": "该来源作为背景参考，不直接涉及真假判定。",
+        }
+        return mapping.get(stance, "该来源被 agent 视为相关证据。")
+
+    @staticmethod
+    def _infer_stance_from_verdict(verdict: str) -> str:
+        mapping = {
+            "supported": "supports",
+            "refuted": "refutes",
+            "conflicting": "ambiguous",
+        }
+        return mapping.get(verdict, "irrelevant")
 
     def _default_note(self, *, verdict: str, claim_type: str) -> str:
         if claim_type == "opinion":

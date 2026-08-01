@@ -225,6 +225,8 @@ export interface Evidence {
   snippet: string;
   relevance_reason: string;
   source_tier: SourceTier;
+  stance?: "supports" | "refutes" | "irrelevant" | "ambiguous" | null;
+  stance_quote?: string | null;
 }
 
 export interface ClaimCorrection {

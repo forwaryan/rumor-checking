@@ -2,10 +2,8 @@ import type { Evidence } from "@/types/report";
 
 // Mirror of the DEBUNK markers used in VerdictCard/backend so an evidence card
 // whose text explicitly says "辟谣 / 不实 / 官方否认" gets bucketed as refuting.
-// This is a heuristic — the backend does not (yet) tag evidence with stance —
-// but for a claim that's been marked `conflicting`, showing the reader which
-// half of the evidence pool leans which way is dramatically better than a flat
-// list where support and rebuttal are visually indistinguishable.
+// This is the FALLBACK heuristic — the backend now tags evidence with `stance`
+// when the LLM synthesis produces per-evidence stance entries.
 const DEBUNK_MARKERS = [
   "辟谣",
   "否认",
@@ -39,10 +37,21 @@ export function splitEvidenceByStance(evidence: Evidence[]): SplitEvidence {
   const supporting: Evidence[] = [];
   const refuting: Evidence[] = [];
   for (const ev of evidence) {
-    if (looksLikeRefutation(ev)) {
+    // Prefer backend stance when available
+    if (ev.stance === "refutes") {
       refuting.push(ev);
-    } else {
+    } else if (ev.stance === "supports") {
       supporting.push(ev);
+    } else if (ev.stance) {
+      // ambiguous/irrelevant — default to supporting bucket for display
+      supporting.push(ev);
+    } else {
+      // No backend stance — fall back to keyword heuristic
+      if (looksLikeRefutation(ev)) {
+        refuting.push(ev);
+      } else {
+        supporting.push(ev);
+      }
     }
   }
   return { supporting, refuting };

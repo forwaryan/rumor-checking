@@ -51,6 +51,8 @@ class EvidenceItem(BaseModel):
     snippet: str
     relevance_reason: str
     source_tier: SourceTier = "C"
+    stance: str | None = None
+    stance_quote: str | None = None
 
 
 class TimelineNode(BaseModel):
