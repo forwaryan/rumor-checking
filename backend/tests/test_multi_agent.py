@@ -309,6 +309,78 @@ def test_critic_llm_path_majority_vote():
     assert calls["n"] == 3
 
 
+def test_critic_llm_simple_strong_claim_uses_one_perspective():
+    """A single high-confidence decisive claim with A-tier evidence needs one LLM call."""
+    calls = {"n": 0}
+
+    class _FakeReasoner:
+        enabled = True
+        model_override = None
+
+        def critique_claims(self, claim_results, lens_instruction=None):
+            calls["n"] += 1
+            return claim_results, set()
+
+    state = AgentState(request=AnalyzeRequest(raw_input="x"))
+    state.verdict = _verdict([_fact_claim("c0", "supported", [_evidence("A")])])
+    settings = _StubSettings()
+    settings.multi_agent_critic_perspectives = 3
+
+    CriticAgent().run(state, _StubCtx(reasoner=_FakeReasoner(), settings=settings))
+
+    assert calls["n"] == 1
+
+
+def test_critic_llm_single_medium_confidence_claim_keeps_all_perspectives():
+    """The perspective reduction must not trigger without high confidence."""
+    calls = {"n": 0}
+
+    class _FakeReasoner:
+        enabled = True
+        model_override = None
+
+        def critique_claims(self, claim_results, lens_instruction=None):
+            calls["n"] += 1
+            return claim_results, set()
+
+    claim = _fact_claim("c0", "supported", [_evidence("A")])
+    claim.confidence = "medium"
+    state = AgentState(request=AnalyzeRequest(raw_input="x"))
+    state.verdict = _verdict([claim])
+    settings = _StubSettings()
+    settings.multi_agent_critic_perspectives = 3
+
+    CriticAgent().run(state, _StubCtx(reasoner=_FakeReasoner(), settings=settings))
+
+    assert calls["n"] == 3
+
+
+def test_analysis_loop_back_starts_with_per_claim_enrichment(monkeypatch):
+    """Loop-back bypasses synthesis and starts directly with search + re-judge."""
+    calls: list[str] = []
+
+    def _fake_get_tool_fn(action):
+        if action == "per_claim_search":
+            return lambda ctx, state: calls.append(action)
+        if action == "re_judge_claims":
+            def _rejudge(ctx, state):
+                calls.append(action)
+                state.verdict = _verdict([_fact_claim("c0", "supported", [_evidence("A")])])
+            return _rejudge
+        raise AssertionError(f"unexpected action during loop-back enrichment: {action}")
+
+    monkeypatch.setattr("backend.app.agent.multi.analysis_agent.get_tool_fn", _fake_get_tool_fn)
+    state = AgentState(request=AnalyzeRequest(raw_input="x"))
+    state.verdict = _verdict([_fact_claim("c0", "insufficient")])
+    state.loop_back_enrichment = True
+
+    result = AnalysisAgent().run(state, _StubCtx(reasoner=None))
+
+    assert result.status == AgentStatus.COMPLETED
+    assert calls == ["per_claim_search", "re_judge_claims"]
+    assert state.loop_back_enrichment is False
+
+
 # --- Supervisor LLM routing ---
 
 
@@ -391,6 +463,127 @@ def test_loop_back_fires_at_most_once():
     assert sup._should_loop_back(state) is True
     state.done_actions.append("supervisor_loop_back")
     assert sup._should_loop_back(state) is False
+
+
+def test_supervisor_loop_back_keeps_retrieval_and_reruns_analysis_only():
+    """Loop-back preserves the bundle and reruns Analysis + Critic, not retrieval."""
+    from backend.app.agent.multi import AgentConfig, SubAgentResult
+
+    calls = {"retrieval": 0, "analysis": 0, "critic": 0}
+    retrieval_bundle = object()
+
+    class _Settings:
+        agent_checkpoint_enabled = False
+        agent_max_url_fetches = 0
+        agent_max_token_budget = 0
+        agent_wall_clock_seconds = 5
+        multi_agent_llm_routing_enabled = False
+        multi_agent_debate_rounds = 2
+
+    class _Ctx:
+        settings = _Settings()
+        agent_reasoner = None
+
+    class _Agent:
+        config = AgentConfig(max_retries=0)
+        description = "test"
+
+        def __init__(self, role, dependencies):
+            self.role = role
+            self._dependencies = dependencies
+
+        @property
+        def dependencies(self):
+            return self._dependencies
+
+        def run(self, state, ctx):
+            if self.role.value in calls:
+                calls[self.role.value] += 1
+            if self.role == AgentRole.RETRIEVAL:
+                state.retrieval_bundle = retrieval_bundle
+            elif self.role == AgentRole.ANALYSIS:
+                assert state.retrieval_bundle is retrieval_bundle
+                if calls["analysis"] == 1:
+                    assert state.loop_back_enrichment is False
+                    state.verdict = _verdict([_fact_claim("c0", "insufficient")])
+                else:
+                    assert state.loop_back_enrichment is True
+                    state.loop_back_enrichment = False
+                    state.verdict = _verdict([_fact_claim("c0", "supported", [_evidence("A")])])
+            elif self.role == AgentRole.REPORT:
+                state.report = "done"
+            return SubAgentResult(role=self.role, status=AgentStatus.COMPLETED)
+
+    agents = [
+        _Agent(AgentRole.RETRIEVAL, []),
+        _Agent(AgentRole.ANALYSIS, [AgentRole.RETRIEVAL]),
+        _Agent(AgentRole.CRITIC, [AgentRole.ANALYSIS]),
+        _Agent(AgentRole.REPORT, [AgentRole.CRITIC]),
+    ]
+    supervisor = Supervisor(_Ctx(), agents=agents, retrieval_mode="sequential")
+
+    assert supervisor.run(AnalyzeRequest(raw_input="x")) == "done"
+    assert calls == {"retrieval": 1, "analysis": 2, "critic": 2}
+
+
+def test_supervisor_stops_debate_when_post_critic_verdict_is_unchanged():
+    """An identical post-critic verdict fingerprint stops repeated debate rounds."""
+    from backend.app.agent.multi import AgentConfig, SubAgentResult
+
+    calls = {"retrieval": 0, "analysis": 0, "critic": 0}
+
+    class _Settings:
+        agent_checkpoint_enabled = False
+        agent_max_url_fetches = 0
+        agent_max_token_budget = 0
+        agent_wall_clock_seconds = 5
+        multi_agent_debate_rounds = 2
+
+    class _Ctx:
+        settings = _Settings()
+        agent_reasoner = None
+
+    class _Agent:
+        config = AgentConfig(max_retries=0)
+        description = "test"
+
+        def __init__(self, role, dependencies):
+            self.role = role
+            self._dependencies = dependencies
+
+        @property
+        def dependencies(self):
+            return self._dependencies
+
+        def run(self, state, ctx):
+            if self.role.value in calls:
+                calls[self.role.value] += 1
+            if self.role == AgentRole.ANALYSIS:
+                state.verdict = _verdict([_fact_claim("c0", "supported", [_evidence("A")])])
+            elif self.role == AgentRole.CRITIC:
+                claim = state.verdict.claim_results[0]
+                claim.verdict = "insufficient"
+                claim.confidence = "low"
+                return SubAgentResult(
+                    role=self.role,
+                    status=AgentStatus.COMPLETED,
+                    downgraded_indices={0},
+                )
+            elif self.role == AgentRole.REPORT:
+                state.report = "done"
+            return SubAgentResult(role=self.role, status=AgentStatus.COMPLETED)
+
+    agents = [
+        _Agent(AgentRole.RETRIEVAL, []),
+        _Agent(AgentRole.ANALYSIS, [AgentRole.RETRIEVAL]),
+        _Agent(AgentRole.CRITIC, [AgentRole.ANALYSIS]),
+        _Agent(AgentRole.REPORT, [AgentRole.CRITIC]),
+    ]
+    supervisor = Supervisor(_Ctx(), agents=agents, retrieval_mode="sequential")
+    supervisor._should_loop_back = lambda state: False
+
+    assert supervisor.run(AnalyzeRequest(raw_input="x")) == "done"
+    assert calls == {"retrieval": 1, "analysis": 2, "critic": 2}
 
 
 def test_agent_message_removed():

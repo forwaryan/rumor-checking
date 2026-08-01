@@ -108,6 +108,9 @@ class AgentState:
     # is how legal_actions re-enters the loop without ever mutating done_actions.
     per_claim_searches: int = 0
     max_per_claim_iterations: int = 3
+    # Supervisor loop-back reuses the existing retrieval bundle and asks the
+    # AnalysisAgent to begin directly with per-claim enrichment + re-judging.
+    loop_back_enrichment: bool = False
 
     # Full-body pages fetched by the fetch_url tool, keyed by the canonical
     # SearchResult.result_id they enrich (grounding-safe: no new evidence ids).
@@ -146,6 +149,9 @@ class AgentState:
     # Indices of claims the critic just downgraded — tells the AnalysisAgent to
     # focus its per-claim search loop only on these (not all insufficient claims).
     debate_focus_indices: set[int] | None = None
+    # Post-critic verdict fingerprint from the previous debate round. If the next
+    # round produces the same fingerprint, the debate has converged.
+    debate_verdict_fingerprint: str | None = None
 
     # Cooperative cancellation flag. The runner checks this before each step;
     # external code (e.g. SSE disconnect handler) sets it to abort the loop.

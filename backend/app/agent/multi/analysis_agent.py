@@ -38,16 +38,41 @@ class AnalysisAgent:
         model_used = self._apply_model(ctx)
 
         is_debate_round = state.debate_rounds > 0 and state.debate_focus_indices
+        is_loop_back_enrichment = state.loop_back_enrichment
 
         emit_log(
             stage_key=_STAGE_KEY,
-            title="分析 Agent 启动" + (f"（辩论轮次 {state.debate_rounds}）" if is_debate_round else ""),
+            title=(
+                "分析 Agent 启动（补充检索）"
+                if is_loop_back_enrichment
+                else "分析 Agent 启动" + (f"（辩论轮次 {state.debate_rounds}）" if is_debate_round else "")
+            ),
             summary=(
-                f"对 {len(state.debate_focus_indices)} 条被质疑 claim 重新判定。模型: {model_used or 'default'}"
-                if is_debate_round
-                else f"开始声明提取与判定。模型: {model_used or 'default'}"
+                f"复用已有证据，直接执行逐条补检索与重判。模型: {model_used or 'default'}"
+                if is_loop_back_enrichment
+                else (
+                    f"对 {len(state.debate_focus_indices)} 条被质疑 claim 重新判定。模型: {model_used or 'default'}"
+                    if is_debate_round
+                    else f"开始声明提取与判定。模型: {model_used or 'default'}"
+                )
             ),
         )
+
+        if is_loop_back_enrichment:
+            self._per_claim_loop(state, ctx, actions_taken)
+            state.loop_back_enrichment = False
+            emit_log(
+                stage_key=_STAGE_KEY,
+                title="分析 Agent 完成（补充检索）",
+                summary=f"复用已有证据完成 {len(actions_taken)} 个步骤。",
+                details=[f"actions={','.join(actions_taken)}"],
+            )
+            return SubAgentResult(
+                role=self.role,
+                status=AgentStatus.COMPLETED,
+                actions_taken=actions_taken,
+                model_used=model_used,
+            )
 
         # In a debate round, skip synthesis and go straight to per-claim re-search
         # targeting only the claims the critic downgraded.

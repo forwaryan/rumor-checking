@@ -167,7 +167,18 @@ class CriticAgent:
         if not has_decisive:
             return set()
 
+        decisive_claims = [cr for cr in claim_results if cr.verdict in _DECISIVE]
+        simple_high_confidence_case = (
+            len(decisive_claims) == 1
+            and self._is_high_confidence(decisive_claims[0])
+            and any(
+                getattr(ev, "source_tier", "C") in ("S", "A")
+                for ev in (decisive_claims[0].evidence or [])
+            )
+        )
         perspectives = max(int(getattr(ctx.settings, "multi_agent_critic_perspectives", 1) or 1), 1)
+        if simple_high_confidence_case:
+            perspectives = 1
         lenses = _CRITIC_LENSES[:perspectives] if perspectives <= len(_CRITIC_LENSES) else _CRITIC_LENSES
 
         emit_log(
@@ -203,6 +214,13 @@ class CriticAgent:
                 ],
             )
         return all_downgraded
+
+    @staticmethod
+    def _is_high_confidence(claim_result) -> bool:
+        confidence = getattr(claim_result, "confidence", None)
+        if confidence == "high":
+            return True
+        return isinstance(confidence, (int, float)) and confidence >= 0.8
 
     @staticmethod
     def _collect_diverse_votes(reasoner, claim_results, lenses: list, *, ctx=None) -> list[set[int]]:

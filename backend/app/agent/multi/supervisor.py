@@ -23,6 +23,7 @@ are satisfied at each tick.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
@@ -43,7 +44,7 @@ from backend.app.agent.multi.merge_agent import MergeAgent
 from backend.app.agent.multi.normalize_agent import NormalizeAgent
 from backend.app.agent.multi.report_agent import ReportAgent
 from backend.app.agent.multi.retrieval_agent import RetrievalAgent
-from backend.app.agent.multi.source_agents import SOURCE_ROLES, build_source_agents
+from backend.app.agent.multi.source_agents import build_source_agents
 from backend.app.agent.state import AgentState
 from backend.app.agent_tools import tools as _tools  # noqa: F401 — triggers @tool registration
 from backend.app.agent_tools.base import ToolContext
@@ -100,14 +101,6 @@ class Supervisor:
         else:
             configs = agent_configs or self._load_configs_from_settings()
             self.agents = self._default_agents(configs, mode=self.retrieval_mode)
-
-        # Retrieval-segment roles present in the active DAG — used by loop-back to
-        # reset the right agents regardless of which topology is running.
-        self._retrieval_roles = [
-            a.role
-            for a in self.agents
-            if a.role in {AgentRole.RETRIEVAL, AgentRole.NORMALIZE, AgentRole.RETRIEVAL_MERGE, *SOURCE_ROLES}
-        ]
 
     def run(self, request: AnalyzeRequest, run_id: str | None = None) -> Report:
         if self._trace_exporter is None:
@@ -263,13 +256,13 @@ class Supervisor:
                     title="条件路由: 回到检索",
                     summary="判定证据不足，触发重新检索。",
                 )
-                # Re-run the whole retrieval segment for the active DAG (sequential:
-                # RETRIEVAL; parallel: normalize + sources + merge) plus analysis and
-                # critic. Discard only roles that exist so this is DAG-agnostic.
-                for role in (*self._retrieval_roles, AgentRole.ANALYSIS, AgentRole.CRITIC):
-                    completed.discard(role)
+                # Keep the existing retrieval bundle and enrich it with focused
+                # per-claim searches before re-judging.
+                completed.discard(AgentRole.ANALYSIS)
+                completed.discard(AgentRole.CRITIC)
                 state.per_claim_iterations = 0
                 state.per_claim_searches = 0
+                state.loop_back_enrichment = True
                 state.done_actions.append("supervisor_loop_back")
 
             # Debate loop: after critic downgrades claims, re-run Analysis + Critic
@@ -278,6 +271,16 @@ class Supervisor:
             elif AgentRole.CRITIC in completed and self._should_debate(state):
                 critic_result = self._results.get(AgentRole.CRITIC)
                 downgraded = getattr(critic_result, "downgraded_indices", None) or set()
+                verdict_fingerprint = self._verdict_fingerprint(state)
+                if state.debate_verdict_fingerprint == verdict_fingerprint:
+                    emit_log(
+                        stage_key=_STAGE_KEY,
+                        title="辩论已收敛",
+                        summary="本轮判定与上一轮一致，停止重复重判。",
+                        details=[f"debate_round={state.debate_rounds}"],
+                    )
+                    continue
+
                 debate_round = state.debate_rounds + 1
                 emit_log(
                     stage_key=_STAGE_KEY,
@@ -287,6 +290,7 @@ class Supervisor:
                 )
                 state.debate_rounds = debate_round
                 state.debate_focus_indices = downgraded
+                state.debate_verdict_fingerprint = verdict_fingerprint
                 # Re-run only Analysis + Critic (no re-retrieval — evidence is kept)
                 completed.discard(AgentRole.ANALYSIS)
                 completed.discard(AgentRole.CRITIC)
@@ -418,6 +422,15 @@ class Supervisor:
             return False
         downgraded = getattr(critic_result, "downgraded_indices", None)
         return bool(downgraded)
+
+    @staticmethod
+    def _verdict_fingerprint(state: AgentState) -> str:
+        claim_verdicts = (
+            tuple((cr.claim, cr.claim_type, cr.verdict) for cr in state.verdict.claim_results)
+            if state.verdict is not None
+            else ()
+        )
+        return hashlib.sha256(repr(claim_verdicts).encode("utf-8")).hexdigest()
 
     def _llm_route_loop_back(self, state: AgentState, fact_claims: list) -> bool | None:
         """LLM router: choose 'loop_back' vs 'finalize' from an evidence snapshot.
@@ -618,15 +631,6 @@ class Supervisor:
                 model_used=result.model_used,
             )
         return result
-
-    def _run_agent_impl(
-        self,
-        agent: SubAgent,
-        state: AgentState,
-        deadline: float | None,
-    ) -> SubAgentResult:
-        config = agent.config if hasattr(agent, "config") else None
-        model_name = getattr(config, "model", None)
 
     def _run_agent_impl(
         self,
