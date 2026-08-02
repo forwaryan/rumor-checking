@@ -15,7 +15,7 @@ from backend.app.services.retrieval_models import (
     detect_signal_tags,
     infer_source_category,
 )
-from backend.app.services.retrieval_provider import _infer_source_tier
+from backend.app.services.retrieval_provider import infer_source_signals
 
 logger = logging.getLogger(__name__)
 
@@ -306,6 +306,7 @@ class PlaywrightSearchProvider:
             snippet = _clean_text(item.get("snippet") or title)
             source_name = item.get("source") or _source_name_from_url(url)
 
+            tier, authority_score = infer_source_signals(url, source_name, title)
             results.append(
                 SearchResult(
                     case_id="real_search",
@@ -316,7 +317,8 @@ class PlaywrightSearchProvider:
                     source_name=source_name,
                     published_at=item.get("published_at") or "",
                     snippet=snippet,
-                    source_tier=_infer_source_tier(url, source_name),
+                    source_tier=tier,
+                    authority_score=authority_score,
                     source_category=infer_source_category(url, source_name),
                     independence_key=build_independence_key(url, source_name),
                     signal_tags=detect_signal_tags(title, snippet, source_name),
@@ -339,6 +341,7 @@ class PlaywrightSearchProvider:
             snippet = _clean_text(item.get("snippet") or title)
             source_name = _source_name_from_url(url)
 
+            tier, authority_score = infer_source_signals(url, source_name, title)
             results.append(
                 SearchResult(
                     case_id="real_search",
@@ -349,7 +352,8 @@ class PlaywrightSearchProvider:
                     source_name=source_name,
                     published_at="",
                     snippet=snippet,
-                    source_tier=_infer_source_tier(url, source_name),
+                    source_tier=tier,
+                    authority_score=authority_score,
                     source_category=infer_source_category(url, source_name),
                     independence_key=build_independence_key(url, source_name),
                     signal_tags=detect_signal_tags(title, snippet, source_name),

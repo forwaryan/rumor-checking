@@ -177,6 +177,7 @@ class SearchResult:
     relation_type: str | None = None
     signal_tags: tuple[str, ...] = ()
     query_label: str | None = None
+    authority_score: float = 0.0
 
     @property
     def canonical_id(self) -> str:

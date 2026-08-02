@@ -18,6 +18,7 @@ from urllib.parse import quote_plus
 from backend.app.core.config import Settings, get_settings
 from backend.app.services.progress import emit_api_call, get_retrieval_stage_key
 from backend.app.services.retrieval_models import SearchResult
+from backend.app.services.retrieval_provider import _authority_score
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +164,7 @@ class PiyaoSearchProvider:
                 snippet=snippet[:300],
                 source_name="中国互联网联合辟谣平台",
                 source_tier="S",
+                authority_score=_authority_score(href, "中国互联网联合辟谣平台", "S", title),
                 source_category="official_debunking",
                 published_at=published_at,
                 query_label=query_text,

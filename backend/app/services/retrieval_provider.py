@@ -103,6 +103,83 @@ def _infer_source_tier(url: str, source_name: str) -> str:
     return "C"
 
 
+# Continuous authority score in [0, 100]. Tier gives the anchor; the rest are
+# small additive/deductive signals so within-tier ranking is no longer arbitrary.
+# Kept intentionally lightweight — see backend/tests/test_authority_score.py for
+# the invariants each band pins.
+_TIER_BASE_SCORE = {"S": 40.0, "A": 32.0, "B": 20.0, "C": 10.0}
+_HOSTING_PLATFORM_MARKERS = (
+    ".blog.",
+    ".wordpress.com",
+    ".wixsite.com",
+    ".typepad.com",
+    ".blogspot.com",
+    ".medium.com",
+    ".substack.com",
+    ".weebly.com",
+    ".over-blog.com",
+)
+_SUSPICIOUS_TLDS = (".top", ".xyz", ".click", ".buzz", ".loan", ".gq", ".tk", ".cf")
+_CLICKBAIT_TITLE_MARKERS = (
+    "震惊",
+    "全网疯传",
+    "删前速看",
+    "紧急扩散",
+    "紧急提醒",
+    "疯狂转发",
+    "刚刚曝光",
+    "内部消息",
+    "别再吃了",
+    "危险",
+)
+_ADVERTORIAL_URL_MARKERS = ("/promotion/", "/advertorial/", "/sponsored/", "/adv/", "/ad/")
+
+
+def _authority_score(url: str, source_name: str, tier: str, title: str = "") -> float:
+    """Score a source's authority on a 0–100 continuous scale.
+
+    Signals (each independent, then summed and clamped):
+    - tier base: S=40 A=32 B=20 C=10
+    - whitelist bonus: exact TOP_TIER_DOMAINS or piyao hit → +15
+    - HTTPS + independent-domain: +4 each (hosted blog platforms lose the domain bonus)
+    - suspicious signals: sketchy TLD -8, advertorial URL segment -10, clickbait title marker -10
+    """
+    parsed = urlparse(url)
+    host = (parsed.netloc or source_name or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+
+    score = _TIER_BASE_SCORE.get(tier, 10.0)
+
+    if any(host == domain or host.endswith(f".{domain}") for domain in TOP_TIER_DOMAINS):
+        score += 15.0
+    if "piyao.org.cn" in host:
+        score += 15.0
+
+    if parsed.scheme == "https":
+        score += 4.0
+    if not any(marker in host for marker in _HOSTING_PLATFORM_MARKERS):
+        score += 4.0
+
+    if any(host.endswith(tld) for tld in _SUSPICIOUS_TLDS):
+        score -= 8.0
+
+    lowered_path = (parsed.path or "").lower()
+    if any(marker in lowered_path for marker in _ADVERTORIAL_URL_MARKERS):
+        score -= 10.0
+
+    if title and any(marker in title for marker in _CLICKBAIT_TITLE_MARKERS):
+        score -= 10.0
+
+    return max(0.0, min(100.0, score))
+
+
+def infer_source_signals(url: str, source_name: str, title: str = "") -> tuple[str, float]:
+    """One-shot helper: return (tier, authority_score) for a hit."""
+    tier = _infer_source_tier(url, source_name)
+    return tier, _authority_score(url, source_name, tier, title)
+
+
 class RetrievalProvider(Protocol):
     name: str
     enabled: bool

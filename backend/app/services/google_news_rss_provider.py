@@ -13,6 +13,7 @@ import httpx
 
 from backend.app.services.contract_utils import ensure_datetime_string
 from backend.app.services.retrieval_models import SearchResult
+from backend.app.services.retrieval_provider import _authority_score
 
 FetchText = Callable[[str, float], str]
 
@@ -150,6 +151,7 @@ class GoogleNewsRSSProvider:
                     published_at=published_at,
                     snippet=snippet,
                     source_tier=source_tier,
+                    authority_score=_authority_score(link, source_name, source_tier, clean_title),
                     provider_name=self.provider_name,
                     retrieved_at=retrieved_at,
                 )

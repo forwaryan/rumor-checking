@@ -62,10 +62,16 @@ def score_result(result: SearchResult, query_text: str, event_title: str = "") -
         matched = ref_numbers & hit_numbers
         number_bonus = len(matched) / len(ref_numbers) * 0.3
 
-    # Tier weight bonus (high-trust sources get a nudge)
-    tier_bonus = TIER_WEIGHTS.get(result.source_tier, 0) * 0.05
+    # Authority signal. Prefer the continuous 0–100 authority_score when the
+    # provider computed one (0.5 max nudge); fall back to the coarse tier
+    # weight so fixtures / historical replays that never set the field still
+    # get the traditional tier bump.
+    if result.authority_score > 0:
+        authority_bonus = result.authority_score * 0.005
+    else:
+        authority_bonus = TIER_WEIGHTS.get(result.source_tier, 0) * 0.05
 
-    return token_score + number_bonus + tier_bonus
+    return token_score + number_bonus + authority_bonus
 
 
 def rank_results(
