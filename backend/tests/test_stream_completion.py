@@ -62,8 +62,8 @@ def test_fast_model_drops_json_object_and_uses_short_budget(monkeypatch):
     # gateway, so we no longer pin it for fast models either. The fast model keeps
     # its modest max_tokens budget.
     cap = _Capture(_sse({"content": '{"ok": true}'}))
-    monkeypatch.setattr(httpx, "stream", cap)
     r = _reasoner(llm_model="fast-x", llm_max_tokens=4096, provider_timeout_seconds=30.0)
+    monkeypatch.setattr(r._client, "stream", cap)
 
     out = r._stream_completion(
         endpoint="http://gateway.test/v1/chat/completions",
@@ -80,8 +80,8 @@ def test_timeout_multiplier_extends_the_deadline(monkeypatch):
     # Synthesis passes a >1 multiplier so its heavy JSON body gets more wall-clock
     # than the short planner/investigation calls (which use multiplier 1.0).
     cap = _Capture(_sse({"content": '{"ok": true}'}))
-    monkeypatch.setattr(httpx, "stream", cap)
     r = _reasoner(llm_model="think-x", llm_reasoning_models=("think-x",), llm_reasoning_timeout_seconds=200.0)
+    monkeypatch.setattr(r._client, "stream", cap)
 
     r._stream_completion(
         endpoint="http://gateway.test/v1/chat/completions",
@@ -95,8 +95,8 @@ def test_timeout_multiplier_extends_the_deadline(monkeypatch):
 
 def test_timeout_multiplier_defaults_to_base(monkeypatch):
     cap = _Capture(_sse({"content": '{"ok": true}'}))
-    monkeypatch.setattr(httpx, "stream", cap)
     r = _reasoner(llm_model="think-x", llm_reasoning_models=("think-x",), llm_reasoning_timeout_seconds=200.0)
+    monkeypatch.setattr(r._client, "stream", cap)
 
     r._stream_completion(
         endpoint="http://gateway.test/v1/chat/completions",
@@ -109,13 +109,13 @@ def test_timeout_multiplier_defaults_to_base(monkeypatch):
 
 def test_reasoning_model_drops_json_object_and_uses_reasoning_budget(monkeypatch):
     cap = _Capture(_sse({"content": '{"ok": true}'}))
-    monkeypatch.setattr(httpx, "stream", cap)
     r = _reasoner(
         llm_model="think-x",
         llm_reasoning_models=("think-x",),
         llm_reasoning_max_tokens=16000,
         llm_reasoning_timeout_seconds=200.0,
     )
+    monkeypatch.setattr(r._client, "stream", cap)
 
     out = r._stream_completion(
         endpoint="http://gateway.test/v1/chat/completions",
@@ -140,8 +140,8 @@ def test_reasoning_content_is_not_part_of_the_answer(monkeypatch):
             {"content": '"supported"}'},
         )
     )
-    monkeypatch.setattr(httpx, "stream", cap)
     r = _reasoner(llm_model="think-x", llm_reasoning_models=("think-x",))
+    monkeypatch.setattr(r._client, "stream", cap)
 
     out = r._stream_completion(
         endpoint="http://gateway.test/v1/chat/completions",
@@ -157,8 +157,8 @@ def test_runaway_stream_is_cut_by_char_budget(monkeypatch):
     # client-side char budget (llm_max_tokens * _STREAM_CHARS_PER_TOKEN).
     flood = [{"content": "x" * 1000} for _ in range(500)]  # 500k chars
     cap = _Capture(_sse(*flood))
-    monkeypatch.setattr(httpx, "stream", cap)
     r = _reasoner(llm_model="fast-x", llm_max_tokens=1000)  # budget = 8000 chars
+    monkeypatch.setattr(r._client, "stream", cap)
 
     out = r._stream_completion(
         endpoint="http://gateway.test/v1/chat/completions",
@@ -190,8 +190,8 @@ def test_read_timeout_keeps_partial_content(monkeypatch):
 
         return _Ctx()
 
-    monkeypatch.setattr(httpx, "stream", raising_stream)
     r = _reasoner(llm_model="fast-x")
+    monkeypatch.setattr(r._client, "stream", raising_stream)
 
     out = r._stream_completion(
         endpoint="http://gateway.test/v1/chat/completions",
@@ -484,3 +484,85 @@ def test_outcome_is_accepted_only_when_validator_passes(monkeypatch):
         r, monkeypatch, content='{"claims": [{"claim": "c"}]}', is_valid=r._synthesis_content_usable
     )
     assert outcomes == ["校验通过"]
+
+
+def test_health_aware_order_puts_healthy_before_unhealthy(monkeypatch):
+    from backend.app.services.model_health import ModelHealthRegistry
+
+    registry = ModelHealthRegistry(failure_threshold=1)
+    monkeypatch.setattr(
+        "backend.app.services.agent_reasoner.get_model_health_registry",
+        lambda: registry,
+    )
+    registry.report_failure("m-a")
+
+    seen: list[str] = []
+
+    def record(*, endpoint, model, system_prompt, user_prompt, **_):
+        seen.append(model)
+        return '{"ok": true}'
+
+    r = _reasoner(llm_model="m-a", llm_models=("m-a", "m-b"), llm_reasoning_retries=2)
+    monkeypatch.setattr(r, "_stream_completion", record)
+    r._request_completion(stage_key="s", title="t", system_prompt="sys", user_prompt="usr")
+    assert seen[0] == "m-b"
+
+
+def test_health_aware_order_skipped_for_picker_override(monkeypatch):
+    from backend.app.services.model_health import ModelHealthRegistry
+
+    registry = ModelHealthRegistry(failure_threshold=1)
+    monkeypatch.setattr(
+        "backend.app.services.agent_reasoner.get_model_health_registry",
+        lambda: registry,
+    )
+    registry.report_failure("picked-x")
+
+    seen: list[str] = []
+
+    def record(*, endpoint, model, system_prompt, user_prompt, **_):
+        seen.append(model)
+        return '{"ok": true}'
+
+    r = _reasoner(llm_model="m-a", llm_models=("m-a", "m-b"), llm_reasoning_retries=2)
+    r.model_override = "picked-x"
+    monkeypatch.setattr(r, "_stream_completion", record)
+    r._request_completion(stage_key="s", title="t", system_prompt="sys", user_prompt="usr")
+    assert seen == ["picked-x"]
+
+
+def test_unhealthy_model_still_tried_when_healthy_ones_fail(monkeypatch):
+    from backend.app.services.model_health import ModelHealthRegistry
+
+    registry = ModelHealthRegistry(failure_threshold=1)
+    monkeypatch.setattr(
+        "backend.app.services.agent_reasoner.get_model_health_registry",
+        lambda: registry,
+    )
+    registry.report_failure("m-a")
+
+    seen: list[str] = []
+
+    def only_unhealthy_works(*, endpoint, model, system_prompt, user_prompt, **_):
+        seen.append(model)
+        return '{"ok": true}' if model == "m-a" else ""
+
+    r = _reasoner(llm_model="m-a", llm_models=("m-a", "m-b"), llm_reasoning_retries=2)
+    monkeypatch.setattr(r, "_stream_completion", only_unhealthy_works)
+    out = r._request_completion(stage_key="s", title="t", system_prompt="sys", user_prompt="usr")
+    assert out == '{"ok": true}'
+    assert "m-b" in seen
+    assert "m-a" in seen
+
+
+def test_close_is_idempotent_noop():
+    r = _reasoner(llm_model="fast-x")
+    r.close()
+    r.close()  # second call must not raise
+    assert not r._client.is_closed  # module-level client stays open
+
+
+def test_reasoners_share_httpx_client_across_instances():
+    r1 = _reasoner(llm_model="fast-x")
+    r2 = _reasoner(llm_model="think-x")
+    assert r1._client is r2._client

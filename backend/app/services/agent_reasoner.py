@@ -34,6 +34,7 @@ from backend.app.models.schemas import (
     PossibilityItem,
     TimelineNode,
 )
+from backend.app.services import agent_reasoner_pure as _pure
 from backend.app.services.claim_correction import annotate_claim_corrections
 from backend.app.services.claim_extractor import ClaimExtraction
 from backend.app.services.contract_utils import (
@@ -41,9 +42,7 @@ from backend.app.services.contract_utils import (
     default_source_url,
     ensure_datetime_string,
     ensure_datetime_string_or_empty,
-    loads_lenient_json,
 )
-from backend.app.services import agent_reasoner_pure as _pure
 from backend.app.services.model_health import get_model_health_registry
 from backend.app.services.progress import emit_api_call, emit_log
 from backend.app.services.question_intent import is_broad_trend_question
@@ -432,6 +431,19 @@ _KNOWN_ACTION_NAMES = frozenset(
     {"investigate", "fetch_url", "synthesize", "per_claim_search", "build_timeline"}
 )
 
+# Module-level shared httpx client for cross-request connection reuse.
+# AnalyzePipeline (and thus LlmAgentReasoner) is constructed fresh per HTTP
+# request, so an instance-level client only reuses connections within one run.
+# A shared client lets the process-wide connection pool serve all requests.
+_SHARED_HTTPX_CLIENT: httpx.Client | None = None
+
+
+def _get_shared_client() -> httpx.Client:
+    global _SHARED_HTTPX_CLIENT
+    if _SHARED_HTTPX_CLIENT is None:
+        _SHARED_HTTPX_CLIENT = httpx.Client()
+    return _SHARED_HTTPX_CLIENT
+
 
 class LlmAgentReasoner:
     def __init__(self, settings: Settings | None = None) -> None:
@@ -449,6 +461,10 @@ class LlmAgentReasoner:
         # is what trips the 300s gateway cutoff).
         self._rate_limiter: Any | None = None
         self._rate_limiter_built = False
+        self._client = _get_shared_client()
+
+    def close(self) -> None:
+        """No-op. The httpx client is module-level and outlives any single reasoner."""
 
     @property
     def enabled(self) -> bool:
@@ -1103,7 +1119,7 @@ class LlmAgentReasoner:
         truncated = False
         usage_data: dict | None = None
         try:
-            with httpx.stream(
+            with self._client.stream(
                 "POST",
                 endpoint,
                 headers={
