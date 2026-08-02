@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from backend.app.core.config import get_settings
 from backend.app.main import create_app
+from backend.app.services.model_health import _reset_for_tests as reset_model_health_registry
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EVALS_ROOT = REPO_ROOT / "evals" / "minimal_v1"
@@ -46,8 +47,10 @@ def stable_test_env(monkeypatch, tmp_path):
     # shared data/cache/retrieval directory (order-dependent contamination).
     monkeypatch.setenv("RETRIEVAL_CACHE_DIR", str(tmp_path / "retrieval-cache"))
     get_settings.cache_clear()
+    reset_model_health_registry()
     yield
     get_settings.cache_clear()
+    reset_model_health_registry()
 
 
 @pytest.fixture()

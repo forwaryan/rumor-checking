@@ -183,6 +183,19 @@ def get_model_health_registry() -> ModelHealthRegistry:
     return _registry
 
 
+def _reset_for_tests() -> None:
+    """Drop the process-wide registry so the next getter rebuilds it clean.
+
+    The registry is a process singleton by design (see get_model_health_registry).
+    That's the right shape at runtime, but it means test-A can mark a model
+    unhealthy and test-B then sees the wrong candidate ordering. Call this from
+    the autouse fixture between tests. Prod code must not touch this.
+    """
+    global _registry
+    with _registry_lock:
+        _registry = None
+
+
 def _fast_model_candidates(settings: Settings) -> list[str]:
     """Health-ordered non-reasoning models for a one-shot completion.
 
