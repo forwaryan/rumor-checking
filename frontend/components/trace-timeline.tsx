@@ -110,16 +110,51 @@ function logPercent(ms: number, totalMs: number): number {
 }
 
 /**
- * Log-scale ticks: 1ms, 10ms, 100ms, 1s, 10s, 1m (60s), 10m (600s), 1h.
- * We keep only ticks that fit within the run, plus a synthesized endpoint
- * so users always see the actual run length.
+ * Log-scale ticks: decades that fit inside the run (1ms, 10ms, ..., 10m, 1h)
+ * plus an endpoint tick at the exact total. If the endpoint would land within
+ * 6% (log-space) of the last decade tick their labels overlap in practice, so
+ * we drop the decade and keep the endpoint — the exact total is more useful
+ * than a nearby round decade the user can already tell from context.
  */
 function pickLogTicks(totalMs: number): number[] {
   const decades = [1, 10, 100, 1_000, 10_000, 60_000, 600_000, 3_600_000];
   const ticks = decades.filter((t) => t <= totalMs);
   if (ticks.length === 0) return [totalMs];
-  if (ticks[ticks.length - 1] !== totalMs) ticks.push(totalMs);
+  if (ticks[ticks.length - 1] === totalMs) return ticks;
+  const denom = toLog(totalMs);
+  if (denom > 0) {
+    // Percentage-space collision check: two ticks whose log-projected
+    // positions differ by less than 6% overlap once labels are rendered.
+    const OVERLAP_PCT = 6;
+    while (ticks.length > 0) {
+      const lastPct = (toLog(ticks[ticks.length - 1]) / denom) * 100;
+      const endPct = 100; // endpoint is by definition at 100%
+      if (endPct - lastPct < OVERLAP_PCT) {
+        ticks.pop();
+        continue;
+      }
+      break;
+    }
+  }
+  ticks.push(totalMs);
   return ticks;
+}
+
+/** Compact tick label — like formatDuration but strips trailing zeros on the
+ * seconds decimal so `10s` doesn't show up as `10.00s` and crowd its neighbor. */
+function formatTickLabel(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  if (ms < 60_000) {
+    const s = ms / 1000;
+    // Whole-second decade ticks render as "10s"; non-round labels get one decimal.
+    if (Math.abs(s - Math.round(s)) < 0.05) return `${Math.round(s)}s`;
+    return `${s.toFixed(1)}s`;
+  }
+  const totalSec = Math.round(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  if (s === 0) return `${m}m`;
+  return `${m}m${s}s`;
 }
 
 /**
@@ -155,7 +190,7 @@ function TimelineRuler({ totalMs }: { totalMs: number }) {
       <div className="gantt-ruler__track">
         {ticks.map((t, i) => {
           const left = logPercent(t, totalMs);
-          const label = formatDuration(t);
+          const label = formatTickLabel(t);
           return (
             <div key={i} className="gantt-ruler__tick" style={{ left: `${left}%` }}>
               <span className="gantt-ruler__tick-mark" />
