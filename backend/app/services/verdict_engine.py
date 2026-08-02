@@ -365,7 +365,7 @@ class VerdictEngine:
         target = fact_results[0]
         target_idx = results.index(target)
         merged_evidence = list(target.evidence) + picked
-        note_suffix = "\n[规则兜底] 已追加 %d 条检索命中作为参考材料。" % len(picked)
+        note_suffix = f"\n[规则兜底] 已追加 {len(picked)} 条检索命中作为参考材料。"
         updated_claim = target.model_copy(update={
             "evidence": merged_evidence,
             "notes": (target.notes or "") + note_suffix,

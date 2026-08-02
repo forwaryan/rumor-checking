@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -63,13 +63,13 @@ def record_snapshot(
     if output_dir is None:
         from backend.app.core.config import get_settings
         settings = get_settings()
-        output_dir = settings.project_root / "evals" / "live_replay" / datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        output_dir = settings.project_root / "evals" / "live_replay" / datetime.now(UTC).strftime("%Y-%m-%d")
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
     snapshot = EvalSnapshot(
         case_id=case_id,
-        recorded_at=datetime.now(timezone.utc).isoformat(),
+        recorded_at=datetime.now(UTC).isoformat(),
         raw_input=raw_input,
         retrieval_results=retrieval_results,
         expected_claims=claim_results,
@@ -186,9 +186,9 @@ def evaluate_batch(snapshots: list[EvalSnapshot], actual_results: list[list[dict
     all_scores: list[FeverScore] = []
     per_case: list[dict] = []
 
-    for snapshot, actuals in zip(snapshots, actual_results):
+    for snapshot, actuals in zip(snapshots, actual_results, strict=False):
         case_scores: list[FeverScore] = []
-        for expected, actual in zip(snapshot.expected_claims, actuals):
+        for expected, actual in zip(snapshot.expected_claims, actuals, strict=False):
             expected_urls = {e.get("url", "") for e in expected.get("evidence", []) if e.get("url")}
             actual_urls = {e.get("url", "") for e in actual.get("evidence", []) if e.get("url")}
 

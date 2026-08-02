@@ -9,6 +9,7 @@ from backend.app.services.rendered_page_fetcher import _check_playwright, render
 def test_render_page_returns_none_when_playwright_missing():
     with patch.dict("sys.modules", {"playwright": None, "playwright.sync_api": None}):
         import importlib
+
         import backend.app.services.rendered_page_fetcher as mod
         mod._PLAYWRIGHT_AVAILABLE = None  # reset cache
         result = mod.render_page("https://example.com")
@@ -23,6 +24,7 @@ def test_render_page_returns_none_for_unsafe_url():
 def test_try_rendered_fallback_gated_by_setting():
     """_try_rendered_fallback returns None when setting is disabled."""
     from types import SimpleNamespace
+
     from backend.app.agent_tools.tools import _try_rendered_fallback
 
     ctx = SimpleNamespace(settings=SimpleNamespace(rendered_fetch_enabled=False))
@@ -32,6 +34,7 @@ def test_try_rendered_fallback_gated_by_setting():
 def test_try_rendered_fallback_calls_render_on_enabled():
     """When enabled but playwright returns None, fallback still returns None gracefully."""
     from types import SimpleNamespace
+
     from backend.app.agent_tools.tools import _try_rendered_fallback
 
     ctx = SimpleNamespace(
@@ -44,6 +47,7 @@ def test_try_rendered_fallback_calls_render_on_enabled():
 def test_try_rendered_fallback_extracts_body_on_html():
     """When playwright returns HTML with extractable body, fallback returns text."""
     from types import SimpleNamespace
+
     from backend.app.agent_tools.tools import _try_rendered_fallback
 
     html = """<html><head><title>测试标题</title></head><body>

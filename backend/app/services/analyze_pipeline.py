@@ -610,6 +610,7 @@ class AnalyzePipeline:
             return
         try:
             import hashlib
+
             from backend.app.services.eval_recorder import record_snapshot
             case_id = hashlib.sha256(request.raw_input.encode()).hexdigest()[:12]
             retrieval_data = [
