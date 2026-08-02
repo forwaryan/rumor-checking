@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from urllib.parse import urlparse
 
 from backend.app.models.schemas import (
     ClaimContribution,
@@ -26,6 +25,7 @@ from backend.app.services.question_intent import (
     supported_trend_summary,
     trend_follow_up_hint,
 )
+from backend.app.services.retrieval_models import build_independence_key
 from backend.app.services.verdict_engine import coarse_truth_probability
 
 URL_FALLBACK_RISK_MAP = {
@@ -814,13 +814,12 @@ class ReportBuilder:
         return len(keys)
 
     def _source_key(self, item: EvidenceItem) -> str:
-        hostname = urlparse(item.url).hostname or ""
-        if hostname:
-            normalized_hostname = hostname.lower()
-            if normalized_hostname.startswith("www."):
-                normalized_hostname = normalized_hostname[4:]
-            return normalized_hostname
-        return item.source_name.strip().lower()
+        # Use the same registered-domain normalizer as RetrievalBundle so
+        # m.163.com / news.163.com / www.163.com collapse into one source.
+        # Falling back to www.-stripping alone (the previous behavior) inflated
+        # cross-source consistency because subdomain-only duplicates of a
+        # single outlet were counted as independent.
+        return build_independence_key(item.url, item.source_name)
 
     def _derive_credibility_label(
         self,

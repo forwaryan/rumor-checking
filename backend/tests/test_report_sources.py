@@ -109,3 +109,20 @@ def test_sources_dedupe_across_claims():
         retrieval_hits=[shared],
     )
     assert len(report.sources) == 1
+
+
+def test_independent_source_count_dedupes_subdomains():
+    """m.163.com / news.163.com / www.163.com should collapse to one source.
+
+    The old _source_key only stripped the "www." prefix so a rumor cited from
+    two 163 subdomains inflated the cross-source score. Now that
+    _source_key delegates to build_independence_key the registered domain
+    (163.com) is what counts as one independent outlet.
+    """
+    builder = ReportBuilder()
+    m = _hit("https://m.163.com/a", "163 移动端转载")
+    news = _hit("https://news.163.com/a", "163 新闻频道")
+    www = _hit("https://www.163.com/b", "163 首页")
+    third_party = _hit("https://www.people.com.cn/c", "人民网独立源")
+    assert builder._estimate_independent_source_count([m, news, www]) == 1
+    assert builder._estimate_independent_source_count([m, news, www, third_party]) == 2

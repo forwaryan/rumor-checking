@@ -44,6 +44,40 @@ from backend.app.services.xhs_search_provider import XhsSearchProvider
 logger = logging.getLogger(__name__)
 UTC = UTC
 
+# Site: whitelist for the targeted official-source boost. Grouped by rough
+# domain so a rumor about academia doesn't waste a query slot on 疾控中心, etc.
+# The provider still infers S/A/B tier per hit — this only steers where to look.
+OFFICIAL_BOOST_ALWAYS = (
+    "gov.cn",
+    "xinhuanet.com",
+    "people.com.cn",
+    "cctv.com",
+    "chinanews.com.cn",
+    "piyao.org.cn",
+    "news.cn",
+)
+OFFICIAL_BOOST_ACADEMIC = (
+    "nature.com",
+    "sciencemag.org",
+    "cas.cn",
+    "cae.cn",
+    "nsfc.gov.cn",
+    "moe.gov.cn",
+    "retractionwatch.com",
+)
+OFFICIAL_BOOST_HEALTH = ("nhc.gov.cn", "chinacdc.cn", "who.int")
+OFFICIAL_BOOST_QUAKE = ("cea.gov.cn", "cenc.ac.cn")
+OFFICIAL_BOOST_FINANCE = ("stats.gov.cn", "pbc.gov.cn", "csrc.gov.cn")
+
+# Query keyword → extra whitelist. Cheap heuristic; leaves the door open for
+# richer intent classification later.
+OFFICIAL_BOOST_TOPICAL_HINTS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (("院士", "Nature", "论文", "撤稿", "杰青", "学术"), OFFICIAL_BOOST_ACADEMIC),
+    (("疫苗", "疫情", "确诊", "病例", "卫健"), OFFICIAL_BOOST_HEALTH),
+    (("地震", "余震", "震级"), OFFICIAL_BOOST_QUAKE),
+    (("GDP", "统计局", "利率", "央行", "证监会"), OFFICIAL_BOOST_FINANCE),
+)
+
 QUESTION_REWRITE_REPLACEMENTS = (
     (r"[\uFF1F?]", " "),
     (r"^(\u8bf7\u95ee|\u60f3\u95ee\u4e00\u4e0b|\u60f3\u95ee|\u6709\u4eba\u77e5\u9053|\u7f51\u4f20|\u542c\u8bf4)", ""),
@@ -155,6 +189,17 @@ class RetrievalService:
                 bundle = self._append_sogou_weixin_results(bundle, bundle.query, stage_key=stage_key)
             if self._source_enabled("piyao", search_sources):
                 bundle = self._append_piyao_results(bundle, bundle.query, stage_key=stage_key)
+            # Targeted official-source boost runs last so it can inspect
+            # everything the other providers already collected before deciding
+            # whether to spend a query slot. It reuses the primary provider so
+            # `retrieval_cache_only` must also gate it — an offline replay run
+            # must NOT punch through to a live search.
+            if (
+                self._source_enabled("official_boost", search_sources)
+                and not request_context.get("disable_official_boost")
+                and not self._as_bool(request_context.get("retrieval_cache_only"))
+            ):
+                bundle = self._append_official_source_results(bundle, bundle.query, stage_key=stage_key)
         finally:
             reset_retrieval_stage_key(stage_token)
         return bundle
@@ -660,6 +705,107 @@ class RetrievalService:
             provider=self.piyao_provider,
             log_prefix="piyao",
             override_source_category="official_debunking",
+        )
+
+    def _pick_official_whitelist(self, query_text: str) -> tuple[str, ...]:
+        """Assemble the site: whitelist for an official-source boost query.
+
+        Always includes the top-tier Chinese state media / gov.cn cluster.
+        Extends with a topical group (academic / health / quake / finance) when
+        the query text mentions the trigger keyword — a cheap heuristic that
+        avoids wasting one query slot on 疾控中心 for a physics-paper rumor.
+        """
+        extras: list[str] = []
+        for hints, domains in OFFICIAL_BOOST_TOPICAL_HINTS:
+            if any(hint in query_text for hint in hints):
+                extras.extend(domains)
+        seen: set[str] = set()
+        combined: list[str] = []
+        for domain in list(OFFICIAL_BOOST_ALWAYS) + extras:
+            if domain not in seen:
+                seen.add(domain)
+                combined.append(domain)
+        return tuple(combined)
+
+    def _append_official_source_results(
+        self,
+        bundle: RetrievalBundle,
+        primary_query: str,
+        *,
+        stage_key: str,
+    ) -> RetrievalBundle:
+        """Targeted second-pass retrieval for high-tier official / mainstream sources.
+
+        Triggered ONLY when the initial bundle is thin on independent high-tier
+        evidence (grade C/D or zero S/A-tier sources) — the case where a
+        C-heavy result set is about to be shipped as-is and the credibility
+        score has nothing solid to lean on.
+
+        Runs the primary provider (already Baidu-based) with a
+        ``site:a OR site:b OR ...`` clause so we probe the officials that
+        already cover the topic instead of guessing per-domain.
+        """
+        if self.provider is None or not self.provider.enabled:
+            return bundle
+        if bundle.independent_high_trust_source_count >= 1:
+            return bundle
+        if bundle.evidence_grade not in {"C", "D"}:
+            return bundle
+        short_query = self._shorten_for_supplementary(primary_query) or primary_query
+        if not short_query:
+            return bundle
+        whitelist = self._pick_official_whitelist(f"{primary_query} {bundle.query}")
+        if not whitelist:
+            return bundle
+        # Baidu accepts `A OR B` for site filters; capped to a handful so the URL
+        # length stays sane.
+        site_clause = " OR ".join(f"site:{d}" for d in whitelist[:8])
+        boost_query = f"{short_query} {site_clause}"
+        try:
+            hits = self.provider.search(boost_query)
+        except Exception as exc:
+            logger.warning("official_boost_failed error=%s", exc)
+            return bundle
+        if not hits:
+            return bundle
+
+        # Boost queries reuse the primary provider, so they can also surface
+        # dictionary/navigational junk and off-subject pages. Run them through
+        # the same relevance gate the primary path uses — otherwise a rumor
+        # about 拼多多 could see a 河北梨培训会 dragged back in just because a
+        # boost site: filter happened to match.
+        hits = self._filter_relevant_results(list(hits))
+        if not hits:
+            return bundle
+
+        retrieved_at = ensure_datetime_string(datetime.now(UTC).isoformat())
+        enriched = [
+            replace(
+                item,
+                retrieved_at=retrieved_at,
+                source_category=infer_source_category(item.url, item.source_name),
+                independence_key=build_independence_key(item.url, item.source_name),
+                signal_tags=detect_signal_tags(item.title, item.snippet, item.source_name),
+            )
+            for item in hits
+        ]
+
+        existing_keys = {r.independence_key for r in bundle.canonical_results if r.independence_key}
+        new_results = [r for r in enriched if r.independence_key not in existing_keys]
+        if not new_results:
+            return bundle
+
+        logger.info(
+            "official_boost_appended count=%d whitelist=%s",
+            len(new_results),
+            ",".join(whitelist[:8]),
+        )
+        combined_canonical = tuple(list(bundle.canonical_results) + new_results)
+        combined_raw = tuple(list(bundle.raw_results) + new_results)
+        return replace(
+            bundle,
+            canonical_results=combined_canonical,
+            raw_results=combined_raw,
         )
 
     def _shorten_for_supplementary(self, query: str) -> str:
