@@ -34,7 +34,13 @@ export function TimelineSection({ timeline, isOpen, onToggle }: TimelineSectionP
           <div className="timeline">
             {timeline.map((node, i) => (
               <div key={`${node.url}-${i}`} className={`timeline__node timeline__node--${node.node_type}`}>
-                <div className="timeline__node-title">{node.title}</div>
+                <div className="timeline__node-title">
+                  {node.url ? (
+                    <a href={node.url} target="_blank" rel="noreferrer">{node.title}</a>
+                  ) : (
+                    node.title
+                  )}
+                </div>
                 <div className="timeline__node-meta">{node.source_name} · {formatPublishedAt(node.published_at)}</div>
                 <div className="timeline__node-summary">{node.summary}</div>
               </div>

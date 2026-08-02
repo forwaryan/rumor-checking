@@ -89,6 +89,49 @@ function LlmTextBlock({ stageKey, role, text }: { stageKey: string; role: "promp
 }
 
 /**
+ * Pick a "nice" tick step (1s / 2s / 5s / 10s / 30s / 1m / 5m) so the axis
+ * renders 4–8 labels regardless of run length. Kept as a plain lookup — no need
+ * to be clever about arbitrary durations for a UI ruler.
+ */
+function pickTickStepMs(totalMs: number): number {
+  const target = totalMs / 6;
+  const candidates = [
+    500, 1_000, 2_000, 5_000, 10_000, 15_000, 30_000,
+    60_000, 120_000, 300_000, 600_000, 1_800_000, 3_600_000,
+  ];
+  for (const c of candidates) {
+    if (c >= target) return c;
+  }
+  return candidates[candidates.length - 1];
+}
+
+/** Ruler across the top of the timeline. Aligned with .gantt-row__track. */
+function TimelineRuler({ totalMs }: { totalMs: number }) {
+  const step = pickTickStepMs(totalMs);
+  const ticks: number[] = [];
+  for (let t = 0; t <= totalMs + 1; t += step) ticks.push(t);
+  // Guarantee an endpoint tick at exactly totalMs so users see the run length.
+  if (ticks[ticks.length - 1] < totalMs - 1) ticks.push(totalMs);
+  return (
+    <div className="gantt-ruler">
+      <div className="gantt-ruler__labels" aria-hidden="true" />
+      <div className="gantt-ruler__track">
+        {ticks.map((t, i) => {
+          const left = Math.max(0, Math.min(100, (t / Math.max(totalMs, 1)) * 100));
+          return (
+            <div key={i} className="gantt-ruler__tick" style={{ left: `${left}%` }}>
+              <span className="gantt-ruler__tick-mark" />
+              <span className="gantt-ruler__tick-label">{formatDuration(t)}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="gantt-ruler__timing" aria-hidden="true" />
+    </div>
+  );
+}
+
+/**
  * Compute the total wall-clock of the run, plus min/max child durations across
  * all leaves (used for fastest/slowest markers inside a parallel group).
  */
@@ -338,6 +381,8 @@ export function TraceTimeline({ traceSteps, isStreaming, traceOpen, onToggleTrac
       </button>
       {traceOpen && (
         <div className="gantt-timeline">
+          <div className="gantt-hint">位置 = 阶段开始时间 · 宽度 = 阶段耗时</div>
+          <TimelineRuler totalMs={runTotalDenom} />
           {traceSteps.map((step, i) => {
             // For parallel groups, pre-compute fastest/slowest child by duration
             // (skip in-progress children so an unfinished branch isn't ranked).

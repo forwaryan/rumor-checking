@@ -1351,6 +1351,55 @@ a:hover { text-decoration: underline; }
   gap: 0.55rem;
 }
 
+.gantt-hint {
+  font-size: 0.75rem;
+  color: var(--muted);
+  padding: 0 0.2rem 0.1rem;
+}
+
+/* Ruler aligned with .gantt-row__head grid: label(200) | track(1fr) | timing(160) */
+.gantt-ruler {
+  display: grid;
+  grid-template-columns: minmax(150px, 200px) 1fr minmax(120px, 160px);
+  gap: 0.6rem;
+  padding: 0 0.7rem;
+  align-items: end;
+  height: 1.1rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.gantt-ruler__labels,
+.gantt-ruler__timing { min-width: 0; }
+
+.gantt-ruler__track {
+  position: relative;
+  height: 100%;
+  border-bottom: 1px dashed var(--border);
+}
+
+.gantt-ruler__tick {
+  position: absolute;
+  bottom: 0;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+}
+
+.gantt-ruler__tick-mark {
+  width: 1px;
+  height: 4px;
+  background: var(--border);
+}
+
+.gantt-ruler__tick-label {
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .gantt-group {
   border-radius: 0.55rem;
   background: var(--card);
@@ -1522,6 +1571,12 @@ a:hover { text-decoration: underline; }
 /* On narrow viewports, stack the label above the track so the bar still gets
    plenty of horizontal room. */
 @media (max-width: 640px) {
+  .gantt-ruler {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+  .gantt-ruler__labels,
+  .gantt-ruler__timing { display: none; }
   .gantt-row__head {
     grid-template-columns: 1fr;
     gap: 0.35rem;
