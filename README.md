@@ -19,7 +19,9 @@
 - [多 Agent 并行架构](#多-agent-并行架构)
 - [两档核查 · 秒级 vs 分钟级](#两档核查--秒级-vs-分钟级)
 - [四种命运 · 每条事实独立判定](#四种命运--每条事实独立判定)
+- [来源可信度打分](#来源可信度打分)
 - [快速开始](#快速开始)
+- [持续集成](#持续集成)
 - [接口与运行路径](#接口与运行路径)
 - [文档入口](#文档入口)
 - [当前边界与如实口径](#当前边界与如实口径)
@@ -110,12 +112,33 @@
 
 ---
 
+## 来源可信度打分
+
+同 tier 内部的排序不再只靠 token overlap。每个 SERP hit 除 `source_tier`（S/A/B/C 四档硬分类）外还带一个 `authority_score`（0–100 连续分），由 4 组信号叠加：
+
+<p align="center">
+  <img src="docs/assets/authority-score-signals.png" alt="authority_score 4 组信号叠加：tier 锚点 + 白名单 + HTTPS/独立域 + 可疑扣分" width="900">
+</p>
+
+| 信号 | 分值 | 何时触发 |
+|---|---|---|
+| **tier 基础分** | S=40 · A=32 · B=20 · C=10 | 保留原四级分类作为主锚 |
+| **白名单加成** | +15 | 命中 `TOP_TIER_DOMAINS`（新华社/人民网/央视/路透/AP…）或 `piyao.org.cn` |
+| **HTTPS + 独立域** | +4 / +4 | HTTPS 得 +4；域名非 `medium/wordpress/wixsite/blogspot` 等托管平台再 +4 |
+| **可疑信号扣分** | -8 / -10 / -10 | `.top/.xyz/.click/.buzz` 等 TLD → -8；URL 含 `/promotion` `/advertorial` → -10；标题含「震惊」「全网疯传」「删前速看」等 clickbait 词 → -10 |
+
+**只影响排序，不参与 verdict 决策**——verdict 引擎依旧靠 tier 分级 + 数量阈值，稳。`evidence_ranker` 用 `authority_score * 0.005` 替代原来的 `TIER_WEIGHTS[tier] * 0.05`，量级一致但同 tier 内可区分。
+
+**在代码里**：打分函数 `backend/app/services/retrieval_provider.py::_authority_score` · 消费方 `backend/app/services/evidence_ranker.py::score_result`
+
+---
+
 ## 快速开始
 
 ### 环境要求
 
-- Python `>= 3.8`
-- Node.js `>= 18.18.0`（建议 `>= 20.9.0`）
+- Python `>= 3.12`（CI 用 3.12）
+- Node.js `>= 20.9.0`（`frontend/.nvmrc` 锁定为 20.9.0）
 
 ### 1. 配置环境变量
 
@@ -173,9 +196,26 @@ cd frontend && npm install && npm run dev
 ### 4. 跑测试
 
 ```bash
-pytest backend/tests -q                          # 后端回归 (~540 tests)
-cd frontend && npm run typecheck && npm test     # 前端类型检查 + 单测 (~53 tests)
+pytest backend/tests -q                          # 后端回归 (~630 tests)
+cd frontend && npm run typecheck && npm test     # 前端类型检查 + 单测
 ```
+
+CI 每次 push/PR 也会跑同一套（见下节）。
+
+---
+
+## 持续集成
+
+<p align="center">
+  <img src="docs/assets/ci-pipeline.png" alt="CI 流水线：backend ruff+pytest / frontend typecheck+build 两个 job 并行" width="900">
+</p>
+
+`.github/workflows/ci.yml` 在 push 到 `main` 或 PR 目标为 `main` 时触发，两个 job 并行：
+
+- **backend**：`ruff check backend/` → `pytest backend/tests -q`（630 用例）。仅排除 `test_retrieval.py`（内部间接触发 `weixin.sogou.com` / `piyao.org.cn` 真实网络）
+- **frontend**：`npm ci` → `npm run typecheck` → `npm run build`
+
+**约束**：ruff 无 `--exit-zero`，任何 lint 违规立刻红；pytest 无失败豁免；两个 job 全绿才允许合并。
 
 ---
 
@@ -187,7 +227,9 @@ cd frontend && npm run typecheck && npm test     # 前端类型检查 + 单测 (
 |---|---|
 | `GET /api/v1/health` | 健康检查 |
 | `GET /api/v1/models` | 可选分析模型白名单 + 默认（只回模型名，不含网关地址/密钥） |
+| `GET /api/v1/model-health` | 进程内 LLM 模型健康度快照（失败/成功/驱逐计数，用于运维排查） |
 | `GET /api/v1/search-sources` | 可用检索源列表（用于前端 toggle） |
+| `GET /api/v1/agent-trace/{run_id}` | 只读导出 supervisor 的 span trace（`AGENT_TRACE_ENABLED=true` 时可用） |
 | `POST /api/v1/analyze` | 同步分析 |
 | `POST /api/v1/analyze/stream` | 流式分析（NDJSON 事件流） |
 
@@ -226,7 +268,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/analyze \
 
 ## 文档入口
 
-- [docs/current-code-architecture-guide.md](./docs/current-code-architecture-guide.md) — **代码结构与架构详解**（图文并茂;§11 事实边界仲裁、§12 联网检索选型均归档在此）
+- [docs/current-code-architecture-guide.md](./docs/current-code-architecture-guide.md) — **代码结构与架构详解**（图文并茂;§7.7 推理器可靠性、§11 事实边界仲裁、§12 联网检索选型均归档在此）
 - [backend/README.md](./backend/README.md) · [frontend/README.md](./frontend/README.md) — 前后端说明
 - [contracts/README.md](./contracts/README.md) · [evals/minimal_v1/README.md](./evals/minimal_v1/README.md) — 协议与评测
 - [DEMO.md](./DEMO.md) — 演示脚本 + 演示前 Smoke 检查

@@ -2,7 +2,7 @@
 
 Next.js 单页前端。产品能力/两档/概率维度看主 [README.md](../README.md)；这里只讲前端目录本身的运行方式、目录结构和边界。
 
-更新时间：2026-07-29（Asia/Shanghai）
+更新时间：2026-08-03（Asia/Shanghai）
 
 ## 当前实现
 
@@ -15,9 +15,11 @@ Next.js 单页前端。产品能力/两档/概率维度看主 [README.md](../REA
 
 ```bash
 cd frontend
-npm install
+npm ci               # CI 也用这个（有 package-lock.json）
 npm run dev
 ```
+
+首次开发也可以用 `npm install`，日常和 CI 请用 `npm ci`。
 
 默认地址：`http://127.0.0.1:3000`
 

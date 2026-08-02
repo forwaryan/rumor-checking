@@ -2,12 +2,15 @@
 
 FastAPI 主进程。产品能力/两档核查/概率维度看主 [README.md](../README.md)；这里只讲后端目录本身的接口、运行方式和边界。
 
-更新时间：2026-07-29（Asia/Shanghai）
+更新时间：2026-08-03（Asia/Shanghai）
 
 ## 当前接口
 
 - `GET /api/v1/health`
 - `GET /api/v1/models` — 分析模型白名单 + 默认（只返回模型名，不含网关地址/密钥）
+- `GET /api/v1/model-health` — 进程内 LLM 模型健康度快照（运维用）
+- `GET /api/v1/search-sources` — 检索源开关状态
+- `GET /api/v1/agent-trace/{run_id}` — supervisor span trace 只读导出（`AGENT_TRACE_ENABLED=true` 才启用）
 - `POST /api/v1/analyze`
 - `POST /api/v1/analyze/stream` — NDJSON 流式事件
 
@@ -70,3 +73,11 @@ curl -X POST http://127.0.0.1:8000/api/v1/analyze/stream \
 - verdict / timeline 基于检索结果的规则+启发式，不是完整 agent 搜证系统
 - `Report.provenance.source_type` 当前只输出 `backend_live` 或 `backend_mock`
 - 共享契约以 [../contracts/report.schema.json](../contracts/report.schema.json) 为准
+
+## LLM 推理与日志
+
+- **共享 httpx client**：`LlmAgentReasoner._client` 是模块级 singleton（`_SHARED_HTTPX_CLIENT`），跨请求复用连接池，避免 per-request TLS 握手浪费。见 `backend/app/services/agent_reasoner.py::_get_shared_client`
+- **health-aware failover**：`_candidate_models` 通过 `get_model_health_registry().order_by_health()` 排序候选，健康模型优先；不健康模型不 drop 而是排到后面（picker override 例外）
+- **空返回短路**：单候选连续 2 次 empty 直接 break，避免耿同学/Nature 撤稿类 case 里 3 次 timeout 共花 2m 40s。见 `backend/tests/test_stream_completion.py::test_empty_streak_shortcircuits_when_only_one_candidate`
+- **规则兜底证据回填**：LLM synthesis 空返回 3 次时若 pool 里有 ≥3 条 B/A/S 高信度证据，`_backfill_rule_fallback_evidence` 会将 top 3 附给主 fact claim，避免"20+ 证据但报告只挂 1 条"
+- **JSON 结构化日志**（opt-in）：`APP_LOG_FORMAT=json` 切换到 `_JsonFormatter`（`backend/app/core/logging.py`）。每行一个 JSON，`timestamp` / `level` / `logger` / `message` + 任意 `extra={run_id, stage_key, model}` 作为顶层字段。默认 `text` 走原有人类可读格式，无回归

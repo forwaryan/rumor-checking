@@ -1,6 +1,6 @@
 # 代码结构与架构详解
 
-> 更新时间：2026-07-29（Asia/Shanghai）
+> 更新时间：2026-08-03（Asia/Shanghai）
 > 
 > 目的：把这套代码「怎么分层、怎么跑、每个模块干什么」讲清楚。所有链接和口径与当前主分支代码一致。
 
@@ -71,7 +71,7 @@ rumor-checking/
 │  │  ├─ agent/              # Agent 编排层（含 multi/ 多 Agent DAG）
 │  │  ├─ agent_tools/        # 把 services 里的能力薄封装成工具
 │  │  └─ services/           # 真正的业务流水线与能力组件
-│  ├─ tests/                 # 后端测试（~540 用例）
+│  ├─ tests/                 # 后端测试（~630 用例）
 │  └─ eval_regression_tests/ # 回归相关脚本
 ├─ frontend/
 │  ├─ app/                   # Next.js 页面入口与全局样式
@@ -299,6 +299,8 @@ NORMALIZE
 | Source 只用一个 `primary_query` | 跳过 3 次 LLM query-extract（百度还有自己的富 query plan） |
 | 用户 toggle 关掉的源 → `SKIPPED` | `_ready_agents` 视同满足，MERGE 继续跑 |
 | Loop back 至多一次 | 由 `supervisor_loop_back` 标记守护 |
+| 官方源 `site:` 查询并行 | 4 个 `<query> site:<domain>` 用 `ThreadPoolExecutor` fan-out，submit-order 保序，单域失败 log-and-skip |
+| 单候选连 2 次 empty → 立即 break | 短路机制专防"耿同学/Nature 撤稿"case（GLM-5.2 连 3 次 empty 花 2m 40s）。多候选场景不触发 |
 
 ### 7.5 观测入口
 
@@ -321,6 +323,19 @@ NORMALIZE
 - 弱证据 claim 触发 `per_claim_search` → `re_judge_claims` 循环，`max_per_claim_iterations=3` 封顶
 - 开 LLM 时 synthesis 结果经 `SYNTHESIS_CRITIC` 校验，**只能下调 `insufficient`、永不上调**
 - `verdict_engine` 的 LLM 补判也只升级不降级，失败优雅退回规则结果
+
+### 7.7 推理器可靠性 & 观测
+
+`LlmAgentReasoner` 层面的几个跨会话踩坑修复：
+
+| 机制 | 位置 | 为什么加 |
+|---|---|---|
+| **共享 `_SHARED_HTTPX_CLIENT`** | `agent_reasoner.py::_get_shared_client` | AnalyzePipeline 每请求 new 一个，per-instance `httpx.Client()` 意味着连接池不复用；改成模块级单例后 20+ 次 LLM 调用共用一个 TLS 会话 |
+| **health-aware failover** | `agent_reasoner.py::_candidate_models` | 走 `get_model_health_registry().order_by_health()` 排序候选，健康优先；不健康的**排到后面而不是 drop**（picker override 例外） |
+| **empty-streak short-circuit** | `agent_reasoner.py::_request_completion` | 单候选 + 连续 2 次 empty → 立即 break。避开耿同学/Nature 撤稿类 case（GLM-5.2 连 3 次 empty 花 2m 40s）。多候选场景**不触发**（依赖 rotation） |
+| **rule-fallback evidence backfill** | `verdict_engine.py::_backfill_rule_fallback_evidence` | LLM synthesis 空返回 3 次落规则兜底时，若 pool 有 ≥3 条 B/A/S 高信度证据，把 top 3 附给主 fact claim。避免"pool 20+ hits 但报告只挂 1 条"的裸奔 |
+| **`APP_LOG_FORMAT=json` 结构化日志** | `core/logging.py::_JsonFormatter` | opt-in JSON 一行一条：`timestamp/level/logger/message` + `extra={run_id, stage_key, model}` 打成顶层字段。envelope key 冲突时被改名为 `extra_level` 等，永不覆盖 |
+| **模型健康 registry 测试隔离** | `model_health.py::_reset_for_tests` + `tests/conftest.py` | Registry 是进程单例（运行时对），跨测试会污染候选排序。autouse fixture 每测试 reset，CI 严格顺序下才不再脆 |
 
 ---
 
@@ -575,7 +590,7 @@ sequenceDiagram
 
 已核验事实（当文档与代码冲突时，以本节和对应实现为准）：
 
-- **公开 API 只有 4 个**：`GET /api/v1/health` · `GET /api/v1/models` · `POST /api/v1/analyze` · `POST /api/v1/analyze/stream`（没有 `demo-cases` / `replay`）
+- **公开 API 有 7 个**：`GET /api/v1/health` · `GET /api/v1/models` · `GET /api/v1/model-health` · `GET /api/v1/search-sources` · `GET /api/v1/agent-trace/{run_id}` · `POST /api/v1/analyze` · `POST /api/v1/analyze/stream`（没有 `demo-cases` / `replay`）
 - **两档分析**：`request_context.mode="fast"`（零 LLM 规则路径，~0.2–0.3s）/ `"deep"`（LLM/agent 全链路）— 由 `backend/tests/test_api.py::test_fast_mode_skips_llm_enrichment_while_deep_mode_uses_it` 锁定
 - **provenance 收敛**：`Report.provenance.source_type` 后端只输出 `backend_live` 或 `backend_mock`;前端缺失时保守落到 `unknown`（不是后端枚举）
 - **Grounded verdict**：任何 `supported/refuted/conflicting` 必须带有效 `evidence_result_id`，否则降级 `insufficient`（`backend/tests/test_agent_grounded_verdict.py` 锁定）
