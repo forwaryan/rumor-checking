@@ -95,6 +95,7 @@ class Settings:
     environment: str
     api_v1_prefix: str
     log_level: str
+    log_format: str
     debug: bool
     version: str
     project_root: Path
@@ -231,6 +232,7 @@ def get_settings() -> Settings:
         environment=os.getenv("APP_ENV", "development"),
         api_v1_prefix=os.getenv("API_V1_PREFIX", "/api/v1"),
         log_level=os.getenv("APP_LOG_LEVEL", "INFO").upper(),
+        log_format=os.getenv("APP_LOG_FORMAT", "text").strip().lower(),
         debug=_as_bool(os.getenv("APP_DEBUG"), default=False),
         version=os.getenv("APP_VERSION", "0.1.0"),
         project_root=project_root,
