@@ -223,14 +223,21 @@ def test_reasoning_model_retries_on_empty_content(monkeypatch):
 def test_empty_completion_is_retried_regardless_of_model(monkeypatch):
     # Empties happen to fast models too — the heavy synthesis prompt times out
     # mid-answer (observed in real runs). So a fast model's empty output is retried
-    # up to llm_reasoning_retries times, same as a reasoning model's.
+    # up to llm_reasoning_retries times, same as a reasoning model's. Use a
+    # multi-candidate pool so each retry rotates to a fresh model and the
+    # single-candidate empty-streak short-circuit does NOT apply (that short-circuit
+    # is exercised by test_empty_streak_shortcircuits_when_only_one_candidate).
     calls = {"n": 0}
 
     def flaky(*, endpoint, model, system_prompt, user_prompt, **_):
         calls["n"] += 1
         return "" if calls["n"] < 3 else '{"ok": true}'
 
-    r = _reasoner(llm_model="fast-x", llm_reasoning_retries=2)
+    r = _reasoner(
+        llm_model="m-a",
+        llm_models=("m-a", "m-b", "m-c"),
+        llm_reasoning_retries=2,
+    )
     monkeypatch.setattr(r, "_stream_completion", flaky)
 
     out = r._request_completion(stage_key="s", title="t", system_prompt="sys", user_prompt="usr")
@@ -239,14 +246,20 @@ def test_empty_completion_is_retried_regardless_of_model(monkeypatch):
 
 
 def test_retries_are_capped_at_configured_count(monkeypatch):
-    # A persistently-empty model stops after llm_reasoning_retries + 1 attempts.
+    # A persistently-empty pool stops after llm_reasoning_retries + 1 attempts.
+    # Same as above: use multiple candidates so the empty-streak short-circuit
+    # (single-candidate specialization) does not fire before the budget is spent.
     calls = {"n": 0}
 
     def always_empty(*, endpoint, model, system_prompt, user_prompt, **_):
         calls["n"] += 1
         return ""
 
-    r = _reasoner(llm_model="fast-x", llm_reasoning_retries=2)
+    r = _reasoner(
+        llm_model="m-a",
+        llm_models=("m-a", "m-b", "m-c"),
+        llm_reasoning_retries=2,
+    )
     monkeypatch.setattr(r, "_stream_completion", always_empty)
 
     out = r._request_completion(stage_key="s", title="t", system_prompt="sys", user_prompt="usr")
