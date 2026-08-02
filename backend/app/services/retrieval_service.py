@@ -766,19 +766,30 @@ class RetrievalService:
         # people.com.cn), topical add-ons follow — `_pick_official_whitelist`
         # already orders them this way.
         max_domains = 4
+        domains = whitelist[:max_domains]
         existing_keys = {r.independence_key for r in bundle.canonical_results if r.independence_key}
         new_results: list[SearchResult] = []
         matched_domains: list[str] = []
-        for domain in whitelist[:max_domains]:
+
+        def _fetch_domain(domain: str) -> tuple[str, list[SearchResult] | None, Exception | None]:
             boost_query = f"{short_query} site:{domain}"
             try:
                 hits = self.provider.search(boost_query)
             except Exception as exc:
+                return domain, None, exc
+            return domain, list(hits) if hits else None, None
+
+        with ThreadPoolExecutor(max_workers=min(4, len(domains))) as executor:
+            futures = [executor.submit(_fetch_domain, d) for d in domains]
+
+        for future in futures:
+            domain, hits, exc = future.result()
+            if exc is not None:
                 logger.warning("official_boost_failed domain=%s error=%s", domain, exc)
                 continue
             if not hits:
                 continue
-            hits = self._filter_relevant_results(list(hits))
+            hits = self._filter_relevant_results(hits)
             if not hits:
                 continue
             retrieved_at = ensure_datetime_string(datetime.now(UTC).isoformat())

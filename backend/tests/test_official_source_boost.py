@@ -167,7 +167,7 @@ def test_boost_issues_one_query_per_whitelist_domain():
 def test_boost_dedupes_by_independence_key():
     """If a boost query re-surfaces a domain already in the bundle it must not
     double-count that domain as a fresh independent source."""
-    existing = _result("https://www.people.com.cn/a", "人民网", "A")
+    _result("https://www.people.com.cn/a", "人民网", "A")
     boost_hit = _result("https://www.people.com.cn/b", "人民网另一篇", "A")
     provider = _StubProvider(hits=[boost_hit])
     svc = _service_with_provider(provider)
@@ -209,3 +209,36 @@ def test_boost_swallows_provider_exception():
     # continues with whatever the primary retrieval collected.
     out = svc._append_official_source_results(thin, "耿同学 Nature 撤稿", stage_key="s")
     assert out is thin
+
+
+@pytest.mark.skipif(
+    __import__("os").environ.get("CI") == "true",
+    reason="timing-sensitive test, skip on CI",
+)
+def test_parallel_domains_do_not_serialize():
+    """Wall-clock should be ~1x per-call latency, not 4x (serial)."""
+    import time
+
+    SLEEP = 0.15
+
+    class _SlowProvider:
+        name = "slow"
+        enabled = True
+        calls: list[str] = []
+
+        def search(self, q: str) -> list[SearchResult]:
+            self.calls.append(q)
+            time.sleep(SLEEP)
+            return [_result(f"https://gov.cn/{q[-5:]}", "gov", "A", title="t")]
+
+    provider = _SlowProvider()
+    svc = _service_with_provider(provider)
+    thin = _bundle([_result("https://zhihu.com/q/1", "知乎", "C")])
+
+    t0 = time.perf_counter()
+    svc._append_official_source_results(thin, "耿同学 Nature 撤稿", stage_key="s")
+    elapsed = time.perf_counter() - t0
+
+    assert len(provider.calls) == 4
+    # Parallel: should finish in roughly 1x SLEEP, definitely under 2.5x
+    assert elapsed < SLEEP * 2.5
