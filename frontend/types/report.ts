@@ -298,6 +298,15 @@ export interface PipelineTraceStep {
   status: PipelineStepStatus;
   summary: string;
   details: string[];
+  // Timing fields populated by the backend so the frontend can render bars
+  // straight from the report record. Optional because replay corpora and
+  // older reports may not carry them.
+  started_at?: string | null;
+  ended_at?: string | null;
+  duration_ms?: number | null;
+  offset_ms?: number | null;
+  is_parallel_group?: boolean;
+  parent_stage_key?: string | null;
 }
 
 export interface PipelineTrace {

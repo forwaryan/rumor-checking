@@ -197,6 +197,16 @@ class PipelineTraceStep(BaseModel):
     status: PipelineStepStatus = "completed"
     summary: str
     details: list[str] = Field(default_factory=list)
+    # Timing lives on the trace step itself so the frontend renders straight
+    # from the backend record instead of re-deriving offsets from the stream.
+    # All four fields are optional to keep replay corpora and mock traces
+    # backwards-compatible.
+    started_at: str | None = None
+    ended_at: str | None = None
+    duration_ms: int | None = None
+    offset_ms: int | None = None
+    is_parallel_group: bool = False
+    parent_stage_key: str | None = None
 
 
 class PipelineTrace(BaseModel):

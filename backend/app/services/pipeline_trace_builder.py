@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Iterable
+from datetime import datetime
 
 from backend.app.models.schemas import AnalyzeRequest, NormalizedEvent, PipelineTrace, PipelineTraceStep, Report
 from backend.app.services.claim_extractor import ClaimExtraction
+from backend.app.services.progress import StageTimingCollector, get_stage_timing_collector
 from backend.app.services.question_intent import is_broad_trend_question
 from backend.app.services.question_resolver import QuestionResolution
 from backend.app.services.retrieval_models import RetrievalBundle, SearchResult
@@ -43,6 +45,51 @@ def _iter_top_results(bundle: RetrievalBundle | None, limit: int = 3) -> Iterabl
         key=lambda item: (-item.tier_weight, item.effective_published_at, item.result_id),
     )
     return [_result_line(item) for item in ordered[:limit]]
+
+
+def _parse_iso(ts: str | None) -> datetime | None:
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(ts)
+    except (TypeError, ValueError):
+        return None
+
+
+def _apply_stage_timing(steps: list[PipelineTraceStep], collector: StageTimingCollector | None) -> None:
+    """Attach started_at/ended_at/duration_ms/offset_ms to each step in place.
+
+    The collector was recorded live as ``emit_stage`` calls fired during the
+    run; we now project those timestamps onto the deterministic step order
+    produced by the builder. Steps that never emitted a stage event (e.g. the
+    synthetic input_received / normalization steps that describe pre-pipeline
+    state) receive a duration_ms of 0 and inherit the run's t=0 anchor so the
+    frontend renders them as instant markers instead of guessing.
+    """
+    if collector is None:
+        return
+    anchor_str = collector.earliest_started_at()
+    anchor = _parse_iso(anchor_str)
+    if anchor is None:
+        return
+    for step in steps:
+        entry = collector.get(step.stage_key)
+        if entry is None:
+            # No stage event ever fired for this key. Anchor it at t=0 as an
+            # instant marker so the row still renders.
+            step.started_at = anchor_str
+            step.ended_at = anchor_str
+            step.duration_ms = 0
+            step.offset_ms = 0
+            continue
+        step.started_at = entry.started_at
+        step.ended_at = entry.ended_at
+        started = _parse_iso(entry.started_at)
+        ended = _parse_iso(entry.ended_at)
+        if started is not None:
+            step.offset_ms = max(0, int((started - anchor).total_seconds() * 1000))
+        if started is not None and ended is not None:
+            step.duration_ms = max(0, int((ended - started).total_seconds() * 1000))
 
 
 class PipelineTraceBuilder:
@@ -94,6 +141,7 @@ class PipelineTraceBuilder:
             self._build_timeline_step(timeline=timeline),
             self._build_report_step(report=report),
         ]
+        _apply_stage_timing(steps, get_stage_timing_collector())
         return PipelineTrace(steps=steps)
 
     def _build_input_step(self, *, request: AnalyzeRequest, normalized_event: NormalizedEvent) -> PipelineTraceStep:

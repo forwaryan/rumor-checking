@@ -20,16 +20,24 @@ PARITY_INPUTS = [
 # generated "now" fallback (real mock dates are whole-day, no microseconds).
 _NOW_ISO = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+")
 
+# Timing keys the pipeline populates from wall-clock reality: their values
+# vary run-to-run by a few ms and would otherwise fail the equivalence test.
+_WALL_CLOCK_KEYS = frozenset({"duration_ms", "offset_ms"})
 
-def _scrub(value):
+
+def _scrub(value, *, in_key: str | None = None):
     """Recursively replace generated 'now' timestamps so two independent runs
     can be compared for structural/behavioural parity."""
     if isinstance(value, str):
         return _NOW_ISO.sub("<NOW>", value)
+    if isinstance(value, int) and in_key in _WALL_CLOCK_KEYS:
+        # Wall-clock ms differs by a few ms across runs; collapse to a marker so
+        # the equivalence test still catches structural / status divergence.
+        return "<MS>"
     if isinstance(value, list):
         return [_scrub(item) for item in value]
     if isinstance(value, dict):
-        return {key: _scrub(item) for key, item in value.items()}
+        return {key: _scrub(item, in_key=key) for key, item in value.items()}
     return value
 
 

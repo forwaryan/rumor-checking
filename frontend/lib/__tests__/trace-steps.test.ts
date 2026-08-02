@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyBackendTiming,
   deriveTraceSteps,
   elapsedSince,
   formatDuration,
@@ -488,5 +489,85 @@ describe("deriveTraceSteps · parallel group synthesis", () => {
     const steps = deriveTraceSteps(events);
     expect(steps[0].status).toBe("running");
     expect(steps[0].durationMs).toBe(null);
+  });
+});
+
+describe("applyBackendTiming", () => {
+  it("overwrites live-derived timing with backend values, matching by stageKey", () => {
+    // Build a step tree the way deriveTraceSteps would produce it, then simulate
+    // the final report arriving with authoritative timing.
+    const step: TraceStep = {
+      stageKey: "retrieval_initial",
+      label: "首轮检索",
+      status: "completed",
+      did: "",
+      inputs: [],
+      outputs: [],
+      note: null,
+      llmCalls: [],
+      subEvents: [],
+      startedAt: "2026-03-20T00:00:00Z",
+      endedAt: "2026-03-20T00:00:05Z",
+      durationMs: 5000,
+      offsetMs: 1234, // wrong: stream deltas said 1234ms, backend truth is 0
+      parentKey: null,
+      children: [],
+      isParallelGroup: false,
+    };
+    const merged = applyBackendTiming([step], {
+      steps: [{
+        stage_key: "retrieval_initial",
+        started_at: "2026-03-20T00:00:00Z",
+        ended_at: "2026-03-20T00:00:03Z",
+        duration_ms: 3000,
+        offset_ms: 0,
+      }],
+    });
+    expect(merged[0].durationMs).toBe(3000);
+    expect(merged[0].offsetMs).toBe(0);
+    expect(merged[0].endedAt).toBe("2026-03-20T00:00:03Z");
+  });
+
+  it("leaves timing untouched when no backend record matches the step", () => {
+    // The stream may carry stages that the backend never wrote a
+    // pipeline_trace row for (e.g. a supervisor sub-branch). Those must not
+    // get their timing wiped just because we couldn't find a match.
+    const step: TraceStep = {
+      stageKey: "agent_sub_branch",
+      label: "分支",
+      status: "completed",
+      did: "",
+      inputs: [],
+      outputs: [],
+      note: null,
+      llmCalls: [],
+      subEvents: [],
+      startedAt: "2026-03-20T00:00:00Z",
+      endedAt: "2026-03-20T00:00:02Z",
+      durationMs: 2000,
+      offsetMs: 500,
+      parentKey: null,
+      children: [],
+      isParallelGroup: false,
+    };
+    const merged = applyBackendTiming([step], {
+      steps: [{ stage_key: "unrelated_stage", started_at: null, ended_at: null, duration_ms: null, offset_ms: null }],
+    });
+    expect(merged[0].durationMs).toBe(2000);
+    expect(merged[0].offsetMs).toBe(500);
+  });
+
+  it("no-ops when the pipeline_trace argument is null or empty", () => {
+    const step: TraceStep = {
+      stageKey: "x",
+      label: "x",
+      status: "completed",
+      did: "",
+      inputs: [], outputs: [], note: null, llmCalls: [], subEvents: [],
+      startedAt: "2026-03-20T00:00:00Z", endedAt: null,
+      durationMs: 42, offsetMs: 42, parentKey: null, children: [], isParallelGroup: false,
+    };
+    expect(applyBackendTiming([step], null)[0].durationMs).toBe(42);
+    expect(applyBackendTiming([step], { steps: [] })[0].durationMs).toBe(42);
   });
 });

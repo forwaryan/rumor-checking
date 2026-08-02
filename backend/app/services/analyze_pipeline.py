@@ -12,7 +12,13 @@ from backend.app.services.model_health import diff_snapshot, get_model_health_re
 from backend.app.services.page_fetcher import set_page_fetch_cache
 from backend.app.services.per_claim_retriever import enrich_retrieval_for_claims
 from backend.app.services.pipeline_trace_builder import PipelineTraceBuilder
-from backend.app.services.progress import emit_log, emit_stage
+from backend.app.services.progress import (
+    StageTimingCollector,
+    emit_log,
+    emit_stage,
+    reset_stage_timing_collector,
+    set_stage_timing_collector,
+)
 from backend.app.services.provider_enricher import ProviderEnricher
 from backend.app.services.question_resolver import QuestionResolver
 from backend.app.services.report_builder import ReportBuilder
@@ -178,6 +184,17 @@ class AnalyzePipeline:
         if request.request_context.get("force_error"):
             raise RuntimeError("forced_error_for_testing")
 
+        # Install a per-run stage-timing collector so PipelineTraceBuilder can
+        # attach started_at/ended_at/duration_ms/offset_ms to each step
+        # afterwards. ContextVar isolation keeps concurrent requests separate;
+        # emit_stage automatically records into the current collector.
+        timing_token = set_stage_timing_collector(StageTimingCollector())
+        try:
+            return self._analyze_uncached_inner(request)
+        finally:
+            reset_stage_timing_collector(timing_token)
+
+    def _analyze_uncached_inner(self, request: AnalyzeRequest) -> Report:
         deep_mode = self._is_deep_mode(request)
         self._apply_model_override(request)
 

@@ -378,6 +378,12 @@ function parsePipelineTrace(value: unknown): PipelineTrace | null {
       status: ensureLiteral(item.status, pipelineStepStatuses) ?? "warning",
       summary: ensureString(item.summary, "当前步骤没有返回摘要。"),
       details: ensureStringArray(item.details),
+      started_at: typeof item.started_at === "string" ? item.started_at : null,
+      ended_at: typeof item.ended_at === "string" ? item.ended_at : null,
+      duration_ms: typeof item.duration_ms === "number" && Number.isFinite(item.duration_ms) ? item.duration_ms : null,
+      offset_ms: typeof item.offset_ms === "number" && Number.isFinite(item.offset_ms) ? item.offset_ms : null,
+      is_parallel_group: item.is_parallel_group === true,
+      parent_stage_key: typeof item.parent_stage_key === "string" ? item.parent_stage_key : null,
     })),
   };
 }

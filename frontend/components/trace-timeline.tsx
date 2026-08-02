@@ -110,18 +110,29 @@ function TimelineRuler({ totalMs }: { totalMs: number }) {
   const step = pickTickStepMs(totalMs);
   const ticks: number[] = [];
   for (let t = 0; t <= totalMs + 1; t += step) ticks.push(t);
-  // Guarantee an endpoint tick at exactly totalMs so users see the run length.
-  if (ticks[ticks.length - 1] < totalMs - 1) ticks.push(totalMs);
+  // Endpoint tick: only add it if it wouldn't visually collide with the
+  // preceding regular tick (need >= 40% of a step of clearance). Otherwise
+  // replace the last regular tick with the exact endpoint so the run length
+  // is still shown without doubling up labels.
+  const last = ticks[ticks.length - 1];
+  if (last < totalMs - step * 0.4) {
+    ticks.push(totalMs);
+  } else if (last !== totalMs) {
+    ticks[ticks.length - 1] = totalMs;
+  }
   return (
     <div className="gantt-ruler">
       <div className="gantt-ruler__labels" aria-hidden="true" />
       <div className="gantt-ruler__track">
         {ticks.map((t, i) => {
           const left = Math.max(0, Math.min(100, (t / Math.max(totalMs, 1)) * 100));
+          // For the leftmost tick on a minute-scale run, "0ms" reads as noise;
+          // show "0s" instead so it matches the other seconds-based labels.
+          const label = t === 0 && totalMs >= 60_000 ? "0s" : formatDuration(t);
           return (
             <div key={i} className="gantt-ruler__tick" style={{ left: `${left}%` }}>
               <span className="gantt-ruler__tick-mark" />
-              <span className="gantt-ruler__tick-label">{formatDuration(t)}</span>
+              <span className="gantt-ruler__tick-label">{label}</span>
             </div>
           );
         })}

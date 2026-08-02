@@ -656,3 +656,36 @@ export function deriveTraceSteps(events: AnalysisLiveEvent[]): TraceStep[] {
 
   return topLevel;
 }
+
+/**
+ * Overwrite streaming-derived timing with the backend's authoritative values
+ * once the run completes. The stream carries live inputs/outputs/LLM calls
+ * that the backend trace doesn't (so we can't just replace the tree), but
+ * the wall-clock coordinates are strictly better on the backend where they
+ * were captured at emit time instead of derived from stream deltas.
+ *
+ * Called with the final report's pipeline_trace after streaming ends. Live
+ * ticks before the report arrives keep the stream-derived timing so bars
+ * grow smoothly in real time.
+ */
+export function applyBackendTiming(
+  steps: TraceStep[],
+  pipelineTrace: { steps: { stage_key: string; started_at?: string | null; ended_at?: string | null; duration_ms?: number | null; offset_ms?: number | null }[] } | null | undefined,
+): TraceStep[] {
+  if (!pipelineTrace?.steps?.length) return steps;
+  const byKey = new Map<string, (typeof pipelineTrace.steps)[number]>();
+  for (const s of pipelineTrace.steps) byKey.set(s.stage_key, s);
+  const walk = (list: TraceStep[]): TraceStep[] => list.map((step) => {
+    const src = byKey.get(step.stageKey);
+    const merged: TraceStep = {
+      ...step,
+      startedAt: src?.started_at ?? step.startedAt,
+      endedAt: src?.ended_at ?? step.endedAt,
+      durationMs: src?.duration_ms ?? step.durationMs,
+      offsetMs: src?.offset_ms ?? step.offsetMs,
+    };
+    if (step.children.length) merged.children = walk(step.children);
+    return merged;
+  });
+  return walk(steps);
+}

@@ -5,7 +5,7 @@ import { analyzeReportStream, getHealth, getModels, getSearchSources } from "@/l
 import type { SearchSource } from "@/lib/api-client";
 import { getLocalDemoCaseSummaries } from "@/lib/demo-cases";
 import { getStatusFromMode, validateInput, collectEvidence } from "@/lib/report-utils";
-import { deriveTraceSteps } from "@/lib/trace-steps";
+import { deriveTraceSteps, applyBackendTiming } from "@/lib/trace-steps";
 import type { AnalysisLiveEvent, AnalysisStatus, AnalyzeRequest, Report, ReportProvenanceState } from "@/types/report";
 import { SearchInput } from "@/components/search-input";
 import { VerdictCard } from "@/components/verdict-card";
@@ -173,7 +173,11 @@ export function AnalyzePage() {
   const citedUrls = new Set(evidence.map((item) => item.url));
   const retrievalOnlyHits = (report?.retrieval_hits ?? []).filter((item) => !citedUrls.has(item.url));
   const lastLiveEvent = liveEvents[liveEvents.length - 1];
-  const traceSteps = deriveTraceSteps(liveEvents);
+  // Live-derived timing is fine while the stream is in flight; once the
+  // report arrives the backend's authoritative timing (started_at/duration_ms/
+  // offset_ms baked into pipeline_trace steps) overwrites it so bar positions
+  // match server-side reality instead of stream deltas.
+  const traceSteps = applyBackendTiming(deriveTraceSteps(liveEvents), report?.pipeline_trace);
 
   return (
     <main className="app app--result">
