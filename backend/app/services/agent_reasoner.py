@@ -917,6 +917,10 @@ class LlmAgentReasoner:
         attempts = self.settings.llm_reasoning_retries + 1
         content = ""
         prev_model: str | None = None
+        # Track consecutive empty returns per candidate so we can short-circuit
+        # when the only candidate keeps giving nothing (see the empty-streak
+        # comment below the retry decision).
+        empty_streak: dict[str, int] = {}
         for attempt in range(1, attempts + 1):
             current_model = candidates[(attempt - 1) % len(candidates)]
             if prev_model is not None and current_model != prev_model:
@@ -995,6 +999,26 @@ class LlmAgentReasoner:
                 "llm_bad_completion model=%s attempt=%s/%s stage=%s reason=%s chars=%s",
                 current_model, attempt, attempts, stage_key, outcome, len(content),
             )
+            # Short-circuit: if the next retry would land on the SAME model
+            # (i.e. no other healthy candidate to rotate to), and this model
+            # already gave 2 consecutive empty returns, further attempts are
+            # very unlikely to differ. Bail out early so the pipeline drops to
+            # the rule fallback sooner instead of spending 3× the timeout on
+            # what is effectively the same request. This is the 耿同学/Nature
+            # case where GLM-5.2 was the only candidate and returned empty
+            # three times in a row across 2m 40s for one planner call.
+            if outcome == "empty" and attempt < attempts:
+                next_model = candidates[attempt % len(candidates)]
+                if next_model == current_model:
+                    empty_streak[current_model] = empty_streak.get(current_model, 0) + 1
+                    if empty_streak[current_model] >= 2:
+                        logger.warning(
+                            "llm_empty_streak_shortcircuit model=%s stage=%s streak=%d",
+                            current_model, stage_key, empty_streak[current_model],
+                        )
+                        break
+            else:
+                empty_streak[current_model] = 0
         return content
 
     def _system_content(self, system_prompt: str) -> Any:

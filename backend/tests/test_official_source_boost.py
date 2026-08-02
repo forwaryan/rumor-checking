@@ -136,15 +136,32 @@ def test_boost_fires_and_merges_when_bundle_is_thin():
 
     out = svc._append_official_source_results(thin, "耿同学 Nature 撤稿", stage_key="s")
     assert out is not thin
-    assert len(provider.calls) == 1
-    # Query passed to provider must carry site: filters (Baidu-compatible)
-    query = provider.calls[0]
-    assert "site:nature.com" in query
-    assert " OR " in query
+    # Boost now issues one query per whitelist domain (capped to 4) instead of
+    # a single OR-joined clause, because Bing treats OR-joined site filters as
+    # keywords rather than filters. Each per-domain query is a single site:X
+    # clause both Baidu and Bing will actually apply.
+    assert len(provider.calls) == 4
+    for call in provider.calls:
+        assert call.count("site:") == 1
+        assert " OR " not in call
     # The new nature.com hit is now in canonical + independent high-trust count reflects it
     urls = {r.url for r in out.canonical_results}
     assert "https://www.nature.com/articles/xxxx" in urls
     assert out.independent_high_trust_source_count == 1
+
+
+def test_boost_issues_one_query_per_whitelist_domain():
+    """Whitelist has 7+ always-on domains but the boost caps at 4 to avoid
+    burning a dozen supplementary queries. Each call must be exactly one
+    site: filter — never an OR-joined chain."""
+    provider = _StubProvider(hits=[])  # no results: the queries themselves are what we assert on
+    svc = _service_with_provider(provider)
+    thin = _bundle([_result("https://zhihu.com/q/1", "知乎", "C")])
+    svc._append_official_source_results(thin, "耿同学 Nature 撤稿", stage_key="s")
+    assert len(provider.calls) == 4
+    # Assert each query targets exactly one distinct whitelist domain
+    domains = [call.split("site:")[-1].strip() for call in provider.calls]
+    assert len(set(domains)) == 4
 
 
 def test_boost_dedupes_by_independence_key():

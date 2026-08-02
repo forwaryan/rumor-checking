@@ -286,12 +286,93 @@ class VerdictEngine:
             completion_fn=completion_fn,
         )
 
+        # Rule fallback safety net: when the rule/LLM judge path selected almost
+        # nothing but the retrieval bundle clearly has high-tier evidence, attach
+        # the strongest hits to the main fact claim so the report actually shows
+        # the material we collected. Without this, LLM synthesis failing quietly
+        # yields "证据不足" while the trace lists 20+ canonical hits — the exact
+        # 耿同学 / Nature 撤稿 case that motivated this. See rumor-checking task
+        # #16 for context.
+        results = self._backfill_rule_fallback_evidence(
+            results=results,
+            evidence_pool=evidence_pool,
+        )
+
         return VerdictEvaluation(
             claim_results=results,
             evidence=evidence_pool,
             evidence_grade=evidence_grade,
             evidence_source=evidence_source,
         )
+
+    def _backfill_rule_fallback_evidence(
+        self,
+        *,
+        results: list[ClaimResult],
+        evidence_pool: list[EvidenceItem],
+    ) -> list[ClaimResult]:
+        """Attach the top B/A/S-tier retrieval hits to the main fact claim when
+        the rule / LLM judge path returned near-empty evidence despite the pool
+        having plenty of high-tier material.
+
+        This only fires as a rescue: when at least one fact claim exists, the
+        combined attached evidence across all fact claims is ≤ 1, and the pool
+        contains ≥ 3 tier-B-or-better hits. The attached items carry a stance
+        of ``ambiguous`` and a note that they were surfaced by fallback so
+        downstream reporting doesn't over-claim their probative weight.
+        """
+        fact_results = [cr for cr in results if cr.claim_type == "fact"]
+        if not fact_results:
+            return results
+        attached_urls: set[str] = set()
+        for cr in fact_results:
+            for ev in cr.evidence:
+                if ev.url:
+                    attached_urls.add(ev.url)
+        if len(attached_urls) > 1:
+            return results
+        high_tier_pool = [item for item in evidence_pool if item.source_tier in {"S", "A", "B"} and item.url]
+        if len(high_tier_pool) < 3:
+            return results
+
+        # Pick top hits by tier priority then most recent publication.
+        def _priority(item: EvidenceItem) -> tuple[int, str]:
+            tier_rank = {"S": 0, "A": 1, "B": 2}.get(item.source_tier, 3)
+            return (tier_rank, "" if not item.published_at else item.published_at)
+
+        ranked = sorted(high_tier_pool, key=lambda item: (_priority(item)[0], -len(item.published_at or "")))
+        # Deduplicate by URL and cap at 3 to avoid drowning the panel.
+        picked: list[EvidenceItem] = []
+        seen: set[str] = set(attached_urls)
+        for item in ranked:
+            if item.url in seen:
+                continue
+            seen.add(item.url)
+            picked.append(item.model_copy(update={
+                "stance": "ambiguous",
+                "stance_quote": None,
+                "relevance_reason": (
+                    (item.relevance_reason + " ") if item.relevance_reason else ""
+                ) + "[rule fallback 顶部证据回填，未做主体核对]",
+            }))
+            if len(picked) >= 3:
+                break
+        if not picked:
+            return results
+
+        # Attach to the first (main) fact claim. Splitting across claims risks
+        # implying subject alignment we don't have — one clear pile is cleaner.
+        target = fact_results[0]
+        target_idx = results.index(target)
+        merged_evidence = list(target.evidence) + picked
+        note_suffix = "\n[规则兜底] 已追加 %d 条检索命中作为参考材料。" % len(picked)
+        updated_claim = target.model_copy(update={
+            "evidence": merged_evidence,
+            "notes": (target.notes or "") + note_suffix,
+        })
+        results = list(results)
+        results[target_idx] = updated_claim
+        return results
 
     def _empty_evidence_note(self, retrieval_bundle: RetrievalBundle | None) -> str:
         # A live search that ran cleanly but came back with no on-topic hits is a

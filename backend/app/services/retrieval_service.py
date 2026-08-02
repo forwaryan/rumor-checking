@@ -741,9 +741,12 @@ class RetrievalService:
         C-heavy result set is about to be shipped as-is and the credibility
         score has nothing solid to lean on.
 
-        Runs the primary provider (already Baidu-based) with a
-        ``site:a OR site:b OR ...`` clause so we probe the officials that
-        already cover the topic instead of guessing per-domain.
+        Fires one ``<query> site:<domain>`` query per whitelist domain (capped
+        to a small budget), rather than an ``OR``-joined clause. Baidu treats
+        OR-joined site filters as ordinary keywords and Bing's fallback silently
+        does the same — a single-domain query is the only form both engines
+        will actually filter on. The per-domain hits are dedup'd by
+        independence key so redundant OR-noise doesn't inflate the bundle.
         """
         if self.provider is None or not self.provider.enabled:
             return bundle
@@ -757,48 +760,49 @@ class RetrievalService:
         whitelist = self._pick_official_whitelist(f"{primary_query} {bundle.query}")
         if not whitelist:
             return bundle
-        # Baidu accepts `A OR B` for site filters; capped to a handful so the URL
-        # length stays sane.
-        site_clause = " OR ".join(f"site:{d}" for d in whitelist[:8])
-        boost_query = f"{short_query} {site_clause}"
-        try:
-            hits = self.provider.search(boost_query)
-        except Exception as exc:
-            logger.warning("official_boost_failed error=%s", exc)
-            return bundle
-        if not hits:
-            return bundle
 
-        # Boost queries reuse the primary provider, so they can also surface
-        # dictionary/navigational junk and off-subject pages. Run them through
-        # the same relevance gate the primary path uses — otherwise a rumor
-        # about 拼多多 could see a 河北梨培训会 dragged back in just because a
-        # boost site: filter happened to match.
-        hits = self._filter_relevant_results(list(hits))
-        if not hits:
-            return bundle
-
-        retrieved_at = ensure_datetime_string(datetime.now(UTC).isoformat())
-        enriched = [
-            replace(
-                item,
-                retrieved_at=retrieved_at,
-                source_category=infer_source_category(item.url, item.source_name),
-                independence_key=build_independence_key(item.url, item.source_name),
-                signal_tags=detect_signal_tags(item.title, item.snippet, item.source_name),
-            )
-            for item in hits
-        ]
-
+        # Per-domain budget: cap at 4 domains so we don't spend 12 supplementary
+        # queries per run. Always-on group leads (gov.cn / xinhuanet / cctv /
+        # people.com.cn), topical add-ons follow — `_pick_official_whitelist`
+        # already orders them this way.
+        max_domains = 4
         existing_keys = {r.independence_key for r in bundle.canonical_results if r.independence_key}
-        new_results = [r for r in enriched if r.independence_key not in existing_keys]
+        new_results: list[SearchResult] = []
+        matched_domains: list[str] = []
+        for domain in whitelist[:max_domains]:
+            boost_query = f"{short_query} site:{domain}"
+            try:
+                hits = self.provider.search(boost_query)
+            except Exception as exc:
+                logger.warning("official_boost_failed domain=%s error=%s", domain, exc)
+                continue
+            if not hits:
+                continue
+            hits = self._filter_relevant_results(list(hits))
+            if not hits:
+                continue
+            retrieved_at = ensure_datetime_string(datetime.now(UTC).isoformat())
+            for item in hits:
+                enriched = replace(
+                    item,
+                    retrieved_at=retrieved_at,
+                    source_category=infer_source_category(item.url, item.source_name),
+                    independence_key=build_independence_key(item.url, item.source_name),
+                    signal_tags=detect_signal_tags(item.title, item.snippet, item.source_name),
+                )
+                if enriched.independence_key in existing_keys:
+                    continue
+                existing_keys.add(enriched.independence_key)
+                new_results.append(enriched)
+            matched_domains.append(domain)
+
         if not new_results:
             return bundle
 
         logger.info(
-            "official_boost_appended count=%d whitelist=%s",
+            "official_boost_appended count=%d domains=%s",
             len(new_results),
-            ",".join(whitelist[:8]),
+            ",".join(matched_domains),
         )
         combined_canonical = tuple(list(bundle.canonical_results) + new_results)
         combined_raw = tuple(list(bundle.raw_results) + new_results)

@@ -278,8 +278,11 @@ def test_failover_spends_shared_budget_across_candidates(monkeypatch):
 
 
 def test_picker_override_never_fails_over(monkeypatch):
-    # A per-request picker override pins one model: every attempt in the budget
-    # retries THAT model, never switching to another candidate.
+    # A per-request picker override pins one model: any attempt in the budget
+    # retries THAT model, never switching to another candidate. When the
+    # override keeps returning empty the empty-streak short-circuit may end
+    # the loop early — that's fine (and desirable). The essential guarantee
+    # under test is that we never silently route around a user-chosen model.
     seen: list[str] = []
 
     def always_empty(*, endpoint, model, system_prompt, user_prompt, **_):
@@ -296,7 +299,60 @@ def test_picker_override_never_fails_over(monkeypatch):
 
     out = r._request_completion(stage_key="s", title="t", system_prompt="sys", user_prompt="usr")
     assert out == ""
-    assert seen == ["picked-x", "picked-x", "picked-x"]  # pinned, no failover
+    # Every observed call must be against the pinned model; no failover to
+    # any of the whitelisted alternates.
+    assert seen  # at least one call happened
+    assert all(model == "picked-x" for model in seen)
+    assert "m-a" not in seen and "m-b" not in seen and "m-c" not in seen
+
+
+def test_empty_streak_shortcircuits_when_only_one_candidate(monkeypatch):
+    """When there is only one candidate (either via picker-override or a
+    single-model deployment) and it keeps returning empty, further retries
+    are wasted wall-clock. After 2 consecutive empty returns the loop must
+    bail out so the pipeline drops to the rule fallback in seconds, not
+    minutes. This is the 耿同学/Nature 撤稿 case where GLM-5.2 was the only
+    candidate and burned 2m 40s on one planner call before giving up."""
+    seen: list[str] = []
+
+    def always_empty(*, endpoint, model, system_prompt, user_prompt, **_):
+        seen.append(model)
+        return ""
+
+    r = _reasoner(
+        llm_model="only-one",
+        llm_models=("only-one",),
+        llm_reasoning_retries=4,  # budget of 5; without short-circuit we'd see 5 calls
+    )
+    monkeypatch.setattr(r, "_stream_completion", always_empty)
+    out = r._request_completion(stage_key="s", title="t", system_prompt="sys", user_prompt="usr")
+    assert out == ""
+    # 2 empty returns = trigger the short-circuit. The exact count is 2 attempts,
+    # not the full 5-attempt budget.
+    assert len(seen) == 2
+
+
+def test_empty_streak_does_not_shortcircuit_when_rotation_is_possible(monkeypatch):
+    """When candidates rotate (multiple models available), the short-circuit
+    must NOT fire — an empty return on m-a is not evidence that m-b will
+    also fail. Rotation is the point of a failover pool."""
+    seen: list[str] = []
+
+    def always_empty(*, endpoint, model, system_prompt, user_prompt, **_):
+        seen.append(model)
+        return ""
+
+    r = _reasoner(
+        llm_model="m-a",
+        llm_models=("m-a", "m-b", "m-c"),
+        llm_reasoning_retries=2,  # 3 attempts total
+    )
+    monkeypatch.setattr(r, "_stream_completion", always_empty)
+    r._request_completion(stage_key="s", title="t", system_prompt="sys", user_prompt="usr")
+    # Full 3-attempt budget consumed because each attempt rotates to a fresh
+    # candidate — the short-circuit only fires when the NEXT candidate is
+    # the same as the current one.
+    assert len(seen) == 3
 
 
 def test_unparseable_completion_is_retried_when_validator_supplied(monkeypatch):
