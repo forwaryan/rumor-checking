@@ -89,9 +89,46 @@ function LlmTextBlock({ stageKey, role, text }: { stageKey: string; role: "promp
 }
 
 /**
+ * Log-scale axis span. Every timeline coordinate is projected via
+ * ``log10(max(ms, LOG_FLOOR_MS))`` so a run that spans 1ms → 3 minutes
+ * (5 orders of magnitude) still shows the sub-second steps as visible bars
+ * instead of hairlines. The floor collapses "0ms" and sub-millisecond
+ * events into the leftmost decade — they render as a small marker rather
+ * than mathematically inflating to -infinity.
+ */
+const LOG_FLOOR_MS = 1;
+
+function toLog(ms: number): number {
+  return Math.log10(Math.max(ms, LOG_FLOOR_MS));
+}
+
+/** Project a raw millisecond count to a 0-100 percentage on the log axis. */
+function logPercent(ms: number, totalMs: number): number {
+  const denom = toLog(Math.max(totalMs, LOG_FLOOR_MS));
+  if (denom <= 0) return 0;
+  return Math.max(0, Math.min(100, (toLog(ms) / denom) * 100));
+}
+
+/**
+ * Log-scale ticks: 1ms, 10ms, 100ms, 1s, 10s, 1m (60s), 10m (600s), 1h.
+ * We keep only ticks that fit within the run, plus a synthesized endpoint
+ * so users always see the actual run length.
+ */
+function pickLogTicks(totalMs: number): number[] {
+  const decades = [1, 10, 100, 1_000, 10_000, 60_000, 600_000, 3_600_000];
+  const ticks = decades.filter((t) => t <= totalMs);
+  if (ticks.length === 0) return [totalMs];
+  if (ticks[ticks.length - 1] !== totalMs) ticks.push(totalMs);
+  return ticks;
+}
+
+/**
  * Pick a "nice" tick step (1s / 2s / 5s / 10s / 30s / 1m / 5m) so the axis
  * renders 4–8 labels regardless of run length. Kept as a plain lookup — no need
  * to be clever about arbitrary durations for a UI ruler.
+ *
+ * NOTE: unused since the ruler switched to log-scale ticks; retained in case
+ * we need a linear ruler again for a run-analysis mode.
  */
 function pickTickStepMs(totalMs: number): number {
   const target = totalMs / 6;
@@ -105,30 +142,20 @@ function pickTickStepMs(totalMs: number): number {
   return candidates[candidates.length - 1];
 }
 
-/** Ruler across the top of the timeline. Aligned with .gantt-row__track. */
+/** Ruler across the top of the timeline. Aligned with .gantt-row__track.
+ *
+ * Uses a log scale so the 1ms → 3m spread in a typical run doesn't collapse
+ * short steps to hairlines. Each decade (1ms, 10ms, 100ms, 1s, 10s, 1m, 10m)
+ * gets its own tick, plus an endpoint marker at the exact total. */
 function TimelineRuler({ totalMs }: { totalMs: number }) {
-  const step = pickTickStepMs(totalMs);
-  const ticks: number[] = [];
-  for (let t = 0; t <= totalMs + 1; t += step) ticks.push(t);
-  // Endpoint tick: only add it if it wouldn't visually collide with the
-  // preceding regular tick (need >= 40% of a step of clearance). Otherwise
-  // replace the last regular tick with the exact endpoint so the run length
-  // is still shown without doubling up labels.
-  const last = ticks[ticks.length - 1];
-  if (last < totalMs - step * 0.4) {
-    ticks.push(totalMs);
-  } else if (last !== totalMs) {
-    ticks[ticks.length - 1] = totalMs;
-  }
+  const ticks = pickLogTicks(totalMs);
   return (
     <div className="gantt-ruler">
       <div className="gantt-ruler__labels" aria-hidden="true" />
       <div className="gantt-ruler__track">
         {ticks.map((t, i) => {
-          const left = Math.max(0, Math.min(100, (t / Math.max(totalMs, 1)) * 100));
-          // For the leftmost tick on a minute-scale run, "0ms" reads as noise;
-          // show "0s" instead so it matches the other seconds-based labels.
-          const label = t === 0 && totalMs >= 60_000 ? "0s" : formatDuration(t);
+          const left = logPercent(t, totalMs);
+          const label = formatDuration(t);
           return (
             <div key={i} className="gantt-ruler__tick" style={{ left: `${left}%` }}>
               <span className="gantt-ruler__tick-mark" />
@@ -196,13 +223,16 @@ function GanttRow({
   // startedAt to now (live tick) or show "—".
   const liveMs = step.durationMs ?? (step.status === "running" ? elapsedSince(step.startedAt, nowMs) : null);
   const durationLabel = formatDuration(liveMs);
-  // The bar's on-track position and width, as percentages of the total run.
-  const denom = Math.max(runTotalMs, 1);
-  const barLeft = Math.max(0, Math.min(100, (step.offsetMs / denom) * 100));
+  // Log-scale positioning: a stage running from offsetMs (start) to
+  // offsetMs+durationMs (end) is projected as [log(start), log(end)] on the
+  // shared log axis. Steps that started at exactly t=0 collapse to log(1ms);
+  // steps with sub-millisecond duration still get a visible minimum width so
+  // they don't disappear into a hairline.
   const effectiveDuration = liveMs ?? 0;
-  const barWidthRaw = (effectiveDuration / denom) * 100;
-  // Ensure the bar is visually noticeable even for very short steps.
-  const barWidth = Math.max(barWidthRaw, 0.6);
+  const endMs = step.offsetMs + effectiveDuration;
+  const barLeft = logPercent(step.offsetMs, runTotalMs);
+  const barRight = logPercent(endMs, runTotalMs);
+  const barWidth = Math.max(barRight - barLeft, 0.6);
 
   const isParallelParent = step.isParallelGroup && step.children.length > 0;
   const wallClock = isParallelParent ? parallelWallClockMs(step.children) : null;
@@ -392,7 +422,7 @@ export function TraceTimeline({ traceSteps, isStreaming, traceOpen, onToggleTrac
       </button>
       {traceOpen && (
         <div className="gantt-timeline">
-          <div className="gantt-hint">位置 = 阶段开始时间 · 宽度 = 阶段耗时</div>
+          <div className="gantt-hint">位置 = 阶段开始时间 · 宽度 = 阶段耗时 · 对数刻度（毫秒到分钟同屏可见）</div>
           <TimelineRuler totalMs={runTotalDenom} />
           {traceSteps.map((step, i) => {
             // For parallel groups, pre-compute fastest/slowest child by duration
