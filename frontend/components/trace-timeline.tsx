@@ -123,9 +123,11 @@ function pickLogTicks(totalMs: number): number[] {
   if (ticks[ticks.length - 1] === totalMs) return ticks;
   const denom = toLog(totalMs);
   if (denom > 0) {
-    // Percentage-space collision check: two ticks whose log-projected
-    // positions differ by less than 6% overlap once labels are rendered.
-    const OVERLAP_PCT = 6;
+    // Percentage-space collision check: at 10% (log-space) apart the two labels
+    // still visually crowd on typical decade→endpoint pairs like "10s" vs
+    // "22.7s" (5+ chars). 6% was too tight and left the endpoint colliding with
+    // the last decade in real runs — see the 22.66s screenshot.
+    const OVERLAP_PCT = 10;
     while (ticks.length > 0) {
       const lastPct = (toLog(ticks[ticks.length - 1]) / denom) * 100;
       const endPct = 100; // endpoint is by definition at 100%
