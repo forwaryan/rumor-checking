@@ -126,8 +126,10 @@ rumor-checking/
 | 分析 provider | 规则兜底 | LLM 综合判断 | `ANALYSIS_PROVIDER=off\|kimi` |
 | 检索 provider | mock | playwright / gdelt / LLM 内建联网 | `RETRIEVAL_PROVIDER=mock\|playwright\|gdelt\|kimi\|off` |
 | 主编排 | 固定 pipeline | 可插拔 agent 循环 + 多 Agent DAG | `AGENT_ORCHESTRATOR_ENABLED` + `MULTI_AGENT_ENABLED` |
+| 证据重排 | 字面 token 打分 | embedding 语义相似度（主导）+ 权威分微调 | `EVIDENCE_RERANK_ENABLED`（+ 模型/key） |
+| 抓正文 | 静态 httpx | 真浏览器渲染兜底（Playwright 无头 Chromium） | `RENDERED_FETCH_ENABLED` |
 
-三个开关都默认取"稳定基线"一侧，所以**开箱即 `off + mock + 固定 pipeline`**，零 key、可复现、可回归。
+三个开关都默认取"稳定基线"一侧，所以**开箱即 `off + mock + 固定 pipeline`**，零 key、可复现、可回归。后两行（证据重排 / 抓正文）同样默认取基线侧、失败自动回退,是纯增强、可独立开关。
 
 ---
 

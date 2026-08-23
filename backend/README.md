@@ -47,6 +47,11 @@ RETRIEVAL_FALLBACK_TO_MOCK=true
 
 **Provider 枚举**：`mock | playwright | gdelt | kimi | off`。对照说明见主 [README.md](../README.md#接口与运行路径)。
 
+**证据质量增强（可选，默认关，失败自动回退）**：
+
+- `EVIDENCE_RERANK_ENABLED` / `EVIDENCE_EMBED_MODEL` / `EVIDENCE_EMBED_API_KEY` — 语义证据重排。开启后证据按 embedding 余弦相似度重排(语义主导 + `authority_score` 微调),替代纯字面打分;embedding 走现有 LLM 网关但用独立 key。未配置/超时/异常时静默回退 `evidence_ranker` 的字面打分。详见主 [README.md](../README.md#语义证据重排--治字面撞词)
+- `RENDERED_FETCH_ENABLED` — 真浏览器抓正文兜底。静态 httpx 抓回空壳时用 Playwright 无头 Chromium 渲染 JS 页面(如 163/微博)再抽取。需先 `pip install playwright && playwright install chromium`;整条路径异常隔离,失败降级到搜索摘要。详见主 [README.md](../README.md#抓取正文--三层降级链路)
+
 **运行时缓存**（`data/cache/` 下）：
 
 - 检索缓存：`data/cache/retrieval/<provider>/<cache_key>.json`；key = `sha256(v1|provider|compact_query)` 前 24 位
@@ -69,7 +74,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/analyze/stream \
 
 ## 边界
 
-- URL 输入只支持公开 HTML 页面（不支持登录页、强反爬、浏览器渲染页、PDF、图片正文）
+- URL 输入以公开 HTML 页面为主（不支持登录页、强反爬、PDF、图片正文）；JS 渲染页在 `RENDERED_FETCH_ENABLED=true`（可选，需装 Playwright）时由无头浏览器兜底
 - verdict / timeline 基于检索结果的规则+启发式，不是完整 agent 搜证系统
 - `Report.provenance.source_type` 当前只输出 `backend_live` 或 `backend_mock`
 - 共享契约以 [../contracts/report.schema.json](../contracts/report.schema.json) 为准

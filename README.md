@@ -19,7 +19,9 @@
 - [多 Agent 并行架构](#多-agent-并行架构)
 - [两档核查 · 秒级 vs 分钟级](#两档核查--秒级-vs-分钟级)
 - [四种命运 · 每条事实独立判定](#四种命运--每条事实独立判定)
+- [语义证据重排 · 治「字面撞词」](#语义证据重排--治字面撞词)
 - [来源可信度打分](#来源可信度打分)
+- [抓取正文 · 三层降级链路](#抓取正文--三层降级链路)
 - [快速开始](#快速开始)
 - [持续集成](#持续集成)
 - [接口与运行路径](#接口与运行路径)
@@ -34,6 +36,7 @@
 |---|---|---|
 | 🎯 | **拆 claim 逐条判**  | 一条消息拆成原子事实，每条独立判 `属实 / 不实 / 证据不足 / 各方矛盾`，混合情况不粉饰 |
 | 🌐 | **4 路并行真检索**  | 百度 + 小红书 + 今日头条 + 搜狗微信，同一时刻并发拉取，SERP 日期真实抓取而非伪造 |
+| 🔎 | **语义证据重排**  | 证据按「意思相关度」重排(embedding 余弦),治字面撞词;可选、失败自动回退字面打分 |
 | 🧠 | **Agent 多轮迭代**  | 深度档跑「搜 → 判 → 再搜」循环，配合 LLM Critic 单调下调（永不加强判定） |
 | 📊 | **真伪概率**  | 除 verdict 外每条还有 0–100 概率，明确标注是「基于证据」还是「基于常识先验」 |
 | 👁️ | **全程可观测**  | 流式事件直播每一步，用户能看到「哪一步、找到了什么、为什么这么判」 |
@@ -112,9 +115,27 @@
 
 ---
 
+## 语义证据重排 · 治「字面撞词」
+
+检索回来的证据在喂给判定前先重排一次,让最相关的排在最前(判定模型自上而下读,靠前的更受重视)。排序**以语义相似度为主**:把「传闻」和每条证据都过一遍 embedding,算向量余弦——比的是**意思**,不是共享了几个字。
+
+<p align="center">
+  <img src="docs/assets/semantic-rerank.png" alt="语义证据重排:按意思相关度排序,治字面撞词" width="900">
+</p>
+
+**为什么要它**:纯字面打分会被「共享通用词但主题无关」的结果骗到。实测查询「Tesla 特斯拉 FSD 中国落地」,字面打分把只共享「发布/中国/市场」的无关新闻排在最前、把真正相关的「马斯克旗下电动车企自动驾驶获批」(几乎零字面重叠)埋到最后;语义重排把正确证据提到第一。别名、改写、中英混检这类场景收益最明显。
+
+- **语义主导 + 权威微调**:余弦相似度为主,叠加一个上限约 +0.1 的 `authority_score` 微调——权威分只在语义近似平票时才决定顺序,不会把高权威但离题的来源顶上来
+- **自愈式可选**:开关 `EVIDENCE_RERANK_ENABLED`,配 embedding 模型 + key 即生效;未配置、超时、或任何调用失败都**静默回退**到原来的字面打分,输出永不劣于基线
+- **走网关、不出域**:embedding 复用现有 LLM 网关(`Qwen3-Embedding`,独立 key),数据不出域
+
+**在代码里**:语义打分 `backend/app/services/embedding_ranker.py` · 回退封装 `backend/app/services/evidence_ranker.py::rank_results`
+
+---
+
 ## 来源可信度打分
 
-同 tier 内部的排序不再只靠 token overlap。每个 SERP hit 除 `source_tier`（S/A/B/C 四档硬分类）外还带一个 `authority_score`（0–100 连续分），由 4 组信号叠加：
+语义重排之外,每个 SERP hit 除 `source_tier`(S/A/B/C 四档硬分类)外还带一个 `authority_score`(0–100 连续分),既作上面的微调项,也用于同 tier 内区分。由 4 组信号叠加:
 
 <p align="center">
   <img src="docs/assets/authority-score-signals.png" alt="authority_score 4 组信号叠加：tier 锚点 + 白名单 + HTTPS/独立域 + 可疑扣分" width="900">
@@ -130,6 +151,28 @@
 **只影响排序，不参与 verdict 决策**——verdict 引擎依旧靠 tier 分级 + 数量阈值，稳。`evidence_ranker` 用 `authority_score * 0.005` 替代原来的 `TIER_WEIGHTS[tier] * 0.05`，量级一致但同 tier 内可区分。
 
 **在代码里**：打分函数 `backend/app/services/retrieval_provider.py::_authority_score` · 消费方 `backend/app/services/evidence_ranker.py::score_result`
+
+---
+
+## 抓取正文 · 三层降级链路
+
+搜索只给几十字的摘要;深度档会挑最高价值的证据页抓全文,喂给判定当额外依据。抓取走**三层降级链路**,任一层失败都安全下沉到下一层,绝不因为一层挂了就中断整条核查:
+
+<p align="center">
+  <img src="docs/assets/three-tier-fetch.png" alt="抓取正文三层降级:静态 httpx → 真浏览器 → 沿用摘要" width="900">
+</p>
+
+| 层 | 手段 | 何时用 |
+|---|---|---|
+| **① 静态抓取** | `httpx` 抓静态 HTML | 最快(<1s),成功即用 |
+| **② 真浏览器渲染** | Playwright 无头 Chromium | 静态抓回空壳时触发(JS 渲染页如 163/微博),渲染出完整正文再抽取,约数秒 |
+| **③ 沿用摘要** | 回退检索摘要 | 前两层都拿不到正文时的兜底 |
+
+- **全异常隔离**:整条 render+extract 路径(含 playwright 未装、浏览器崩、抽取报错)都被兜住,失败只降级、绝不向上抛断 `fetch_url`
+- **路径可见**:走了静态还是浏览器、为什么降级,都写进 `fetch_url` 的 trace(`path=static/browser`、`rendered=<原因>`)
+- **默认关、零影响**:Playwright 是可选依赖,浏览器路径由 `RENDERED_FETCH_ENABLED` 控制(默认关);不装、不开时行为与原来完全一致,只走静态→摘要两层
+
+**在代码里**:降级编排 `backend/app/agent_tools/tools.py::fetch_url` / `_try_rendered_fallback` · 真浏览器 `backend/app/services/rendered_page_fetcher.py::render_page_with_reason`
 
 ---
 
@@ -175,6 +218,19 @@ LLM_MODEL=你的模型名
 ```
 
 > `ANALYSIS_PROVIDER=kimi` 只是历史遗留的开关字面量，不代表具体供应商；LLM 调用层已供应商中立，走标准 OpenAI 兼容 `chat/completions`。内网网关地址和密钥全部放 `backend/.env`（git 忽略），永不进版本库。
+
+**可选增强(默认关,配了才生效,失败自动回退)**:
+
+```dotenv
+# 语义证据重排:按意思相关度重排证据,治字面撞词
+EVIDENCE_RERANK_ENABLED=true
+EVIDENCE_EMBED_MODEL=你的 embedding 模型名
+EVIDENCE_EMBED_API_KEY=embedding 网关 key（与 chat 独立）
+
+# 真浏览器抓正文:静态抓空时用无头 Chromium 渲染 JS 页面
+# 需先 pip install playwright && playwright install chromium
+RENDERED_FETCH_ENABLED=true
+```
 
 ### 2. 启动后端
 
@@ -279,7 +335,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/analyze \
 
 - 前端只消费后端返回的真实 `Report`，不请求 `replay`，也不读本地 demo payload；请求失败展示错误态与重试入口。
 - `report.provenance.source_type` 当前只会是 `backend_live` 或 `backend_mock`；前端缺失 provenance 时保守落到 `unknown`。
-- URL 输入只支持公开 HTML 页面，不支持登录页、强反爬、浏览器渲染页、PDF、图片正文。
+- URL 输入以公开 HTML 页面为主，不支持登录页、强反爬、PDF、图片正文；**JS 渲染页**(如 163/微博)在开启 `RENDERED_FETCH_ENABLED`(可选,需装 Playwright)后可由无头浏览器兜底渲染,默认关时仍只走静态抓取。
 - **日期字段**：`published_at` 从 Baidu SERP 的 `prefix-time` span 真实抽取（`2026-07-16` / `6天前` / `昨天` 三种格式），SERP 里没有的场景返回空字符串（前端显示「时间未知」），**永远不伪造 `datetime.now()`**。
 - **相关性过滤**：`retrieval_service._result_matches_query` 采用主体品牌 + 事件词双层过滤，避免「共享一个动词就算相关」（如「美团 裁员」query 拉回 Amazon / Meta 的裁员新闻）。
 - 内网网关地址是硬密码，绝不写入代码或文档；模型名运行时可露，但不硬编码进版本库。
