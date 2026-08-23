@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Literal, Union
+from typing import Any, Literal, TypedDict, Union
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -28,6 +28,7 @@ CredibilityLabel = Literal[
     "insufficient_evidence",
 ]
 ContributionLabel = Literal["supports", "weakens", "mixed", "neutral"]
+EvidenceStance = Literal["supports", "refutes", "irrelevant", "ambiguous"]
 
 
 class MockFetchResult(BaseModel):
@@ -51,7 +52,7 @@ class EvidenceItem(BaseModel):
     snippet: str
     relevance_reason: str
     source_tier: SourceTier = "C"
-    stance: str | None = None
+    stance: EvidenceStance | None = None
     stance_quote: str | None = None
 
 
@@ -108,6 +109,12 @@ class ProviderAnalysis(BaseModel):
     claims: list[ClaimItem] = Field(default_factory=list)
 
 
+class ClaimCorrection(TypedDict):
+    original: str
+    actual: str
+    source: str
+
+
 class ClaimResult(BaseModel):
     claim: str
     claim_type: ClaimType
@@ -117,7 +124,7 @@ class ClaimResult(BaseModel):
     probability_basis: ProbabilityBasis | None = None
     evidence: list[EvidenceItem] = Field(default_factory=list)
     notes: str
-    correction: dict[str, str] | None = None
+    correction: ClaimCorrection | None = None
 
 
 class ReportProvenance(BaseModel):

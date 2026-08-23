@@ -247,6 +247,15 @@ export interface ClaimResult {
   correction?: ClaimCorrection | null;
 }
 
+export interface ClaimContribution {
+  claim: string;
+  claim_type: ClaimType;
+  verdict: Verdict;
+  contribution_label: "supports" | "weakens" | "mixed" | "neutral";
+  contribution_score: number;
+  reason: string;
+}
+
 export interface InvestigationStep {
   title: string;
   detail: string;
@@ -449,6 +458,7 @@ export interface Report {
   overall_credibility_score?: number | null;
   overall_credibility_label?: CredibilityLabel | null;
   score_breakdown?: ScoreBreakdown | null;
+  claim_contributions?: ClaimContribution[] | null;
   timeline_confidence?: number | null;
   independent_source_count?: number | null;
 }

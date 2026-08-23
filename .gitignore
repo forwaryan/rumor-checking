@@ -9,6 +9,7 @@ __pycache__/
 # Local runtime artifacts
 data/cache/retrieval/
 data/cache/url_fetch/
+artifacts/
 tmp-utf8-test.txt
 
 # Process logs / pids (dev server output, not source)

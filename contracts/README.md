@@ -22,3 +22,5 @@
 
 - schema 变更后，需要同步检查 [schemas.py](../backend/app/models/schemas.py) 和 [report.ts](../frontend/types/report.ts)
 - 不要绕过这里在实现文件里直接新增“事实上的新字段”
+- 运行 `python backend/scripts/check_contracts.py` 校验五个公共模型的字段集合；CI 会执行同一检查
+- JSON Schema 描述当前后端输出契约；TypeScript 可将部分字段保留为 optional，以兼容历史报告

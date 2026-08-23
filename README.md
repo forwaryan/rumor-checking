@@ -298,9 +298,13 @@ python backend/scripts/replay_eval.py
 python backend/scripts/replay_eval.py --json --run-name rule-v1 > replay-rule-v1.json
 python backend/scripts/replay_eval.py --json --run-name rule-v2 \
   --compare-to replay-rule-v1.json > replay-rule-v2.json
+python backend/scripts/replay_eval.py --run-name rule-v3 \
+  --output artifacts/replay-rule-v3.json
 ```
 
 报告同时给出 label/evidence/FEVER、置信度、引用精度、独立信源、权威来源、证据日期与时效性，并按 `time_sensitive`、`stale_news`、`subject_mismatch`、`conflicting_sources` 等类别聚合失败原因。当前 seed 集包含 18 个 case，重点用于定位“证据已找到，但 verdict 判断错误”的问题。
+
+每份 JSON 报告还包含可复现实验清单：Git SHA/工作区状态、Python 与平台版本、语料目录与 SHA-256、case ID、规则实现 SHA-256，以及脱敏后的确定性配置。CI 会保存该报告为 `replay-eval-<commit>` artifact，便于比较规则变化而不是只看单次总分。
 
 Phoenix 仅作为可选观测后端，不替代本地评测。启用方式：
 
@@ -348,10 +352,12 @@ curl -X POST http://127.0.0.1:8000/api/v1/analyze \
 
 ## 文档入口
 
+- [docs/README.md](./docs/README.md) — **文档总索引**
 - [docs/current-code-architecture-guide.md](./docs/current-code-architecture-guide.md) — **代码结构与架构详解**（图文并茂;§7.7 推理器可靠性、§11 事实边界仲裁、§12 联网检索选型均归档在此）
 - [backend/README.md](./backend/README.md) · [frontend/README.md](./frontend/README.md) — 前后端说明
 - [contracts/README.md](./contracts/README.md) · [evals/minimal_v1/README.md](./evals/minimal_v1/README.md) — 协议与评测
 - [DEMO.md](./DEMO.md) — 演示脚本 + 演示前 Smoke 检查
+- [CONTRIBUTING.md](./CONTRIBUTING.md) · [SECURITY.md](./SECURITY.md) · [docs/adr/](./docs/adr/) — 协作、安全与架构决策
 
 ---
 

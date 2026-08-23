@@ -73,6 +73,30 @@
     "notes": {
       "type": "string",
       "minLength": 1
+    },
+    "correction": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["original", "actual", "source"],
+          "properties": {
+            "original": {
+              "type": "string"
+            },
+            "actual": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     }
   }
 }

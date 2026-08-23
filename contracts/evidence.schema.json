@@ -46,6 +46,15 @@
         "B",
         "C"
       ]
+    },
+    "stance": {
+      "type": ["string", "null"],
+      "enum": ["supports", "refutes", "irrelevant", "ambiguous", null],
+      "default": null
+    },
+    "stance_quote": {
+      "type": ["string", "null"],
+      "default": null
     }
   }
 }

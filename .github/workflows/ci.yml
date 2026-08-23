@@ -1,5 +1,12 @@
 name: CI
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [main]
@@ -22,11 +29,20 @@ jobs:
           cache-dependency-path: backend/requirements*.txt
       - run: pip install -r backend/requirements-dev.txt ruff
       - run: ruff check backend/
-      - run: |
-          # test_retrieval.py excluded: test_retrieval_service_publishes_caller_stage_key_to_providers
-          # hits live network (weixin.sogou.com, piyao.org.cn) and fails without connectivity.
-          python -m pytest backend/tests/ -q \
-            --ignore=backend/tests/test_retrieval.py
+      - run: python backend/scripts/check_contracts.py
+      - run: python -m pytest backend/tests/ -q
+      - name: Run deterministic replay evaluation
+        run: |
+          mkdir -p artifacts
+          python backend/scripts/replay_eval.py \
+            --run-name "ci-${GITHUB_SHA::12}" \
+            --output artifacts/replay-eval.json
+      - name: Upload replay report
+        uses: actions/upload-artifact@v4
+        with:
+          name: replay-eval-${{ github.sha }}
+          path: artifacts/replay-eval.json
+          if-no-files-found: error
 
   frontend:
     runs-on: ubuntu-latest
@@ -42,4 +58,16 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run typecheck
+      - run: npm test
       - run: npm run build
+
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high

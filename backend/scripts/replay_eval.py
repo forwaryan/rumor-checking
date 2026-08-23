@@ -12,10 +12,14 @@ this can be wired into CI (`--pass-threshold 0.3`).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import platform
+import subprocess
 import sys
 from dataclasses import asdict
+from datetime import UTC, datetime
 from pathlib import Path
 
 # Pin the eval to the pure rule verdict path — no live LLM calls. The verdict
@@ -40,6 +44,85 @@ from backend.app.services.eval_recorder import (  # noqa: E402
     metric_deltas,
 )
 from backend.app.services.verdict_engine import VerdictEngine  # noqa: E402
+
+
+def _sha256_files(paths: list[Path], *, base: Path) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(paths):
+        digest.update(path.relative_to(base).as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _git_value(*args: str) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout.strip() or None
+
+
+def build_run_manifest(*, snap_dir: Path, snapshots: list, run_name: str) -> dict:
+    """Describe the code, corpus, and deterministic configuration behind a run."""
+    snapshot_paths = sorted(path for path in snap_dir.glob("*.json") if path.name != "cases.json")
+    implementation_paths = [
+        Path(__file__).resolve(),
+        *(REPO_ROOT / "backend" / "app").rglob("*.py"),
+    ]
+    configuration = {
+        "analysis_provider": "off",
+        "engine": "rule",
+        "network_access": False,
+        "temperature": None,
+        "seed": None,
+    }
+    configuration_json = json.dumps(configuration, sort_keys=True, separators=(",", ":"))
+    git_sha = os.getenv("GITHUB_SHA") or _git_value("rev-parse", "HEAD")
+    dirty_output = _git_value("status", "--porcelain")
+
+    try:
+        corpus_path = snap_dir.resolve().relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        corpus_path = f"external:{snap_dir.name}"
+
+    return {
+        "schema_version": 1,
+        "name": run_name,
+        "engine": "rule",
+        "snapshot_count": len(snapshots),
+        "generated_at": datetime.now(UTC).isoformat(),
+        "git": {
+            "sha": git_sha,
+            "dirty": bool(dirty_output) if dirty_output is not None else None,
+        },
+        "runtime": {
+            "python": platform.python_version(),
+            "platform": platform.platform(),
+        },
+        "corpus": {
+            "path": corpus_path,
+            "sha256": _sha256_files(snapshot_paths, base=snap_dir),
+            "snapshot_count": len(snapshots),
+            "case_ids": [snapshot.case_id for snapshot in snapshots],
+        },
+        "implementation": {
+            "engine": "rule",
+            "sha256": _sha256_files(implementation_paths, base=REPO_ROOT),
+            "model": None,
+            "prompt_version": None,
+        },
+        "configuration": configuration,
+        "configuration_sha256": hashlib.sha256(configuration_json.encode("utf-8")).hexdigest(),
+    }
 
 
 def _replay_one(snapshot) -> list[dict]:
@@ -93,6 +176,11 @@ def main() -> int:
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
     parser.add_argument("--run-name", default="rule-current", help="Label stored in JSON reports")
     parser.add_argument(
+        "--output",
+        type=Path,
+        help="Also write the complete JSON report to this path",
+    )
+    parser.add_argument(
         "--compare-to",
         type=Path,
         help="Previous JSON report; emits metric deltas for model/rule comparisons",
@@ -114,11 +202,11 @@ def main() -> int:
     actuals = [_replay_one(s) for s in snapshots]
     report = evaluate_batch(snapshots, actuals)
     report_payload = asdict(report)
-    report_payload["run"] = {
-        "name": args.run_name,
-        "engine": "rule",
-        "snapshot_count": len(snapshots),
-    }
+    report_payload["run"] = build_run_manifest(
+        snap_dir=snap_dir,
+        snapshots=snapshots,
+        run_name=args.run_name,
+    )
     if args.compare_to:
         baseline = json.loads(args.compare_to.read_text(encoding="utf-8"))
         report_payload["comparison"] = {
@@ -130,8 +218,13 @@ def main() -> int:
             ),
         }
 
+    serialized_report = json.dumps(report_payload, ensure_ascii=False, indent=2)
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(serialized_report + "\n", encoding="utf-8")
+
     if args.json:
-        print(json.dumps(report_payload, ensure_ascii=False, indent=2))
+        print(serialized_report)
     else:
         print(f"Replayed {len(snapshots)} snapshots, {report.total_claims} claims total")
         print(f"  Label accuracy:    {report.label_accuracy:.2%}")
