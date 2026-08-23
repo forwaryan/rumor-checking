@@ -22,17 +22,19 @@ def test_render_page_returns_none_for_unsafe_url():
 
 
 def test_try_rendered_fallback_gated_by_setting():
-    """_try_rendered_fallback returns None when setting is disabled."""
+    """Disabled setting -> (None, "disabled"), and render is never attempted."""
     from types import SimpleNamespace
 
     from backend.app.agent_tools.tools import _try_rendered_fallback
 
     ctx = SimpleNamespace(settings=SimpleNamespace(rendered_fetch_enabled=False))
-    assert _try_rendered_fallback("https://example.com", ctx) is None
+    body, reason = _try_rendered_fallback("https://example.com", ctx)
+    assert body is None
+    assert reason == "disabled"
 
 
-def test_try_rendered_fallback_calls_render_on_enabled():
-    """When enabled but playwright returns None, fallback still returns None gracefully."""
+def test_try_rendered_fallback_propagates_render_reason():
+    """When enabled but the browser yields nothing, the render reason is surfaced."""
     from types import SimpleNamespace
 
     from backend.app.agent_tools.tools import _try_rendered_fallback
@@ -40,12 +42,17 @@ def test_try_rendered_fallback_calls_render_on_enabled():
     ctx = SimpleNamespace(
         settings=SimpleNamespace(rendered_fetch_enabled=True, url_fetch_max_chars=12000),
     )
-    with patch("backend.app.services.rendered_page_fetcher.render_page", return_value=None):
-        assert _try_rendered_fallback("https://news.163.com/article", ctx) is None
+    with patch(
+        "backend.app.services.rendered_page_fetcher.render_page_with_reason",
+        return_value=(None, "not_installed"),
+    ):
+        body, reason = _try_rendered_fallback("https://news.163.com/article", ctx)
+        assert body is None
+        assert reason == "not_installed"
 
 
 def test_try_rendered_fallback_extracts_body_on_html():
-    """When playwright returns HTML with extractable body, fallback returns text."""
+    """Browser returns extractable HTML -> (body, "ok")."""
     from types import SimpleNamespace
 
     from backend.app.agent_tools.tools import _try_rendered_fallback
@@ -57,7 +64,11 @@ def test_try_rendered_fallback_extracts_body_on_html():
     ctx = SimpleNamespace(
         settings=SimpleNamespace(rendered_fetch_enabled=True, url_fetch_max_chars=12000),
     )
-    with patch("backend.app.services.rendered_page_fetcher.render_page", return_value=html):
-        result = _try_rendered_fallback("https://news.163.com/article", ctx)
-        assert result is not None
-        assert "新闻正文" in result
+    with patch(
+        "backend.app.services.rendered_page_fetcher.render_page_with_reason",
+        return_value=(html, "ok"),
+    ):
+        body, reason = _try_rendered_fallback("https://news.163.com/article", ctx)
+        assert body is not None
+        assert "新闻正文" in body
+        assert reason == "ok"

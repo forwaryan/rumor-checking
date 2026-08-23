@@ -306,28 +306,38 @@ def _pick_fetch_target(state: AgentState):
     return max(candidates, key=score)
 
 
-def _try_rendered_fallback(url: str, ctx: ToolContext) -> str | None:
+def _try_rendered_fallback(url: str, ctx: ToolContext) -> tuple[str | None, str]:
     """Attempt a Playwright-rendered fetch when static extraction failed.
 
-    Gated by RENDERED_FETCH_ENABLED setting. Returns extracted body text or None.
-    """
+    Gated by RENDERED_FETCH_ENABLED. Returns (body, reason) where reason is one of
+    "disabled", "ok", "extract_failed", "render_error" (any exception in the
+    render+extract path), or the render reason ("not_installed", "unsafe_url",
+    "error"). Lets the caller record WHY the browser path did or didn't contribute,
+    instead of a silent None."""
     if not getattr(ctx.settings, "rendered_fetch_enabled", False):
-        return None
-    from backend.app.services.rendered_page_fetcher import render_page
-    html = render_page(url)
-    if not html:
-        return None
-    from backend.app.services.url_content_extractor import UrlContentExtractor
-    extractor = UrlContentExtractor(settings=ctx.settings)
-    result = extractor._extract_from_html(
-        html=html[:ctx.settings.url_fetch_max_chars],
-        final_url=url,
-        content_type="text/html",
-        fallback_source_name=None,
-    )
+        return None, "disabled"
+    # The ENTIRE render+extract path is best-effort: this is a SAFE fallback, so
+    # ANY failure — import error (playwright absent), render raising, or extraction
+    # blowing up — must degrade to the snippet, never propagate and break fetch_url.
+    try:
+        from backend.app.services.rendered_page_fetcher import render_page_with_reason
+        html, reason = render_page_with_reason(url)
+        if not html:
+            return None, reason
+        from backend.app.services.url_content_extractor import UrlContentExtractor
+        extractor = UrlContentExtractor(settings=ctx.settings)
+        result = extractor._extract_from_html(
+            html=html[:ctx.settings.url_fetch_max_chars],
+            final_url=url,
+            content_type="text/html",
+            fallback_source_name=None,
+        )
+    except Exception:  # noqa: BLE001 — degrade to snippet, never propagate
+        # The reason surfaces in the fetch_url trace details (rendered=render_error).
+        return None, "render_error"
     if result.status == "ok" and result.body:
-        return result.body[:_FETCH_BODY_MAX_CHARS]
-    return None
+        return result.body[:_FETCH_BODY_MAX_CHARS], "ok"
+    return None, "extract_failed"
 
 
 @tool("fetch_url", description="抓取高置信源全文以增强证据", retries=1)
@@ -397,19 +407,22 @@ def fetch_url(ctx: ToolContext, state: AgentState) -> None:
 
     body = (fetch.body or "").strip()
     state.fetched_urls.add(target.url)
+    fetch_path = "static"
     if fetch.status != "ok" or not body:
-        # Attempt rendered fallback for JS-heavy pages (e.g. 163.com)
-        rendered_body = _try_rendered_fallback(target.url, ctx)
+        # Static fetch came back empty (JS-heavy page like 163.com); try the
+        # browser-rendered path before giving up.
+        static_status = fetch.status
+        rendered_body, reason = _try_rendered_fallback(target.url, ctx)
         if rendered_body:
             body = rendered_body
-            fetch = type(fetch)(status="ok", body=rendered_body)
+            fetch_path = "browser"
         else:
             emit_stage(
                 stage_key="investigation_fetch",
                 title="抓取正文",
                 status="warning",
                 summary="页面未返回可用正文，沿用检索摘要继续。",
-                details=[f"url={target.url}", f"status={fetch.status}"],
+                details=[f"url={target.url}", f"static_status={static_status}", f"rendered={reason}"],
             )
             return
 
@@ -424,6 +437,7 @@ def fetch_url(ctx: ToolContext, state: AgentState) -> None:
             f"url={target.url}",
             f"result_id={target.result_id}",
             f"body_chars={len(body)}",
+            f"path={fetch_path}",
             f"cache={'hit' if cache_hit else 'miss'}",
         ],
     )

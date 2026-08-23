@@ -35,20 +35,20 @@ def _check_playwright() -> bool:
     return _PLAYWRIGHT_AVAILABLE
 
 
-def render_page(url: str, *, timeout_ms: int = 15000, wait_until: str = "networkidle") -> str | None:
-    """Render a page with a headless browser and return its full HTML.
+def render_page_with_reason(
+    url: str, *, timeout_ms: int = 15000, wait_until: str = "networkidle"
+) -> tuple[str | None, str]:
+    """Render a page with a headless browser; return (html, reason).
 
-    Returns None if:
-    - playwright is not installed
-    - the URL is blocked by SSRF guard
-    - any browser/network error occurs
-
+    reason is one of: "ok", "unsafe_url", "not_installed", "error". On anything
+    other than "ok", html is None; this path is itself a fallback invoked after the
+    static fetch already failed, so the caller then degrades to the search snippet.
     The browser context is ephemeral (no cookies/state persist).
     """
     if not is_safe_url(url):
-        return None
+        return None, "unsafe_url"
     if not _check_playwright():
-        return None
+        return None, "not_installed"
 
     try:
         from playwright.sync_api import sync_playwright
@@ -64,9 +64,18 @@ def render_page(url: str, *, timeout_ms: int = 15000, wait_until: str = "network
                 page.goto(url, wait_until=wait_until, timeout=timeout_ms)
                 html = page.content()
                 context.close()
-                return html
+                return html, "ok"
             finally:
                 browser.close()
     except Exception as exc:
         logger.warning("rendered_page_fetcher_error url=%s error=%s", url, exc)
-        return None
+        return None, "error"
+
+
+def render_page(url: str, *, timeout_ms: int = 15000, wait_until: str = "networkidle") -> str | None:
+    """Render a page and return its full HTML, or None on any failure.
+
+    Thin wrapper over render_page_with_reason for callers that don't need the
+    reason. Kept for back-compat."""
+    html, _reason = render_page_with_reason(url, timeout_ms=timeout_ms, wait_until=wait_until)
+    return html

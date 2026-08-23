@@ -3,5 +3,10 @@ uvicorn==0.30.6
 httpx>=0.27,<0.28
 pydantic>=2.6,<3
 starlette>=0.36,<0.37
-# Optional: enables rendered page fetch fallback for JS-heavy sites
+# Optional: enables rendered page fetch fallback for JS-heavy sites (163, weibo, SPAs).
+# To enable end-to-end: uncomment below, `pip install playwright`, then
+# `playwright install chromium` to download the browser engine. Also set
+# RENDERED_FETCH_ENABLED=true. Left off by default because the browser engine is a
+# ~150MB download and each rendered fetch costs several seconds; the pipeline
+# degrades to static httpx fetch when it is absent.
 # playwright>=1.40
