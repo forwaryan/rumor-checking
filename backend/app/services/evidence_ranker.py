@@ -7,13 +7,22 @@ Scores each SearchResult's relevance to the claim/query by combining:
 
 No external model needed — pure token arithmetic. The synthesis LLM reads
 evidence top-to-bottom, so higher-ranked hits get more attention.
+
+When EVIDENCE_RERANK is configured, rank_results instead orders by embedding
+cosine similarity (see embedding_ranker) — semantic-dominant, which fixes
+shared-word false matches. That path is best-effort: any failure falls back to
+the token scorer below, so this module's behavior is never worse than baseline.
 """
 from __future__ import annotations
 
+import logging
 import re
 from collections import Counter
 
+from backend.app.core.config import get_settings
 from backend.app.services.retrieval_models import TIER_WEIGHTS, SearchResult
+
+logger = logging.getLogger(__name__)
 
 _CJK_RE = re.compile(r"[一-鿿]+")
 _WORD_RE = re.compile(r"[\w一-鿿]{2,}")
@@ -74,13 +83,40 @@ def score_result(result: SearchResult, query_text: str, event_title: str = "") -
     return token_score + number_bonus + authority_bonus
 
 
+def _rank_by_tokens(
+    results: list[SearchResult],
+    query_text: str,
+    event_title: str,
+    limit: int,
+) -> list[SearchResult]:
+    scored = [(score_result(r, query_text, event_title), r) for r in results]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [r for _, r in scored[:limit]]
+
+
 def rank_results(
     results: list[SearchResult],
     query_text: str,
     event_title: str = "",
     limit: int = 8,
 ) -> list[SearchResult]:
-    """Return results sorted by relevance score, limited to top N."""
-    scored = [(score_result(r, query_text, event_title), r) for r in results]
-    scored.sort(key=lambda x: x[0], reverse=True)
-    return [r for _, r in scored[:limit]]
+    """Return results sorted by relevance score, limited to top N.
+
+    Uses semantic embedding reranking when configured (EVIDENCE_RERANK_ENABLED +
+    model + key), else the token-overlap scorer. The semantic path is best-effort:
+    any failure logs a warning and falls back to tokens, so output is never worse
+    than the token baseline."""
+    if get_settings().evidence_rerank_ready:
+        try:
+            from backend.app.services.embedding_ranker import rank_by_embedding
+
+            return rank_by_embedding(
+                results, query_text=query_text, event_title=event_title, limit=limit
+            )
+        except Exception as exc:  # noqa: BLE001 — any failure must fall back, never raise
+            logger.warning(
+                "semantic rerank failed (%s: %s); falling back to token scorer",
+                type(exc).__name__,
+                exc,
+            )
+    return _rank_by_tokens(results, query_text, event_title, limit)

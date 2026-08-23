@@ -166,8 +166,22 @@ class Settings:
     url_fetch_cache_dir: Path
     url_fetch_cache_ttl_seconds: float
     rendered_fetch_enabled: bool
+    evidence_rerank_enabled: bool
+    evidence_embed_model: str
+    evidence_embed_api_key: str | None
     eval_record_enabled: bool
     cors_allow_origin_regex: str
+
+    @property
+    def evidence_rerank_ready(self) -> bool:
+        """Whether semantic evidence reranking can actually run: enabled, a model
+        named, and a key present. When false, rank_results falls back to the
+        token-overlap scorer — so leaving any of these unset is safe."""
+        return (
+            self.evidence_rerank_enabled
+            and bool(self.evidence_embed_model)
+            and bool(self.evidence_embed_api_key)
+        )
 
     @property
     def llm_enabled(self) -> bool:
@@ -318,6 +332,9 @@ def get_settings() -> Settings:
         url_fetch_cache_dir=Path(os.getenv("URL_FETCH_CACHE_DIR", str(project_root / "data" / "cache" / "url_fetch"))),
         url_fetch_cache_ttl_seconds=_as_float(os.getenv("URL_FETCH_CACHE_TTL_SECONDS"), 43200.0),
         rendered_fetch_enabled=_as_bool(os.getenv("RENDERED_FETCH_ENABLED"), default=False),
+        evidence_rerank_enabled=_as_bool(os.getenv("EVIDENCE_RERANK_ENABLED"), default=False),
+        evidence_embed_model=(os.getenv("EVIDENCE_EMBED_MODEL") or "").strip(),
+        evidence_embed_api_key=os.getenv("EVIDENCE_EMBED_API_KEY") or None,
         eval_record_enabled=_as_bool(os.getenv("EVAL_RECORD_ENABLED"), default=False),
         cors_allow_origin_regex=os.getenv(
             "CORS_ALLOW_ORIGIN_REGEX",
