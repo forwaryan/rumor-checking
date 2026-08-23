@@ -289,6 +289,30 @@ CI 每次 push/PR 也会跑同一套（见下节）。
 | `POST /api/v1/analyze` | 同步分析 |
 | `POST /api/v1/analyze/stream` | 流式分析（NDJSON 事件流） |
 
+### 回放评测与 Phoenix
+
+离线回放集位于 `evals/live_replay/seed/`，默认不访问网络，可用于比较规则、提示词和模型版本：
+
+```bash
+python backend/scripts/replay_eval.py
+python backend/scripts/replay_eval.py --json --run-name rule-v1 > replay-rule-v1.json
+python backend/scripts/replay_eval.py --json --run-name rule-v2 \
+  --compare-to replay-rule-v1.json > replay-rule-v2.json
+```
+
+报告同时给出 label/evidence/FEVER、置信度、引用精度、独立信源、权威来源、证据日期与时效性，并按 `time_sensitive`、`stale_news`、`subject_mismatch`、`conflicting_sources` 等类别聚合失败原因。当前 seed 集包含 18 个 case，重点用于定位“证据已找到，但 verdict 判断错误”的问题。
+
+Phoenix 仅作为可选观测后端，不替代本地评测。启用方式：
+
+```bash
+pip install -r backend/requirements-observability.txt
+export AGENT_TRACE_ENABLED=true
+export PHOENIX_ENABLED=true
+export PHOENIX_OTLP_ENDPOINT=http://localhost:6006/v1/traces
+```
+
+启用后，agent trace 仍会写入本地 JSON，同时通过 OpenTelemetry OTLP/HTTP 批量导出到 Phoenix；依赖缺失或 Phoenix 不可用不会中断核查请求。可通过 `PHOENIX_EXPORT_TIMEOUT_SECONDS` 限制导出等待时间，默认 2 秒。
+
 **最小联调**：
 
 ```bash

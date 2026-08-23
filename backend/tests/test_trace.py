@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from backend.app.agent.trace import TraceExporter, TraceRecord, TraceSpan
+from backend.app.services.phoenix_exporter import export_trace_to_phoenix, span_attributes
 
 # --- TraceSpan ---
 
@@ -30,6 +31,38 @@ def test_span_to_dict():
     assert d["success"] is True
     assert d["duration_ms"] == 100.0
     assert d["token_usage"]["total"] == 70
+
+
+def test_phoenix_span_attributes_are_flat_and_semantic():
+    span = TraceSpan(
+        action="synthesize",
+        start_time=1.0,
+        end_time=2.0,
+        span_id="span_0002",
+        parent_span_id="span_0001",
+        success=False,
+        error_type="TimeoutError",
+        token_usage={"prompt": 12, "completion": 3, "total": 15},
+        metadata={"model": "test-model", "queries": ["a", "b"]},
+    )
+
+    attributes = span_attributes(span)
+
+    assert attributes["openinference.span.kind"] == "TOOL"
+    assert attributes["rumor_checking.parent_span_id"] == "span_0001"
+    assert attributes["llm.token_count.total"] == 15
+    assert attributes["error.type"] == "TimeoutError"
+    assert attributes["rumor_checking.metadata.queries"] == '["a", "b"]'
+
+
+def test_phoenix_export_is_noop_when_disabled():
+    record = TraceRecord(run_id="offline", start_time=1.0, end_time=2.0)
+    assert export_trace_to_phoenix(
+        record,
+        enabled=False,
+        endpoint="http://localhost:6006/v1/traces",
+        project_name="test",
+    ) is False
 
 
 # --- TraceRecord ---

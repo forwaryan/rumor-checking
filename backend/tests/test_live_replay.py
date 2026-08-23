@@ -51,7 +51,8 @@ def _replay_one(snapshot) -> list[dict]:
         {
             "claim": cr.claim,
             "verdict": cr.verdict,
-            "evidence": [{"url": e.url, "title": e.title} for e in cr.evidence],
+            "confidence": cr.confidence,
+            "evidence": [e.model_dump() for e in cr.evidence],
         }
         for cr in claim_results
     ]
@@ -69,11 +70,23 @@ def snapshots():
 
 def test_seed_snapshots_load(snapshots):
     """Sanity: the corpus loads and covers multiple verdict types."""
-    assert len(snapshots) >= 10
+    assert len(snapshots) >= 18
     verdicts = {c["verdict"] for s in snapshots for c in s.expected_claims}
-    # We seeded supported/refuted/conflicting at minimum
-    assert "refuted" in verdicts
-    assert "supported" in verdicts
+    assert {"supported", "refuted", "conflicting", "insufficient"} <= verdicts
+    categories = {
+        category
+        for snapshot in snapshots
+        for category in snapshot.metadata.get("categories", [])
+    }
+    assert {
+        "time_sensitive",
+        "stale_news",
+        "subject_mismatch",
+        "conflicting_sources",
+        "dateless_evidence",
+        "source_independence",
+        "insufficient_evidence",
+    } <= categories
 
 
 def test_replay_produces_deterministic_metrics(snapshots):
@@ -89,10 +102,10 @@ def test_replay_produces_deterministic_metrics(snapshots):
 def test_fever_score_meets_baseline(snapshots):
     """Overall FEVER score meets the rule-engine baseline.
 
-    The threshold is deliberately low because:
+    The threshold leaves room for future corpus expansion because:
     - The rule engine relies on keyword/subject overlap, not semantic understanding
     - Some seed cases test LLM-only strengths (conflicting verdicts)
-    Set to 0.1 as a regression floor; the real bar is lifted by the LLM path.
+    The deterministic seed baseline is locked at 0.75 to prevent silent collapse.
     """
     actuals = [_replay_one(s) for s in snapshots]
     report = evaluate_batch(snapshots, actuals)
@@ -105,6 +118,7 @@ def test_fever_score_meets_baseline(snapshots):
     )
     # Sanity floor — no negative or NaN
     assert 0.0 <= report.fever_score <= 1.0
+    assert report.fever_score >= 0.75
     assert report.total_claims == sum(len(s.expected_claims) for s in snapshots)
     assert settings is not None  # unused but keeps get_settings warm for CI
 

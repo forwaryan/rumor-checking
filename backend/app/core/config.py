@@ -117,6 +117,11 @@ class Settings:
     agent_checkpoint_dir: Path
     agent_trace_enabled: bool
     agent_trace_dir: Path
+    phoenix_enabled: bool
+    phoenix_otlp_endpoint: str
+    phoenix_project_name: str
+    phoenix_api_key: str | None
+    phoenix_export_timeout_seconds: float
     agent_rate_limit_enabled: bool
     agent_rate_limit_per_second: float
     agent_rate_limit_burst: float
@@ -273,6 +278,14 @@ def get_settings() -> Settings:
         agent_checkpoint_dir=Path(os.getenv("AGENT_CHECKPOINT_DIR", str(project_root / "data" / "cache" / "checkpoints"))),
         agent_trace_enabled=_as_bool(os.getenv("AGENT_TRACE_ENABLED"), default=False),
         agent_trace_dir=Path(os.getenv("AGENT_TRACE_DIR", str(project_root / "data" / "traces"))),
+        phoenix_enabled=_as_bool(os.getenv("PHOENIX_ENABLED"), default=False),
+        phoenix_otlp_endpoint=os.getenv("PHOENIX_OTLP_ENDPOINT", "http://localhost:6006/v1/traces"),
+        phoenix_project_name=os.getenv("PHOENIX_PROJECT_NAME", "rumor-checking"),
+        phoenix_api_key=os.getenv("PHOENIX_API_KEY") or None,
+        phoenix_export_timeout_seconds=max(
+            _as_float(os.getenv("PHOENIX_EXPORT_TIMEOUT_SECONDS"), 2.0),
+            0.1,
+        ),
         agent_rate_limit_enabled=_as_bool(os.getenv("AGENT_RATE_LIMIT_ENABLED"), default=False),
         agent_rate_limit_per_second=max(_as_float(os.getenv("AGENT_RATE_LIMIT_PER_SECOND"), 5.0), 0.1),
         agent_rate_limit_burst=max(_as_float(os.getenv("AGENT_RATE_LIMIT_BURST"), 10.0), 1.0),

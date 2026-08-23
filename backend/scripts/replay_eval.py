@@ -15,6 +15,7 @@ import argparse
 import json
 import os
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 # Pin the eval to the pure rule verdict path — no live LLM calls. The verdict
@@ -33,8 +34,10 @@ if str(REPO_ROOT) not in sys.path:
 from backend.app.models.schemas import AnalyzeRequest, ClaimItem, NormalizedEvent  # noqa: E402
 from backend.app.services.eval_recorder import (  # noqa: E402
     bundle_from_snapshot,
+    category_metric_deltas,
     evaluate_batch,
     iter_snapshots,
+    metric_deltas,
 )
 from backend.app.services.verdict_engine import VerdictEngine  # noqa: E402
 
@@ -64,7 +67,17 @@ def _replay_one(snapshot) -> list[dict]:
         {
             "claim": cr.claim,
             "verdict": cr.verdict,
-            "evidence": [{"url": e.url, "title": e.title} for e in cr.evidence],
+            "confidence": cr.confidence,
+            "evidence": [
+                {
+                    "url": e.url,
+                    "title": e.title,
+                    "source_name": e.source_name,
+                    "source_tier": e.source_tier,
+                    "published_at": e.published_at,
+                }
+                for e in cr.evidence
+            ],
         }
         for cr in claim_results
     ]
@@ -78,6 +91,12 @@ def main() -> int:
         help="Directory containing snapshot JSON files",
     )
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
+    parser.add_argument("--run-name", default="rule-current", help="Label stored in JSON reports")
+    parser.add_argument(
+        "--compare-to",
+        type=Path,
+        help="Previous JSON report; emits metric deltas for model/rule comparisons",
+    )
     parser.add_argument(
         "--pass-threshold",
         type=float,
@@ -94,27 +113,58 @@ def main() -> int:
 
     actuals = [_replay_one(s) for s in snapshots]
     report = evaluate_batch(snapshots, actuals)
+    report_payload = asdict(report)
+    report_payload["run"] = {
+        "name": args.run_name,
+        "engine": "rule",
+        "snapshot_count": len(snapshots),
+    }
+    if args.compare_to:
+        baseline = json.loads(args.compare_to.read_text(encoding="utf-8"))
+        report_payload["comparison"] = {
+            "baseline_run": baseline.get("run", {}).get("name", args.compare_to.stem),
+            "metric_deltas": metric_deltas(report_payload, baseline),
+            "category_metric_deltas": category_metric_deltas(
+                report_payload.get("category_metrics", {}),
+                baseline.get("category_metrics", {}),
+            ),
+        }
 
     if args.json:
-        print(json.dumps({
-            "total_claims": report.total_claims,
-            "label_accuracy": report.label_accuracy,
-            "evidence_accuracy": report.evidence_accuracy,
-            "fever_score": report.fever_score,
-            "per_case": report.per_case,
-        }, ensure_ascii=False, indent=2))
+        print(json.dumps(report_payload, ensure_ascii=False, indent=2))
     else:
         print(f"Replayed {len(snapshots)} snapshots, {report.total_claims} claims total")
         print(f"  Label accuracy:    {report.label_accuracy:.2%}")
         print(f"  Evidence accuracy: {report.evidence_accuracy:.2%}")
         print(f"  FEVER score:       {report.fever_score:.2%}")
+        print(f"  Confidence:        {report.confidence_accuracy:.2%}")
+        print(f"  Citation precision:{report.citation_precision:>7.2%}")
+        print(f"  Source independence:{report.source_independence_score:>6.2%}")
+        print(f"  High-trust evidence:{report.high_trust_evidence_rate:>6.2%}")
+        print(f"  Dated evidence:    {report.dated_evidence_rate:.2%}")
+        print(f"  Fresh evidence:    {report.fresh_evidence_rate:.2%}")
+        print("Category breakdown:")
+        for category, metrics in report.category_metrics.items():
+            print(
+                f"  {category}: label={metrics['label_accuracy']:.2%} "
+                f"evidence={metrics['evidence_accuracy']:.2%} "
+                f"fever={metrics['fever_score']:.2%} n={metrics['total_claims']}"
+            )
+        if "comparison" in report_payload:
+            print(f"Compared with: {report_payload['comparison']['baseline_run']}")
+            for metric, delta in report_payload["comparison"]["metric_deltas"].items():
+                print(f"  {metric}: {delta:+.2%}")
+            print("Category FEVER deltas:")
+            for category, deltas in report_payload["comparison"]["category_metric_deltas"].items():
+                print(f"  {category}: {deltas['fever_score']:+.2%}")
         print("Per-case breakdown:")
         for case in report.per_case:
-            marker = "PASS" if case["fever_pass"] == case["claims"] else "FAIL"
+            marker = "PASS" if not case["failure_reasons"] else "FAIL"
             print(
                 f"  [{marker}] {case['case_id']}: "
                 f"fever={case['fever_pass']}/{case['claims']} "
-                f"label={case['label_correct']}/{case['claims']}"
+                f"label={case['label_correct']}/{case['claims']} "
+                f"failures={','.join(case['failure_reasons']) or '-'}"
             )
 
     if args.pass_threshold and report.fever_score < args.pass_threshold:

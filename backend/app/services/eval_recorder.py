@@ -19,10 +19,27 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+COMPARABLE_METRICS = (
+    "label_accuracy",
+    "evidence_accuracy",
+    "fever_score",
+    "confidence_accuracy",
+    "citation_precision",
+    "source_independence_score",
+    "high_trust_evidence_rate",
+    "dated_evidence_rate",
+    "fresh_evidence_rate",
+)
+CATEGORY_COMPARABLE_METRICS = (
+    "label_accuracy",
+    "evidence_accuracy",
+    "fever_score",
+)
 
 
 @dataclass
@@ -172,7 +189,89 @@ class EvalReport:
     label_accuracy: float
     evidence_accuracy: float
     fever_score: float  # strict: both label AND evidence correct
+    confidence_accuracy: float
+    citation_precision: float
+    source_independence_score: float
+    high_trust_evidence_rate: float
+    dated_evidence_rate: float
+    fresh_evidence_rate: float
+    category_metrics: dict[str, dict]
     per_case: list[dict]
+
+
+def _ratio(values: list[bool | float]) -> float:
+    return sum(float(value) for value in values) / len(values) if values else 0.0
+
+
+def metric_deltas(current: dict, baseline: dict) -> dict[str, float]:
+    """Return comparable metric deltas between two serialized eval reports."""
+    return {
+        metric: float(current.get(metric, 0.0)) - float(baseline.get(metric, 0.0))
+        for metric in COMPARABLE_METRICS
+    }
+
+
+def category_metric_deltas(
+    current: dict[str, dict],
+    baseline: dict[str, dict],
+) -> dict[str, dict[str, float | int]]:
+    """Return per-category deltas, including categories absent from one run."""
+    deltas: dict[str, dict[str, float | int]] = {}
+    for category in sorted(set(current) | set(baseline)):
+        current_metrics = current.get(category, {})
+        baseline_metrics = baseline.get(category, {})
+        deltas[category] = {
+            "total_claims": int(current_metrics.get("total_claims", 0))
+            - int(baseline_metrics.get("total_claims", 0)),
+            **{
+                metric: float(current_metrics.get(metric, 0.0))
+                - float(baseline_metrics.get(metric, 0.0))
+                for metric in CATEGORY_COMPARABLE_METRICS
+            },
+        }
+    return deltas
+
+
+def _categories(snapshot: EvalSnapshot) -> list[str]:
+    categories = snapshot.metadata.get("categories")
+    if isinstance(categories, list):
+        normalized = [str(category).strip() for category in categories if str(category).strip()]
+        if normalized:
+            return normalized
+    category = str(snapshot.metadata.get("category", "")).strip()
+    return [category] if category else ["uncategorized"]
+
+
+def _parse_date(value: object) -> date | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
+
+
+def _evidence_details(snapshot: EvalSnapshot, actual: dict) -> list[dict]:
+    by_url = {
+        item.get("url", ""): item
+        for item in snapshot.retrieval_results
+        if item.get("url")
+    }
+    details = []
+    for item in actual.get("evidence", []):
+        url = item.get("url", "")
+        details.append({**by_url.get(url, {}), **item})
+    return details
+
+
+def _category_report(scores: list[FeverScore]) -> dict[str, float | int]:
+    return {
+        "total_claims": len(scores),
+        "label_accuracy": _ratio([score.label_correct for score in scores]),
+        "evidence_accuracy": _ratio([score.evidence_correct for score in scores]),
+        "fever_score": _ratio([score.fever_pass for score in scores]),
+    }
 
 
 def evaluate_batch(snapshots: list[EvalSnapshot], actual_results: list[list[dict]]) -> EvalReport:
@@ -185,10 +284,34 @@ def evaluate_batch(snapshots: list[EvalSnapshot], actual_results: list[list[dict
     """
     all_scores: list[FeverScore] = []
     per_case: list[dict] = []
+    confidence_scores: list[bool] = []
+    citation_precisions: list[float] = []
+    source_independence_scores: list[float] = []
+    high_trust_scores: list[bool] = []
+    dated_scores: list[bool] = []
+    fresh_scores: list[bool] = []
+    scores_by_category: dict[str, list[FeverScore]] = {}
 
-    for snapshot, actuals in zip(snapshots, actual_results, strict=False):
+    for snapshot_index, snapshot in enumerate(snapshots):
+        actuals = actual_results[snapshot_index] if snapshot_index < len(actual_results) else []
         case_scores: list[FeverScore] = []
-        for expected, actual in zip(snapshot.expected_claims, actuals, strict=False):
+        failure_reasons: list[str] = []
+        for index, expected in enumerate(snapshot.expected_claims):
+            if index >= len(actuals):
+                score = FeverScore(
+                    claim=expected.get("claim", ""),
+                    label_correct=False,
+                    evidence_correct=False,
+                    fever_pass=False,
+                )
+                case_scores.append(score)
+                all_scores.append(score)
+                failure_reasons.append("missing_claim")
+                for category in _categories(snapshot):
+                    scores_by_category.setdefault(category, []).append(score)
+                continue
+
+            actual = actuals[index]
             expected_urls = {e.get("url", "") for e in expected.get("evidence", []) if e.get("url")}
             actual_urls = {e.get("url", "") for e in actual.get("evidence", []) if e.get("url")}
 
@@ -207,21 +330,110 @@ def evaluate_batch(snapshots: list[EvalSnapshot], actual_results: list[list[dict
             case_scores.append(score)
             all_scores.append(score)
 
+            for category in _categories(snapshot):
+                scores_by_category.setdefault(category, []).append(score)
+
+            if not score.label_correct:
+                failure_reasons.append("wrong_label")
+            if not score.evidence_correct:
+                failure_reasons.append("missing_expected_evidence")
+
+            expected_confidence = str(expected.get("confidence", "")).strip()
+            if expected_confidence:
+                confidence_correct = str(actual.get("confidence", "")).strip() == expected_confidence
+                confidence_scores.append(confidence_correct)
+                if not confidence_correct:
+                    failure_reasons.append("confidence_mismatch")
+
+            if actual_urls:
+                citation_precisions.append(len(expected_urls & actual_urls) / len(actual_urls))
+            else:
+                citation_precisions.append(1.0 if not expected_urls else 0.0)
+
+            evidence_details = _evidence_details(snapshot, actual)
+            evaluation = expected.get("evaluation", {})
+            minimum_sources = int(evaluation.get("min_independent_sources", 0) or 0)
+            if minimum_sources:
+                source_names = {
+                    str(item.get("source_name", "")).strip().lower()
+                    for item in evidence_details
+                    if str(item.get("source_name", "")).strip()
+                }
+                independence = min(len(source_names) / minimum_sources, 1.0)
+                source_independence_scores.append(independence)
+                if independence < 1.0:
+                    failure_reasons.append("low_source_diversity")
+
+            for item in evidence_details:
+                high_trust_scores.append(str(item.get("source_tier", "")).upper() in {"S", "A"})
+                dated_scores.append(_parse_date(item.get("published_at")) is not None)
+
+            if evaluation.get("require_high_trust") and not any(
+                str(item.get("source_tier", "")).upper() in {"S", "A"}
+                for item in evidence_details
+            ):
+                failure_reasons.append("no_high_trust_evidence")
+            if evaluation.get("require_dated_evidence") and any(
+                _parse_date(item.get("published_at")) is None for item in evidence_details
+            ):
+                failure_reasons.append("undated_evidence")
+
+            fresh_after = _parse_date(evaluation.get("fresh_after"))
+            if fresh_after and evidence_details:
+                claim_fresh_scores = [
+                    bool(published_at and published_at >= fresh_after)
+                    for item in evidence_details
+                    if (published_at := _parse_date(item.get("published_at"))) is not None
+                ]
+                claim_fresh_scores.extend(
+                    False
+                    for item in evidence_details
+                    if _parse_date(item.get("published_at")) is None
+                )
+                fresh_scores.extend(claim_fresh_scores)
+                if not claim_fresh_scores or not all(claim_fresh_scores):
+                    failure_reasons.append("stale_evidence")
+
         per_case.append({
             "case_id": snapshot.case_id,
+            "categories": _categories(snapshot),
             "claims": len(case_scores),
             "fever_pass": sum(1 for s in case_scores if s.fever_pass),
             "label_correct": sum(1 for s in case_scores if s.label_correct),
+            "failure_reasons": list(dict.fromkeys(failure_reasons)),
         })
 
     total = len(all_scores)
     if total == 0:
-        return EvalReport(total_claims=0, label_accuracy=0, evidence_accuracy=0, fever_score=0, per_case=[])
+        return EvalReport(
+            total_claims=0,
+            label_accuracy=0,
+            evidence_accuracy=0,
+            fever_score=0,
+            confidence_accuracy=0,
+            citation_precision=0,
+            source_independence_score=0,
+            high_trust_evidence_rate=0,
+            dated_evidence_rate=0,
+            fresh_evidence_rate=0,
+            category_metrics={},
+            per_case=[],
+        )
 
     return EvalReport(
         total_claims=total,
         label_accuracy=sum(1 for s in all_scores if s.label_correct) / total,
         evidence_accuracy=sum(1 for s in all_scores if s.evidence_correct) / total,
         fever_score=sum(1 for s in all_scores if s.fever_pass) / total,
+        confidence_accuracy=_ratio(confidence_scores),
+        citation_precision=_ratio(citation_precisions),
+        source_independence_score=_ratio(source_independence_scores),
+        high_trust_evidence_rate=_ratio(high_trust_scores),
+        dated_evidence_rate=_ratio(dated_scores),
+        fresh_evidence_rate=_ratio(fresh_scores),
+        category_metrics={
+            category: _category_report(scores)
+            for category, scores in sorted(scores_by_category.items())
+        },
         per_case=per_case,
     )

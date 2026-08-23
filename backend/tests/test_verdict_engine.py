@@ -218,9 +218,8 @@ def test_empty_evidence_without_live_search_keeps_generic_note():
 # ---------------------------------------------------------------------------
 
 
-def test_quantitative_conflict_detection():
-    """When the claim says '6000人' but evidence says '2000人', the verdict
-    should be 'conflicting' because the numbers disagree."""
+def test_authoritative_quantitative_correction_refutes_exact_number():
+    """An authoritative source explicitly correcting an exact number refutes it."""
     engine = VerdictEngine()
     event = NormalizedEvent(
         summary="拼多多在雄安招了6000人",
@@ -248,7 +247,7 @@ def test_quantitative_conflict_detection():
     )
 
     claim_result = result[0][0]
-    assert claim_result.verdict == "conflicting"
+    assert claim_result.verdict == "refuted"
 
 
 def test_quantitative_conflict_ignores_subject_mismatched_source():
@@ -682,3 +681,164 @@ def test_non_time_sensitive_claim_preserves_retrieval_order():
         "2026-03-01T10:00:00+08:00",
         "2026-03-20T10:00:00+08:00",
     ]
+
+
+def test_incidental_date_number_does_not_create_quantitative_conflict():
+    engine = VerdictEngine()
+    pool = [
+        EvidenceItem(
+            title="美团回应裁员80%传言：不属实",
+            url="https://news.example.com/meituan-response",
+            source_name="财经日报",
+            published_at="2026-12-03",
+            snippet="针对裁员80%的消息，美团12月回应称该说法不实。",
+            relevance_reason="直接回应传言。",
+            source_tier="A",
+        )
+    ]
+
+    verdict, confidence, _notes, _selected = engine._evaluate_fact_claim(
+        claim_text="美团裁员80%",
+        evidence_pool=pool,
+        subject_anchors=["美团"],
+    )
+
+    assert (verdict, confidence) == ("refuted", "medium")
+
+
+def test_refutation_phrases_reverse_positive_claim():
+    engine = VerdictEngine()
+    for phrase in ("物理上不可能", "实为气象气球", "并非该公司", "暂无相关安排"):
+        evidence = EvidenceItem(
+            title=f"官方核查：{phrase}",
+            url=f"https://fact.example/{len(phrase)}",
+            source_name="官方核查",
+            published_at="2026-08-20",
+            snippet=f"飞行滑板车传言{phrase}。",
+            relevance_reason="直接核查。",
+            source_tier="S",
+        )
+        verdict, confidence, _notes, _selected = engine._evaluate_fact_claim(
+            claim_text="存在可载人飞行的滑板车",
+            evidence_pool=[evidence],
+            subject_anchors=[],
+        )
+        assert (verdict, confidence) == ("refuted", "high"), phrase
+
+
+def test_explicit_new_policy_supersedes_old_supporting_policy():
+    engine = VerdictEngine()
+    pool = [
+        EvidenceItem(
+            title="海州市2024年购房资格政策",
+            url="https://gov.example/old",
+            source_name="海州市政府",
+            published_at="2024-03-01",
+            snippet="非本地户籍购房仍需购房资格。",
+            relevance_reason="旧政策。",
+            source_tier="S",
+        ),
+        EvidenceItem(
+            title="海州市全面取消购房资格限制",
+            url="https://gov.example/new",
+            source_name="海州市政府",
+            published_at="2026-08-01",
+            snippet="自2026年8月1日起不再审核购房资格。",
+            relevance_reason="新政策。",
+            source_tier="S",
+        ),
+    ]
+
+    verdict, confidence, _notes, selected = engine._evaluate_fact_claim(
+        claim_text="海州市目前购房仍需要购房资格",
+        evidence_pool=pool,
+        subject_anchors=[],
+    )
+
+    assert (verdict, confidence) == ("refuted", "high")
+    assert selected[0].url == "https://gov.example/new"
+
+
+def test_current_state_claim_with_only_undated_evidence_is_insufficient():
+    engine = VerdictEngine()
+    pool = [
+        EvidenceItem(
+            title="青山市博物馆参观须知",
+            url="https://museum.example/visit",
+            source_name="青山市博物馆",
+            published_at="",
+            snippet="开放时间为周二至周日，周一闭馆。",
+            relevance_reason="官网说明。",
+            source_tier="S",
+        )
+    ]
+
+    verdict, confidence, _notes, selected = engine._evaluate_fact_claim(
+        claim_text="青山市博物馆目前每周一闭馆",
+        evidence_pool=pool,
+        subject_anchors=[],
+    )
+
+    assert (verdict, confidence) == ("insufficient", "low")
+    assert selected == pool
+
+
+def test_incidental_supersession_characters_do_not_override_conflict():
+    engine = VerdictEngine()
+    pool = [
+        EvidenceItem(
+            title="海州市政府否认仍需购房资格",
+            url="https://gov.example/refute",
+            source_name="海州市政府",
+            published_at="2026-01-01",
+            snippet="海州市政府否认目前仍需购房资格。",
+            relevance_reason="直接否认。",
+            source_tier="S",
+        ),
+        EvidenceItem(
+            title="房企自称海州市仍需购房资格",
+            url="https://news.example/support",
+            source_name="财经日报",
+            published_at="2026-02-01",
+            snippet="一家房企自称海州市购房仍需资格。",
+            relevance_reason="相反说法。",
+            source_tier="S",
+        ),
+    ]
+
+    verdict, _confidence, _notes, _selected = engine._evaluate_fact_claim(
+        claim_text="海州市目前购房仍需要购房资格",
+        evidence_pool=pool,
+        subject_anchors=[],
+    )
+
+    assert verdict == "conflicting"
+
+
+def test_equal_date_supersession_evidence_remains_conflicting():
+    engine = VerdictEngine()
+    pool = [
+        _supporting_item(title="海州市目前仍需购房资格", published_at="2026-02-01", tier="S"),
+        _refuting_item(title="海州市新规不再审核购房资格", published_at="2026-02-01", tier="S"),
+    ]
+
+    verdict, _confidence, _notes, _selected = engine._evaluate_fact_claim(
+        claim_text="海州市目前仍需购房资格",
+        evidence_pool=pool,
+        subject_anchors=[],
+    )
+
+    assert verdict == "conflicting"
+
+
+def test_non_time_sensitive_claim_accepts_undated_authoritative_evidence():
+    engine = VerdictEngine()
+    pool = [_supporting_item(title="水在标准大气压下沸点为100摄氏度", published_at="", tier="S")]
+
+    verdict, confidence, _notes, _selected = engine._evaluate_fact_claim(
+        claim_text="水在标准大气压下沸点为100摄氏度",
+        evidence_pool=pool,
+        subject_anchors=[],
+    )
+
+    assert (verdict, confidence) == ("supported", "high")

@@ -1,0 +1,12 @@
+{
+  "case_id": "seed_015_dateless_evidence",
+  "recorded_at": "2026-08-20T00:00:00Z",
+  "raw_input": "青山市博物馆目前每周一闭馆",
+  "retrieval_results": [
+    {"result_id": "r1", "title": "青山市博物馆参观须知", "url": "https://museum.example/visit", "source_name": "青山市博物馆", "published_at": "", "snippet": "开放时间为周二至周日，周一闭馆。", "source_tier": "S"}
+  ],
+  "expected_claims": [
+    {"claim": "青山市博物馆目前每周一闭馆", "claim_type": "fact", "verdict": "insufficient", "confidence": "low", "evidence": [{"url": "https://museum.example/visit", "title": "青山市博物馆参观须知"}], "evaluation": {"require_high_trust": true, "require_dated_evidence": true, "fresh_after": "2026-01-01"}}
+  ],
+  "metadata": {"source": "seed", "topic": "public_service", "categories": ["dateless_evidence", "time_sensitive"], "note": "官方页面无更新时间，不能证明目前状态"}
+}

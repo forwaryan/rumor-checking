@@ -1,0 +1,15 @@
+{
+  "case_id": "seed_016_duplicate_reposts",
+  "recorded_at": "2026-08-20T00:00:00Z",
+  "raw_input": "云州市将试行四天工作制",
+  "retrieval_results": [
+    {"result_id": "r1", "title": "云州市试行四天工作制？", "url": "https://selfmedia.example/post", "source_name": "城市新鲜事", "published_at": "2026-08-10", "snippet": "据网传文件，云州市即将试行四天工作制。", "source_tier": "C"},
+    {"result_id": "r2", "title": "云州市将试行四天工作制", "url": "https://repost-a.example/post", "source_name": "城市新鲜事", "published_at": "2026-08-10", "snippet": "转载城市新鲜事消息。", "source_tier": "C"},
+    {"result_id": "r3", "title": "云州市人社局回应四天工作制传闻", "url": "https://gov.example/yunzhou-response", "source_name": "云州市人社局", "published_at": "2026-08-12", "snippet": "云州市人社局表示网传文件系伪造，目前没有相关试行安排。", "source_tier": "S"},
+    {"result_id": "r4", "title": "云州市暂无四天工作制试点", "url": "https://news.example/yunzhou-fact-check", "source_name": "劳动新闻", "published_at": "2026-08-13", "snippet": "记者向云州市人社局核实，网传文件并非该局发布，当地暂无相关试点。", "source_tier": "A"}
+  ],
+  "expected_claims": [
+    {"claim": "云州市将试行四天工作制", "claim_type": "fact", "verdict": "refuted", "confidence": "high", "evidence": [{"url": "https://gov.example/yunzhou-response", "title": "人社局回应四天工作制传闻"}, {"url": "https://news.example/yunzhou-fact-check", "title": "云州市暂无四天工作制试点"}], "evaluation": {"min_independent_sources": 2, "require_high_trust": true, "require_dated_evidence": true}}
+  ],
+  "metadata": {"source": "seed", "topic": "employment", "categories": ["source_independence"], "note": "多个链接实际来自同一信源"}
+}

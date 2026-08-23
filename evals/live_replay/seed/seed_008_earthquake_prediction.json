@@ -17,19 +17,15 @@
     {
       "claim": "明天四川某地会发生7级地震",
       "claim_type": "prediction",
-      "verdict": "refuted",
-      "confidence": "high",
-      "evidence": [
-        {
-          "url": "https://www.cea.gov.cn/publish/dizhenju/468/2025/earthquake-prediction",
-          "title": "地震短临预报"
-        }
-      ]
+      "verdict": "insufficient",
+      "confidence": "low",
+      "evidence": []
     }
   ],
   "metadata": {
     "source": "seed",
     "topic": "science",
-    "note": "科学不可能"
+    "categories": ["prediction", "insufficient_evidence"],
+    "note": "未来事件在发生前不能作为已证实事实；科学限制只说明无法精确预测"
   }
 }

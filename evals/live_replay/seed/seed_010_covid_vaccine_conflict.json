@@ -14,11 +14,11 @@
     },
     {
       "result_id": "r2",
-      "title": "国家卫健委：新冠疫苗严重不良反应罕见 收益大于风险",
+      "title": "国家卫健委：监测未发现新冠疫苗普遍导致心肌炎",
       "url": "https://www.nhc.gov.cn/xcs/nlxx/vaccine-safety",
       "source_name": "国家卫生健康委员会",
       "published_at": "2025-09-15",
-      "snippet": "国家卫健委表示，我国接种疫苗后严重不良反应发生率极低，接种收益远大于风险。",
+      "snippet": "国家卫健委表示，现有监测未发现新冠疫苗在接种人群中普遍导致心肌炎，严重不良反应发生率极低。",
       "source_tier": "S"
     }
   ],
@@ -35,7 +35,7 @@
         },
         {
           "url": "https://www.nhc.gov.cn/xcs/nlxx/vaccine-safety",
-          "title": "国家卫健委：不良反应罕见"
+          "title": "国家卫健委：未发现普遍关联"
         }
       ]
     }

@@ -1,0 +1,12 @@
+{
+  "case_id": "seed_018_old_but_valid",
+  "recorded_at": "2026-08-20T00:00:00Z",
+  "raw_input": "水在标准大气压下沸点是100摄氏度",
+  "retrieval_results": [
+    {"result_id": "r1", "title": "水的相变与沸点", "url": "https://science.example/water-boiling-point", "source_name": "国家计量科学机构", "published_at": "2018-05-01", "snippet": "在标准大气压条件下，纯水的沸点为100摄氏度。", "source_tier": "S"}
+  ],
+  "expected_claims": [
+    {"claim": "水在标准大气压下沸点是100摄氏度", "claim_type": "fact", "verdict": "supported", "confidence": "high", "evidence": [{"url": "https://science.example/water-boiling-point", "title": "水的相变与沸点"}], "evaluation": {"require_high_trust": true, "require_dated_evidence": true}}
+  ],
+  "metadata": {"source": "seed", "topic": "science", "categories": ["old_but_valid"], "note": "旧证据不等于失效证据"}
+}

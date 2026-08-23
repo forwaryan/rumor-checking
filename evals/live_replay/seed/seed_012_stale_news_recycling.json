@@ -1,0 +1,13 @@
+{
+  "case_id": "seed_012_stale_news_recycling",
+  "recorded_at": "2026-08-20T00:00:00Z",
+  "raw_input": "网传海州市火车站今天因暴雨停运",
+  "retrieval_results": [
+    {"result_id": "r1", "title": "海州市火车站因暴雨临时停运", "url": "https://rail.example/haizhou/2023-rain", "source_name": "铁路客服", "published_at": "2023-07-18", "snippet": "受强降雨影响，海州市火车站2023年7月18日部分列车停运。", "source_tier": "S"},
+    {"result_id": "r2", "title": "旧停运通知被移花接木传播", "url": "https://fact.example/haizhou-stale-news", "source_name": "联合辟谣平台", "published_at": "2026-08-20", "snippet": "网传截图来自2023年，海州市火车站今日运行正常。", "source_tier": "S"}
+  ],
+  "expected_claims": [
+    {"claim": "海州市火车站今天因暴雨停运", "claim_type": "fact", "verdict": "refuted", "confidence": "high", "evidence": [{"url": "https://fact.example/haizhou-stale-news", "title": "旧停运通知被移花接木传播"}], "evaluation": {"require_high_trust": true, "require_dated_evidence": true, "fresh_after": "2026-08-01"}}
+  ],
+  "metadata": {"source": "seed", "topic": "transport", "categories": ["stale_news", "time_sensitive"], "note": "旧闻内容真实但当前时态错误"}
+}

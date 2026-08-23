@@ -807,6 +807,23 @@ class AnalyzePipeline:
             record = trace_exporter.finalize()
             path = self.settings.agent_trace_dir / f"{record.run_id}.json"
             trace_exporter.export_to_file(path)
+            from backend.app.services.phoenix_exporter import export_trace_to_phoenix
+            export_trace_to_phoenix(
+                record,
+                enabled=getattr(self.settings, "phoenix_enabled", False),
+                endpoint=getattr(
+                    self.settings,
+                    "phoenix_otlp_endpoint",
+                    "http://localhost:6006/v1/traces",
+                ),
+                project_name=getattr(self.settings, "phoenix_project_name", "rumor-checking"),
+                api_key=getattr(self.settings, "phoenix_api_key", None),
+                timeout_seconds=getattr(
+                    self.settings,
+                    "phoenix_export_timeout_seconds",
+                    2.0,
+                ),
+            )
             emit_log(
                 stage_key="agent_orchestrator",
                 title="Agent trace 已导出",

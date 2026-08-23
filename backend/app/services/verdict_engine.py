@@ -93,6 +93,19 @@ EVIDENCE_REFUTING_MARKERS = CLAIM_NEGATION_MARKERS + (
     "一条产线",
     "正常运行",
     "其余产线正常",
+    "不可能",
+    "实为",
+    "并非",
+    "不再",
+    "取消",
+    "系伪造",
+    "为伪造",
+    "不属实",
+    "恶意谣言",
+    "暂无",
+    "不能精确",
+    "无法实现",
+    "运行正常",
 )
 WEAK_REFUTING_MARKERS = ("仅", "只有", "部分")
 WEAK_REFUTING_CONTEXT_MARKERS = (
@@ -164,7 +177,23 @@ def coarse_truth_probability(
         return 50.0, "evidence" if has_evidence else "prior"
     # insufficient / unknown: no information -> honest 50/50, prior basis.
     return 50.0, "prior"
-QUANTITY_TOKEN_PATTERN = re.compile(r"\d+(?:\.\d+)?%|\d+(?:\.\d+)?[人名例起条线艘班个年月天小时分钟]")
+QUANTITY_TOKEN_PATTERN = re.compile(
+    r"\d+(?:\.\d+)?%|\d+(?:\.\d+)?(?:万|亿)?(?:元|人|名|例|起|条|线|艘|班|个|年|月|天|小时|分钟)"
+)
+QUANTITATIVE_CORRECTION_MARKERS = ("并非", "实际", "而是", "仅为", "最高", "不超过", "更正")
+SUPERSESSION_MARKERS = (
+    "不再",
+    "现行",
+    "最新规定",
+    "正式实施",
+    "开始施行",
+    "截图来自",
+    "旧闻",
+    "运行正常",
+)
+SUPERSESSION_EFFECTIVE_DATE_PATTERN = re.compile(
+    r"自.{0,24}(?:起|开始|施行|实施)"
+)
 RESOLUTION_CLAIM_MARKERS = (
     "已经解决",
     "彻底解决",
@@ -560,6 +589,22 @@ class VerdictEngine:
             refuting.sort(key=_recency_key)
             relevant.sort(key=_recency_key)
 
+            superseding_result = self._evaluate_superseding_evidence(
+                supporting=supporting,
+                refuting=refuting,
+            )
+            if superseding_result is not None:
+                return superseding_result
+
+            aligned = supporting + refuting
+            if aligned and all(_evidence_published_dt(item) is None for item in aligned):
+                return (
+                    "insufficient",
+                    "low",
+                    "该说法描述当前状态，但关联证据没有可核验日期，无法确认其仍然有效。",
+                    aligned[:2],
+                )
+
         # Only weigh a quantitative conflict against evidence we've already
         # deemed on-topic for this claim (subject-anchor + term overlap). Scanning
         # the raw pool let an unrelated source's number masquerade as a conflict —
@@ -872,7 +917,11 @@ class VerdictEngine:
         distinct_quantities = set()
         for item in evidence_pool:
             haystack = self._normalize_claim(f"{item.title} {item.snippet} {item.source_name}")
-            quantity_tokens = set(self._extract_quantity_tokens(haystack))
+            quantity_tokens = {
+                token
+                for token in self._extract_quantity_tokens(haystack)
+                if not token.endswith(("年", "月"))
+            }
             if not quantity_tokens:
                 continue
             evidence_with_quantities.append((item, quantity_tokens))
@@ -901,11 +950,75 @@ class VerdictEngine:
             [item for item, _ in evidence_with_quantities],
             key=lambda item: TIER_PRIORITY.get(item.source_tier, 99),
         )[:2]
+        explicit_corrections = [
+            item
+            for item in selected
+            if any(
+                marker in self._normalize_claim(f"{item.title} {item.snippet}")
+                for marker in QUANTITATIVE_CORRECTION_MARKERS
+            )
+        ]
+        high_trust_corrections = [
+            item for item in explicit_corrections if item.source_tier in HIGH_TRUST_SOURCE_TIERS
+        ]
+        if high_trust_corrections:
+            return (
+                "refuted",
+                self._confidence_from_high_trust_hits(high_trust_corrections),
+                "高可信来源明确给出了不同数字并纠正原说法，当前按不成立处理。",
+                selected,
+            )
         return (
             "conflicting",
             "medium",
             "检索到的来源给出了与该说法不同的具体数字，当前应保持冲突态。",
             selected,
+        )
+
+    def _evaluate_superseding_evidence(
+        self,
+        *,
+        supporting: list[EvidenceItem],
+        refuting: list[EvidenceItem],
+    ) -> tuple[str, str, str, list[EvidenceItem]] | None:
+        if not supporting or not refuting:
+            return None
+
+        def latest(items: list[EvidenceItem]) -> datetime | None:
+            dates = [_evidence_published_dt(item) for item in items]
+            return max((value for value in dates if value is not None), default=None)
+
+        candidates = (
+            ("refuted", refuting, supporting),
+            ("supported", supporting, refuting),
+        )
+        for verdict, current_side, previous_side in candidates:
+            explicit = [
+                item
+                for item in current_side
+                if self._has_supersession_signal(item)
+            ]
+            current_date = latest(explicit)
+            previous_date = latest(previous_side)
+            if not explicit or current_date is None or previous_date is None:
+                continue
+            if current_date <= previous_date:
+                continue
+            high_trust = [item for item in explicit if item.source_tier in HIGH_TRUST_SOURCE_TIERS]
+            if not high_trust:
+                continue
+            return (
+                verdict,
+                self._confidence_from_high_trust_hits(high_trust),
+                "较新的高可信来源明确更新或取代了旧状态，当前按最新有效信息判断。",
+                explicit[:2],
+            )
+        return None
+
+    def _has_supersession_signal(self, item: EvidenceItem) -> bool:
+        text = self._normalize_claim(f"{item.title} {item.snippet}")
+        return any(marker in text for marker in SUPERSESSION_MARKERS) or bool(
+            SUPERSESSION_EFFECTIVE_DATE_PATTERN.search(text)
         )
 
     def _contains_claim_negation(self, text: str) -> bool:
@@ -953,4 +1066,3 @@ class VerdictEngine:
             f"{notes} 复核依据：共引用 {len(selected)} 条关联证据，"
             f"最高来源等级 {ranked_tiers[0]}，代表来源包括 {'、'.join(source_names)}。"
         )
-

@@ -1,0 +1,12 @@
+{
+  "case_id": "seed_017_insufficient_evidence",
+  "recorded_at": "2026-08-20T00:00:00Z",
+  "raw_input": "远航公司下个月会被收购",
+  "retrieval_results": [
+    {"result_id": "r1", "title": "市场传闻远航公司或有资本动作", "url": "https://forum.example/yuanhang-rumor", "source_name": "投资论坛", "published_at": "2026-08-18", "snippet": "匿名用户称远航公司可能很快被收购，未提供文件或具名信源。", "source_tier": "C"}
+  ],
+  "expected_claims": [
+    {"claim": "远航公司下个月会被收购", "claim_type": "prediction", "verdict": "insufficient", "confidence": "low", "evidence": []}
+  ],
+  "metadata": {"source": "seed", "topic": "corporate", "categories": ["insufficient_evidence"], "note": "只有匿名预测，不能支持或反驳"}
+}

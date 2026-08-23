@@ -1,0 +1,13 @@
+{
+  "case_id": "seed_011_time_sensitive_policy",
+  "recorded_at": "2026-08-20T00:00:00Z",
+  "raw_input": "海州市现在还需要购房资格吗",
+  "retrieval_results": [
+    {"result_id": "r1", "title": "海州市2024年购房资格政策", "url": "https://gov.example/haizhou/2024-home-rule", "source_name": "海州市政府", "published_at": "2024-03-01", "snippet": "非本地户籍购房仍需连续缴纳两年社保。", "source_tier": "S"},
+    {"result_id": "r2", "title": "海州市全面取消购房资格限制", "url": "https://gov.example/haizhou/2026-home-rule", "source_name": "海州市政府", "published_at": "2026-08-01", "snippet": "自2026年8月1日起，全市范围不再审核购房资格。", "source_tier": "S"}
+  ],
+  "expected_claims": [
+    {"claim": "海州市目前购房仍需要购房资格", "claim_type": "fact", "verdict": "refuted", "confidence": "high", "evidence": [{"url": "https://gov.example/haizhou/2026-home-rule", "title": "海州市全面取消购房资格限制"}], "evaluation": {"require_high_trust": true, "require_dated_evidence": true, "fresh_after": "2026-07-01"}}
+  ],
+  "metadata": {"source": "seed", "topic": "policy", "categories": ["time_sensitive"], "note": "新政策覆盖旧政策"}
+}

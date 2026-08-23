@@ -1,0 +1,13 @@
+{
+  "case_id": "seed_013_subject_mismatch",
+  "recorded_at": "2026-08-20T00:00:00Z",
+  "raw_input": "星河科技宣布裁员30%",
+  "retrieval_results": [
+    {"result_id": "r1", "title": "星海科技启动组织调整，裁员约30%", "url": "https://business.example/xinghai-layoff", "source_name": "商业日报", "published_at": "2026-08-15", "snippet": "星海科技确认将削减约30%的岗位。", "source_tier": "A"},
+    {"result_id": "r2", "title": "星河科技回应裁员传闻", "url": "https://tech.example/xinghe-response", "source_name": "科技观察", "published_at": "2026-08-16", "snippet": "星河科技表示网传消息混淆了名称相近的星海科技，公司没有30%裁员计划。", "source_tier": "A"}
+  ],
+  "expected_claims": [
+    {"claim": "星河科技宣布裁员30%", "claim_type": "fact", "verdict": "refuted", "confidence": "medium", "evidence": [{"url": "https://tech.example/xinghe-response", "title": "星河科技回应裁员传闻"}], "evaluation": {"require_high_trust": true}}
+  ],
+  "metadata": {"source": "seed", "topic": "corporate", "categories": ["subject_mismatch"], "note": "名称相近但主体不同"}
+}

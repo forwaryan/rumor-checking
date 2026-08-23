@@ -1,0 +1,13 @@
+{
+  "case_id": "seed_014_conflicting_authorities",
+  "recorded_at": "2026-08-20T00:00:00Z",
+  "raw_input": "某食品添加剂在正常剂量下绝对安全",
+  "retrieval_results": [
+    {"result_id": "r1", "title": "监管机构：该添加剂在规定剂量下安全", "url": "https://regulator.example/additive-review", "source_name": "国家食品监管机构", "published_at": "2026-06-10", "snippet": "现有审查结论认为，该食品添加剂在规定剂量下安全，可以继续使用。", "source_tier": "S"},
+    {"result_id": "r2", "title": "长期暴露研究：规定剂量下也并非完全安全", "url": "https://journal.example/additive-study", "source_name": "公共卫生期刊", "published_at": "2026-07-02", "snippet": "研究认为该食品添加剂在正常剂量下并非完全安全，观察到特定易感人群的潜在风险。", "source_tier": "S"}
+  ],
+  "expected_claims": [
+    {"claim": "某食品添加剂在正常剂量下绝对安全", "claim_type": "fact", "verdict": "conflicting", "confidence": "medium", "evidence": [{"url": "https://regulator.example/additive-review", "title": "监管机构维持许可使用结论"}, {"url": "https://journal.example/additive-study", "title": "长期暴露研究提示特定人群风险"}], "evaluation": {"min_independent_sources": 2, "require_high_trust": true, "require_dated_evidence": true}}
+  ],
+  "metadata": {"source": "seed", "topic": "health", "categories": ["conflicting_sources"], "note": "高可信来源结论存在边界冲突"}
+}

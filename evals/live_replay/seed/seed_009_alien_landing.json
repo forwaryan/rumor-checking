@@ -18,7 +18,7 @@
       "claim": "美国某农场发现外星人飞船",
       "claim_type": "fact",
       "verdict": "refuted",
-      "confidence": "high",
+      "confidence": "medium",
       "evidence": [
         {
           "url": "https://www.reuters.com/fact-check/alien-farm-hoax",
