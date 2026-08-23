@@ -1033,6 +1033,7 @@ def test_retrieval_service_publishes_caller_stage_key_to_providers(tmp_path: Pat
         request_context={
             "force_retrieval_query": "某事件 追加检索",
             "retrieval_stage_key": "investigation_retrieval",
+            "search_sources": ["baidu", "official_boost"],
         },
     )
 

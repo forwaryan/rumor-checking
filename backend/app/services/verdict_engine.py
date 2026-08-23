@@ -1,7 +1,8 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
 from backend.app.models.schemas import (
     AnalyzeRequest,
@@ -21,6 +22,51 @@ from backend.app.services.llm_verdict import llm_judge_claims
 from backend.app.services.page_fetcher import fetch_page_snippets
 from backend.app.services.question_intent import detect_trend_topic, is_broad_trend_claim
 from backend.app.services.retrieval_models import RetrievalBundle
+
+_SHANGHAI_TZ = timezone(timedelta(hours=8))
+# Undated evidence sorts AFTER any dated evidence in recency order — mirrors
+# SearchResult.effective_published_dt so the two layers agree on "no date = oldest".
+_DATELESS_SENTINEL = datetime(1970, 1, 1, tzinfo=_SHANGHAI_TZ)
+
+
+def _evidence_published_dt(item: EvidenceItem) -> datetime | None:
+    """Parse EvidenceItem.published_at (ISO string) to a tz-aware datetime.
+
+    Returns None when absent or unparseable. Mirrors SearchResult.published_dt so
+    recency comparisons behave identically whether we hold a SearchResult or the
+    EvidenceItem projected from it."""
+    if not item.published_at:
+        return None
+    try:
+        parsed = datetime.fromisoformat(item.published_at)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=_SHANGHAI_TZ)
+    return parsed
+
+
+# Claim markers that make recency probative: a claim asserting something is the
+# *current* state is weakened by evidence that is all stale, so for these we let
+# publication time break ties in evidence selection (never the verdict itself).
+TIME_SENSITIVE_CLAIM_MARKERS = (
+    "最新",
+    "近日",
+    "近期",
+    "刚刚",
+    "日前",
+    "今日",
+    "今天",
+    "本月",
+    "本周",
+    "今年",
+    "目前",
+    "现在",
+    "当前",
+    "已经",
+    "正式",
+    "宣布",
+)
 
 CLAIM_NEGATION_MARKERS = (
     "辟谣",
@@ -335,12 +381,15 @@ class VerdictEngine:
         if len(high_tier_pool) < 3:
             return results
 
-        # Pick top hits by tier priority then most recent publication.
-        def _priority(item: EvidenceItem) -> tuple[int, str]:
+        # Pick top hits by tier priority then most recent publication. Undated
+        # hits fall back to a fixed-past sentinel so they sort after dated ones
+        # instead of being ordered by the meaningless length of their date string.
+        def _rank_key(item: EvidenceItem) -> tuple[int, float]:
             tier_rank = {"S": 0, "A": 1, "B": 2}.get(item.source_tier, 3)
-            return (tier_rank, "" if not item.published_at else item.published_at)
+            dt = _evidence_published_dt(item) or _DATELESS_SENTINEL
+            return (tier_rank, -dt.timestamp())
 
-        ranked = sorted(high_tier_pool, key=lambda item: (_priority(item)[0], -len(item.published_at or "")))
+        ranked = sorted(high_tier_pool, key=_rank_key)
         # Deduplicate by URL and cap at 3 to avoid drowning the panel.
         picked: list[EvidenceItem] = []
         seen: set[str] = set(attached_urls)
@@ -498,6 +547,18 @@ class VerdictEngine:
                 if segment_refutes:
                     refuting.append(item)
                 continue
+
+        # For claims asserting a *current* state ("最新/近日/已经宣布"…), recency is
+        # a tiebreaker within the same source tier when choosing which evidence to
+        # show. Source authority remains primary and verdict logic is unchanged.
+        if self._is_time_sensitive_claim(claim_text, normalized_claim):
+            def _recency_key(item: EvidenceItem) -> tuple[int, float]:
+                dt = _evidence_published_dt(item) or _DATELESS_SENTINEL
+                return (TIER_PRIORITY.get(item.source_tier, 99), -dt.timestamp())
+
+            supporting.sort(key=_recency_key)
+            refuting.sort(key=_recency_key)
+            relevant.sort(key=_recency_key)
 
         # Only weigh a quantitative conflict against evidence we've already
         # deemed on-topic for this claim (subject-anchor + term overlap). Scanning
@@ -868,6 +929,12 @@ class VerdictEngine:
     def _is_source_gap_claim(self, text: str) -> bool:
         return any(marker in text for marker in SOURCE_GAP_CLAIM_MARKERS)
 
+    def _is_time_sensitive_claim(self, claim_text: str, normalized_claim: str) -> bool:
+        return any(
+            marker in claim_text or marker in normalized_claim
+            for marker in TIME_SENSITIVE_CLAIM_MARKERS
+        )
+
     def _looks_like_source_gap_evidence(self, item: EvidenceItem) -> bool:
         haystack = self._normalize_claim(f"{item.title} {item.snippet} {item.relevance_reason}")
         return any(marker in haystack for marker in SOURCE_GAP_EVIDENCE_MARKERS)
@@ -886,5 +953,4 @@ class VerdictEngine:
             f"{notes} 复核依据：共引用 {len(selected)} 条关联证据，"
             f"最高来源等级 {ranked_tiers[0]}，代表来源包括 {'、'.join(source_names)}。"
         )
-
 

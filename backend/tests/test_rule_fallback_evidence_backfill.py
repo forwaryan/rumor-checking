@@ -28,11 +28,17 @@ def _hit(url: str, tier: str = "B", *, title: str = "") -> SearchResult:
     )
 
 
-def _pool_item(url: str, tier: str = "B", *, title: str = "") -> EvidenceItem:
+def _pool_item(
+    url: str,
+    tier: str = "B",
+    *,
+    title: str = "",
+    published_at: str = "2026-07-29T09:00:00+08:00",
+) -> EvidenceItem:
     return EvidenceItem(
         title=title or url, url=url,
         source_name=url.split("//")[-1].split("/")[0],
-        published_at="2026-07-29T09:00:00+08:00",
+        published_at=published_at,
         snippet=title or url,
         relevance_reason="retrieved",
         source_tier=tier,
@@ -154,6 +160,26 @@ def test_backfill_prefers_higher_tier_when_available():
     tiers = [ev.source_tier for ev in attached]
     assert "S" in tiers
     assert "A" in tiers
+
+
+def test_backfill_orders_same_tier_by_actual_publication_time():
+    engine = VerdictEngine()
+    pool = [
+        _pool_item("https://old.example.com/1", published_at="2019-01-01T09:00:00+08:00"),
+        _pool_item("https://undated.example.com/2", published_at=""),
+        _pool_item("https://new.example.com/3", published_at="2026-08-20T09:00:00+08:00"),
+    ]
+
+    results = engine._backfill_rule_fallback_evidence(
+        results=[_claim_result([])],
+        evidence_pool=pool,
+    )
+
+    assert [item.url for item in results[0].evidence] == [
+        "https://new.example.com/3",
+        "https://old.example.com/1",
+        "https://undated.example.com/2",
+    ]
 
 
 def test_backfill_skips_when_no_fact_claims():

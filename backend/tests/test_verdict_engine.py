@@ -507,3 +507,178 @@ def test_non_fact_claims_get_insufficient():
         assert expected_note_fragment in result.claim_results[0].notes, (
             f"Failed for {claim_type}: expected '{expected_note_fragment}' in '{result.claim_results[0].notes}'"
         )
+
+
+# ---------------------------------------------------------------------------
+# Time-sensitive recency ordering of surfaced evidence
+# ---------------------------------------------------------------------------
+
+
+def _supporting_item(*, title: str, published_at: str | None, tier: str = "A") -> EvidenceItem:
+    return EvidenceItem(
+        title=title,
+        url=f"https://news.example.com/{title}",
+        source_name="财经日报",
+        published_at=published_at,
+        snippet=title,
+        relevance_reason="直接相关。",
+        source_tier=tier,
+    )
+
+
+def _refuting_item(*, title: str, published_at: str, tier: str = "A") -> EvidenceItem:
+    return EvidenceItem(
+        title=title,
+        url=f"https://factcheck.example.com/{title}",
+        source_name="官方核查",
+        published_at=published_at,
+        snippet="官方辟谣称相关消息不实，线路正常运行。",
+        relevance_reason="直接相关的否定证据。",
+        source_tier=tier,
+    )
+
+
+def test_time_sensitive_claim_surfaces_newest_supporting_evidence_first():
+    """A claim asserting a *current* state ('最新…') should reorder the surfaced
+    evidence newest-first, so the top-2 shown reflect the latest reporting rather
+    than retrieval order. Ordering only — the verdict is unaffected."""
+    engine = VerdictEngine()
+    # Deliberately out of chronological order; older item comes first in the pool.
+    pool = [
+        _supporting_item(title="晨星生物最新裁员40%", published_at="2026-03-01T10:00:00+08:00"),
+        _supporting_item(title="晨星生物最新裁员40%", published_at="2026-03-20T10:00:00+08:00"),
+        _supporting_item(title="晨星生物最新裁员40%", published_at="2026-03-10T10:00:00+08:00"),
+    ]
+
+    verdict, _confidence, _notes, selected = engine._evaluate_fact_claim(
+        claim_text="晨星生物最新裁员40%。",
+        evidence_pool=pool,
+        subject_anchors=["晨星生物"],
+    )
+
+    assert verdict == "supported"
+    surfaced_dates = [item.published_at for item in selected]
+    assert surfaced_dates == [
+        "2026-03-20T10:00:00+08:00",
+        "2026-03-10T10:00:00+08:00",
+    ]
+
+
+def test_time_sensitive_claim_keeps_source_tier_ahead_of_recency():
+    engine = VerdictEngine()
+    pool = [
+        _supporting_item(
+            title="晨星生物最新裁员40%：权威旧报",
+            published_at="2026-03-01T10:00:00+08:00",
+            tier="A",
+        ),
+        _supporting_item(
+            title="晨星生物最新裁员40%：较新转载",
+            published_at="2026-03-20T10:00:00+08:00",
+            tier="B",
+        ),
+        _supporting_item(
+            title="晨星生物最新裁员40%：权威新报",
+            published_at="2026-03-10T10:00:00+08:00",
+            tier="A",
+        ),
+    ]
+
+    verdict, _confidence, _notes, selected = engine._evaluate_fact_claim(
+        claim_text="晨星生物最新裁员40%。",
+        evidence_pool=pool,
+        subject_anchors=["晨星生物"],
+    )
+
+    assert verdict == "supported"
+    assert [(item.source_tier, item.published_at) for item in selected] == [
+        ("A", "2026-03-10T10:00:00+08:00"),
+        ("A", "2026-03-01T10:00:00+08:00"),
+    ]
+
+
+def test_time_sensitive_claim_handles_date_only_timezone_and_invalid_dates():
+    engine = VerdictEngine()
+    pool = [
+        _supporting_item(title="晨星生物最新裁员40%：纯日期", published_at="2026-03-20"),
+        _supporting_item(
+            title="晨星生物最新裁员40%：跨时区",
+            published_at="2026-03-19T17:00:00+00:00",
+        ),
+        _supporting_item(title="晨星生物最新裁员40%：日期无效", published_at="not-a-date"),
+    ]
+
+    verdict, confidence, _notes, selected = engine._evaluate_fact_claim(
+        claim_text="晨星生物最新裁员40%。",
+        evidence_pool=pool,
+        subject_anchors=["晨星生物"],
+    )
+
+    assert (verdict, confidence) == ("supported", "high")
+    assert [item.published_at for item in selected] == [
+        "2026-03-19T17:00:00+00:00",
+        "2026-03-20",
+    ]
+
+
+def test_time_sensitive_refuting_evidence_surfaces_newest_first():
+    engine = VerdictEngine()
+    pool = [
+        _refuting_item(title="滨海地铁辟谣全线停运传闻：旧", published_at="2026-03-01T10:00:00+08:00"),
+        _refuting_item(title="滨海地铁辟谣全线停运传闻：新", published_at="2026-03-20T10:00:00+08:00"),
+        _refuting_item(title="滨海地铁辟谣全线停运传闻：中", published_at="2026-03-10T10:00:00+08:00"),
+    ]
+
+    verdict, confidence, _notes, selected = engine._evaluate_fact_claim(
+        claim_text="滨海地铁目前已经全线停运。",
+        evidence_pool=pool,
+        subject_anchors=["滨海地铁"],
+    )
+
+    assert (verdict, confidence) == ("refuted", "high")
+    assert [item.published_at for item in selected] == [
+        "2026-03-20T10:00:00+08:00",
+        "2026-03-10T10:00:00+08:00",
+    ]
+
+
+def test_time_sensitive_claim_preserves_order_when_rank_keys_match():
+    engine = VerdictEngine()
+    pool = [
+        _supporting_item(title=f"晨星生物最新裁员40%：来源{index}", published_at="2026-03-20", tier="A")
+        for index in range(3)
+    ]
+
+    verdict, confidence, _notes, selected = engine._evaluate_fact_claim(
+        claim_text="晨星生物最新裁员40%。",
+        evidence_pool=pool,
+        subject_anchors=["晨星生物"],
+    )
+
+    assert (verdict, confidence) == ("supported", "high")
+    assert [item.title for item in selected] == [
+        "晨星生物最新裁员40%：来源0",
+        "晨星生物最新裁员40%：来源1",
+    ]
+
+
+def test_non_time_sensitive_claim_preserves_retrieval_order():
+    """Without a recency marker the stance list is left in retrieval order, so the
+    recency sort does not silently reorder every claim's evidence."""
+    engine = VerdictEngine()
+    pool = [
+        _supporting_item(title="晨星生物裁员40%", published_at="2026-03-01T10:00:00+08:00"),
+        _supporting_item(title="晨星生物裁员40%", published_at="2026-03-20T10:00:00+08:00"),
+    ]
+
+    _verdict, _confidence, _notes, selected = engine._evaluate_fact_claim(
+        claim_text="晨星生物裁员40%。",
+        evidence_pool=pool,
+        subject_anchors=["晨星生物"],
+    )
+
+    surfaced_dates = [item.published_at for item in selected]
+    assert surfaced_dates == [
+        "2026-03-01T10:00:00+08:00",
+        "2026-03-20T10:00:00+08:00",
+    ]

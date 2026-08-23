@@ -770,13 +770,20 @@ class RetrievalService:
         existing_keys = {r.independence_key for r in bundle.canonical_results if r.independence_key}
         new_results: list[SearchResult] = []
         matched_domains: list[str] = []
+        parent_callback = get_progress_callback()
 
         def _fetch_domain(domain: str) -> tuple[str, list[SearchResult] | None, Exception | None]:
             boost_query = f"{short_query} site:{domain}"
+            callback_token = set_progress_callback(parent_callback) if parent_callback is not None else None
+            stage_token = set_retrieval_stage_key(stage_key)
             try:
                 hits = self.provider.search(boost_query)
             except Exception as exc:
                 return domain, None, exc
+            finally:
+                reset_retrieval_stage_key(stage_token)
+                if callback_token is not None:
+                    reset_progress_callback(callback_token)
             return domain, list(hits) if hits else None, None
 
         with ThreadPoolExecutor(max_workers=min(4, len(domains))) as executor:
