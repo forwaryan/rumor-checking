@@ -592,7 +592,7 @@ sequenceDiagram
 
 已核验事实（当文档与代码冲突时，以本节和对应实现为准）：
 
-- **公开 API 有 7 个**：`GET /api/v1/health` · `GET /api/v1/models` · `GET /api/v1/model-health` · `GET /api/v1/search-sources` · `GET /api/v1/agent-trace/{run_id}` · `POST /api/v1/analyze` · `POST /api/v1/analyze/stream`（没有 `demo-cases` / `replay`）
+- **公开 API 有 8 个**：`GET /api/v1/health` · `GET /api/v1/models` · `GET /api/v1/model-health` · `GET /api/v1/search-sources` · `GET /api/v1/source-capabilities` · `GET /api/v1/agent-trace/{run_id}` · `POST /api/v1/analyze` · `POST /api/v1/analyze/stream`（没有 `demo-cases` / `replay`）
 - **两档分析**：`request_context.mode="fast"`（零 LLM 规则路径，~0.2–0.3s）/ `"deep"`（LLM/agent 全链路）— 由 `backend/tests/test_api.py::test_fast_mode_skips_llm_enrichment_while_deep_mode_uses_it` 锁定
 - **provenance 收敛**：`Report.provenance.source_type` 后端只输出 `backend_live` 或 `backend_mock`;前端缺失时保守落到 `unknown`（不是后端枚举）
 - **Grounded verdict**：任何 `supported/refuted/conflicting` 必须带有效 `evidence_result_id`，否则降级 `insufficient`（`backend/tests/test_agent_grounded_verdict.py` 锁定）

@@ -10,6 +10,7 @@ FastAPI 主进程。产品能力/两档核查/概率维度看主 [README.md](../
 - `GET /api/v1/models` — 分析模型白名单 + 默认（只返回模型名，不含网关地址/密钥）
 - `GET /api/v1/model-health` — 进程内 LLM 模型健康度快照（运维用）
 - `GET /api/v1/search-sources` — 检索源开关状态
+- `GET /api/v1/source-capabilities` — Provider Doctor 快照（仅检查配置与本地依赖，不访问外网）
 - `GET /api/v1/agent-trace/{run_id}` — supervisor span trace 只读导出（`AGENT_TRACE_ENABLED=true` 才启用）
 - `POST /api/v1/analyze`
 - `POST /api/v1/analyze/stream` — NDJSON 流式事件
@@ -57,6 +58,7 @@ RETRIEVAL_FALLBACK_TO_MOCK=true
 - 检索缓存：`data/cache/retrieval/<provider>/<cache_key>.json`；key = `sha256(v1|provider|compact_query)` 前 24 位
 - URL 正文缓存：`data/cache/url_fetch/<cache_key>.json`；key = `sha256(v1|url)` 前 24 位；TTL 由 `URL_FETCH_CACHE_TTL_SECONDS` 控制（默认 12h）
 - 诊断入口：`request_context.retrieval_cache_only=true` 强制只读缓存；`bypass_retrieval_cache=true` 跳过缓存直连 provider
+- Provider Doctor：`python backend/scripts/source_doctor.py`；加 `--json` 输出机器可读快照，加 `--strict` 检查所有已配置来源的本地依赖。该命令不访问外网。
 
 ## 最小联调
 

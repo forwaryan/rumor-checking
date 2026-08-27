@@ -285,9 +285,20 @@ CI 每次 push/PR 也会跑同一套（见下节）。
 | `GET /api/v1/models` | 可选分析模型白名单 + 默认（只回模型名，不含网关地址/密钥） |
 | `GET /api/v1/model-health` | 进程内 LLM 模型健康度快照（失败/成功/驱逐计数，用于运维排查） |
 | `GET /api/v1/search-sources` | 可用检索源列表（用于前端 toggle） |
+| `GET /api/v1/source-capabilities` | 检索 Provider Doctor 快照（配置、运行时依赖、能力与安全故障原因；不发起网络探测） |
 | `GET /api/v1/agent-trace/{run_id}` | 只读导出 supervisor 的 span trace（`AGENT_TRACE_ENABLED=true` 时可用） |
 | `POST /api/v1/analyze` | 同步分析 |
 | `POST /api/v1/analyze/stream` | 流式分析（NDJSON 事件流） |
+
+本地可用 Provider Doctor 快速检查当前主检索源、可选来源和本地依赖；它不会发起网络请求：
+
+```bash
+python backend/scripts/source_doctor.py
+python backend/scripts/source_doctor.py --json
+python backend/scripts/source_doctor.py --strict
+```
+
+默认模式只在没有可用主检索源时返回非零退出码；`--strict` 会将任何“已配置但不可用”的来源视为失败，适合部署门禁。
 
 ### 回放评测与 Phoenix
 

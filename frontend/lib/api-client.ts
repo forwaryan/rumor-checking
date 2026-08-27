@@ -720,8 +720,16 @@ export interface SearchSource {
   id: string;
   label: string;
   description: string;
+  kind: "primary" | "supplementary" | "derived";
+  configured: boolean;
+  available: boolean;
   enabled: boolean;
   default_on: boolean;
+  selectable: boolean;
+  requires_auth: boolean;
+  capabilities: string[];
+  fallback_to: string[];
+  unavailable_reason: string | null;
 }
 
 export interface SearchSourcesResponse {
@@ -747,13 +755,31 @@ export async function getSearchSources(): Promise<SearchSourcesResponse> {
   if (isObject(payload) && Array.isArray(payload.sources)) {
     const sources = payload.sources
       .filter(isObject)
-      .map((s) => ({
-        id: ensureString(s.id),
-        label: ensureString(s.label),
-        description: ensureString(s.description),
-        enabled: s.enabled === true,
-        default_on: s.default_on === true,
-      }));
+      .map((s): SearchSource => {
+        const kind: SearchSource["kind"] =
+          s.kind === "primary" || s.kind === "supplementary" || s.kind === "derived"
+            ? s.kind
+            : "supplementary";
+        return {
+          id: ensureString(s.id),
+          label: ensureString(s.label),
+          description: ensureString(s.description),
+          kind,
+          configured: s.configured === true,
+          available: s.available === true,
+          enabled: s.enabled === true,
+          default_on: s.default_on === true,
+          selectable: s.selectable !== false,
+          requires_auth: s.requires_auth === true,
+          capabilities: Array.isArray(s.capabilities)
+            ? s.capabilities.filter((item): item is string => typeof item === "string")
+            : [],
+          fallback_to: Array.isArray(s.fallback_to)
+            ? s.fallback_to.filter((item): item is string => typeof item === "string")
+            : [],
+          unavailable_reason: typeof s.unavailable_reason === "string" ? s.unavailable_reason : null,
+        };
+      });
     return { sources };
   }
   return { sources: [] };

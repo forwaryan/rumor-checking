@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 
 from backend.app.core.config import get_settings
 from backend.app.services.model_health import get_model_health_registry
+from backend.app.services.source_registry import list_source_capabilities, source_capability_snapshot
 
 router = APIRouter()
 
@@ -70,41 +71,15 @@ def model_health_snapshot() -> dict:
 
 @router.get("/search-sources")
 def list_search_sources() -> dict:
-    """Available search sources and their enabled state."""
-    settings = get_settings()
-    from shutil import which
-
-    sources = [
-        {
-            "id": "baidu",
-            "label": "百度",
-            "description": "百度搜索引擎（主力源）",
-            "enabled": settings.retrieval_provider == "playwright",
-            "default_on": True,
-        },
-        {
-            "id": "xiaohongshu",
-            "label": "小红书",
-            "description": "小红书社交笔记",
-            "enabled": settings.xhs_search_enabled and which("xhs") is not None,
-            "default_on": True,
-        },
-        {
-            "id": "toutiao",
-            "label": "今日头条",
-            "description": "头条搜索（聚合辟谣/媒体）",
-            "enabled": settings.toutiao_search_enabled,
-            "default_on": True,
-        },
-        {
-            "id": "sogou_weixin",
-            "label": "微信公众号",
-            "description": "搜狗微信（辟谣公众号：腾讯较真、科普中国等）",
-            "enabled": settings.sogou_weixin_search_enabled,
-            "default_on": True,
-        },
-    ]
+    """Selectable search sources with backward-compatible UI fields."""
+    sources = [source.to_dict() for source in list_source_capabilities() if source.selectable]
     return {"sources": sources}
+
+
+@router.get("/source-capabilities")
+def source_capabilities() -> dict:
+    """Cheap provider-doctor snapshot; never performs remote probes."""
+    return source_capability_snapshot()
 
 
 @router.get("/agent-trace/{run_id}")

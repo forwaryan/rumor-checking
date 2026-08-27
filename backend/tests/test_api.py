@@ -165,9 +165,17 @@ def test_search_sources_endpoint_lists_all_dag_sources(client):
     ids = {s["id"] for s in body["sources"]}
     # Every source wired into the parallel DAG must be exposed so the toggle UI
     # stays consistent with what actually runs.
-    assert {"baidu", "xiaohongshu", "toutiao", "sogou_weixin"}.issubset(ids)
+    assert {
+        "baidu",
+        "xiaohongshu",
+        "toutiao",
+        "sogou_weixin",
+        "piyao",
+        "official_boost",
+    } == ids
     for source in body["sources"]:
         assert {"id", "label", "description", "enabled", "default_on"} <= source.keys()
+        assert {"configured", "available", "kind", "capabilities", "unavailable_reason"} <= source.keys()
         assert isinstance(source["enabled"], bool)
         assert isinstance(source["default_on"], bool)
 

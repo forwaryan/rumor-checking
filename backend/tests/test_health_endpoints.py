@@ -6,8 +6,14 @@ plain dicts. What matters is the shape and the security constraint that no
 internal-gateway details leak through them."""
 from __future__ import annotations
 
-from backend.app.api.v1.endpoints.health import model_health_snapshot
-from backend.app.services import model_health
+from types import SimpleNamespace
+
+from backend.app.api.v1.endpoints.health import (
+    list_search_sources,
+    model_health_snapshot,
+    source_capabilities,
+)
+from backend.app.services import model_health, source_registry
 
 
 def test_model_health_snapshot_returns_registry_state(monkeypatch):
@@ -49,3 +55,31 @@ def test_model_health_snapshot_empty_by_default(monkeypatch):
     monkeypatch.setattr(model_health, "_registry", None)
     body = model_health_snapshot()
     assert body == {"models": {}}
+
+
+def test_source_endpoints_share_registry_and_keep_ui_compatibility(monkeypatch):
+    settings = SimpleNamespace(
+        retrieval_provider="playwright",
+        llm_api_key=None,
+        xhs_search_enabled=True,
+        toutiao_search_enabled=True,
+        sogou_weixin_search_enabled=True,
+        piyao_search_enabled=True,
+    )
+    monkeypatch.setattr(source_registry, "get_settings", lambda: settings)
+    monkeypatch.setattr(source_registry, "which", lambda command: None)
+
+    selectable = list_search_sources()["sources"]
+    doctor = source_capabilities()
+    selectable_ids = {source["id"] for source in selectable}
+    doctor_ids = {source["id"] for source in doctor["sources"]}
+
+    assert {"baidu", "xiaohongshu", "toutiao", "sogou_weixin", "piyao", "official_boost"} == selectable_ids
+    assert {"mock", "gdelt", "kimi"} < doctor_ids
+    assert all(
+        {"id", "label", "description", "enabled", "default_on"} <= source.keys()
+        for source in selectable
+    )
+    assert doctor["summary"]["total"] == len(doctor["sources"])
+    assert doctor["summary"]["active_primary"] == "baidu"
+    assert doctor["summary"]["status"] == "degraded"
