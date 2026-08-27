@@ -65,6 +65,8 @@ def test_source_endpoints_share_registry_and_keep_ui_compatibility(monkeypatch):
         toutiao_search_enabled=True,
         sogou_weixin_search_enabled=True,
         piyao_search_enabled=True,
+        searxng_search_enabled=False,
+        searxng_base_url="",
     )
     monkeypatch.setattr(source_registry, "get_settings", lambda: settings)
     monkeypatch.setattr(source_registry, "which", lambda command: None)
@@ -74,7 +76,7 @@ def test_source_endpoints_share_registry_and_keep_ui_compatibility(monkeypatch):
     selectable_ids = {source["id"] for source in selectable}
     doctor_ids = {source["id"] for source in doctor["sources"]}
 
-    assert {"baidu", "xiaohongshu", "toutiao", "sogou_weixin", "piyao", "official_boost"} == selectable_ids
+    assert {"baidu", "xiaohongshu", "toutiao", "sogou_weixin", "piyao", "searxng", "official_boost"} == selectable_ids
     assert {"mock", "gdelt", "kimi"} < doctor_ids
     assert all(
         {"id", "label", "description", "enabled", "default_on"} <= source.keys()

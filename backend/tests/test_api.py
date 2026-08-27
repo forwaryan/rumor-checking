@@ -171,6 +171,7 @@ def test_search_sources_endpoint_lists_all_dag_sources(client):
         "toutiao",
         "sogou_weixin",
         "piyao",
+        "searxng",
         "official_boost",
     } == ids
     for source in body["sources"]:

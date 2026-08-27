@@ -13,6 +13,8 @@ def _settings(**overrides):
         "toutiao_search_enabled": True,
         "sogou_weixin_search_enabled": True,
         "piyao_search_enabled": True,
+        "searxng_search_enabled": False,
+        "searxng_base_url": "",
     }
     values.update(overrides)
     return SimpleNamespace(**values)
