@@ -53,3 +53,30 @@ def test_run_manifest_labels_llm_engine_as_network_bound(tmp_path: Path):
     assert manifest["configuration"]["engine"] == "llm"
     assert manifest["configuration"]["analysis_provider"] == "kimi"
     assert manifest["configuration"]["network_access"] is True
+
+
+def test_verdict_path_metrics_counts_llm_vs_rule_fallback():
+    from backend.scripts.replay_eval import _verdict_path_metrics
+
+    # Three fact claims with evidence (LLM-judge candidates); one carries the
+    # "[LLM判定]" marker, one is a bare rule verdict, one has no evidence (not a
+    # candidate). Expect 2 candidates, 1 judged, 50% fallback.
+    actuals = [[
+        {"claim_type": "fact", "evidence": [{"url": "u1"}], "notes": "规则 [LLM判定] 已核"},
+        {"claim_type": "fact", "evidence": [{"url": "u2"}], "notes": "规则判定"},
+        {"claim_type": "fact", "evidence": [], "notes": ""},
+        {"claim_type": "opinion", "evidence": [{"url": "u3"}], "notes": "[LLM判定] x"},
+    ]]
+
+    llm = _verdict_path_metrics(actuals, engine="llm")
+    assert llm["llm_candidate_claims"] == 2
+    assert llm["llm_judged_claims"] == 1
+    assert llm["rule_fallback_claims"] == 1
+    assert llm["rule_fallback_rate"] == 0.5
+    assert "5-30%" not in llm["assessment"]  # 50% -> "fix reliability first"
+    assert "fix reliability first" in llm["assessment"]
+
+    # Rule engine never invokes the judge, so the rate is not a reliability signal.
+    rule = _verdict_path_metrics(actuals, engine="rule")
+    assert rule["assessment"].startswith("n/a")
+

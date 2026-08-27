@@ -7,10 +7,13 @@ This is the safety net for the whole verdict path: any refactor that silently
 regresses claim extraction, evidence grounding, or the fast-verdict rules will
 fail one of these three cases. Unit tests cover pieces in isolation; this file
 exists so we still catch the "everything typechecks but the answer is wrong"
-class of bug end-to-end.
+class of bug end-to-end. Each case asserts the *specific correct verdict* the
+fixture's evidence warrants (supported / refuted / non-decisive) — not merely
+that some valid verdict came back — so a rule regression that flips the answer
+is caught, not just a crash.
 
-Not a live network test — real live-checking accuracy is measured elsewhere,
-this file only guards the plumbing."""
+Not a live network test — real live-checking accuracy is measured elsewhere
+(evals/live_replay), this file guards the fast-path plumbing AND its verdicts."""
 from __future__ import annotations
 
 from dataclasses import replace
@@ -111,6 +114,14 @@ def test_e2e_supported_case_produces_grounded_report(tmp_path: Path):
     assert report.claim_results
     for cr in report.claim_results:
         assert cr.verdict in {"supported", "refuted", "insufficient", "conflicting"}
+    # Verdict CORRECTNESS, not just plumbing: two authoritative sources (S+A)
+    # confirm the claim, so the fast path must actually land on `supported` —
+    # this is the assertion that catches "the answer is wrong", not just "the
+    # pipeline ran".
+    assert any(cr.verdict == "supported" for cr in report.claim_results), (
+        "authoritative-confirmed claim should be supported, got "
+        f"{[(c.claim, c.verdict) for c in report.claim_results]}"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -144,6 +155,14 @@ def test_e2e_refuted_case_produces_grounded_report(tmp_path: Path):
     assert report.mode != "safe_mode" or report.retrieval_hits
     # The pipeline routed through the real backend path (not mock).
     assert report.provenance.source_type == "backend_live"
+    # Verdict CORRECTNESS: an S-tier police notice + A-tier hospital response both
+    # explicitly debunk the rumor, so the fast path must land on `refuted` — not
+    # merely "some valid verdict". Guards the debunk-recognition rules end-to-end.
+    assert report.claim_results
+    assert any(cr.verdict == "refuted" for cr in report.claim_results), (
+        "authoritative-debunked claim should be refuted, got "
+        f"{[(c.claim, c.verdict) for c in report.claim_results]}"
+    )
 
 
 # --------------------------------------------------------------------------- #

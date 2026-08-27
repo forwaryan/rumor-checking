@@ -168,6 +168,8 @@ def _replay_one(snapshot) -> list[dict]:
             "claim": cr.claim,
             "verdict": cr.verdict,
             "confidence": cr.confidence,
+            "notes": cr.notes,
+            "claim_type": cr.claim_type,
             "evidence": [
                 {
                     "url": e.url,
@@ -181,6 +183,46 @@ def _replay_one(snapshot) -> list[dict]:
         }
         for cr in claim_results
     ]
+
+
+def _verdict_path_metrics(actuals: list[list[dict]], *, engine: str) -> dict:
+    """Measure how often the LLM verdict path actually drove the answer vs fell
+    back to the rule engine. A claim is an LLM-judge *candidate* when it is a fact
+    claim carrying evidence (that is the gate in llm_judge_claims); it counts as
+    LLM-judged when its notes carry the "[LLM判定]" marker the judge stamps. The
+    rule-fallback rate is candidates that were NOT LLM-judged.
+
+    Only meaningful under --engine llm (the rule engine never invokes the judge,
+    so its fallback rate is trivially 100%). The <5% / >30% verdict encodes the
+    goal's reliability bands: below 5% the LLM path is carrying the work, above
+    30% reliability must be fixed before trusting LLM-primary verdicts."""
+    candidates = 0
+    llm_judged = 0
+    for claim_list in actuals:
+        for cr in claim_list:
+            if cr.get("claim_type") != "fact" or not cr.get("evidence"):
+                continue
+            candidates += 1
+            if "[LLM判定]" in (cr.get("notes") or ""):
+                llm_judged += 1
+    fallback = candidates - llm_judged
+    rate = (fallback / candidates) if candidates else 0.0
+    if engine != "llm":
+        verdict = "n/a (rule engine never calls the LLM judge)"
+    elif rate < 0.05:
+        verdict = "LLM primary path reliable (<5%)"
+    elif rate > 0.30:
+        verdict = "fix reliability first (>30%)"
+    else:
+        verdict = "acceptable (5-30%)"
+    return {
+        "engine": engine,
+        "llm_candidate_claims": candidates,
+        "llm_judged_claims": llm_judged,
+        "rule_fallback_claims": fallback,
+        "rule_fallback_rate": round(rate, 4),
+        "assessment": verdict,
+    }
 
 
 def main() -> int:
@@ -235,6 +277,7 @@ def main() -> int:
         run_name=args.run_name,
         engine=args.engine,
     )
+    report_payload["verdict_path"] = _verdict_path_metrics(actuals, engine=args.engine)
     if args.compare_to:
         baseline = json.loads(args.compare_to.read_text(encoding="utf-8"))
         report_payload["comparison"] = {
@@ -264,6 +307,12 @@ def main() -> int:
         print(f"  High-trust evidence:{report.high_trust_evidence_rate:>6.2%}")
         print(f"  Dated evidence:    {report.dated_evidence_rate:.2%}")
         print(f"  Fresh evidence:    {report.fresh_evidence_rate:.2%}")
+        vp = report_payload["verdict_path"]
+        print(
+            f"  Rule-fallback rate:{vp['rule_fallback_rate']:>7.2%} "
+            f"({vp['rule_fallback_claims']}/{vp['llm_candidate_claims']} candidates) "
+            f"— {vp['assessment']}"
+        )
         print("Category breakdown:")
         for category, metrics in report.category_metrics.items():
             print(

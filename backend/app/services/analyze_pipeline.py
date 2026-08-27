@@ -438,11 +438,35 @@ class AnalyzePipeline:
                     if enriched_bundle is retrieval_bundle:
                         break
                     retrieval_bundle = enriched_bundle
+                    # Snapshot verdicts before the re-judge so we can report whether
+                    # this extra round actually changed any conclusion — the signal
+                    # that separates a genuine accuracy gain from pure added latency.
+                    _verdicts_before = {cr.claim: cr.verdict for cr in verdict.claim_results}
                     verdict = self.verdict_engine.evaluate_with_source(
                         request=request,
                         event=event,
                         claims=claim_extraction.claims,
                         retrieval_bundle=retrieval_bundle,
+                    )
+                    _changed = [
+                        cr.claim
+                        for cr in verdict.claim_results
+                        if _verdicts_before.get(cr.claim) != cr.verdict
+                    ]
+                    emit_stage(
+                        stage_key="deep_rejudge",
+                        title="深度重判",
+                        status="completed",
+                        summary=(
+                            f"第 {_iteration + 1} 轮重判改变 {len(_changed)} 条 verdict。"
+                            if _changed
+                            else f"第 {_iteration + 1} 轮重判未改变任何 verdict（仅增加延迟）。"
+                        ),
+                        details=[
+                            f"iteration={_iteration + 1}",
+                            f"changed_count={len(_changed)}",
+                            f"verdict_changed={bool(_changed)}",
+                        ],
                     )
 
             # Skip timeline when all claims are insufficient with no evidence —
