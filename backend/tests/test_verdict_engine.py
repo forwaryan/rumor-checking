@@ -842,3 +842,47 @@ def test_non_time_sensitive_claim_accepts_undated_authoritative_evidence():
     )
 
     assert (verdict, confidence) == ("supported", "high")
+
+
+def test_entity_named_only_in_source_name_still_supports_claim():
+    """Co-reference: the full entity name lives in source_name ('中国科学技术大学')
+    while the body uses an abbreviation ('中科大'). The support classifier must see
+    the source_name via anchor_context, or evidence lands in `relevant` and the
+    claim collapses to insufficient despite an authoritative on-topic source."""
+    engine = VerdictEngine()
+    event = NormalizedEvent(
+        summary="中国科学技术大学新增人工智能学院",
+        input_type="text_news",
+        raw_input="中国科学技术大学新增人工智能学院",
+    )
+    item = EvidenceItem(
+        title="中科大成立人工智能学院",
+        url="https://ustc.edu/ai",
+        source_name="中国科学技术大学",
+        published_at="2026-08-20",
+        snippet="中科大正式成立人工智能学院，首批招生今年秋季启动。",
+        relevance_reason="直接相关。",
+        source_tier="S",
+    )
+    anchors = engine._subject_anchors_for_claim(
+        claim_text="中国科学技术大学新增人工智能学院", event=event
+    )
+    verdict, _confidence, _notes, _selected = engine._evaluate_fact_claim(
+        claim_text="中国科学技术大学新增人工智能学院",
+        evidence_pool=[item],
+        subject_anchors=anchors,
+    )
+
+    assert verdict == "supported"
+
+
+def test_entity_action_claim_does_not_over_extract_whole_claim_as_anchor():
+    """ENTITY_PATTERN must stop at the first entity suffix, not run greedily to the
+    last. '中国科学技术大学新增人工智能学院' has two suffixes (大学, 学院); a greedy match
+    collapsed the whole claim into one anchor that no evidence could satisfy."""
+    from backend.app.services.entity_anchor import extract_subject_anchors
+
+    anchors = extract_subject_anchors("中国科学技术大学新增人工智能学院")
+
+    assert "中国科学技术大学" in anchors
+    assert "中国科学技术大学新增人工智能学院" not in anchors

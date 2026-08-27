@@ -129,8 +129,14 @@ SUBJECT_MISMATCH_MARKERS = (
     "无法确认是否同一公司",
     "没有确认与用户提问的是同一家公司",
 )
+# Non-greedy body ({2,24}?) so the match stops at the FIRST entity suffix rather
+# than the last. A greedy body ran the whole way to the final suffix, so a claim
+# like "\u4e2d\u56fd\u79d1\u5b66\u6280\u672f\u5927\u5b66\u65b0\u589e\u4eba\u5de5\u667a\u80fd\u5b66\u9662" (two suffixes: \u5927\u5b66, \u5b66\u9662) collapsed into a
+# single anchor spanning the entire claim \u2014 which then demanded that whole string
+# appear verbatim in evidence, dropping every real article. Non-greedy yields the
+# bare entity "\u4e2d\u56fd\u79d1\u5b66\u6280\u672f\u5927\u5b66" instead. Any "\u27e8entity\u27e9\u27e8action\u27e9" claim hit this.
 ENTITY_PATTERN = re.compile(
-    rf"[\u4e00-\u9fffA-Za-z0-9]{{2,24}}(?:{'|'.join(map(re.escape, ENTITY_SUFFIXES))})"
+    rf"[\u4e00-\u9fffA-Za-z0-9]{{2,24}}?(?:{'|'.join(map(re.escape, ENTITY_SUFFIXES))})"
 )
 ACTION_PREFIX_PATTERN = re.compile(
     rf"([\u4e00-\u9fffA-Za-z0-9]{{2,24}}?)(?:已经|已|将|会)?(?:{'|'.join(map(re.escape, ACTION_MARKERS))})"

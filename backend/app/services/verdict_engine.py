@@ -568,6 +568,7 @@ class VerdictEngine:
                 claim_is_negative=claim_is_negative,
                 full_scope_claim=full_scope_claim,
                 subject_anchors=subject_anchors,
+                anchor_context=item.source_name,
             )
             if matched_segment:
                 relevant.append(item)
@@ -821,11 +822,18 @@ class VerdictEngine:
         claim_is_negative: bool,
         full_scope_claim: bool,
         subject_anchors: list[str] | None = None,
+        anchor_context: str | None = None,
     ) -> tuple[bool, bool, bool]:
         matched_segment = False
         segment_supports = False
         segment_refutes = False
         anchor_cores = self._anchor_cores(subject_anchors) if subject_anchors else None
+        # The entity name can live only in a structured field (e.g. source_name =
+        # "中国科学技术大学") while the body uses an abbreviation ("中科大"). Let the
+        # anchor-core identity gate see that context WITHOUT feeding it into term
+        # overlap or support/refute scoring — those must stay driven by the segment
+        # text alone, or an authoritative source_name would inflate matches.
+        anchor_context_norm = self._normalize_claim(anchor_context) if anchor_context else ""
         for segment in re.split(r"[。！？!?；;\n]", segment_text):
             haystack = self._normalize_claim(segment)
             overlap = self._overlap_terms(claim_terms, haystack)
@@ -837,7 +845,9 @@ class VerdictEngine:
             matched_segment = True
             if self._disclaims_subject(segment) or self._disclaims_subject(haystack):
                 continue
-            if anchor_cores and not any(core in segment for core in anchor_cores):
+            if anchor_cores and not any(
+                core in segment or core in anchor_context_norm for core in anchor_cores
+            ):
                 continue
             evidence_is_negative = self._contains_evidence_refutation(haystack)
             if not evidence_is_negative and self._is_context_only_segment(haystack):
