@@ -11,6 +11,7 @@ import httpx
 from backend.app.core.config import Settings, get_settings
 from backend.app.models.schemas import MockFetchResult
 from backend.app.services.contract_utils import looks_like_url, source_name_from_url
+from backend.app.services.http_reliability import reliable_get
 from backend.app.services.url_validator import is_safe_url
 
 logger = logging.getLogger(__name__)
@@ -121,7 +122,7 @@ class UrlContentExtractor:
         )
 
     def _fetch(self, url: str) -> httpx.Response:
-        response = httpx.get(
+        response = reliable_get(
             url,
             headers={
                 "User-Agent": USER_AGENT,
@@ -129,6 +130,7 @@ class UrlContentExtractor:
             },
             follow_redirects=True,
             timeout=self.settings.url_fetch_timeout_seconds,
+            max_retries=self.settings.url_fetch_max_retries,
         )
         response.raise_for_status()
         return response

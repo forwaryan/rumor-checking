@@ -167,6 +167,7 @@ class Settings:
     piyao_search_enabled: bool
     url_fetch_timeout_seconds: float
     url_fetch_max_chars: int
+    url_fetch_max_retries: int
     url_fetch_cache_enabled: bool
     url_fetch_cache_dir: Path
     url_fetch_cache_ttl_seconds: float
@@ -343,6 +344,7 @@ def get_settings() -> Settings:
         piyao_search_enabled=_as_bool(os.getenv("PIYAO_SEARCH_ENABLED"), default=True),
         url_fetch_timeout_seconds=_as_float(os.getenv("URL_FETCH_TIMEOUT_SECONDS"), 8.0),
         url_fetch_max_chars=max(_as_int(os.getenv("URL_FETCH_MAX_CHARS"), 12000), 1000),
+        url_fetch_max_retries=max(_as_int(os.getenv("URL_FETCH_MAX_RETRIES"), 1), 0),
         url_fetch_cache_enabled=_as_bool(os.getenv("URL_FETCH_CACHE_ENABLED"), default=True),
         url_fetch_cache_dir=Path(os.getenv("URL_FETCH_CACHE_DIR", str(project_root / "data" / "cache" / "url_fetch"))),
         url_fetch_cache_ttl_seconds=_as_float(os.getenv("URL_FETCH_CACHE_TTL_SECONDS"), 43200.0),

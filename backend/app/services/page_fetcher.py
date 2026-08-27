@@ -7,8 +7,7 @@ import logging
 import re
 from typing import TYPE_CHECKING
 
-import httpx
-
+from backend.app.services.http_reliability import reliable_get
 from backend.app.services.retrieval_models import TIER_WEIGHTS, SearchResult
 from backend.app.services.url_validator import is_safe_url
 
@@ -112,10 +111,14 @@ def _fetch_single_page(url: str) -> str | None:
         except Exception:
             pass
 
-    # Live fetch
-    resp = httpx.get(
+    # Live fetch — retry transient faults (timeout / connection / 5xx) with
+    # backoff so a momentary blip does not silently drop this evidence page.
+    from backend.app.core.config import get_settings
+    settings = get_settings()
+    resp = reliable_get(
         url,
-        timeout=10.0,
+        timeout=settings.url_fetch_timeout_seconds,
+        max_retries=settings.url_fetch_max_retries,
         follow_redirects=True,
         headers={"User-Agent": "Mozilla/5.0 (compatible; RumorCheck/1.0)"},
     )
