@@ -183,8 +183,14 @@ export function AnalyzePage() {
     <main className="app app--result">
       <div className="result-page">
         <header className="result-header">
-          <button className="result-header__back" onClick={handleReset}>&larr; 新查询</button>
-          <span className="result-header__query">{lastQuery}</span>
+          <button className="result-header__back" onClick={handleReset} aria-label="返回并开始新查询">
+            <span aria-hidden="true">←</span> 新查询
+          </button>
+          <div className="result-header__brand" aria-label="较真核查">
+            <span className="result-header__brand-dot" aria-hidden="true" />
+            较真核查
+          </div>
+          <span className="result-header__query" title={lastQuery}>{lastQuery}</span>
         </header>
 
         {status === "submitting" && !report && (
@@ -211,7 +217,7 @@ export function AnalyzePage() {
         {report && <CredibilityHeader report={report} reportProvenance={reportProvenance} />}
         {report && activeMode === "fast" && !isStreaming && (
           <div className="deep-cta">
-            <div className="deep-cta__text">还不确定？让 AI 深入分析证据、逐条判定。</div>
+            <div className="deep-cta__text">还不确定？可以深入核查：多轮检索、逐条判定、交叉比对来源。</div>
             <div className="deep-cta__actions">
               {models.length > 1 && (
                 <select className="deep-cta__model" value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} aria-label="选择分析模型">
