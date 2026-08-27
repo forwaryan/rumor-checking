@@ -59,6 +59,7 @@ RETRIEVAL_FALLBACK_TO_MOCK=true
 - URL 正文缓存：`data/cache/url_fetch/<cache_key>.json`；key = `sha256(v1|url)` 前 24 位；TTL 由 `URL_FETCH_CACHE_TTL_SECONDS` 控制（默认 12h）
 - 诊断入口：`request_context.retrieval_cache_only=true` 强制只读缓存；`bypass_retrieval_cache=true` 跳过缓存直连 provider
 - Provider Doctor：`python backend/scripts/source_doctor.py`；加 `--json` 输出机器可读快照，加 `--strict` 检查所有已配置来源的本地依赖。该命令不访问外网。
+- 模型调用账本（默认关）：`MODEL_LEDGER_ENABLED=true` 后，每次 LLM 补全在 `data/model_ledger/model-calls-<日期>.jsonl` 追加一行：`provider/model/input_tokens/output_tokens/cache_tokens/latency_ms/status/error_class/trace_id/stage_key`。补 in-flight `TokenUsage` 之不足（后者一次请求后即丢）。**脱敏红线：只记 token 计数与模型名，绝不写原始 prompt/正文、绝不写网关 host/endpoint/key**；写入前还有一层按 key/value 的敏感词兜底剔除。账本故障不影响主流程。
 
 ## 最小联调
 

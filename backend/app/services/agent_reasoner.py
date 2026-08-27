@@ -44,6 +44,7 @@ from backend.app.services.contract_utils import (
     ensure_datetime_string_or_empty,
 )
 from backend.app.services.model_health import get_model_health_registry
+from backend.app.services.model_ledger import record_call
 from backend.app.services.progress import emit_api_call, emit_log
 from backend.app.services.question_intent import is_broad_trend_question
 from backend.app.services.question_resolver import QuestionResolution
@@ -1114,6 +1115,7 @@ class LlmAgentReasoner:
         parts: list[str] = []
         char_budget = max_tokens * _STREAM_CHARS_PER_TOKEN
         deadline = time.monotonic() + timeout_seconds
+        _call_start = time.monotonic()
         collected = 0
         reasoning_chars = 0
         truncated = False
@@ -1213,6 +1215,26 @@ class LlmAgentReasoner:
                     "llm_prompt_cache_hit model=%s cached_tokens=%s prompt_tokens=%s",
                     model, cached, usage_data.get("prompt_tokens", 0),
                 )
+        # Persistent desensitized ledger (default-off). One line per completion
+        # attempt: model + token counts + latency + status only — never prompt or
+        # completion text, never the gateway host/key. Best-effort; a ledger error
+        # must not fail the completion.
+        _content = "".join(parts).strip()
+        record_call(
+            provider="llm",
+            model=model,
+            input_tokens=usage_data.get("prompt_tokens", 0) if usage_data else 0,
+            output_tokens=usage_data.get("completion_tokens", 0) if usage_data else 0,
+            cache_tokens=(
+                (usage_data.get("prompt_tokens_details") or {}).get("cached_tokens", 0)
+                if usage_data and isinstance(usage_data.get("prompt_tokens_details"), dict)
+                else 0
+            ),
+            latency_ms=int((time.monotonic() - _call_start) * 1000),
+            status="ok" if _content else "empty",
+            stage_key=None,
+            settings=self.settings,
+        )
         return "".join(parts).strip()
 
     def _reasoning_model(self) -> str:

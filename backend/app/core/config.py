@@ -175,6 +175,8 @@ class Settings:
     evidence_embed_model: str
     evidence_embed_api_key: str | None
     eval_record_enabled: bool
+    model_ledger_enabled: bool
+    model_ledger_dir: Path
     cors_allow_origin_regex: str
 
     @property
@@ -349,6 +351,8 @@ def get_settings() -> Settings:
         evidence_embed_model=(os.getenv("EVIDENCE_EMBED_MODEL") or "").strip(),
         evidence_embed_api_key=os.getenv("EVIDENCE_EMBED_API_KEY") or None,
         eval_record_enabled=_as_bool(os.getenv("EVAL_RECORD_ENABLED"), default=False),
+        model_ledger_enabled=_as_bool(os.getenv("MODEL_LEDGER_ENABLED"), default=False),
+        model_ledger_dir=Path(os.getenv("MODEL_LEDGER_DIR", str(project_root / "data" / "model_ledger"))),
         cors_allow_origin_regex=os.getenv(
             "CORS_ALLOW_ORIGIN_REGEX",
             r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
