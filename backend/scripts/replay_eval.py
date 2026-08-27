@@ -22,13 +22,25 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
-# Pin the eval to the pure rule verdict path — no live LLM calls. The verdict
-# engine's llm_judge_claims override is gated by ANALYSIS_PROVIDER=kimi + an API
-# key, so clearing both keeps replay deterministic and offline. Set BEFORE any
-# backend import so get_settings caches the offline config.
-os.environ["ANALYSIS_PROVIDER"] = "off"
-os.environ.pop("KIMI_API_KEY", None)
-os.environ["LLM_API_KEY"] = ""
+# Pin the eval to the pure rule verdict path by default — no live LLM calls.
+# The verdict engine's llm_judge_claims override is gated by ANALYSIS_PROVIDER=kimi
+# + an API key, so clearing both keeps replay deterministic and offline. Set
+# BEFORE any backend import so get_settings caches the offline config.
+#
+# Opt in to the live LLM judge with `--engine llm`: we peek at argv here (argparse
+# runs later, inside main) and, in that mode, leave the ambient LLM settings
+# intact so llm_judge_claims routes through the real gateway. This is
+# non-deterministic and network-bound, so CI keeps the rule default.
+_ENGINE = "rule"
+for _i, _arg in enumerate(sys.argv[1:]):
+    if _arg == "--engine" and _i + 2 <= len(sys.argv[1:]):
+        _ENGINE = sys.argv[_i + 2]
+    elif _arg.startswith("--engine="):
+        _ENGINE = _arg.split("=", 1)[1]
+if _ENGINE != "llm":
+    os.environ["ANALYSIS_PROVIDER"] = "off"
+    os.environ.pop("KIMI_API_KEY", None)
+    os.environ["LLM_API_KEY"] = ""
 
 # Make backend package importable when invoked from repo root or scripts dir.
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -71,17 +83,18 @@ def _git_value(*args: str) -> str | None:
     return result.stdout.strip() or None
 
 
-def build_run_manifest(*, snap_dir: Path, snapshots: list, run_name: str) -> dict:
-    """Describe the code, corpus, and deterministic configuration behind a run."""
+def build_run_manifest(*, snap_dir: Path, snapshots: list, run_name: str, engine: str = "rule") -> dict:
+    """Describe the code, corpus, and configuration behind a run."""
     snapshot_paths = sorted(path for path in snap_dir.glob("*.json") if path.name != "cases.json")
     implementation_paths = [
         Path(__file__).resolve(),
         *(REPO_ROOT / "backend" / "app").rglob("*.py"),
     ]
+    is_llm = engine == "llm"
     configuration = {
-        "analysis_provider": "off",
-        "engine": "rule",
-        "network_access": False,
+        "analysis_provider": "kimi" if is_llm else "off",
+        "engine": engine,
+        "network_access": is_llm,
         "temperature": None,
         "seed": None,
     }
@@ -97,7 +110,7 @@ def build_run_manifest(*, snap_dir: Path, snapshots: list, run_name: str) -> dic
     return {
         "schema_version": 1,
         "name": run_name,
-        "engine": "rule",
+        "engine": engine,
         "snapshot_count": len(snapshots),
         "generated_at": datetime.now(UTC).isoformat(),
         "git": {
@@ -115,7 +128,7 @@ def build_run_manifest(*, snap_dir: Path, snapshots: list, run_name: str) -> dic
             "case_ids": [snapshot.case_id for snapshot in snapshots],
         },
         "implementation": {
-            "engine": "rule",
+            "engine": engine,
             "sha256": _sha256_files(implementation_paths, base=REPO_ROOT),
             "model": None,
             "prompt_version": None,
@@ -143,6 +156,10 @@ def _replay_one(snapshot) -> list[dict]:
         for c in snapshot.expected_claims
     ]
     bundle = bundle_from_snapshot(snapshot)
+    # In both engines the call path is identical; `evaluate` -> evaluate_with_source
+    # -> llm_judge_claims, which self-gates on settings. `--engine llm` leaves the
+    # ambient LLM settings intact (see the top-of-file guard) so the judge fires;
+    # the default rule engine cleared them, so the same call stays offline.
     claim_results, _evidence, _grade = engine.evaluate(
         request=request, event=event, claims=claims, retrieval_bundle=bundle,
     )
@@ -176,6 +193,16 @@ def main() -> int:
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
     parser.add_argument("--run-name", default="rule-current", help="Label stored in JSON reports")
     parser.add_argument(
+        "--engine",
+        choices=["rule", "llm"],
+        default="rule",
+        help=(
+            "rule (default): offline, deterministic rule verdict. "
+            "llm: route through the live LLM judge via the gateway "
+            "(non-deterministic, network-bound, needs a configured key)"
+        ),
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         help="Also write the complete JSON report to this path",
@@ -206,6 +233,7 @@ def main() -> int:
         snap_dir=snap_dir,
         snapshots=snapshots,
         run_name=args.run_name,
+        engine=args.engine,
     )
     if args.compare_to:
         baseline = json.loads(args.compare_to.read_text(encoding="utf-8"))

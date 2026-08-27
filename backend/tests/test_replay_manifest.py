@@ -41,3 +41,15 @@ def test_run_manifest_redacts_external_corpus_path(tmp_path: Path):
 
     assert manifest["corpus"]["path"] == f"external:{tmp_path.name}"
     assert str(tmp_path.parent) not in manifest["corpus"]["path"]
+
+
+def test_run_manifest_labels_llm_engine_as_network_bound(tmp_path: Path):
+    manifest = build_run_manifest(
+        snap_dir=tmp_path, snapshots=[], run_name="llm-run", engine="llm"
+    )
+
+    assert manifest["engine"] == "llm"
+    assert manifest["implementation"]["engine"] == "llm"
+    assert manifest["configuration"]["engine"] == "llm"
+    assert manifest["configuration"]["analysis_provider"] == "kimi"
+    assert manifest["configuration"]["network_access"] is True

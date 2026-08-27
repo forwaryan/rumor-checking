@@ -1,0 +1,13 @@
+{
+  "case_id": "hard_004_title_spoof_tier_guard",
+  "recorded_at": "2026-08-27T00:00:00Z",
+  "raw_input": "央行宣布下调存款利率至零",
+  "retrieval_results": [
+    {"result_id": "r1", "title": "【央行官方发布】重磅！存款利率降至零", "url": "https://weibo.example/u123", "source_name": "财经小道消息", "published_at": "2026-08-20", "snippet": "网传央行降息至零。", "source_tier": "C"},
+    {"result_id": "r2", "title": "中国人民银行辟谣：从未发布存款利率降至零的消息", "url": "https://pbc.gov.cn/news", "source_name": "中国人民银行", "published_at": "2026-08-21", "snippet": "该消息为伪造，我行未发布此类通知。", "source_tier": "S"}
+  ],
+  "expected_claims": [
+    {"claim": "央行宣布下调存款利率至零", "claim_type": "fact", "verdict": "refuted", "confidence": "high", "evidence": [{"url": "https://pbc.gov.cn/news", "title": "中国人民银行辟谣：从未发布存款利率降至零的消息"}], "evaluation": {"require_high_trust": true}}
+  ],
+  "metadata": {"source": "hard", "topic": "finance", "categories": ["title_spoof", "guardrail"], "note": "护栏:自媒体标题伪装成官方,tier 应看 source_name 不受标题攻击;当前判对,防回归"}
+}

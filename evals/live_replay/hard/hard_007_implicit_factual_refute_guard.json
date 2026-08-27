@@ -1,0 +1,12 @@
+{
+  "case_id": "hard_007_implicit_factual_refute_guard",
+  "recorded_at": "2026-08-27T00:00:00Z",
+  "raw_input": "某市地铁票价上涨到10元",
+  "retrieval_results": [
+    {"result_id": "r1", "title": "某市地铁票价维持2元起步", "url": "https://gov.example/fare", "source_name": "某市交通委", "published_at": "2026-08-20", "snippet": "某市地铁执行2元起步价，全程最高9元，价格保持不变。", "source_tier": "S"}
+  ],
+  "expected_claims": [
+    {"claim": "某市地铁票价上涨到10元", "claim_type": "fact", "verdict": "refuted", "confidence": "high", "evidence": [{"url": "https://gov.example/fare", "title": "某市地铁票价维持2元起步"}], "evaluation": {"require_high_trust": true}}
+  ],
+  "metadata": {"source": "hard", "topic": "policy", "categories": ["implicit_refute", "guardrail"], "note": "护栏:证据用事实(维持2元/最高9元)隐性反驳,无'谣言/辟谣'关键词;当前判对,防回归"}
+}

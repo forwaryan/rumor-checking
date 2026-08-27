@@ -1,0 +1,12 @@
+{
+  "case_id": "hard_008_single_source_extraordinary_guard",
+  "recorded_at": "2026-08-27T00:00:00Z",
+  "raw_input": "科学家证实人类可以永生",
+  "retrieval_results": [
+    {"result_id": "r1", "title": "研究称人类或可永生", "url": "https://blog.example/immortal", "source_name": "科普博主", "published_at": "2026-08-20", "snippet": "某博主称科学家已证实永生。", "source_tier": "C"}
+  ],
+  "expected_claims": [
+    {"claim": "科学家证实人类可以永生", "claim_type": "fact", "verdict": "insufficient", "confidence": "low", "evidence": [], "evaluation": {}}
+  ],
+  "metadata": {"source": "hard", "topic": "science", "categories": ["single_source", "extraordinary_claim", "guardrail"], "note": "护栏:非凡主张仅单个 C 级来源,证据不足;当前判对,防回归"}
+}

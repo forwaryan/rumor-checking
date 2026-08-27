@@ -1,0 +1,13 @@
+{
+  "case_id": "hard_006_asymmetric_tier_guard",
+  "recorded_at": "2026-08-27T00:00:00Z",
+  "raw_input": "某地发生5级地震",
+  "retrieval_results": [
+    {"result_id": "r1", "title": "地震台网：某地发生5.0级地震", "url": "https://eq.gov/quake", "source_name": "国家地震台网", "published_at": "2026-08-20", "snippet": "某地发生5.0级地震，震源深度10千米。", "source_tier": "S"},
+    {"result_id": "r2", "title": "网友：没感觉到地震啊", "url": "https://weibo.example/net", "source_name": "某网友", "published_at": "2026-08-20", "snippet": "我在当地没感觉。", "source_tier": "C"}
+  ],
+  "expected_claims": [
+    {"claim": "某地发生5级地震", "claim_type": "fact", "verdict": "supported", "confidence": "high", "evidence": [{"url": "https://eq.gov/quake", "title": "地震台网：某地发生5.0级地震"}], "evaluation": {"require_high_trust": true}}
+  ],
+  "metadata": {"source": "hard", "topic": "disaster", "categories": ["asymmetric_tier", "guardrail"], "note": "护栏:S 级证实 + C 级个人感受不构成冲突,应 supported;当前判对,防回归"}
+}

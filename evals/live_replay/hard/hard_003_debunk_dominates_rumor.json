@@ -1,0 +1,12 @@
+{
+  "case_id": "hard_003_debunk_dominates_rumor",
+  "recorded_at": "2026-08-27T00:00:00Z",
+  "raw_input": "某明星在演唱会上宣布退圈",
+  "retrieval_results": [
+    {"result_id": "r1", "title": "某明星工作室发布声明", "url": "https://studio.example/statement", "source_name": "某明星工作室", "published_at": "2026-08-20", "snippet": "我方近期没有任何演唱会安排，网传'演唱会宣布退圈'为不实信息。", "source_tier": "A"}
+  ],
+  "expected_claims": [
+    {"claim": "某明星在演唱会上宣布退圈", "claim_type": "fact", "verdict": "refuted", "confidence": "medium", "evidence": [{"url": "https://studio.example/statement", "title": "某明星工作室发布声明"}], "evaluation": {"require_high_trust": true}}
+  ],
+  "metadata": {"source": "hard", "topic": "entertainment", "categories": ["debunk_dominance", "single_source_refute"], "note": "唯一权威来源在正文辟谣(标题中性);规则引擎把传闻与否定都当信号,当前误判 conflicting 且重复挂同一来源。应为 refuted"}
+}

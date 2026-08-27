@@ -1,0 +1,13 @@
+{
+  "case_id": "hard_005_quantity_conflict_guard",
+  "recorded_at": "2026-08-27T00:00:00Z",
+  "raw_input": "某市新增确诊病例500例",
+  "retrieval_results": [
+    {"result_id": "r1", "title": "某市卫健委：新增确诊50例", "url": "https://health.example/a", "source_name": "某市卫健委", "published_at": "2026-08-20", "snippet": "今日新增确诊50例。", "source_tier": "S"},
+    {"result_id": "r2", "title": "某市发布会通报新增确诊500例", "url": "https://gov.example/b", "source_name": "某市政府", "published_at": "2026-08-20", "snippet": "今日新增确诊500例。", "source_tier": "S"}
+  ],
+  "expected_claims": [
+    {"claim": "某市新增确诊病例500例", "claim_type": "fact", "verdict": "conflicting", "confidence": "medium", "evidence": [{"url": "https://gov.example/b", "title": "某市发布会通报新增确诊500例"}], "evaluation": {"require_high_trust": true}}
+  ],
+  "metadata": {"source": "hard", "topic": "health", "categories": ["quantity_conflict", "guardrail"], "note": "护栏:两个 S 级来源数字打架应为 conflicting;当前判对,防回归"}
+}

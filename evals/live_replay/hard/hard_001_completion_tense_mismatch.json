@@ -1,0 +1,12 @@
+{
+  "case_id": "hard_001_completion_tense_mismatch",
+  "recorded_at": "2026-08-27T00:00:00Z",
+  "raw_input": "某公司已经完成收购某银行",
+  "retrieval_results": [
+    {"result_id": "r1", "title": "某公司拟收购某银行，尚待监管批准", "url": "https://fin.example/pending", "source_name": "证券时报", "published_at": "2026-08-20", "snippet": "某公司计划收购某银行，交易仍需监管审批，目前尚未完成。", "source_tier": "A"}
+  ],
+  "expected_claims": [
+    {"claim": "某公司已经完成收购某银行", "claim_type": "fact", "verdict": "refuted", "confidence": "medium", "evidence": [{"url": "https://fin.example/pending", "title": "某公司拟收购某银行，尚待监管批准"}], "evaluation": {"require_high_trust": true}}
+  ],
+  "metadata": {"source": "hard", "topic": "corporate", "categories": ["tense_mismatch", "completion_state"], "note": "claim 断言'已完成',证据明说'尚未完成';规则引擎当前误判 supported"}
+}

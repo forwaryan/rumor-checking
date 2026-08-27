@@ -302,10 +302,11 @@ python backend/scripts/source_doctor.py --strict
 
 ### 回放评测与 Phoenix
 
-离线回放集位于 `evals/live_replay/seed/`，默认不访问网络，可用于比较规则、提示词和模型版本：
+回放集位于 `evals/live_replay/`：`seed/`（18 个 case，与规则引擎一起沉淀的回归集，默认全绿）与 `hard/`（8 个专挑规则引擎会判错的对抗 case，含 3 个已知误判 + 5 个防回归护栏）。默认不访问网络，可用于比较规则、提示词和模型版本：
 
 ```bash
 python backend/scripts/replay_eval.py
+python backend/scripts/replay_eval.py --dir evals/live_replay/hard
 python backend/scripts/replay_eval.py --json --run-name rule-v1 > replay-rule-v1.json
 python backend/scripts/replay_eval.py --json --run-name rule-v2 \
   --compare-to replay-rule-v1.json > replay-rule-v2.json
@@ -313,7 +314,18 @@ python backend/scripts/replay_eval.py --run-name rule-v3 \
   --output artifacts/replay-rule-v3.json
 ```
 
-报告同时给出 label/evidence/FEVER、置信度、引用精度、独立信源、权威来源、证据日期与时效性，并按 `time_sensitive`、`stale_news`、`subject_mismatch`、`conflicting_sources` 等类别聚合失败原因。当前 seed 集包含 18 个 case，重点用于定位“证据已找到，但 verdict 判断错误”的问题。
+`hard/` 集刻意保留真实缺口（时态/完成态、实体共指、辟谣仲裁），规则引擎当前只能拿到约 62% FEVER，是"准确率提升"的可度量靶子；`seed/` 全绿只说明没有回归。
+
+默认走离线规则引擎（确定、可复现）。加 `--engine llm` 可让同一语料改走线上 LLM 判定（`llm_judge_claims`，需已配置网关 key），用于对比"规则 vs LLM 判定"在同一批 case 上的准确率差异——该模式非确定、要联网，故 CI 仍用规则默认：
+
+```bash
+python backend/scripts/replay_eval.py --dir evals/live_replay/hard --engine rule \
+  --output /tmp/hard_rule.json
+python backend/scripts/replay_eval.py --dir evals/live_replay/hard --engine llm \
+  --compare-to /tmp/hard_rule.json
+```
+
+报告同时给出 label/evidence/FEVER、置信度、引用精度、独立信源、权威来源、证据日期与时效性，并按 `time_sensitive`、`stale_news`、`subject_mismatch`、`conflicting_sources`、`tense_mismatch`、`coreference`、`debunk_dominance` 等类别聚合失败原因，重点用于定位"证据已找到，但 verdict 判断错误"的问题。
 
 每份 JSON 报告还包含可复现实验清单：Git SHA/工作区状态、Python 与平台版本、语料目录与 SHA-256、case ID、规则实现 SHA-256，以及脱敏后的确定性配置。CI 会保存该报告为 `replay-eval-<commit>` artifact，便于比较规则变化而不是只看单次总分。
 

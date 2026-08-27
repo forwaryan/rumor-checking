@@ -1,0 +1,12 @@
+{
+  "case_id": "hard_002_entity_coreference_abbreviation",
+  "recorded_at": "2026-08-27T00:00:00Z",
+  "raw_input": "中国科学技术大学新增人工智能学院",
+  "retrieval_results": [
+    {"result_id": "r1", "title": "中科大成立人工智能学院", "url": "https://ustc.edu/ai-school", "source_name": "中国科学技术大学", "published_at": "2026-08-20", "snippet": "中科大正式成立人工智能学院，首批招生今年秋季启动。", "source_tier": "S"}
+  ],
+  "expected_claims": [
+    {"claim": "中国科学技术大学新增人工智能学院", "claim_type": "fact", "verdict": "supported", "confidence": "high", "evidence": [{"url": "https://ustc.edu/ai-school", "title": "中科大成立人工智能学院"}], "evaluation": {"require_high_trust": true}}
+  ],
+  "metadata": {"source": "hard", "topic": "education", "categories": ["coreference", "abbreviation"], "note": "全称 vs 简称'中科大'为同一实体;规则引擎主体锚点对不齐,当前误判 insufficient 且挂 0 证据"}
+}
