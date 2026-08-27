@@ -196,3 +196,94 @@ def test_exporter_metadata():
     assert record.metadata["model"] == "test-model"
     d = record.to_dict()
     assert d["metadata"]["mode"] == "deep"
+
+
+# --- Phoenix export verification against a real in-memory OTel exporter ---
+# These prove build_spans emits genuine OpenInference spans (tree shape, kinds,
+# status) — the same spans a live Phoenix would receive — without needing a
+# reachable Phoenix/OTLP endpoint. Skipped when the observability extra
+# (opentelemetry-*) is not installed, so the default test env stays dependency-free.
+
+import pytest  # noqa: E402
+
+otel_sdk = pytest.importorskip("opentelemetry.sdk.trace")
+
+
+def _in_memory_tracer():
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    return provider.get_tracer("test"), exporter
+
+
+def test_build_spans_emits_real_openinference_span_tree():
+    from backend.app.services.phoenix_exporter import build_spans
+
+    record = TraceRecord(run_id="run-1", start_time=1.0, end_time=5.0, metadata={"mode": "deep"})
+    record.spans = [
+        TraceSpan(action="retrieve", start_time=1.0, end_time=2.0, span_id="s1", success=True),
+        TraceSpan(
+            action="synthesize", start_time=2.0, end_time=3.0, span_id="s2",
+            parent_span_id="s1", success=False, error_type="Timeout",
+        ),
+    ]
+
+    tracer, exporter = _in_memory_tracer()
+    build_spans(record, tracer)
+
+    spans = exporter.get_finished_spans()
+    # root + 2 children all actually emitted
+    names = {s.name for s in spans}
+    assert names == {"rumor-checking.run", "retrieve", "synthesize"}
+
+    by_name = {s.name: s for s in spans}
+    # Root carries the OpenInference CHAIN kind + session id.
+    assert by_name["rumor-checking.run"].attributes["openinference.span.kind"] == "CHAIN"
+    assert by_name["rumor-checking.run"].attributes["session.id"] == "run-1"
+    # Parent/child tree is preserved: synthesize nests under retrieve.
+    assert by_name["synthesize"].parent.span_id == by_name["retrieve"].context.span_id
+    assert by_name["retrieve"].parent.span_id == by_name["rumor-checking.run"].context.span_id
+    # Status maps success->OK, failure->ERROR.
+    from opentelemetry.trace import StatusCode
+    assert by_name["retrieve"].status.status_code == StatusCode.OK
+    assert by_name["synthesize"].status.status_code == StatusCode.ERROR
+
+
+def test_export_trace_to_phoenix_returns_true_on_successful_flush(monkeypatch):
+    """End-to-end: enabled + a working (in-memory) OTLP path returns True. Proves
+    the full export_trace_to_phoenix wiring flushes without error given real OTel."""
+    # Swap the OTLP HTTP exporter for the in-memory one so no network is needed.
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    from backend.app.services import phoenix_exporter
+
+    captured = InMemorySpanExporter()
+
+    class _StubOTLP:
+        def __init__(self, *a, **k):
+            pass
+
+        def export(self, spans):
+            return captured.export(spans)
+
+        def shutdown(self):
+            captured.shutdown()
+
+        def force_flush(self, timeout_millis=None):
+            return True
+
+    import opentelemetry.exporter.otlp.proto.http.trace_exporter as otlp_mod
+    monkeypatch.setattr(otlp_mod, "OTLPSpanExporter", _StubOTLP)
+
+    record = TraceRecord(run_id="run-2", start_time=1.0, end_time=2.0)
+    record.spans = [TraceSpan(action="retrieve", start_time=1.0, end_time=2.0, span_id="s1", success=True)]
+
+    ok = phoenix_exporter.export_trace_to_phoenix(
+        record, enabled=True, endpoint="http://localhost:6006/v1/traces", project_name="test",
+    )
+    assert ok is True
+    assert len(captured.get_finished_spans()) == 2  # root + retrieve

@@ -340,6 +340,8 @@ export PHOENIX_OTLP_ENDPOINT=http://localhost:6006/v1/traces
 
 启用后，agent trace 仍会写入本地 JSON，同时通过 OpenTelemetry OTLP/HTTP 批量导出到 Phoenix；依赖缺失或 Phoenix 不可用不会中断核查请求。可通过 `PHOENIX_EXPORT_TIMEOUT_SECONDS` 限制导出等待时间，默认 2 秒。
 
+**导出正确性已验证**：`backend/tests/test_trace.py` 会在装了 observability extra 时，用 OTel 的 `InMemorySpanExporter` 实跑一遍导出，断言真实 span 的树形结构（root=CHAIN、子 span 父子嵌套）、`openinference.span.kind`、`session.id`、以及 success→OK / failure→ERROR 状态映射——即真实 Phoenix 会收到的同一批 span。**未在真实 Phoenix 实例上端到端验证**（无人值守环境无可达实例）：span 构建与 OTLP 导出成功刷新这两段已用内存 exporter 证实，剩下的只是把 endpoint 指向一个真实 Phoenix 看 UI 里出现 trace。**注意**：若在并行 fan-out 里触发导出，worker 必须用 `copy_context().run` 包装，否则 progress/trace 的 ContextVar 不传播（见架构文档「流式观测怎么做」）。
+
 **最小联调**：
 
 ```bash
