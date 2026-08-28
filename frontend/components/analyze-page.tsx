@@ -38,6 +38,12 @@ export function AnalyzePage() {
   const [activeMode, setActiveMode] = useState<"fast" | "deep">("fast");
   const [models, setModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>("");
+  // The server's own default model. We surface it in the picker for display, but
+  // must NOT send it as an explicit request_context.model: the backend reads any
+  // explicit model as "user pinned this — never fail over", which disables the
+  // health-aware failover and lets one flaky model collapse a run into safe_mode.
+  // Only a model the user actively chose (≠ this default) is sent.
+  const [serverDefaultModel, setServerDefaultModel] = useState<string>("");
   const [searchSources, setSearchSources] = useState<SearchSource[]>([]);
   const [activeSources, setActiveSources] = useState<string[]>([]);
   const [claimsOpen, setClaimsOpen] = useState(true);
@@ -64,6 +70,7 @@ export function AnalyzePage() {
     void getModels().then((res) => {
       if (!active) return;
       setModels(res.models);
+      setServerDefaultModel(res.default || res.models[0] || "");
       setSelectedModel((cur) => cur || res.default || res.models[0] || "");
     }).catch(() => {});
     return () => { active = false; };
@@ -102,11 +109,14 @@ export function AnalyzePage() {
     const validation = validateInput(trimmed, "auto");
     if (validation) { setStatus("error"); setErrorMessage(validation); return; }
     const model = modelOverride ?? selectedModel;
+    // Only treat it as an explicit pick when it differs from the server default —
+    // otherwise omit it so the backend keeps failover enabled (see serverDefaultModel).
+    const explicitModel = model && model !== serverDefaultModel ? model : "";
     if (typeof window !== "undefined") {
       const params = new URLSearchParams();
       params.set("q", trimmed);
       if (mode === "deep") params.set("mode", "deep");
-      if (mode === "deep" && model) params.set("model", model);
+      if (mode === "deep" && explicitModel) params.set("model", explicitModel);
       window.history.replaceState(null, "", `?${params.toString()}`);
     }
     setLastQuery(trimmed); setActiveMode(mode); setIsStreaming(true);
@@ -115,7 +125,7 @@ export function AnalyzePage() {
     setEvidenceOpen(false); setTimelineOpen(false); setTraceOpen(mode === "deep");
     setRunId(null); setAgentSpanTreeOpen(false);
     try {
-      const request: AnalyzeRequest = { raw_input: trimmed, input_type: "auto", request_context: { mode, ...(mode === "deep" && model ? { model } : {}), ...(activeSources.length > 0 ? { search_sources: activeSources } : {}) } };
+      const request: AnalyzeRequest = { raw_input: trimmed, input_type: "auto", request_context: { mode, ...(mode === "deep" && explicitModel ? { model: explicitModel } : {}), ...(activeSources.length > 0 ? { search_sources: activeSources } : {}) } };
       const nextReport = await analyzeReportStream(request, handleStreamEvent);
       setReport(nextReport); setReportProvenance(buildReportProvenance(nextReport));
       setStatus(getStatusFromMode(nextReport.mode));

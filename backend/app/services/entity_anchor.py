@@ -78,6 +78,32 @@ GENERIC_SUBJECT_ANCHORS = {
     "这件事",
     "相关事件",
 }
+# Well-known brand/entity names recognized as subject anchors regardless of where
+# they sit in the sentence. The ENTITY/ACTION patterns below only find an entity
+# via a suffix (公司/集团/…) or by being adjacent to an action verb (裁员/回应/…);
+# a bare brand far from the verb is missed — e.g. "京东在今年830 930 730的时间内
+# 开始裁员" made ACTION_PREFIX_PATTERN capture "730的时间内开始" and drop 京东
+# entirely, so a split "主要针对中层" sub-claim floated with no subject and the
+# rule engine couldn't align it to the obvious 京东砍层级 hits. Only UNAMBIGUOUS
+# full names go here (mirrors retrieval_service._SUBJECT_BRANDS): a 2-char prefix
+# like 阿里/字节 collides with 阿里山/字节 and would false-anchor place names.
+KNOWN_BRANDS = (
+    "拼多多",
+    "京东",
+    "淘宝",
+    "天猫",
+    "阿里巴巴",
+    "腾讯",
+    "百度",
+    "美团",
+    "字节跳动",
+    "华为",
+    "小米",
+    "滴滴",
+    "网易",
+    "京东物流",
+    "京东集团",
+)
 # Temporal adverbs the action-prefix capture greedily swallows into the subject
 # (e.g. "美团最近裁员" -> "美团最近"). Left attached, the anchor demands the literal
 # substring "美团最近", so a real "美团回应裁员" article fails the subject gate and
@@ -223,6 +249,23 @@ def extract_subject_anchors(text: str) -> list[str]:
         seen.add(key)
         anchors.append(cleaned)
 
+    # Known brands first: a recognized brand anywhere in the text is the primary
+    # subject, even when it's far from the action verb (the patterns below would
+    # miss it). Guard the 京东→京东镇 / 京东白条 collision so a brand only anchors
+    # when it isn't the prefix of a different compound noun.
+    _BRAND_COMPOUND_SUFFIXES = ("镇", "村", "区", "县", "白条", "金融")
+    for brand in KNOWN_BRANDS:
+        start = 0
+        while True:
+            idx = normalized.find(brand, start)
+            if idx < 0:
+                break
+            tail = normalized[idx + len(brand):]
+            if not any(tail.startswith(suffix) for suffix in _BRAND_COMPOUND_SUFFIXES):
+                push(brand)
+                break
+            start = idx + len(brand)
+
     for match in ENTITY_PATTERN.finditer(normalized):
         push(match.group(0))
 
@@ -243,7 +286,36 @@ def candidate_matches_subject_anchors(anchors: Sequence[str], *texts: str | None
     haystack = _normalize_anchor_text(" ".join(text for text in texts if text)).lower()
     if not haystack:
         return False
-    return any(_normalize_anchor_text(anchor).lower() in haystack for anchor in anchors if anchor.strip())
+    for anchor in anchors:
+        needle = _normalize_anchor_text(anchor).lower()
+        if not needle:
+            continue
+        if needle not in haystack:
+            continue
+        # A known brand must match as the brand itself, not as the prefix of a
+        # different compound (京东 must not match 京东镇/京东白条). For non-brand
+        # anchors keep plain substring matching, which legitimately allows
+        # abbreviation overlaps elsewhere.
+        if _normalize_anchor_text(anchor) in KNOWN_BRANDS and not _brand_mentioned(haystack, needle):
+            continue
+        return True
+    return False
+
+
+# CJK chars that, immediately after a brand, form a DIFFERENT proper noun.
+_BRAND_MATCH_SUFFIXES = ("镇", "村", "白条", "金融")
+
+
+def _brand_mentioned(haystack: str, brand: str) -> bool:
+    start = 0
+    while True:
+        idx = haystack.find(brand, start)
+        if idx < 0:
+            return False
+        tail = haystack[idx + len(brand):]
+        if not any(tail.startswith(suffix) for suffix in _BRAND_MATCH_SUFFIXES):
+            return True
+        start = idx + len(brand)
 
 
 def text_contains_subject_mismatch(*texts: str | None) -> bool:

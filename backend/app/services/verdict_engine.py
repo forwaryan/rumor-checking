@@ -702,9 +702,16 @@ class VerdictEngine:
         claim_anchors = self._filter_subject_anchors(extract_subject_anchors(claim_text))
         if claim_anchors:
             return claim_anchors
-        if event.input_type != "question_only":
-            return []
-        return self._filter_subject_anchors(extract_subject_anchors(" ".join(filter(None, [event.title, event.summary, event.raw_input]))))
+        # The claim names no subject of its own. This is the split-sub-claim case:
+        # "京东在今年…裁员" splits into "…裁员" + "主要针对的是中层", and the
+        # predicate-only half loses 京东, so it floats with no anchor and the rule
+        # engine can't align it to the obvious 京东砍层级 hits. Inherit the event's
+        # subject so a split half still matches evidence about the same entity.
+        # (Previously only question_only input fell back here, which missed the far
+        # more common text_news split case.)
+        return self._filter_subject_anchors(
+            extract_subject_anchors(" ".join(filter(None, [event.title, event.summary, event.raw_input])))
+        )
 
     def _filter_subject_anchors(self, anchors: list[str]) -> list[str]:
         return [anchor for anchor in anchors if not any(marker in anchor for marker in UNRELIABLE_ANCHOR_MARKERS)]
