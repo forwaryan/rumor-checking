@@ -170,6 +170,7 @@ Rules:
   4. `supported` only with evidence that directly affirms the claim (respect scope).
   5. `conflicting` when reputable hits both affirm and deny the SAME claim.
 - Scope discipline: absolute-scope claims need full-scope evidence for `supported`.
+- Temporal discipline: when the claim names a timeframe (今年/去年/具体年份/近期…), the evidence must fall INSIDE that window to `support` it at high/medium confidence. If your only supporting hits predate the claimed period (e.g. a 2024 article for a 今年/2026 claim), either keep the verdict but set confidence to low and truth_probability ≤ 55, or use `insufficient` — never affirm a current-year claim on stale evidence at high confidence. Say so in notes.
 - Do not emit `supported`/`refuted`/`conflicting` without at least one valid evidence entry.
 - Output a single raw JSON object ONLY: no markdown, no ```json code fences, no prose before or after. Escape every double-quote that appears inside a string value as \\".
 """.strip()

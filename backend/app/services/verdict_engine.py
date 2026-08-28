@@ -419,19 +419,31 @@ class VerdictEngine:
             return (tier_rank, -dt.timestamp())
 
         ranked = sorted(high_tier_pool, key=_rank_key)
+        # Only attach hits that actually mention the claim's subject. The backfill
+        # historically stapled the top-tier hits on regardless, which surfaced
+        # 京东镇 (a village) and a 京东白条 scam notice as S-tier "evidence" for a
+        # 京东-the-company layoff claim — off-subject material wearing an
+        # authoritative badge. `_mentions_claim_subject` does a boundary-aware
+        # check so 京东镇/京东白条 no longer count as a 京东 mention.
+        subject_terms = self._claim_subject_terms(fact_results[0].claim)
         # Deduplicate by URL and cap at 3 to avoid drowning the panel.
         picked: list[EvidenceItem] = []
         seen: set[str] = set(attached_urls)
         for item in ranked:
             if item.url in seen:
                 continue
+            haystack = f"{item.title} {item.snippet}"
+            if subject_terms and not self._mentions_claim_subject(haystack, subject_terms):
+                continue
             seen.add(item.url)
+            # REPLACE the category-derived relevance line (which asserts "官方来源
+            # 直接提及当前事件" purely from the domain) — keeping it alongside
+            # "未做主体核对" was self-contradictory. This is fallback material whose
+            # subject alignment we have NOT confirmed; say exactly that.
             picked.append(item.model_copy(update={
                 "stance": "ambiguous",
                 "stance_quote": None,
-                "relevance_reason": (
-                    (item.relevance_reason + " ") if item.relevance_reason else ""
-                ) + "[rule fallback 顶部证据回填，未做主体核对]",
+                "relevance_reason": "[规则兜底] 顶部检索材料，主体未逐条核对，仅作参考，未必直接支持本说法。",
             }))
             if len(picked) >= 3:
                 break
@@ -451,6 +463,41 @@ class VerdictEngine:
         results = list(results)
         results[target_idx] = updated_claim
         return results
+
+    # Brand/proper-noun tokens the backfill uses to gate off-subject hits. Kept
+    # deliberately small and unambiguous; a 2-char brand that is also a common
+    # place-name prefix (阿里/字节) is omitted for the same reason retrieval_service
+    # omits them — the boundary check below still guards the ones we keep.
+    _BACKFILL_SUBJECT_BRANDS = (
+        "拼多多", "京东", "淘宝", "阿里巴巴", "腾讯", "百度", "美团", "字节跳动", "华为", "小米",
+    )
+    # CJK chars that, immediately after a brand, form a DIFFERENT proper noun —
+    # 京东镇 (a village), 京东白条 (a product). A brand followed by one of these is
+    # not a mention of the company itself.
+    _BRAND_COMPOUND_SUFFIXES = ("镇", "村", "区", "县", "市", "省", "路", "街", "白条", "金融", "白")
+
+    def _claim_subject_terms(self, claim_text: str) -> list[str]:
+        """Brand names the claim itself names — the subjects any backfilled hit
+        must actually be about. Empty when the claim names no known brand (then
+        the backfill does not subject-gate, preserving prior behavior)."""
+        normalized = self._normalize_claim(claim_text)
+        return [brand for brand in self._BACKFILL_SUBJECT_BRANDS if brand in normalized]
+
+    def _mentions_claim_subject(self, text: str, subject_terms: list[str]) -> bool:
+        """True if `text` mentions any subject brand as the brand itself — not as a
+        prefix of a different compound noun (京东镇/京东白条 do NOT count as 京东)."""
+        haystack = self._normalize_claim(text)
+        for brand in subject_terms:
+            start = 0
+            while True:
+                idx = haystack.find(brand, start)
+                if idx < 0:
+                    break
+                tail = haystack[idx + len(brand):]
+                if not any(tail.startswith(suffix) for suffix in self._BRAND_COMPOUND_SUFFIXES):
+                    return True
+                start = idx + len(brand)
+        return False
 
     def _empty_evidence_note(self, retrieval_bundle: RetrievalBundle | None) -> str:
         # A live search that ran cleanly but came back with no on-topic hits is a

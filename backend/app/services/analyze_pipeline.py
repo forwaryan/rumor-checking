@@ -30,6 +30,59 @@ from backend.app.services.verdict_engine import VerdictEngine
 logger = logging.getLogger(__name__)
 
 
+class _SynthesisOutcome:
+    """Why agent synthesis produced no result — a skip vs. a genuine failure.
+
+    Carries a human summary + trace detail lines so the pipeline can render an
+    honest stage status instead of the old blanket "Agent 没有稳定产出，退回规则
+    兜底链路" that fired even in fast mode where the agent never ran.
+    """
+
+    __slots__ = ("skipped", "summary", "details")
+
+    def __init__(self, *, skipped: bool, summary: str, details: list[str]) -> None:
+        self.skipped = skipped
+        self.summary = summary
+        self.details = details
+
+    @classmethod
+    def skipped_fast_mode(cls) -> "_SynthesisOutcome":
+        return cls(
+            skipped=True,
+            summary="快速模式：走规则判定链路，未启用 Agent 综合。",
+            details=["mode=fast", "agent_invoked=false"],
+        )
+
+    @classmethod
+    def skipped_disabled(cls) -> "_SynthesisOutcome":
+        return cls(
+            skipped=True,
+            summary="Agent reasoner 未启用（无可用模型配置），走规则判定链路。",
+            details=["agent_enabled=false", "agent_invoked=false"],
+        )
+
+    @classmethod
+    def failed(cls, *, error_type: str | None = None) -> "_SynthesisOutcome":
+        details: list[str] = []
+        if error_type:
+            details.append(f"error_type={error_type}")
+        # Name any models the health registry rated unhealthy this run — that's
+        # the actionable "why" (timeout/empty exhausted a model's retry budget).
+        try:
+            snapshot = get_model_health_registry().snapshot()
+            unhealthy = [m for m, s in snapshot.items() if not s.get("healthy", True)]
+            if unhealthy:
+                details.append(f"unhealthy_models={','.join(sorted(unhealthy))}")
+        except Exception:  # pragma: no cover - observability must never break a run
+            pass
+        summary = (
+            "Agent synthesis 抛错，退回规则判定链路。"
+            if error_type
+            else "Agent 重试与模型 failover 均未产出可用结论，退回规则判定链路。"
+        )
+        return cls(skipped=False, summary=summary, details=details)
+
+
 class AnalyzePipeline:
     def __init__(self) -> None:
         self.settings = get_settings()
@@ -310,7 +363,7 @@ class AnalyzePipeline:
             summary="正在让 LLM 基于检索结果生成事件、claims、verdict 和 timeline。",
             details=[f"enabled={self.agent_reasoner.enabled}"],
         )
-        agent_synthesis = self._synthesize_with_agent(
+        agent_synthesis, synthesis_skip_reason = self._synthesize_with_agent(
             request=request,
             event=resolved_event,
             retrieval_bundle=retrieval_bundle,
@@ -337,13 +390,30 @@ class AnalyzePipeline:
                 ],
             )
         else:
-            emit_stage(
-                stage_key="agent_synthesis",
-                title="Agent 综合判断",
-                status="warning",
-                summary="Agent 没有稳定产出，退回规则兜底链路。",
-                details=[f"retrieval_hits={len(retrieval_bundle.canonical_results) if retrieval_bundle else 0}"],
-            )
+            hits = len(retrieval_bundle.canonical_results) if retrieval_bundle else 0
+            if synthesis_skip_reason is not None and synthesis_skip_reason.skipped:
+                # The agent was never invoked (fast mode, or reasoner disabled) —
+                # this is a deliberate skip, NOT a degrade. Labeling it 降级/warning
+                # cried wolf on every fast-mode run and hid genuine failures.
+                emit_stage(
+                    stage_key="agent_synthesis",
+                    title="Agent 综合判断",
+                    status="skipped",
+                    summary=synthesis_skip_reason.summary,
+                    details=[*synthesis_skip_reason.details, f"retrieval_hits={hits}"],
+                )
+            else:
+                # Genuine deep-mode failure: surface WHY (exception class, and the
+                # model-health snapshot) instead of a bare hit count, so the trace
+                # can distinguish timeout vs empty vs unparseable vs failover.
+                reason = synthesis_skip_reason or _SynthesisOutcome.failed()
+                emit_stage(
+                    stage_key="agent_synthesis",
+                    title="Agent 综合判断",
+                    status="warning",
+                    summary=reason.summary,
+                    details=[*reason.details, f"retrieval_hits={hits}"],
+                )
             emit_stage(
                 stage_key="provider_enrichment",
                 title="结构化补全",
@@ -575,12 +645,22 @@ class AnalyzePipeline:
         return final_report
 
     def _apply_model_override(self, request: AnalyzeRequest) -> None:
-        """Resolve request_context['model'] against the whitelist and apply it to
-        the LLM-backed services for this request. Invalid/absent → default."""
+        """Pin the LLM model for this request ONLY when the user explicitly picked
+        one via request_context['model'].
+
+        Critical: when no model is picked we leave model_override as None rather
+        than resolving the default into it. A concrete override is read downstream
+        as "the user demanded this exact model — never fail over off it"
+        (_candidate_models), so pinning the *default* here would collapse the
+        health-aware failover candidate list to a single model and let one flaky
+        model (e.g. GLM-5.2 returning empty 14× in a row) drag the whole run into
+        safe_mode instead of switching to a healthy alternate. Unset = the default
+        is merely the primary candidate, with LLM_MODELS as failover backups."""
         requested = request.request_context.get("model")
-        resolved = self.settings.resolve_model(requested if isinstance(requested, str) else None)
-        self.agent_reasoner.model_override = resolved
-        self.provider_enricher.provider.model_override = resolved
+        requested = requested.strip() if isinstance(requested, str) else ""
+        picked = requested if requested in self.settings.available_models else None
+        self.agent_reasoner.model_override = picked
+        self.provider_enricher.provider.model_override = picked
 
     def _is_deep_mode(self, request: AnalyzeRequest) -> bool:
         """Two-tier routing: 'fast' (default) forces the zero-LLM rule path so
@@ -609,23 +689,40 @@ class AnalyzePipeline:
         return self.question_resolver.resolve(event=event, retrieval_bundle=retrieval_bundle)
 
     def _synthesize_with_agent(self, *, request, event, retrieval_bundle, deep_mode: bool):
+        """Run agent synthesis, returning (result, outcome).
+
+        outcome is None on success. On the no-result path it explains WHY: a
+        deliberate skip (fast mode / reasoner disabled) vs. a genuine failure
+        (exception, or the reasoner returned None after exhausting its retry +
+        model-failover budget). The caller renders skip as 'skipped' and failure
+        as 'warning' so the trace stops mislabeling fast mode as a degrade.
+        """
         if not deep_mode:
-            return None
+            return None, _SynthesisOutcome.skipped_fast_mode()
+        if not self.agent_reasoner.enabled:
+            return None, _SynthesisOutcome.skipped_disabled()
         try:
-            return self.agent_reasoner.synthesize(
+            result = self.agent_reasoner.synthesize(
                 request=request,
                 event=event,
                 retrieval_bundle=retrieval_bundle,
             )
         except Exception as exc:
+            outcome = _SynthesisOutcome.failed(error_type=exc.__class__.__name__)
             emit_log(
                 stage_key="agent_synthesis",
                 level="warning",
                 title="Agent 综合失败",
                 summary="Agent synthesis 抛错，退回规则链。",
-                details=[f"error_type={exc.__class__.__name__}"],
+                details=outcome.details,
             )
-            return None
+            return None, outcome
+        if result is None:
+            # No exception, but the reasoner still gave nothing usable — it
+            # exhausted retries + model failover and fell through. The health
+            # snapshot names which models were rated unhealthy this run.
+            return None, _SynthesisOutcome.failed()
+        return result, None
 
     def _maybe_record_eval(self, request, retrieval_bundle, verdict) -> None:
         if not getattr(self.settings, "eval_record_enabled", False):

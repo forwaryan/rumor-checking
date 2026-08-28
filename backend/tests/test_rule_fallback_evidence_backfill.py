@@ -84,9 +84,62 @@ def test_backfill_fires_when_claim_has_zero_evidence():
     # Top-3 by tier priority: all B, not the C-tier zhihu
     attached_urls = {ev.url for ev in results[0].evidence}
     assert "https://zhihu.com/5" not in attached_urls
-    # All attached items carry the "参考材料" marker in relevance_reason.
+    # All attached items carry the fallback marker in relevance_reason, and the
+    # old self-contradictory "官方来源直接提及当前事件" text is gone (replaced, not
+    # appended), so a backfilled hit no longer both claims and disclaims relevance.
     for ev in results[0].evidence:
-        assert "rule fallback" in ev.relevance_reason.lower()
+        assert "规则兜底" in ev.relevance_reason
+        assert "直接提及当前事件" not in ev.relevance_reason
+
+
+def _brand_claim_result() -> ClaimResult:
+    """A claim naming a brand subject (京东), zero evidence attached."""
+    return ClaimResult(
+        claim="京东在今年830 930 730的时间内开始裁员，主要针对的是中层。",
+        claim_type="fact",
+        verdict="insufficient",
+        confidence="low",
+        evidence=[],
+        notes="",
+    )
+
+
+def test_backfill_subject_gate_rejects_collision_and_offsubject_hits():
+    """The 京东 layoff case: the pool's top-tier hits are about 京东镇 (a village),
+    京东白条 (a product), and an unrelated seminar. None mention 京东-the-company,
+    so the subject gate must reject all of them rather than staple them under an
+    authoritative badge — the exact misleading '判定依据' the user reported."""
+    engine = VerdictEngine()
+    pool = [
+        _pool_item("https://ncqsh.nc.gov.cn/1", tier="S", title="京东镇城中村改善人居环境提高生活品质"),
+        _pool_item("https://www.daishan.gov.cn/2", tier="S", title="关于近期利用取消京东白条实施诈骗高发的预警"),
+        _pool_item("https://leaders.people.com.cn/3", tier="A", title="促进互联网企业健康持续发展工作座谈会发言摘编"),
+    ]
+    results = engine._backfill_rule_fallback_evidence(
+        results=[_brand_claim_result()],
+        evidence_pool=pool,
+    )
+    # All off-subject: nothing attached, claim stays as-is.
+    assert results[0].evidence == []
+
+
+def test_backfill_subject_gate_keeps_onsubject_hits():
+    """When the pool DOES contain real 京东-company hits, they still backfill —
+    the gate rejects collisions, not legitimate subject mentions."""
+    engine = VerdictEngine()
+    pool = [
+        _pool_item("https://ncqsh.nc.gov.cn/1", tier="S", title="京东镇城中村改善人居环境"),  # collision, rejected
+        _pool_item("https://www.163.com/2", tier="B", title="京东被曝近期大规模裁员、强制查看员工手机"),
+        _pool_item("https://stock.10jqka.com.cn/3", tier="B", title="大厂集体向中层开刀:腾讯去职级、京东砍层级"),
+    ]
+    results = engine._backfill_rule_fallback_evidence(
+        results=[_brand_claim_result()],
+        evidence_pool=pool,
+    )
+    urls = {ev.url for ev in results[0].evidence}
+    assert "https://ncqsh.nc.gov.cn/1" not in urls  # 京东镇 stays out
+    assert "https://www.163.com/2" in urls  # real 京东 mention kept
+    assert "https://stock.10jqka.com.cn/3" in urls
 
 
 def test_backfill_fires_when_claim_has_exactly_one_evidence():

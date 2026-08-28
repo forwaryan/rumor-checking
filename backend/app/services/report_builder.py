@@ -17,6 +17,7 @@ from backend.app.models.schemas import (
     ScoreBreakdown,
     TimelineNode,
 )
+from backend.app.services.claim_timeliness import apply_timeliness_downgrade
 from backend.app.services.contract_utils import default_source_name, default_source_url, ensure_datetime_string
 from backend.app.services.question_intent import (
     is_broad_trend_question,
@@ -96,6 +97,10 @@ class ReportBuilder:
     ) -> Report:
         retrieval_hits = list(retrieval_hits or [])
         claim_results = self._backfill_claim_probabilities(claim_results)
+        # Both verdict paths (rule + deep synthesis) funnel through here, so this
+        # is where a time-scoped claim gets its confidence trimmed when the
+        # evidence predates the window it asserts. Only ever lowers confidence.
+        claim_results = apply_timeliness_downgrade(claim_results)
         mode = self._select_mode(
             event=event,
             claim_results=claim_results,
