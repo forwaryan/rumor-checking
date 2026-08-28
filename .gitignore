@@ -10,6 +10,7 @@ __pycache__/
 data/cache/retrieval/
 data/cache/url_fetch/
 data/model_ledger/
+data/traces/
 artifacts/
 tmp-utf8-test.txt
 

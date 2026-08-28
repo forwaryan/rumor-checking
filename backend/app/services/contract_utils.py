@@ -37,21 +37,30 @@ def repair_unescaped_inner_quotes(json_text: str) -> str:
             idx += 1
         return (json_text[idx] if idx < n else ""), idx
 
+    def _looks_like_json_value_start(ch: str) -> bool:
+        """True when ``ch`` is the first char of a JSON value/key token — i.e. the
+        thing that legitimately follows a structural ``:`` or ``,``."""
+        return ch in ('"', "{", "[", "-", "}", "]", "") or ch.isdigit() or ch in ("t", "f", "n")
+
     def _closes_string(quote_idx: int) -> bool:
         following, pos = _next_nonspace(quote_idx + 1)
-        if following in (":", "}", "]", ""):
+        if following in ("}", "]", ""):
             return True
+        if following == ":":
+            # A structural `":` is a key separator, followed by the value token.
+            # But models also quote prose with a trailing colon inside a value,
+            # e.g. `大厂集体向中层"开刀":腾讯…` — there the `"` closes 开刀 and the
+            # `:` is prose, followed by ordinary (CJK) text, NOT a JSON value. Only
+            # treat `":` as a real close when a JSON value actually follows.
+            after_colon, _ = _next_nonspace(pos + 1)
+            return _looks_like_json_value_start(after_colon)
         if following == ",":
             # A structural comma is followed by the next key/element; a comma that
             # is part of the string's prose is followed by ordinary text. A comma
             # then a closer (`}`/`]`) is a trailing comma after a real closing
             # quote, so that still closes the string.
             after_comma, _ = _next_nonspace(pos + 1)
-            return (
-                after_comma in ('"', "{", "[", "-", "}", "]", "")
-                or after_comma.isdigit()
-                or after_comma in ("t", "f", "n")
-            )
+            return _looks_like_json_value_start(after_comma)
         return False
 
     while i < n:

@@ -68,6 +68,40 @@ def test_claim_without_timeframe_is_untouched():
     assert "时效提醒" not in out.notes
 
 
+def test_split_claim_inherits_timeframe_from_original_input():
+    # Regression: claim splitting dropped 今年 — the rumor "京东在今年…裁员"
+    # became the supported sub-claim "京东曾进行大规模裁员" with no year, so the
+    # 2024 evidence propped up 75% uncapped. With the original input supplied, the
+    # sub-claim inherits the rumor's 今年(2026) window and gets capped.
+    original = "京东在今年830 930 730的时间内开始裁员，主要针对的是中层"
+    [out] = apply_timeliness_downgrade(
+        [_claim("京东曾进行大规模裁员。")], reference=_REF, original_input=original
+    )
+    assert out.confidence == "low"
+    assert out.truth_probability == 55
+    assert "时效提醒" in out.notes
+
+
+def test_inherited_timeframe_not_applied_when_evidence_in_window():
+    # Inheriting the rumor's window must NOT cap a claim whose evidence IS in-window.
+    original = "京东在今年830 930 730的时间内开始裁员"
+    [out] = apply_timeliness_downgrade(
+        [_claim("京东曾进行大规模裁员。", published_at="2026-07-13")],
+        reference=_REF,
+        original_input=original,
+    )
+    assert out.confidence == "medium"
+    assert out.truth_probability == 75
+
+
+def test_no_original_input_leaves_timeframeless_claim_untouched():
+    # Without an original_input fallback, a timeframe-less claim stays as-is
+    # (preserves the pre-fix behavior for callers that don't pass it).
+    [out] = apply_timeliness_downgrade([_claim("京东曾进行大规模裁员。")], reference=_REF)
+    assert out.confidence == "medium"
+    assert out.truth_probability == 75
+
+
 def test_in_window_evidence_is_untouched():
     [out] = apply_timeliness_downgrade(
         [_claim("京东今年进行了大规模裁员", published_at="2026-07-13")], reference=_REF

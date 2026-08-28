@@ -116,6 +116,7 @@ def apply_timeliness_downgrade(
     claim_results: list[ClaimResult],
     *,
     reference: date | datetime | None = None,
+    original_input: str | None = None,
 ) -> list[ClaimResult]:
     """Lower confidence (and cap truth_probability) for any supported/conflicting
     claim whose stated timeframe is not covered by its own supporting evidence.
@@ -125,10 +126,20 @@ def apply_timeliness_downgrade(
     than the window by the stale threshold. Undated evidence is ignored here — the
     verdict engine already handles the all-undated case. Never raises confidence,
     never changes the verdict string.
+
+    ``original_input`` supplies a fallback timeframe: claim splitting frequently
+    drops the timeframe from a sub-claim (the rumor "京东在今年…裁员" becomes the
+    supported sub-claim "京东曾进行大规模裁员", which names no year), so a claim
+    that states no window of its own inherits the window the whole rumor asserted.
     """
+    input_window = claimed_window_start(original_input, reference=reference) if original_input else None
     updated: list[ClaimResult] = []
     for claim in claim_results:
         window_start = claimed_window_start(claim.claim, reference=reference)
+        if window_start is None:
+            # No timeframe of its own — inherit the rumor's, so a split-off
+            # sub-claim is still judged against the period the rumor was about.
+            window_start = input_window
         if window_start is None or claim.verdict not in {"supported", "conflicting"}:
             updated.append(claim)
             continue

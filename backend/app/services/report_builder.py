@@ -100,7 +100,11 @@ class ReportBuilder:
         # Both verdict paths (rule + deep synthesis) funnel through here, so this
         # is where a time-scoped claim gets its confidence trimmed when the
         # evidence predates the window it asserts. Only ever lowers confidence.
-        claim_results = apply_timeliness_downgrade(claim_results)
+        # Pass the original input so a split sub-claim that dropped the timeframe
+        # still inherits the window the whole rumor asserted.
+        claim_results = apply_timeliness_downgrade(
+            claim_results, original_input=original_input or event.raw_input
+        )
         mode = self._select_mode(
             event=event,
             claim_results=claim_results,

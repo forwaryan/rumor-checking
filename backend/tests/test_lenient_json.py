@@ -69,6 +69,36 @@ def test_real_comma_separators_still_close_strings():
     assert loads_lenient_json('{"a": "x", "n": 5000}') == {"a": "x", "n": 5000}
 
 
+def test_repairs_inner_quote_before_prose_colon():
+    # The GLM 京东裁员 case: an inner quote followed by a colon that is PROSE,
+    # not a JSON key separator — `大厂向中层"开刀":腾讯去职级` must stay one string.
+    # Regression: this used to force 2 synthesis retries (each 200s+) because the
+    # `":` was misread as a key-close and json.loads broke at the next char.
+    text = '{"quote": "大厂集体向中层"开刀":腾讯去职级、京东砍层级"}'
+    parsed = loads_lenient_json(text)
+    assert parsed is not None
+    assert parsed["quote"] == '大厂集体向中层"开刀":腾讯去职级、京东砍层级'
+
+
+def test_inner_quote_then_prose_colon_multiple():
+    text = '{"notes": "他被称为"专家":其实是"骗子":名不副实。", "n": 3}'
+    parsed = loads_lenient_json(text)
+    assert parsed is not None
+    assert parsed["notes"] == '他被称为"专家":其实是"骗子":名不副实。'
+    assert parsed["n"] == 3
+
+
+def test_real_key_colon_separators_still_close_strings():
+    # A genuine `"key":` separator (followed by a JSON value) must still close the
+    # string — the prose-colon repair must not swallow real structure.
+    assert loads_lenient_json('{"verdict":"supported","truth_probability":75}') == {
+        "verdict": "supported",
+        "truth_probability": 75,
+    }
+    assert loads_lenient_json('{"event":{"title":"t"}}') == {"event": {"title": "t"}}
+    assert loads_lenient_json('{"claims":["a","b"]}') == {"claims": ["a", "b"]}
+
+
 def test_returns_none_on_non_object():
     assert loads_lenient_json("[1, 2, 3]") is None
     assert loads_lenient_json("not json at all") is None
