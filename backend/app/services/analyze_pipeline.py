@@ -46,7 +46,7 @@ class _SynthesisOutcome:
         self.details = details
 
     @classmethod
-    def skipped_fast_mode(cls) -> "_SynthesisOutcome":
+    def skipped_fast_mode(cls) -> _SynthesisOutcome:
         return cls(
             skipped=True,
             summary="快速模式：走规则判定链路，未启用 Agent 综合。",
@@ -54,7 +54,7 @@ class _SynthesisOutcome:
         )
 
     @classmethod
-    def skipped_disabled(cls) -> "_SynthesisOutcome":
+    def skipped_disabled(cls) -> _SynthesisOutcome:
         return cls(
             skipped=True,
             summary="Agent reasoner 未启用（无可用模型配置），走规则判定链路。",
@@ -62,7 +62,7 @@ class _SynthesisOutcome:
         )
 
     @classmethod
-    def failed(cls, *, error_type: str | None = None) -> "_SynthesisOutcome":
+    def failed(cls, *, error_type: str | None = None) -> _SynthesisOutcome:
         details: list[str] = []
         if error_type:
             details.append(f"error_type={error_type}")
