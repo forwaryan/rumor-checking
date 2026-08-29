@@ -2,7 +2,7 @@
 
 FastAPI 主进程。产品能力/两档核查/概率维度看主 [README.md](../README.md)；这里只讲后端目录本身的接口、运行方式和边界。
 
-更新时间：2026-08-03（Asia/Shanghai）
+更新时间：2026-08-29（Asia/Shanghai）
 
 ## 当前接口
 
@@ -45,8 +45,11 @@ RETRIEVAL_FALLBACK_TO_MOCK=true
 - `RETRIEVAL_CACHE_ENABLED` / `RETRIEVAL_CACHE_TTL_SECONDS` / `RETRIEVAL_CACHE_ALLOW_STALE_ON_ERROR` / `RETRIEVAL_CACHE_DIR`
 - `RETRIEVAL_GDELT_BASE_URL`
 - `LLM_SEARCH_MODEL`
+- `XHS_SEARCH_ENABLED` / `TOUTIAO_SEARCH_ENABLED` / `SOGOU_WEIXIN_SEARCH_ENABLED` / `PIYAO_SEARCH_ENABLED`
 
 **Provider 枚举**：`mock | playwright | gdelt | kimi | off`。对照说明见主 [README.md](../README.md#接口与运行路径)。
+
+`google_news_rss_provider.py` 当前是未接入 `RetrievalService` 的实验实现，`RETRIEVAL_GOOGLE_NEWS_ENDPOINT` 仅为该实现预留；不要把它当作可选 `RETRIEVAL_PROVIDER` 值。
 
 **证据质量增强（可选，默认关，失败自动回退）**：
 

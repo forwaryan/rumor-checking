@@ -13,6 +13,7 @@
 - [Public schemas](../contracts/README.md): backend/frontend contract ownership and drift checks.
 - [Minimal evaluation set](../evals/minimal_v1/README.md): deterministic component fixtures.
 - `evals/live_replay/seed/`: versioned end-to-end replay corpus.
+- `evals/live_replay/hard/`: harder replay corpus for regressions around timeliness, subject alignment, and conflicting evidence.
 - [Contributing](../CONTRIBUTING.md): development workflow and validation commands.
 - [Security](../SECURITY.md): vulnerability and sensitive-data policy.
 

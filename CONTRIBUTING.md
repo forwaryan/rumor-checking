@@ -33,6 +33,7 @@ npm run build
 ## Evaluation changes
 
 - Treat `evals/live_replay/seed/` as a regression corpus, not training data.
+- Use `evals/live_replay/hard/` for difficult end-to-end replay cases and add focused assertions under `backend/eval_regression_tests/` when replay behavior must stay locked.
 - Add cases for new failure modes rather than rewriting expected labels to fit current output.
 - Report category-level changes for time-sensitive, stale-news, subject-mismatch, and conflicting-source cases.
 - Keep retrieval snapshots free of secrets and personal data.

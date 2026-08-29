@@ -2,7 +2,7 @@
 
 Next.js 单页前端。产品能力/两档/概率维度看主 [README.md](../README.md)；这里只讲前端目录本身的运行方式、目录结构和边界。
 
-更新时间：2026-08-03（Asia/Shanghai）
+更新时间：2026-08-29（Asia/Shanghai）
 
 ## 当前实现
 
@@ -46,7 +46,7 @@ npm run build
 ## 目录
 
 - `app/` — Next.js 页面入口、根布局、全局样式
-- `components/` — `analyze-page.tsx`（编排）+ `verdict-card` / `claim-list` / `evidence-list` / `possibilities-section` / `search-input` / `timeline-section` / `trace-timeline`
+- `components/` — `analyze-page.tsx`（编排）+ `credibility-header` / `verdict-card` / `claim-list` / `evidence-list` / `possibilities-section` / `search-input` / `timeline-section` / `trace-timeline` / `agent-span-tree` / `run-metrics-panel`
 - `lib/` — API client、解析、展示辅助
 - `types/` — 前端消费的 `Report` 类型
 

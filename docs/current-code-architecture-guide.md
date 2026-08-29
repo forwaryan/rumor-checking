@@ -1,6 +1,6 @@
 # 代码结构与架构详解
 
-> 更新时间：2026-08-03（Asia/Shanghai）
+> 更新时间：2026-08-29（Asia/Shanghai）
 > 
 > 目的：把这套代码「怎么分层、怎么跑、每个模块干什么」讲清楚。所有链接和口径与当前主分支代码一致。
 
@@ -50,7 +50,7 @@
 |---|---|---|---|
 | 1 | **输入** | 前端 `SearchInput` | `AnalyzeRequest` |
 | 2 | **标准化** | `InputNormalizer` | `NormalizedEvent`（标题、摘要、关键词、来源、input_type） |
-| 3 | **并行检索** | `RetrievalService` / 多 Agent 4 路 | `RetrievalBundle`（canonical_results、grade） |
+| 3 | **多源检索** | `RetrievalService` 顺序补充 / 多 Agent 5 路并行调度 | `RetrievalBundle`（canonical_results、grade） |
 | 4 | **拆 Claim** | `ClaimExtractor` / LLM synthesis | 原子 fact/statement/opinion 列表 |
 | 5 | **逐条判定** | `VerdictEngine` + LLM 补判 / Critic | 每条 `verdict + confidence + truth_probability + evidence` |
 | 6 | **报告** | `ReportBuilder` + `PipelineTraceBuilder` | `Report`（前端消费） |
@@ -71,7 +71,7 @@ rumor-checking/
 │  │  ├─ agent/              # Agent 编排层（含 multi/ 多 Agent DAG）
 │  │  ├─ agent_tools/        # 把 services 里的能力薄封装成工具
 │  │  └─ services/           # 真正的业务流水线与能力组件
-│  ├─ tests/                 # 后端测试（~630 用例）
+│  ├─ tests/                 # 后端测试（700+ 用例）
 │  └─ eval_regression_tests/ # 回归相关脚本
 ├─ frontend/
 │  ├─ app/                   # Next.js 页面入口与全局样式
@@ -158,7 +158,9 @@ rumor-checking/
 | [possibilities-section.tsx](../frontend/components/possibilities-section.tsx) | 「可能性分布」与「更可能的答案」 |
 | [timeline-section.tsx](../frontend/components/timeline-section.tsx) | 传播时间线（日期由后端从 SERP 真实抽取，不足时降级为「时间未知」） |
 | [trace-timeline.tsx](../frontend/components/trace-timeline.tsx) | 底部执行过程 trace（默认折叠） |
+| [agent-span-tree.tsx](../frontend/components/agent-span-tree.tsx) | Agent span 树与父子调用关系 |
 | [run-metrics-panel.tsx](../frontend/components/run-metrics-panel.tsx) | 深度档观测面板：per-agent elapsed_ms、source_hits、tokens |
+| [credibility-header.tsx](../frontend/components/credibility-header.tsx) | 总体可信度与分数摘要 |
 | [lib/api-client.ts](../frontend/lib/api-client.ts) | 请求 `/health`、`/models`、`/analyze`、`/analyze/stream`，解析 NDJSON |
 | [lib/report-utils.ts](../frontend/lib/report-utils.ts) | 展示层二次整理：verdict 标签、置信度格式化、来源分级 meta |
 
@@ -212,7 +214,8 @@ sequenceDiagram
 | [playwright_search_provider.py](../backend/app/services/playwright_search_provider.py) | httpx 抓百度/Bing SERP，**从 `prefix-time` span 真实抽取日期**（支持绝对/相对/中文三种格式） |
 | [toutiao_search_provider.py](../backend/app/services/toutiao_search_provider.py) | 今日头条源（httpx SERP 抓取） |
 | [sogou_weixin_provider.py](../backend/app/services/sogou_weixin_provider.py) | 搜狗微信公众号源，tier 判定基于 `source_name`（不受标题攻击） |
-| [xhs_provider.py](../backend/app/services/xhs_provider.py) | 小红书源（走 xhs-cli） |
+| [xhs_search_provider.py](../backend/app/services/xhs_search_provider.py) | 小红书源（走 xhs-cli） |
+| [piyao_provider.py](../backend/app/services/piyao_provider.py) | 中国互联网联合辟谣平台源，统一标记为 `official_debunking` |
 | [question_resolver.py](../backend/app/services/question_resolver.py) | 对问句做事件收束，只在 `question_only` 路径生效 |
 | [agent_reasoner.py](../backend/app/services/agent_reasoner.py) | `LlmAgentReasoner`：LLM synthesis + critic + question resolution + 序列规划 |
 | [claim_extractor.py](../backend/app/services/claim_extractor.py) | 把一句话拆成原子 claim |
@@ -243,7 +246,7 @@ sequenceDiagram
 深度档 + `MULTI_AGENT_ENABLED=true` 会走一层 **Supervisor 多 Agent DAG**，把原来的串行检索改成并行拉源：
 
 <p align="center">
-  <img src="assets/multi-agent-dag.png" alt="多 Agent 并行 DAG · 一次分析同时跑 4 路检索" width="900">
+  <img src="assets/multi-agent-dag.png" alt="多 Agent 并行 DAG · 一次分析调度 5 路检索" width="900">
 </p>
 
 ### 7.1 触发条件
@@ -261,15 +264,16 @@ deep_mode + AGENT_ORCHESTRATOR_ENABLED + MULTI_AGENT_ENABLED
 ```
 NORMALIZE
     ├─→ RETRIEVAL_BAIDU     ┐
-    ├─→ RETRIEVAL_XHS       │  4 路并行（ThreadPool）
+    ├─→ RETRIEVAL_XHS       │  5 路调度（ThreadPool，默认 4 workers）
     ├─→ RETRIEVAL_TOUTIAO   │
-    └─→ RETRIEVAL_WEIXIN    ┘
+    ├─→ RETRIEVAL_WEIXIN    │
+    └─→ RETRIEVAL_PIYAO     ┘
                  ↓
            RETRIEVAL_MERGE   合并 · 去重 · 补检索
                  ↓
              ANALYSIS
                  ↓
-              CRITIC          可选 N 路多视角并行
+              CRITIC          默认 3 视角并行，至少 2 票才降级
                  ↓
               REPORT
 ```
@@ -283,7 +287,7 @@ NORMALIZE
 | [multi/__init__.py](../backend/app/agent/multi/__init__.py) | Protocol 定义（`AgentRole` / `AgentConfig` / `SubAgent` / `SubAgentResult`） |
 | [multi/supervisor.py](../backend/app/agent/multi/supervisor.py) | 编排：拓扑排序、`_ready_agents`、`_execute_batch`、loop_back、`_emit_run_summary` |
 | [multi/normalize_agent.py](../backend/app/agent/multi/normalize_agent.py) | 输入标准化 |
-| [multi/source_agents.py](../backend/app/agent/multi/source_agents.py) | 工厂 `build_source_agents` + `SOURCE_ROLES`，4 个源共用同一个 `SourceRetrievalAgent` 类 |
+| [multi/source_agents.py](../backend/app/agent/multi/source_agents.py) | 工厂 `build_source_agents` + `SOURCE_ROLES`，5 个源共用同一个 `SourceRetrievalAgent` 类 |
 | [multi/merge_agent.py](../backend/app/agent/multi/merge_agent.py) | 命名空间化 result_id (`baidu::…`)、`merge_search_results`、跑 resolve_question / follow_up / fetch_url |
 | [multi/retrieval_agent.py](../backend/app/agent/multi/retrieval_agent.py) | sequential 模式的单体节点 |
 | [multi/analysis_agent.py](../backend/app/agent/multi/analysis_agent.py) | 依赖参数化（`depends_on=RETRIEVAL_MERGE` 或 `RETRIEVAL`） |

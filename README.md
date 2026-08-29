@@ -35,7 +35,7 @@
 |  | 能力 | 关键特征 |
 |---|---|---|
 | 🎯 | **拆 claim 逐条判**  | 一条消息拆成原子事实，每条独立判 `属实 / 不实 / 证据不足 / 各方矛盾`，混合情况不粉饰 |
-| 🌐 | **4 路并行真检索**  | 百度 + 小红书 + 今日头条 + 搜狗微信，同一时刻并发拉取，SERP 日期真实抓取而非伪造 |
+| 🌐 | **5 路真检索**  | 百度 + 小红书 + 今日头条 + 搜狗微信 + 联合辟谣平台，多源调度且 SERP 日期真实抓取而非伪造 |
 | 🔎 | **语义证据重排**  | 证据按「意思相关度」重排(embedding 余弦),治字面撞词;可选、失败自动回退字面打分 |
 | 🧠 | **Agent 多轮迭代**  | 深度档跑「搜 → 判 → 再搜」循环，配合 LLM Critic 单调下调（永不加强判定） |
 | 📊 | **真伪概率**  | 除 verdict 外每条还有 0–100 概率，明确标注是「基于证据」还是「基于常识先验」 |
@@ -54,7 +54,7 @@
 
 1. **输入** — 支持文本、URL、问句三种输入类型
 2. **标准化** — 识别输入类型，抽取标题/摘要/关键词/来源
-3. **并行检索** — 4 路证据源同时拉取，去重、时间戳规范化
+3. **多源检索** — 固定流水线顺序补充 5 路证据源；深度多 Agent 模式并行调度，随后去重并规范化时间戳
 4. **拆 Claim** — 把核心事实和存疑细节各自独立，一条消息可能拆成 3–5 条
 5. **逐条判定** — 每条 claim 独立走 verdict + 真伪概率
 6. **报告** — 组装成带来源标注、时间线、可信度打分的结构化 `Report`
@@ -63,17 +63,17 @@
 
 ## 多 Agent 并行架构
 
-深度档 (`mode=deep`) 开启多 Agent 编排后，检索层从**串行 4 源** 升级为**并行 DAG**：
+深度档 (`mode=deep`) 开启多 Agent 编排后，检索层从**串行 5 源** 升级为**并行 DAG**：
 
 <p align="center">
-  <img src="docs/assets/multi-agent-dag.png" alt="多 Agent 并行 DAG · 一次分析同时跑 4 路检索" width="900">
+  <img src="docs/assets/multi-agent-dag.png" alt="多 Agent 并行 DAG · 一次分析调度 5 路检索" width="900">
 </p>
 
 **为什么这么设计**：
 
-- 4 个源之间没有数据依赖，串行是浪费；ThreadPool 并发拉取，端到端延迟 ≈ 最慢那一源
+- 5 个源之间没有数据依赖，串行是浪费；ThreadPool 默认最多 4 个 worker 并发拉取
 - `NORMALIZE` / `RETRIEVAL_MERGE` 是关键路径节点，任何源失败降级为 `SKIPPED` 空 bundle，`MERGE` 继续跑
-- `CRITIC` 可选多视角并行（`MULTI_AGENT_CRITIC_PERSPECTIVES>1`，N 个独立视角各判一次，取"提示downgrade"的交集）
+- `CRITIC` 可选多视角并行；默认 3 个独立视角，至少 2 个视角同时质疑时才降级
 - `Supervisor.execute_batch` 用 `copy_context().run()` 绑 `ContextVars`，否则 ThreadPool 的 worker 拿不到 `progress` 回调，观测会静默失效
 
 **在代码里**：入口 `backend/app/services/analyze_pipeline.py::_run_multi_agent` · Supervisor `backend/app/agent/multi/supervisor.py` · 6 个 sub-agent 各一个文件在 `backend/app/agent/multi/`
@@ -92,7 +92,7 @@
 
 | 档位 | 触发 | 时延 | 判定路径 | 适用 |
 |---|---|---|---|---|
-| **fast** ⚡ | 默认 / 请求带 `mode=fast` | ~0.2–0.3s | 4 路并行检索 → 规则引擎 verdict | 秒级实时查证 |
+| **fast** ⚡ | 默认 / 请求带 `mode=fast` | ~0.2–0.3s | 5 路检索 → 规则引擎 verdict | 秒级实时查证 |
 | **deep** 🔬 | 请求带 `mode=deep` | 分钟级 | Agent 循环 → LLM synthesis → Critic 校验 → 结构化补全 | 需要更强证据时的深度核查 |
 
 `mode` 只切换分析深度，检索 provider 始终由 `RETRIEVAL_PROVIDER` 决定，两档共用同一套真实检索层。
@@ -181,7 +181,7 @@
 ### 环境要求
 
 - Python `>= 3.12`（CI 用 3.12）
-- Node.js `>= 20.9.0`（`frontend/.nvmrc` 锁定为 20.9.0）
+- Node.js `>= 18.18.0`（推荐并由 `frontend/.nvmrc` 锁定为 20.9.0）
 
 ### 1. 配置环境变量
 
@@ -252,7 +252,7 @@ cd frontend && npm install && npm run dev
 ### 4. 跑测试
 
 ```bash
-pytest backend/tests -q                          # 后端回归 (~630 tests)
+python -m pytest backend/tests/ -q                # 后端回归（当前 700+ tests）
 cd frontend && npm run typecheck && npm test     # 前端类型检查 + 单测
 ```
 
@@ -263,15 +263,16 @@ CI 每次 push/PR 也会跑同一套（见下节）。
 ## 持续集成
 
 <p align="center">
-  <img src="docs/assets/ci-pipeline.png" alt="CI 流水线：backend ruff+pytest / frontend typecheck+build 两个 job 并行" width="900">
+  <img src="docs/assets/ci-pipeline.png" alt="CI 流水线：backend、frontend 与 PR dependency review" width="900">
 </p>
 
-`.github/workflows/ci.yml` 在 push 到 `main` 或 PR 目标为 `main` 时触发，两个 job 并行：
+`.github/workflows/ci.yml` 在 push 到 `main` 或 PR 目标为 `main` 时触发：
 
-- **backend**：`ruff check backend/` → `pytest backend/tests -q`（630 用例）。仅排除 `test_retrieval.py`（内部间接触发 `weixin.sogou.com` / `piyao.org.cn` 真实网络）
-- **frontend**：`npm ci` → `npm run typecheck` → `npm run build`
+- **backend**：安装依赖 → `ruff check backend/` → 契约检查 → 全量 `pytest backend/tests/ -q` → deterministic replay → 上传 replay artifact
+- **frontend**：`npm ci` → `npm run typecheck` → `npm test` → `npm run build`
+- **dependency-review**：仅 PR 运行，阻止引入 high severity 依赖；仓库需先启用 GitHub Dependency Graph
 
-**约束**：ruff 无 `--exit-zero`，任何 lint 违规立刻红；pytest 无失败豁免；两个 job 全绿才允许合并。
+**约束**：ruff 无 `--exit-zero`，任何 lint 违规立刻红；pytest 无失败豁免；CI 不跳过 `test_retrieval.py`。
 
 ---
 
@@ -367,11 +368,12 @@ curl -X POST http://127.0.0.1:8000/api/v1/analyze \
 | `MULTI_AGENT_ENABLED` | `false` | 启用 Supervisor 多 Agent 层 |
 | `MULTI_AGENT_RETRIEVAL_MODE` | `parallel` | `parallel`（推荐）/ `sequential`（回退） |
 | `MULTI_AGENT_MAX_PARALLEL` | `4` | ThreadPool 并发上限 |
-| `MULTI_AGENT_CRITIC_PERSPECTIVES` | `1` | Critic 多视角并行数，>1 时取 downgrade 的并集 |
+| `MULTI_AGENT_CRITIC_PERSPECTIVES` | `3` | Critic 多视角并行数；3 个视角时至少 2 票才降级 |
 | `MULTI_AGENT_LLM_ROUTING_ENABLED` | `false` | 用 LLM 决定 loop_back / finalize（否则走规则阈值） |
 | `TOUTIAO_SEARCH_ENABLED` | `true` | 今日头条源 |
 | `SOGOU_WEIXIN_SEARCH_ENABLED` | `true` | 搜狗微信源 |
 | `XHS_SEARCH_ENABLED` | `true` | 小红书源（需 `xhs-cli`） |
+| `PIYAO_SEARCH_ENABLED` | `true` | 中国互联网联合辟谣平台源 |
 
 ---
 
