@@ -130,6 +130,11 @@ class Settings:
     agent_wall_clock_seconds: float
     agent_clarification_enabled: bool
     agent_evidence_compaction_enabled: bool
+    agent_layered_context_enabled: bool
+    agent_context_max_tokens: int
+    agent_context_diagnostics_enabled: bool
+    agent_playbooks_enabled: bool
+    agent_playbook_dir: Path
     agent_prompt_cache_enabled: bool
     llm_api_key: str | None
     llm_base_url: str
@@ -299,6 +304,13 @@ def get_settings() -> Settings:
         agent_wall_clock_seconds=max(_as_float(os.getenv("AGENT_WALL_CLOCK_SECONDS"), 0.0), 0.0),
         agent_clarification_enabled=_as_bool(os.getenv("AGENT_CLARIFICATION_ENABLED"), default=False),
         agent_evidence_compaction_enabled=_as_bool(os.getenv("AGENT_EVIDENCE_COMPACTION_ENABLED"), default=False),
+        agent_layered_context_enabled=_as_bool(os.getenv("AGENT_LAYERED_CONTEXT_ENABLED"), default=True),
+        agent_context_max_tokens=max(_as_int(os.getenv("AGENT_CONTEXT_MAX_TOKENS"), 0), 0),
+        agent_context_diagnostics_enabled=_as_bool(os.getenv("AGENT_CONTEXT_DIAGNOSTICS_ENABLED"), default=True),
+        agent_playbooks_enabled=_as_bool(os.getenv("AGENT_PLAYBOOKS_ENABLED"), default=True),
+        agent_playbook_dir=Path(os.getenv(
+            "AGENT_PLAYBOOK_DIR", str(project_root / "backend" / "app" / "agent" / "playbooks"),
+        )),
         agent_prompt_cache_enabled=_as_bool(os.getenv("AGENT_PROMPT_CACHE_ENABLED"), default=True),
         llm_api_key=os.getenv("LLM_API_KEY") or os.getenv("KIMI_API_KEY"),
         llm_base_url=(os.getenv("LLM_BASE_URL") or os.getenv("KIMI_BASE_URL") or "https://api.openai.com/v1").rstrip("/"),

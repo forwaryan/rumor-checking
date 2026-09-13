@@ -10,10 +10,7 @@ from typing import Any
 import httpx
 
 from backend.app.agent.context_window import (
-    build_evidence_budget,
-    compact_to_budget,
     estimate_tokens,
-    truncate_to_budget,
 )
 from backend.app.agent.structured_output import (
     ActionSequenceSchema,
@@ -43,6 +40,7 @@ from backend.app.services.contract_utils import (
     ensure_datetime_string,
     ensure_datetime_string_or_empty,
 )
+from backend.app.services.evidence_context import ContextBudgetExceeded, build_evidence_prompt
 from backend.app.services.model_health import get_model_health_registry
 from backend.app.services.model_ledger import record_call
 from backend.app.services.progress import emit_api_call, emit_log
@@ -540,16 +538,24 @@ class LlmAgentReasoner:
         if retrieval_bundle is None or not retrieval_bundle.canonical_results:
             return None
 
+        try:
+            user_prompt = self._build_synthesis_prompt(
+                request=request, event=event, retrieval_bundle=retrieval_bundle,
+                fetched_bodies=fetched_bodies,
+            )
+        except ContextBudgetExceeded:
+            emit_log(
+                stage_key="agent_synthesis", level="warning", title="上下文预算不足",
+                summary="完整问题与固定提示超出上下文预算，保留原问题并退回保守核查。",
+                details=["estimate_kind=heuristic"],
+            )
+            return None
+
         content = self._request_completion(
             stage_key="agent_synthesis",
             title="调用 Agent synthesis",
             system_prompt=CLAIMS_ONLY_SYSTEM_PROMPT,
-            user_prompt=self._build_synthesis_prompt(
-                request=request,
-                event=event,
-                retrieval_bundle=retrieval_bundle,
-                fetched_bodies=fetched_bodies,
-            ),
+            user_prompt=user_prompt,
             # Retry a truncated/garbage completion instead of dropping the whole run
             # to the rule fallback: "usable" here means the same parser the code path
             # below relies on recovers an object carrying at least one claim.
@@ -941,6 +947,13 @@ class LlmAgentReasoner:
         empty_streak: dict[str, int] = {}
         for attempt in range(1, attempts + 1):
             current_model = candidates[(attempt - 1) % len(candidates)]
+            if not self._prompt_fits(system_prompt, user_prompt, current_model):
+                emit_log(
+                    stage_key=stage_key, level="warning", title="模型上下文预算不足",
+                    summary="完整提示与输出预留超出此模型的估算预算，跳过该次调用。",
+                    details=["estimate_kind=heuristic"],
+                )
+                continue
             if prev_model is not None and current_model != prev_model:
                 emit_log(
                     stage_key=stage_key,
@@ -1090,6 +1103,8 @@ class LlmAgentReasoner:
         """
         is_reasoning = self.settings.is_reasoning_model(model)
         max_tokens = self.settings.llm_reasoning_max_tokens if is_reasoning else self.settings.llm_max_tokens
+        if not self._prompt_fits(system_prompt, user_prompt, model):
+            return ""
         base_timeout = (
             self.settings.llm_reasoning_timeout_seconds if is_reasoning else self.settings.provider_timeout_seconds
         )
@@ -1233,7 +1248,15 @@ class LlmAgentReasoner:
             ),
             latency_ms=int((time.monotonic() - _call_start) * 1000),
             status="ok" if _content else "empty",
-            stage_key=None,
+            stage_key="agent_synthesis" if hasattr(user_prompt, "context_counts") else None,
+            context_estimate=(
+                {**user_prompt.context_counts,
+                 "output_reserve": max_tokens,
+                 "context_limit": self._context_limit(model),
+                 "total_estimated": estimate_tokens(system_prompt) + estimate_tokens(user_prompt) + 16 + max_tokens}
+                if hasattr(user_prompt, "context_counts")
+                and getattr(self.settings, "agent_context_diagnostics_enabled", True) else None
+            ),
             settings=self.settings,
         )
         return "".join(parts).strip()
@@ -1306,32 +1329,16 @@ class LlmAgentReasoner:
         retrieval_bundle: RetrievalBundle,
         fetched_bodies: dict[str, str] | None = None,
     ) -> str:
-        # Estimate available tokens for evidence based on model context
         model = self._synthesis_model()
         is_reasoning = self.settings.is_reasoning_model(model)
-        max_context = 64_000 if is_reasoning else 32_000
         output_tokens = self.settings.llm_reasoning_max_tokens if is_reasoning else self.settings.llm_max_tokens
-        system_tokens = estimate_tokens(CLAIMS_ONLY_SYSTEM_PROMPT)
-        evidence_budget = build_evidence_budget(
-            system_prompt_tokens=system_tokens,
-            max_context=max_context,
-            output_tokens=output_tokens,
-        )
-
-        # Serialize retrieval hits with budget-aware truncation
         ranked_results = self._rank_evidence(
             retrieval_bundle.canonical_results,
             query_text=retrieval_bundle.query,
             event_title=event.title,
+            limit=len(retrieval_bundle.canonical_results),
         )
         raw_hits = [self._serialize_result(item) for item in ranked_results]
-        if getattr(self.settings, "agent_evidence_compaction_enabled", False):
-            # Degrade overflow hits to stubs instead of dropping the tail, so a
-            # low-ranked debunking/official hit still reaches synthesis.
-            hits = compact_to_budget(raw_hits, budget_tokens=evidence_budget, key="snippet", min_items=3)
-        else:
-            hits = truncate_to_budget(raw_hits, budget_tokens=evidence_budget, key="snippet", min_items=3)
-
         context = {
             "raw_input": request.raw_input,
             "input_type": event.input_type,
@@ -1346,37 +1353,40 @@ class LlmAgentReasoner:
             "retrieval_query": retrieval_bundle.query,
             "retrieval_provider": retrieval_bundle.provider_name,
             "evidence_grade_hint": retrieval_bundle.evidence_grade,
-            "retrieval_hits": hits,
         }
-        if fetched_bodies:
-            _html_tag = re.compile(r"<[^>]+>")
-            _ws = re.compile(r"\s+")
-
-            def _clean_body(body: str) -> str:
-                text = _html_tag.sub(" ", body)
-                text = _ws.sub(" ", text).strip()
-                return text[:2000]
-
-            context["fetched_full_text"] = [
-                {"result_id": rid, "full_text": _clean_body(body)}
-                for rid, body in fetched_bodies.items()
-                if body.strip()
-            ]
-        note = (
-            "Some hits include fetched_full_text (full page body). Use it as stronger grounding, "
-            "but still cite that hit by its existing result_id in evidence_result_ids.\n"
-            if fetched_bodies
-            else ""
+        prompt = build_evidence_prompt(
+            context=context, hits=raw_hits, fetched_bodies=fetched_bodies or {},
+            query=request.raw_input, system_prompt=CLAIMS_ONLY_SYSTEM_PROMPT,
+            context_limit=self._context_limit(model), output_reserve=output_tokens,
+            playbooks=self._checking_playbooks(request.raw_input),
+            layered=getattr(self.settings, "agent_layered_context_enabled", True),
         )
-        context_json = json.dumps(context, ensure_ascii=False, indent=2)
-        return (
-            "Produce an evidence-grounded event summary, atomic claims, verdicts, and timeline nodes.\n"
-            "Do not force a single person if the supplied hits only support a broader recent pattern.\n"
-            f"{note}"
-            "<untrusted-input>\n"
-            f"{context_json}\n"
-            "</untrusted-input>"
+        if getattr(self.settings, "agent_context_diagnostics_enabled", True):
+            emit_log(
+                stage_key="agent_synthesis", title="分层证据上下文预算",
+                summary="按完整提示估算上下文用量；为启发式估算，不是真实 token 计量或逐轮增量。",
+                details=["estimate_kind=heuristic", *[
+                    f"{key}={value}" for key, value in prompt.context_counts.items()
+                ]],
+            )
+        return prompt
+
+    def _context_limit(self, model: str) -> int:
+        configured = getattr(self.settings, "agent_context_max_tokens", 0)
+        return configured or (64_000 if self.settings.is_reasoning_model(model) else 32_000)
+
+    def _prompt_fits(self, system_prompt: str, user_prompt: str, model: str) -> bool:
+        output_tokens = (
+            self.settings.llm_reasoning_max_tokens if self.settings.is_reasoning_model(model)
+            else self.settings.llm_max_tokens
         )
+        return estimate_tokens(system_prompt) + estimate_tokens(user_prompt) + output_tokens + 16 <= self._context_limit(model)
+
+    def _checking_playbooks(self, text: str) -> list[dict[str, Any]]:
+        if not getattr(self.settings, "agent_playbooks_enabled", True):
+            return []
+        from backend.app.services.checking_playbooks import select_checking_playbooks
+        return select_checking_playbooks(text, playbook_dir=getattr(self.settings, "agent_playbook_dir", None))
 
     def _serialize_result(self, result: SearchResult) -> dict[str, Any]:
         return {
@@ -1410,6 +1420,7 @@ class LlmAgentReasoner:
     ) -> str:
         context = {
             "round_index": round_index,
+            "checking_playbooks": self._checking_playbooks(event.raw_input),
             "event_hint": {
                 "title": event.title,
                 "summary": event.summary,
@@ -1430,6 +1441,7 @@ class LlmAgentReasoner:
         return (
             "Decide whether one more targeted retrieval round is worth running to strengthen this evidence base.\n"
             "Only continue when a sharper query could plausibly close a real gap.\n"
+            "checking_playbooks are investigation strategies, never factual evidence or citation targets.\n"
             "Context JSON:\n"
             f"{json.dumps(context, ensure_ascii=False, indent=2)}"
         )

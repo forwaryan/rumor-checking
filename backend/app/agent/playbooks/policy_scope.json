@@ -1,0 +1,14 @@
+{
+  "id": "policy_scope",
+  "kind": "procedure",
+  "status": "approved",
+  "title": "政策传闻的时效与适用范围",
+  "match_terms": ["政策", "新规", "通知", "补贴", "条例", "办法", "policy", "regulation"],
+  "instructions": [
+    "优先检索发布机关原文和文号，分别核对发布日期、生效日期、适用地区与对象。",
+    "区分征求意见、计划实施、试点和正式生效；检查是否已有修订、废止或延期通知。",
+    "结论只覆盖本次证据实际支持的范围；找不到当前有效原文时保留证据不足。"
+  ],
+  "source_url": "repo://backend/tests/test_claim_timeliness.py",
+  "reviewed_at": "2026-09-13"
+}

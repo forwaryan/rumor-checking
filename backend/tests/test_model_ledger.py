@@ -82,3 +82,20 @@ def test_ledger_never_raises_on_broken_dir(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(model_ledger.ModelLedger, "append", _boom)
     # Must not raise.
     model_ledger.record_call(provider="llm", model="m", settings=settings)
+
+
+def test_context_estimate_persists_only_known_nonnegative_integer_counts(tmp_path: Path):
+    model_ledger._reset_for_tests()
+    model_ledger.record_call(
+        provider="llm", model="model", settings=_settings(enabled=True, ledger_dir=tmp_path),
+        context_estimate={
+            "system": 120, "total_estimated": 500, "prompt": "private user input",
+            "evidence_passages": {"text": "test private passage"},
+            "playbooks": "private strategy", "evidence_omitted": -1, "evidence_selected": True,
+        },
+    )
+    content = list(tmp_path.glob("*.jsonl"))[0].read_text()
+    assert "private" not in content
+    assert json.loads(content)["context_estimate"] == {
+        "system": 120, "total_estimated": 500, "estimate_kind": "heuristic",
+    }

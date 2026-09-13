@@ -1,15 +1,15 @@
 """Context window management — token estimation and dynamic truncation.
 
 Provides utilities to estimate token counts for Chinese/English mixed text and
-dynamically truncate prompts to stay within model context limits. This prevents
-prompt overflow when evidence pools are large.
+dynamically truncate prompts against estimated model context limits.
 
 Token estimation uses a hybrid heuristic: Chinese characters ≈ 1.5 tokens each,
-ASCII words ≈ 1.3 tokens each (accounts for subword tokenization). This is a
-conservative estimate that works for the OpenAI-compatible tokenizer family.
+ASCII words use the larger of 1.3 tokens or one third of their character count.
+The estimate accounts for long unbroken strings but is not exact tokenization.
 """
 from __future__ import annotations
 
+import math
 import re
 from typing import Any
 
@@ -26,18 +26,18 @@ _ASCII_WORD_RE = re.compile(r"[a-zA-Z0-9]+")
 def estimate_tokens(text: str) -> int:
     """Estimate token count for mixed Chinese/English text.
 
-    Returns a conservative upper bound (never underestimates).
+    This is a heuristic, not a tokenizer or a guaranteed upper bound.
     """
     if not text:
         return 0
     cjk_chars = len(_CJK_RE.findall(text))
-    ascii_words = len(_ASCII_WORD_RE.findall(text))
+    ascii_words = _ASCII_WORD_RE.findall(text)
     # Remaining characters (punctuation, whitespace, symbols)
     other_chars = len(text) - cjk_chars - sum(len(m.group()) for m in _ASCII_WORD_RE.finditer(text))
-    return int(
+    return math.ceil(
         cjk_chars * _CHINESE_CHAR_TOKENS
-        + ascii_words * _ASCII_WORD_TOKENS
-        + other_chars * 0.5
+        + sum(max(_ASCII_WORD_TOKENS, len(word) / 3) for word in ascii_words)
+        + other_chars
     )
 
 
@@ -179,6 +179,6 @@ def build_evidence_budget(
     evidence_budget = max_context - output - system - overhead
     """
     return max(
-        2000,
+        0,
         max_context - output_tokens - system_prompt_tokens - user_prompt_overhead,
     )

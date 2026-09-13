@@ -32,6 +32,11 @@ def test_estimate_tokens_english():
     assert tokens >= 3
 
 
+def test_estimate_tokens_long_ascii_does_not_collapse_to_one_word():
+    assert estimate_tokens("x" * 30000) >= 10000
+    assert estimate_tokens("!" * 30000) >= 30000
+
+
 def test_estimate_tokens_mixed():
     text = "拼多多 PDD 在雄安 xiong_an 买楼"
     tokens = estimate_tokens(text)
@@ -157,13 +162,12 @@ def test_build_evidence_budget():
 
 
 def test_build_evidence_budget_floor():
-    # When context is very small, floor at 2000
     budget = build_evidence_budget(
         system_prompt_tokens=10000,
         max_context=10000,
         output_tokens=4096,
     )
-    assert budget == 2000
+    assert budget == 0
 
 
 # --- Integration: synthesis prompt doesn't exceed context ---

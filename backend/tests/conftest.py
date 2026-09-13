@@ -46,6 +46,10 @@ def stable_test_env(monkeypatch, tmp_path):
     # Isolate the retrieval cache per test so runs never read or clobber the
     # shared data/cache/retrieval directory (order-dependent contamination).
     monkeypatch.setenv("RETRIEVAL_CACHE_DIR", str(tmp_path / "retrieval-cache"))
+    monkeypatch.setenv("AGENT_CONTEXT_MAX_TOKENS", "0")
+    monkeypatch.setenv("AGENT_LAYERED_CONTEXT_ENABLED", "true")
+    monkeypatch.setenv("AGENT_PLAYBOOKS_ENABLED", "true")
+    monkeypatch.setenv("AGENT_PLAYBOOK_DIR", str(REPO_ROOT / "backend" / "app" / "agent" / "playbooks"))
     get_settings.cache_clear()
     reset_model_health_registry()
     yield

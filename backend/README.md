@@ -17,6 +17,8 @@ FastAPI 主进程。产品能力/两档核查/概率维度看主 [README.md](../
 
 同一进程通过 `request_context.mode=fast|deep` 提供两档分析，详见主 [README.md](../README.md#两档核查--秒级-vs-分钟级)。
 
+深度推理按来源索引、摘要和原文片段组织证据，并对完整提示统一预算。上下文消耗诊断、配置与经审核的核查策略库见 [证据上下文与核查经验](../docs/evidence-context.md)。
+
 ## 本地运行
 
 ```bash

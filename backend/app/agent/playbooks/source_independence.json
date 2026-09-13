@@ -1,0 +1,14 @@
+{
+  "id": "source_independence",
+  "kind": "procedure",
+  "status": "approved",
+  "title": "转载去重与正反证核对",
+  "match_terms": ["网传", "爆料", "多家", "转载", "辟谣", "据说", "rumor", "debunk"],
+  "instructions": [
+    "追溯报道引用的最初来源；多家转载同一消息不算多个独立信源。",
+    "同时寻找支持与反驳材料，阅读引句的上下文，区分转述谣言与确认谣言。",
+    "检查来源是否真正回应同一原子事实；无法消解的矛盾应保留并说明。"
+  ],
+  "source_url": "repo://backend/tests/test_verdict_engine.py",
+  "reviewed_at": "2026-09-13"
+}

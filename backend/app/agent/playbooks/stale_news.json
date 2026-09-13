@@ -1,0 +1,14 @@
+{
+  "id": "stale_news",
+  "kind": "procedure",
+  "status": "approved",
+  "title": "旧闻重传与实体对齐",
+  "match_terms": ["今天", "近日", "最新", "刚刚", "再次", "旧闻", "today", "latest"],
+  "instructions": [
+    "区分事件发生时间、文章发布时间与本次转载时间；日期缺失时不要猜测。",
+    "对齐人物、机构、地点与事件，不因同名或缩写相似就把不同事件合并。",
+    "检索早期报道并寻找后续更正；旧报道可以说明历史事实，但不能自动证明今天再次发生。"
+  ],
+  "source_url": "repo://backend/tests/test_claim_timeliness.py",
+  "reviewed_at": "2026-09-13"
+}

@@ -32,6 +32,22 @@ logger = logging.getLogger(__name__)
 # dataclass already constrains the shape, but callers pass values in, so we scrub
 # defensively before writing in case a field ever carries something it should not.
 _FORBIDDEN_SUBSTRINGS = ("api_key", "authorization", "bearer", "base_url", "endpoint", "host")
+_CONTEXT_COUNT_FIELDS = frozenset({
+    "system", "user_overhead", "evidence_index", "evidence_summaries", "evidence_passages",
+    "playbooks", "output_reserve", "total_estimated", "context_limit", "evidence_selected",
+    "evidence_omitted", "summaries_selected", "passages_selected",
+})
+
+
+def _safe_context_estimate(value: object) -> dict[str, int | str] | None:
+    if not isinstance(value, dict):
+        return None
+    counts: dict[str, int | str] = {
+        key: count for key, count in value.items()
+        if key in _CONTEXT_COUNT_FIELDS and type(count) is int and count >= 0
+    }
+    counts["estimate_kind"] = "heuristic"
+    return counts
 
 
 @dataclass(frozen=True)
@@ -49,6 +65,7 @@ class ModelCallRecord:
     error_class: str | None
     trace_id: str | None
     stage_key: str | None
+    context_estimate: dict[str, int | str] | None = None
 
 
 class ModelLedger:
@@ -67,6 +84,7 @@ class ModelLedger:
 
     def append(self, record: ModelCallRecord) -> None:
         payload = asdict(record)
+        payload["context_estimate"] = _safe_context_estimate(payload.get("context_estimate"))
         # Defensive scrub: drop any field whose KEY hints at a secret, and any
         # string VALUE that looks like it embeds one. Records are constructed from
         # safe fields, so this should never fire — it exists so a future careless
@@ -116,6 +134,7 @@ def record_call(
     trace_id: str | None = None,
     stage_key: str | None = None,
     settings: Settings | None = None,
+    context_estimate: dict[str, int] | None = None,
 ) -> None:
     """Best-effort ledger append. No-op when disabled; never raises."""
     try:
@@ -135,6 +154,7 @@ def record_call(
                 error_class=error_class,
                 trace_id=trace_id,
                 stage_key=stage_key,
+                context_estimate=_safe_context_estimate(context_estimate),
             )
         )
     except Exception as exc:  # pragma: no cover - defensive; ledger must never break a run
