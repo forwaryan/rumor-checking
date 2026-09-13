@@ -268,6 +268,25 @@ class Report(BaseModel):
     provenance: ReportProvenance
 
 
+class AnalysisRun(BaseModel):
+    run_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    status: Literal["queued", "running", "completed", "failed", "interrupted"]
+    created_at: str
+    updated_at: str
+    last_event_id: int = Field(ge=0)
+    mode: Literal["fast", "deep"]
+    input_preview: str
+    raw_input: str
+    report: Report | None = None
+    error: str | None = None
+    resumable: bool = False
+
+
+class AnalysisRunEvent(BaseModel):
+    event_id: int = Field(gt=0)
+    event: dict[str, Any]
+
+
 class AnalyzeRequest(BaseModel):
     raw_input: str = Field(..., min_length=1)
     input_type: str | None = None

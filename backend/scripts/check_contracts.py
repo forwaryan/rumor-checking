@@ -13,6 +13,8 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from backend.app.models.schemas import (  # noqa: E402
+    AnalysisRun,
+    AnalysisRunEvent,
     ClaimResult,
     Event,
     EvidenceItem,
@@ -23,6 +25,8 @@ from backend.app.models.schemas import (  # noqa: E402
 type ModelType = type[BaseModel]
 
 CONTRACTS: dict[str, tuple[str, ModelType, str]] = {
+    "analysis_run.schema.json": ("AnalysisRun", AnalysisRun, "AnalysisRun"),
+    "analysis_run_event.schema.json": ("AnalysisRunEvent", AnalysisRunEvent, "AnalysisRunEvent"),
     "event.schema.json": ("Event", Event, "Event"),
     "timeline_node.schema.json": ("TimelineNode", TimelineNode, "TimelineNode"),
     "evidence.schema.json": ("Evidence", EvidenceItem, "Evidence"),

@@ -30,6 +30,7 @@ _HEARTBEAT_INTERVAL_SECONDS = 10.0
 
 @router.post("/analyze", response_model=Report)
 def analyze(payload: AnalyzeRequest) -> Report:
+    payload.request_context["run_id"] = uuid4().hex
     pipeline = AnalyzePipeline()
     return pipeline.analyze(payload)
 
@@ -71,7 +72,7 @@ def analyze_stream(payload: AnalyzeRequest, request: Request) -> StreamingRespon
                 }
             )
             pipeline = AnalyzePipeline()
-            payload.request_context.setdefault("run_id", run_id)
+            payload.request_context["run_id"] = run_id
             report = pipeline.analyze(payload)
             push_event(
                 {

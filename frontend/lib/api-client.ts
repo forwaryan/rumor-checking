@@ -1,5 +1,6 @@
 import type {
   AnalyzeRequest,
+  AnalysisRun,
   AnalysisLiveApiCallEvent,
   AnalysisLiveCompleteEvent,
   AnalysisLiveErrorEvent,
@@ -689,6 +690,111 @@ export async function analyzeReportStream(
     throw new ApiClientError("流式分析结束了，但没有拿到最终 Report。");
   }
   return finalReport;
+}
+
+export function parseAnalysisRun(value: unknown): AnalysisRun {
+  if (!isObject(value)) throw new ApiClientError("任务响应格式无效。");
+  const status = ensureLiteral(value.status, ["queued", "running", "completed", "failed", "interrupted"] as const);
+  if (!status || !/^[a-f0-9]{32}$/.test(ensureString(value.run_id))) throw new ApiClientError("任务响应格式无效。");
+  return {
+    run_id: ensureString(value.run_id),
+    status,
+    created_at: ensureString(value.created_at),
+    updated_at: ensureString(value.updated_at),
+    last_event_id: Math.max(0, Math.floor(ensureNumber(value.last_event_id))),
+    mode: value.mode === "deep" ? "deep" : "fast",
+    input_preview: ensureString(value.input_preview),
+    raw_input: ensureString(value.raw_input),
+    report: isObject(value.report) ? parseReport(value.report) : null,
+    error: status === "failed" ? "此次核查未能完成，请开始新查询。" : null,
+    resumable: value.resumable === true,
+  };
+}
+
+async function requestAnalysisRun(path: string, options: RequestInit): Promise<AnalysisRun> {
+  const response = await fetch(`${getApiBase()}/api/v1/analysis-runs${path}`, { ...options, cache: "no-store" });
+  if (!response.ok) {
+    throw new ApiClientError(response.status === 404 ? "未找到此核查任务，可能已过期。" : "暂时无法读取核查任务，请稍后重新连接。", response.status);
+  }
+  return parseAnalysisRun(await response.json());
+}
+
+export function createAnalysisRun(request: AnalyzeRequest): Promise<AnalysisRun> {
+  return requestAnalysisRun("", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+}
+
+export function getAnalysisRun(runId: string, signal?: AbortSignal): Promise<AnalysisRun> {
+  if (!/^[a-f0-9]{32}$/.test(runId)) throw new ApiClientError("核查任务编号无效。");
+  return requestAnalysisRun(`/${encodeURIComponent(runId)}`, { signal });
+}
+
+export function resumeAnalysisRun(runId: string): Promise<AnalysisRun> {
+  if (!/^[a-f0-9]{32}$/.test(runId)) throw new ApiClientError("核查任务编号无效。");
+  return requestAnalysisRun(`/${encodeURIComponent(runId)}/resume`, { method: "POST" });
+}
+
+export function parseAnalysisRunEvent(value: unknown): { event_id: number; event: AnalysisLiveEvent | null } | null {
+  if (!isObject(value) || value.type === "heartbeat") return null;
+  if (!Number.isSafeInteger(value.event_id) || (value.event_id as number) < 1 || !isObject(value.event)) {
+    throw new ApiClientError("核查事件格式无效，请重新连接。");
+  }
+  const event = parseLiveEvent(value.event);
+  return {
+    event_id: value.event_id as number,
+    event: event?.type === "error" ? { ...event, message: "此次核查未能完成。", details: [] } : event,
+  };
+}
+
+export async function streamAnalysisRunEvents(
+  runId: string,
+  after: number,
+  onEvent: (eventId: number, event: AnalysisLiveEvent | null) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  signal.throwIfAborted();
+  if (!/^[a-f0-9]{32}$/.test(runId)) throw new ApiClientError("核查任务编号无效。");
+  const response = await fetch(`${getApiBase()}/api/v1/analysis-runs/${encodeURIComponent(runId)}/events?after=${after}`, {
+    cache: "no-store",
+    signal,
+  });
+  if (!response.ok || !response.body) throw new ApiClientError("核查连接中断，请重新连接。", response.status);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const cancel = () => { void reader.cancel().catch(() => {}); };
+  signal.addEventListener("abort", cancel, { once: true });
+  const handleLine = (line: string) => {
+    if (!line.trim()) return;
+    signal.throwIfAborted();
+    const envelope = parseAnalysisRunEvent(JSON.parse(line));
+    if (envelope) onEvent(envelope.event_id, envelope.event);
+  };
+  try {
+    while (true) {
+      signal.throwIfAborted();
+      const { value, done } = await reader.read();
+      signal.throwIfAborted();
+      buffer += decoder.decode(value, { stream: !done });
+      let newlineIndex = buffer.indexOf("\n");
+      while (newlineIndex !== -1) {
+        handleLine(buffer.slice(0, newlineIndex));
+        buffer = buffer.slice(newlineIndex + 1);
+        newlineIndex = buffer.indexOf("\n");
+      }
+      if (done) {
+        handleLine(buffer);
+        return;
+      }
+    }
+  } finally {
+    signal.removeEventListener("abort", cancel);
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
 }
 
 export async function getHealth(): Promise<HealthResponse> {

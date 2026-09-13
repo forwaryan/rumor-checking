@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rumor-checking.local/contracts/analysis_run.schema.json",
+  "title": "AnalysisRun",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run_id", "status", "created_at", "updated_at", "last_event_id", "mode", "input_preview", "raw_input"],
+  "properties": {
+    "run_id": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+    "status": { "type": "string", "enum": ["queued", "running", "completed", "failed", "interrupted"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "last_event_id": { "type": "integer", "minimum": 0 },
+    "mode": { "type": "string", "enum": ["fast", "deep"] },
+    "input_preview": { "type": "string" },
+    "raw_input": { "type": "string" },
+    "report": { "anyOf": [{ "$ref": "report.schema.json" }, { "type": "null" }], "default": null },
+    "error": { "type": ["string", "null"], "default": null },
+    "resumable": { "type": "boolean", "default": false }
+  }
+}

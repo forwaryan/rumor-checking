@@ -2,9 +2,11 @@
 
 from fastapi import APIRouter
 
+from backend.app.api.v1.endpoints.analysis_runs import router as analysis_runs_router
 from backend.app.api.v1.endpoints.analyze import router as analyze_router
 from backend.app.api.v1.endpoints.health import router as health_router
 
 router = APIRouter()
 router.include_router(health_router, tags=["health"])
 router.include_router(analyze_router, tags=["analyze"])
+router.include_router(analysis_runs_router, tags=["analysis-runs"])

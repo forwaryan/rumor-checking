@@ -20,3 +20,6 @@ tmp-utf8-test.txt
 
 # Playwright MCP browser-verification artifacts (console logs / page snapshots)
 .playwright-mcp/
+
+data/analysis_runs/
+data/cache/checkpoints/

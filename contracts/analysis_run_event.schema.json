@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rumor-checking.local/contracts/analysis_run_event.schema.json",
+  "title": "AnalysisRunEvent",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["event_id", "event"],
+  "properties": {
+    "event_id": { "type": "integer", "minimum": 1 },
+    "event": { "type": "object", "additionalProperties": true }
+  }
+}

@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { analyzeReportStream, getHealth, getModels, getSearchSources } from "@/lib/api-client";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { getHealth, getModels, getSearchSources } from "@/lib/api-client";
 import type { SearchSource } from "@/lib/api-client";
+import { buildAnalysisRequest, createRunSession, runLocation, selectRunTarget } from "@/lib/run-session";
+import type { RunSession } from "@/lib/run-session";
 import { getLocalDemoCaseSummaries } from "@/lib/demo-cases";
 import { getStatusFromMode, validateInput, collectEvidence } from "@/lib/report-utils";
 import { deriveTraceSteps, applyBackendTiming } from "@/lib/trace-steps";
-import type { AnalysisLiveEvent, AnalysisStatus, AnalyzeRequest, Report, ReportProvenanceState } from "@/types/report";
+import type { AnalysisLiveEvent, AnalysisRun, AnalysisStatus, Report, ReportProvenanceState } from "@/types/report";
 import { SearchInput } from "@/components/search-input";
 import { VerdictCard } from "@/components/verdict-card";
 import { CredibilityHeader } from "@/components/credibility-header";
@@ -55,6 +57,10 @@ export function AnalyzePage() {
   const [traceOpen, setTraceOpen] = useState(false);
   const [metricsOpen, setMetricsOpen] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
+  const [runState, setRunState] = useState<AnalysisRun | null>(null);
+  const sessionRef = useRef<RunSession | null>(null);
+  const subscriptionRef = useRef<AbortController | null>(null);
+  const busyRef = useRef(false);
   const [agentSpanTreeOpen, setAgentSpanTreeOpen] = useState(false);
 
   useEffect(() => {
@@ -85,25 +91,66 @@ export function AnalyzePage() {
     return () => { active = false; };
   }, []);
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const q = params.get("q")?.trim();
-    if (!q) return;
-    const mode = params.get("mode") === "deep" ? "deep" : "fast";
-    const urlModel = params.get("model") ?? undefined;
-    if (urlModel) setSelectedModel(urlModel);
-    setInputValue(q);
-    void handleSubmit(mode, q, urlModel);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const cleanup = () => { subscriptionRef.current?.abort(); busyRef.current = false; };
+    const target = selectRunTarget(window.location.search);
+    if (target) {
+      if ("runId" in target) setRunId(target.runId);
+      if ("request" in target) {
+        const validation = validateInput(target.request.raw_input, "auto");
+        if (validation) { setStatus("error"); setErrorMessage(validation); return cleanup; }
+        setInputValue(target.request.raw_input);
+        setLastQuery(target.request.raw_input);
+        setActiveMode(target.request.request_context?.mode === "deep" ? "deep" : "fast");
+      }
+      sessionRef.current ??= createRunSession(target);
+      void watchRun(sessionRef.current);
+    }
+    return cleanup;
   }, []);
 
   function handleStreamEvent(event: AnalysisLiveEvent) {
     setLiveEvents((current) => [...current, event]);
-    if (event.type === "session") setRunId(event.run_id);
     if (event.type === "report") { setReport(event.report); setReportProvenance(buildReportProvenance(event.report)); }
   }
 
+  async function watchRun(session: RunSession, resume = false) {
+    subscriptionRef.current?.abort();
+    const controller = new AbortController();
+    subscriptionRef.current = controller;
+    busyRef.current = true;
+    setIsStreaming(true); setStatus("submitting"); setErrorMessage(null);
+    const isCurrent = () => !controller.signal.aborted && subscriptionRef.current === controller;
+    try {
+      const nextRun = await session.watch({
+        onRun: (run) => {
+          if (!isCurrent()) return;
+          setRunId(run.run_id); setRunState(run); setActiveMode(run.mode);
+          setInputValue(run.raw_input); setLastQuery(run.raw_input);
+          window.history.replaceState(null, "", runLocation(window.location.pathname, run.run_id));
+        },
+        onEvent: (event) => { if (isCurrent()) handleStreamEvent(event); },
+      }, controller.signal, resume);
+      if (!isCurrent()) return;
+      if (nextRun.status === "completed" && nextRun.report) {
+        setReport(nextRun.report); setReportProvenance(buildReportProvenance(nextRun.report));
+        setStatus(getStatusFromMode(nextRun.report.mode));
+      } else {
+        setReport(null); setReportProvenance(null); setStatus("error");
+        setErrorMessage(nextRun.status === "interrupted"
+          ? "核查已中断。继续时将从可用检查点恢复；没有检查点时重新执行。"
+          : "此次核查未能完成，请开始新查询。");
+      }
+    } catch (error) {
+      if (!isCurrent()) return;
+      setStatus("error");
+      setErrorMessage(error instanceof Error && error.name === "ApiClientError" ? error.message : "暂时无法连接核查服务，请稍后重新连接。");
+    } finally {
+      if (isCurrent()) { busyRef.current = false; setIsStreaming(false); }
+    }
+  }
+
   async function handleSubmit(mode: "fast" | "deep" = "fast", queryOverride?: string, modelOverride?: string) {
+    if (busyRef.current) return;
     const trimmed = (queryOverride ?? (inputValue.trim() || lastQuery.trim())).trim();
     if (!trimmed) return;
     const validation = validateInput(trimmed, "auto");
@@ -112,30 +159,21 @@ export function AnalyzePage() {
     // Only treat it as an explicit pick when it differs from the server default —
     // otherwise omit it so the backend keeps failover enabled (see serverDefaultModel).
     const explicitModel = model && model !== serverDefaultModel ? model : "";
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams();
-      params.set("q", trimmed);
-      if (mode === "deep") params.set("mode", "deep");
-      if (mode === "deep" && explicitModel) params.set("model", explicitModel);
-      window.history.replaceState(null, "", `?${params.toString()}`);
-    }
+    window.history.replaceState(null, "", runLocation(window.location.pathname));
     setLastQuery(trimmed); setActiveMode(mode); setIsStreaming(true);
     setStatus("submitting"); setErrorMessage(null); setReport(null);
     setReportProvenance(null); setLiveEvents([]); setClaimsOpen(true);
     setEvidenceOpen(false); setTimelineOpen(false); setTraceOpen(mode === "deep");
-    setRunId(null); setAgentSpanTreeOpen(false);
-    try {
-      const request: AnalyzeRequest = { raw_input: trimmed, input_type: "auto", request_context: { mode, ...(mode === "deep" && explicitModel ? { model: explicitModel } : {}), ...(activeSources.length > 0 ? { search_sources: activeSources } : {}) } };
-      const nextReport = await analyzeReportStream(request, handleStreamEvent);
-      setReport(nextReport); setReportProvenance(buildReportProvenance(nextReport));
-      setStatus(getStatusFromMode(nextReport.mode));
-    } catch (error) {
-      setReport(null); setReportProvenance(null); setStatus("error");
-      setErrorMessage(error instanceof Error ? error.message : "请求失败");
-    } finally { setIsStreaming(false); }
+    setRunId(null); setRunState(null); setAgentSpanTreeOpen(false);
+    const request = buildAnalysisRequest(trimmed, mode, { model: explicitModel, searchSources: activeSources });
+    sessionRef.current = createRunSession({ request });
+    await watchRun(sessionRef.current);
   }
 
   function handleReset() {
+    subscriptionRef.current?.abort(); subscriptionRef.current = null;
+    sessionRef.current = null; busyRef.current = false;
+    setIsStreaming(false); setRunId(null); setRunState(null);
     setInputValue(""); setStatus("idle"); setReport(null); setReportProvenance(null);
     setErrorMessage(null); setLiveEvents([]); setLastQuery("");
     if (typeof window !== "undefined") window.history.replaceState(null, "", window.location.pathname);
@@ -200,7 +238,7 @@ export function AnalyzePage() {
             <span className="result-header__brand-dot" aria-hidden="true" />
             较真核查
           </div>
-          <span className="result-header__query" title={lastQuery}>{lastQuery}</span>
+          <span className="result-header__query" title={lastQuery || runState?.input_preview}>{lastQuery || runState?.input_preview}</span>
         </header>
 
         {status === "submitting" && !report && (
@@ -217,15 +255,21 @@ export function AnalyzePage() {
 
         {status === "error" && (
           <div className="error-card">
-            <div className="error-card__title">核查失败</div>
+            <div className="error-card__title">{runState?.status === "interrupted" ? "核查已中断" : runState?.status === "failed" ? "核查失败" : runId ? "连接暂时中断" : "无法开始核查"}</div>
             <div className="error-card__message">{errorMessage || "请稍后重试"}</div>
-            <button className="error-card__retry" onClick={() => void handleSubmit(activeMode)}>重试</button>
+            {runState?.status === "interrupted" && runState.resumable && (
+              <button className="error-card__retry" onClick={() => { if (!busyRef.current && sessionRef.current) void watchRun(sessionRef.current, true); }}>继续核查</button>
+            )}
+            {runState?.status !== "failed" && runState?.status !== "interrupted" && runId && (
+              <button className="error-card__retry" onClick={() => { if (!busyRef.current && sessionRef.current) void watchRun(sessionRef.current); }}>重新连接</button>
+            )}
+            <button className="error-card__retry" onClick={handleReset}>新查询</button>
           </div>
         )}
 
         {report && <VerdictCard report={report} reportProvenance={reportProvenance} />}
         {report && <CredibilityHeader report={report} reportProvenance={reportProvenance} />}
-        {report && activeMode === "fast" && !isStreaming && (
+        {report && lastQuery && activeMode === "fast" && !isStreaming && status !== "error" && (
           <div className="deep-cta">
             <div className="deep-cta__text">还不确定？可以深入核查：多轮检索、逐条判定、交叉比对来源。</div>
             <div className="deep-cta__actions">

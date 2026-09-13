@@ -469,6 +469,25 @@ export interface AnalyzeRequest {
   request_context?: Record<string, unknown>;
 }
 
+export interface AnalysisRun {
+  run_id: string;
+  status: "queued" | "running" | "completed" | "failed" | "interrupted";
+  created_at: string;
+  updated_at: string;
+  last_event_id: number;
+  mode: "fast" | "deep";
+  input_preview: string;
+  raw_input: string;
+  report: Report | null;
+  error: string | null;
+  resumable: boolean;
+}
+
+export interface AnalysisRunEvent {
+  event_id: number;
+  event: Record<string, unknown>;
+}
+
 export interface HealthResponse {
   status: "ok" | "degraded" | "error";
   detail?: string;
