@@ -8,5 +8,5 @@
   "expected_claims": [
     {"claim": "某公司已经完成收购某银行", "claim_type": "fact", "verdict": "refuted", "confidence": "medium", "evidence": [{"url": "https://fin.example/pending", "title": "某公司拟收购某银行，尚待监管批准"}], "evaluation": {"require_high_trust": true}}
   ],
-  "metadata": {"source": "hard", "topic": "corporate", "categories": ["tense_mismatch", "completion_state"], "note": "claim 断言'已完成',证据明说'尚未完成';规则引擎当前误判 supported"}
+  "metadata": {"source": "hard", "provenance": "synthetic", "fixture_purpose": "adversarial_regression", "topic": "corporate", "categories": ["tense_mismatch", "completion_state"], "note": "claim 断言'已完成',证据明说'尚未完成';规则引擎当前误判 supported"}
 }

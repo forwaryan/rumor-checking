@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rumor-checking.local/contracts/analysis_run_summary.schema.json",
+  "properties": {
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "parent_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Run Id"
+    },
+    "revision": {
+      "minimum": 1,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "status": {
+      "enum": [
+        "queued",
+        "running",
+        "completed",
+        "failed",
+        "interrupted",
+        "cancelled"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "mode": {
+      "enum": [
+        "fast",
+        "deep"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    },
+    "updated_at": {
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "revision",
+    "status",
+    "mode",
+    "created_at",
+    "updated_at"
+  ],
+  "title": "AnalysisRunSummary",
+  "type": "object",
+  "additionalProperties": false
+}

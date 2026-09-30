@@ -9,5 +9,5 @@
   "expected_claims": [
     {"claim": "海州市目前购房仍需要购房资格", "claim_type": "fact", "verdict": "refuted", "confidence": "high", "evidence": [{"url": "https://gov.example/haizhou/2026-home-rule", "title": "海州市全面取消购房资格限制"}], "evaluation": {"require_high_trust": true, "require_dated_evidence": true, "fresh_after": "2026-07-01"}}
   ],
-  "metadata": {"source": "seed", "topic": "policy", "categories": ["time_sensitive"], "note": "新政策覆盖旧政策"}
+  "metadata": {"source": "seed", "provenance": "synthetic", "fixture_purpose": "behavior_regression", "topic": "policy", "categories": ["time_sensitive"], "note": "新政策覆盖旧政策"}
 }

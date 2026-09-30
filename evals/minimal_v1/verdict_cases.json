@@ -161,21 +161,21 @@
     "claim_type": "fact",
     "evidence": [
       {
-        "title": "本地电视台称5人送医",
+        "title": "电视台通报渡轮事故受伤总人数为5人",
         "url": "https://tv.example.cn/qh/2026-03-08-1",
         "source_name": "清河电视台",
         "published_at": "2026-03-08",
-        "snippet": "报道中提到5人受伤后送医。",
-        "relevance_reason": "给出明确数字。",
+        "snippet": "截至2026年3月8日18时，清河渡轮事故受伤总人数为5人，均已送医，统计包含轻微伤。",
+        "relevance_reason": "给出同一事故、同一截止时间、包含轻微伤的受伤总人数。",
         "source_tier": "A"
       },
       {
-        "title": "医院通报称3人接受留观",
+        "title": "医院通报渡轮事故受伤总人数为3人",
         "url": "https://hospital.example.cn/notice/2026-03-08",
         "source_name": "清河市人民医院",
         "published_at": "2026-03-08",
-        "snippet": "目前共有3人留观，无重伤。",
-        "relevance_reason": "与前述数字冲突。",
+        "snippet": "截至2026年3月8日18时，清河渡轮事故受伤总人数为3人，均已送医，统计包含轻微伤。",
+        "relevance_reason": "同一事故、时间和统计口径下，受伤总人数3人与5人直接冲突。",
         "source_tier": "A"
       }
     ],
@@ -190,12 +190,12 @@
     "claim_type": "fact",
     "evidence": [
       {
-        "title": "财经媒体称化工厂停产整顿",
+        "title": "财经媒体称化工厂全部产线停产整顿",
         "url": "https://finance.example.cn/industry/2026-03-05-2",
         "source_name": "财经观察",
         "published_at": "2026-03-05",
-        "snippet": "报道提到工厂已停产整顿。",
-        "relevance_reason": "支持完全停产说法。",
+        "snippet": "报道明确称截至2026年3月5日12时，北城区化工厂全部产线均已停产整顿，没有产线继续生产。",
+        "relevance_reason": "明确覆盖全部产线，直接支持完全停产说法。",
         "source_tier": "A"
       },
       {
@@ -203,7 +203,7 @@
         "url": "https://company.example.cn/news/2026-03-05",
         "source_name": "北城区化工厂",
         "published_at": "2026-03-05",
-        "snippet": "公司称仅有一条产线暂停，其余产线正常。",
+        "snippet": "公司称截至2026年3月5日12时，仅有一条产线暂停，其余产线正常生产。",
         "relevance_reason": "与完全停产说法冲突。",
         "source_tier": "A"
       }

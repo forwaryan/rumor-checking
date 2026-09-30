@@ -14,6 +14,8 @@ function run(status: AnalysisRun["status"] = "running"): AnalysisRun {
     created_at: "2026-09-13T00:00:00Z", updated_at: "2026-09-13T00:00:00Z",
     input_preview: "待核查", raw_input: request.raw_input, report: status === "completed" ? report : null,
     error: null, resumable: status === "interrupted",
+    parent_run_id: null, root_run_id: runId, revision: 1, cancel_requested: false,
+    review_note: "", review_claim_indices: [], stop_reason: null,
   };
 }
 
@@ -140,7 +142,7 @@ describe("analysis run session", () => {
     expect(api.stream.mock.calls[0][1]).toBe(0);
   });
 
-  it.each(["failed", "interrupted"] as const)("does not restart a %s run", async (status) => {
+  it.each(["failed", "interrupted", "cancelled"] as const)("does not restart a %s run", async (status) => {
     const api = dependencies();
     api.get.mockResolvedValue(run(status));
     const result = await createRunSession({ runId }, api).watch(observer(), new AbortController().signal);
@@ -197,6 +199,41 @@ describe("analysis run session", () => {
     await aborted;
     expect(stale.onEvent).not.toHaveBeenCalled();
     expect(current.onRun).toHaveBeenCalledWith(expect.objectContaining({ status: "completed" }));
+  });
+
+  it("invalidates the old subscriber after explicit cancellation and preserves its report", async () => {
+    const api = dependencies();
+    api.get.mockResolvedValueOnce(run());
+    let emitOld!: (eventId: number, event: AnalysisLiveEvent) => void;
+    let finishOld!: () => void;
+    api.stream.mockImplementationOnce((_id, _after, emit) => new Promise<void>((resolve) => { emitOld = emit; finishOld = resolve; }));
+    const session = createRunSession({ runId }, api);
+    const stale = observer();
+    const watching = session.watch(stale, new AbortController().signal);
+    const replaced = expect(watching).rejects.toMatchObject({ name: "AbortError" });
+    await vi.waitFor(() => expect(api.stream).toHaveBeenCalled());
+    const stopped = { ...run("cancelled"), report, cancel_requested: true };
+    const cancel = vi.fn().mockResolvedValue(stopped);
+    expect(await session.cancel(cancel)).toEqual(stopped);
+    expect(cancel).toHaveBeenCalledWith(runId);
+    expect(() => emitOld(1, completed)).toThrow("Subscription replaced");
+    finishOld(); await replaced;
+    api.get.mockResolvedValue(stopped);
+    expect((await session.watch(observer(), new AbortController().signal)).report).toBe(report);
+    expect(api.create).not.toHaveBeenCalled();
+    expect(api.stream).toHaveBeenCalledTimes(1);
+  });
+
+  it("switches report versions using GET without starting another run", async () => {
+    const api = dependencies();
+    const parentId = "b".repeat(32);
+    api.get.mockResolvedValueOnce({ ...run("completed"), parent_run_id: parentId, revision: 2 })
+      .mockResolvedValueOnce({ ...run("completed"), run_id: parentId });
+    await createRunSession({ runId }, api).watch(observer(), new AbortController().signal);
+    const parent = await createRunSession({ runId: parentId }, api).watch(observer(), new AbortController().signal);
+    expect(parent.run_id).toBe(parentId);
+    expect(api.get.mock.calls.map((call) => call[0])).toEqual([runId, parentId]);
+    expect(api.create).not.toHaveBeenCalled(); expect(api.resume).not.toHaveBeenCalled();
   });
 });
 

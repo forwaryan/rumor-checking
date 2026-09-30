@@ -7,6 +7,8 @@ import logging
 import re
 from typing import TYPE_CHECKING
 
+from backend.app.services.cache_policy import requires_fresh_evidence
+from backend.app.services.evidence_snapshots import capture_evidence_text
 from backend.app.services.http_reliability import reliable_get
 from backend.app.services.retrieval_models import TIER_WEIGHTS, SearchResult
 from backend.app.services.url_validator import is_safe_url
@@ -101,20 +103,24 @@ def _fetch_single_page(url: str) -> str | None:
     """Fetch one page, using the module-level cache when available."""
     if not is_safe_url(url):
         return None
+    from backend.app.core.config import get_settings
+    settings = get_settings()
+    cache_enabled = settings.url_fetch_cache_enabled and _cache is not None
 
     # Check cache first
-    if _cache is not None:
+    if cache_enabled and not requires_fresh_evidence():
         try:
             cached = _cache.read(url=url, namespace=_CACHE_NAMESPACE)
             if cached is not None and cached.body:
-                return _strip_tags(cached.body)
+                text = _strip_tags(cached.body)
+                capture_evidence_text(url=url, final_url=cached.final_url, text=text, kind="page_text",
+                                      acquisition="cached", extractor="tag-strip-v1")
+                return text
         except Exception:
             pass
 
     # Live fetch — retry transient faults (timeout / connection / 5xx) with
     # backoff so a momentary blip does not silently drop this evidence page.
-    from backend.app.core.config import get_settings
-    settings = get_settings()
     resp = reliable_get(
         url,
         timeout=settings.url_fetch_timeout_seconds,
@@ -125,12 +131,14 @@ def _fetch_single_page(url: str) -> str | None:
     if resp.status_code != 200:
         return None
     text = _strip_tags(resp.text)
+    capture_evidence_text(url=url, final_url=str(resp.url), text=text, kind="page_text",
+                          acquisition="fetched", extractor="tag-strip-v1")
 
     # Write to cache for deduplication within same request
-    if _cache is not None and text:
+    if cache_enabled and text:
         try:
             from backend.app.models.schemas import MockFetchResult
-            _cache.write(url=url, result=MockFetchResult(status="ok", body=resp.text), namespace=_CACHE_NAMESPACE)
+            _cache.write(url=url, result=MockFetchResult(status="ok", body=resp.text, final_url=str(resp.url)), namespace=_CACHE_NAMESPACE)
         except Exception:
             pass
 

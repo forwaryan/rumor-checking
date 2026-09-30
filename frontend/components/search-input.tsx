@@ -2,6 +2,7 @@
 
 import type { DemoCaseSummary } from "@/types/report";
 import type { SearchSource } from "@/lib/api-client";
+import { analysisInputError, MAX_ANALYSIS_INPUT_CHARACTERS } from "@/lib/request-limits";
 
 export interface SearchInputProps {
   inputValue: string;
@@ -29,6 +30,7 @@ export function SearchInput({
   onToggleSource,
 }: SearchInputProps) {
   const enabledSources = searchSources.filter((s) => s.enabled);
+  const inputError = analysisInputError(inputValue);
 
   return (
     <main className="app app--idle">
@@ -57,23 +59,29 @@ export function SearchInput({
               rows={3}
               placeholder="例如：网传某地将实行新的公共交通政策，这是真的吗？"
               value={inputValue}
+              aria-invalid={Boolean(inputError)}
+              aria-describedby="claim-input-limit"
               onChange={(e) => onInputChange(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  onSubmit();
+                  if (!inputError) onSubmit();
                 }
               }}
             />
             <button
               className="search-box__submit"
               onClick={onSubmit}
-              disabled={isStreaming || !inputValue.trim()}
+              disabled={isStreaming || !inputValue.trim() || Boolean(inputError)}
             >
               <span>{isStreaming ? "核查中" : "开始核查"}</span>
               <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg>
             </button>
           </div>
+
+          <p id="claim-input-limit" role={inputError ? "alert" : undefined}>
+            {inputError ?? `最多 ${MAX_ANALYSIS_INPUT_CHARACTERS.toLocaleString("zh-CN")} 个字符。`}
+          </p>
 
           {enabledSources.length > 0 && (
             <fieldset className="search-sources">

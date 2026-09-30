@@ -8,5 +8,5 @@
   "expected_claims": [
     {"claim": "远航公司下个月会被收购", "claim_type": "prediction", "verdict": "insufficient", "confidence": "low", "evidence": []}
   ],
-  "metadata": {"source": "seed", "topic": "corporate", "categories": ["insufficient_evidence"], "note": "只有匿名预测，不能支持或反驳"}
+  "metadata": {"source": "seed", "provenance": "synthetic", "fixture_purpose": "behavior_regression", "topic": "corporate", "categories": ["insufficient_evidence"], "note": "只有匿名预测，不能支持或反驳"}
 }

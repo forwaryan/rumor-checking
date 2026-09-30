@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rumor-checking.local/contracts/analysis_run_history.schema.json",
+  "properties": {
+    "root_run_id": {
+      "title": "Root Run Id",
+      "type": "string"
+    },
+    "revisions": {
+      "items": {
+        "$ref": "./analysis_run_summary.schema.json"
+      },
+      "title": "Revisions",
+      "type": "array"
+    }
+  },
+  "required": [
+    "root_run_id",
+    "revisions"
+  ],
+  "title": "AnalysisRunHistory",
+  "type": "object",
+  "additionalProperties": false
+}

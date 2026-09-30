@@ -12,6 +12,7 @@ from backend.app.services.contract_utils import ensure_datetime_string, loads_le
 from backend.app.services.model_call_observer import observe_model_call
 from backend.app.services.progress import emit_api_call, emit_log
 from backend.app.services.question_intent import is_broad_trend_question
+from backend.app.services.run_control import check_run_control, reserve_llm_call
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +127,7 @@ class LlmStructuredProvider:
 
     def _request_completion(self, event: NormalizedEvent) -> str:
         user_prompt = self._build_user_prompt(event)
+        max_output = self.settings.llm_max_tokens
         model = self._model()
         emit_api_call(
             stage_key="provider_enrichment",
@@ -137,11 +139,12 @@ class LlmStructuredProvider:
                 f"model={model}",
             ],
         )
-
+        reserve_llm_call(system_prompt=SYSTEM_PROMPT, user_prompt=user_prompt, max_output_tokens=max_output)
         body = {
             "model": model,
             "temperature": self._request_temperature(),
             "response_format": {"type": "json_object"},
+            "max_tokens": max_output,
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
@@ -163,7 +166,7 @@ class LlmStructuredProvider:
                 json=body,
                 timeout=self.settings.provider_timeout_seconds,
             )
-
+            check_run_control()
             response.raise_for_status()
             payload = response.json()
             observation.response(payload, status_code=response.status_code)

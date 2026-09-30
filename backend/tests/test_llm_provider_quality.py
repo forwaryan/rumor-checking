@@ -1,9 +1,9 @@
 ﻿from __future__ import annotations
 
 import backend.app.services.llm_provider as llm_provider_module
-from backend.app.api.v1.endpoints import analyze as analyze_endpoint
 from backend.app.core.config import get_settings
 from backend.app.models.schemas import ClaimItem, NormalizedEvent, ProviderAnalysis, ProviderEventDraft
+from backend.app.services.analysis_runs import get_analysis_run_manager
 from backend.app.services.analyze_pipeline import AnalyzePipeline
 from backend.app.services.llm_provider import LlmStructuredProvider
 from backend.app.services.provider_enricher import ProviderEnricher
@@ -156,7 +156,9 @@ def test_api_provider_enabled_surfaces_more_helpful_output_than_off(monkeypatch,
 
     off_pipeline = AnalyzePipeline()
     off_pipeline.provider_enricher.provider = _DisabledProvider()
-    monkeypatch.setattr(analyze_endpoint, "AnalyzePipeline", lambda: off_pipeline)
+    manager = get_analysis_run_manager()
+    client.app.dependency_overrides[get_analysis_run_manager] = lambda: manager
+    monkeypatch.setattr(manager, "pipeline_factory", lambda: off_pipeline)
     off_response = client.post(
         "/api/v1/analyze",
         json={
@@ -169,7 +171,7 @@ def test_api_provider_enabled_surfaces_more_helpful_output_than_off(monkeypatch,
 
     on_pipeline = AnalyzePipeline()
     on_pipeline.provider_enricher.provider = _FakeProvider()
-    monkeypatch.setattr(analyze_endpoint, "AnalyzePipeline", lambda: on_pipeline)
+    monkeypatch.setattr(manager, "pipeline_factory", lambda: on_pipeline)
     on_response = client.post(
         "/api/v1/analyze",
         json={

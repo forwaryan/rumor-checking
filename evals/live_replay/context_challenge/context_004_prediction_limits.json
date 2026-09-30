@@ -1,0 +1,12 @@
+{
+  "case_id": "context_004_prediction_limits",
+  "recorded_at": "2026-08-08T00:00:00Z",
+  "raw_input": "南川地震局已经发布能提前7天准确预测任意地震的技术",
+  "retrieval_results": [
+    {"result_id": "r1", "title": "南川地震局否认发布地震精确预测技术", "url": "https://quake.example/nanchuan/clarification", "source_name": "南川地震局", "published_at": "2026-08-07", "snippet": "南川地震局明确表示，没有发布能提前7天准确预测任意地震的技术，相关发布消息系伪造。不能根据短期研究成果作此承诺。", "source_tier": "S", "origin_id": "nanchuan-agency-response"}
+  ],
+  "expected_claims": [
+    {"claim": "南川地震局已经发布能提前7天准确预测任意地震的技术", "claim_type": "fact", "verdict": "refuted", "confidence": "high", "evidence": [{"url": "https://quake.example/nanchuan/clarification"}], "evaluation": {"require_high_trust": true}}
+  ],
+  "metadata": {"source": "context_challenge", "provenance": "synthetic", "fixture_purpose": "coverage_regression", "review_status": "approved", "reviewed_at": "2026-09-13", "annotation_source": "project_review", "topic_group": "nanchuan_prediction_announcement", "evaluation_split": "development", "categories": ["direct_refutation", "scientific_claim"], "annotation_rationale": "核验的是机构已经发布技术这一事实，不是把无法预测推成未来地震不会发生。"}
+}

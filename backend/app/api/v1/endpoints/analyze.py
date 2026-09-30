@@ -1,181 +1,70 @@
 from __future__ import annotations
 
+import asyncio
 import json
-import logging
-import queue
-import time
-from datetime import UTC, datetime
-from threading import Thread
-from typing import Any
-from uuid import uuid4
 
-from fastapi import APIRouter, Request
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, Request, Response
+from fastapi.responses import JSONResponse, StreamingResponse
 
-from backend.app.core.exceptions import AppError
+from backend.app.core.exceptions import error_response
 from backend.app.models.schemas import AnalyzeRequest, Report
-from backend.app.services.analyze_pipeline import AnalyzePipeline
-from backend.app.services.progress import reset_progress_callback, set_progress_callback
-
-logger = logging.getLogger(__name__)
+from backend.app.services.analysis_runs import AnalysisRunManager, get_analysis_run_manager
 
 router = APIRouter()
-_STREAM_DONE = object()
-# Longest allowed silence on the stream. A single LLM web-search round can
-# block ~45s with no pipeline event; without a keepalive, proxies/browsers may
-# idle-timeout and drop the connection. Emit a heartbeat if the queue is quiet
-# this long so the NDJSON stream never goes silent.
-_HEARTBEAT_INTERVAL_SECONDS = 10.0
+_MIN_POLL_SECONDS = 0.05
+_MAX_POLL_SECONDS = 0.5
 
 
 @router.post("/analyze", response_model=Report)
-def analyze(payload: AnalyzeRequest) -> Report:
-    payload.request_context["run_id"] = uuid4().hex
-    pipeline = AnalyzePipeline()
-    return pipeline.analyze(payload)
+async def analyze(
+    payload: AnalyzeRequest, request: Request, response: Response,
+    manager: AnalysisRunManager = Depends(get_analysis_run_manager),
+) -> Report | JSONResponse:
+    run = await asyncio.to_thread(manager.create, payload)
+    response.headers["X-Analysis-Run-ID"] = run.run_id
+    # Poll tightly at first so a cached/fast run answers immediately, then back off:
+    # a deep run lasts minutes and there is nothing to gain from asking 20x a second.
+    delay = _MIN_POLL_SECONDS
+    while run.status in {"queued", "running"}:
+        await asyncio.sleep(delay)
+        delay = min(delay * 1.5, _MAX_POLL_SECONDS)
+        run = await asyncio.to_thread(manager.get, run.run_id)
+    if run.status == "completed" and run.report is not None:
+        return run.report
+    stopped = run.status == "cancelled"
+    details = {"run_id": run.run_id, "stop_reason": run.stop_reason}
+    if run.status == "failed":
+        events, _run = await asyncio.to_thread(manager.event_page, run.run_id, max(0, run.last_event_id - 3))
+        for envelope in events:
+            event = envelope.get("event", envelope)
+            if event.get("type") == "error" and event.get("error_type"):
+                details["error_type"] = event["error_type"]
+    failure = error_response(
+        request=request, status_code=504 if run.stop_reason == "agent_timeout" else 409 if stopped else 500,
+        code="analysis_stopped" if stopped else "internal_server_error",
+        message="Analysis stopped before producing a report." if stopped else "The server hit an unexpected error.",
+        details=details,
+    )
+    failure.headers["X-Analysis-Run-ID"] = run.run_id
+    return failure
 
 
 @router.post("/analyze/stream")
-def analyze_stream(payload: AnalyzeRequest, request: Request) -> StreamingResponse:
-    event_queue: queue.Queue[dict[str, Any] | object] = queue.Queue()
-    run_id = uuid4().hex
+async def analyze_stream(
+    payload: AnalyzeRequest, request: Request,
+    manager: AnalysisRunManager = Depends(get_analysis_run_manager),
+) -> StreamingResponse:
+    run = await asyncio.to_thread(manager.create, payload)
     trace_id = getattr(request.state, "request_id", "unknown")
 
-    def push_event(event: dict[str, Any]) -> None:
-        event_queue.put(
-            {
-                "emitted_at": datetime.now(UTC).isoformat(),
-                **event,
-            }
-        )
+    async def event_stream():
+        async for line in manager.events(run.run_id):
+            envelope = json.loads(line)
+            event = envelope.get("event", envelope)
+            if event.get("type") == "session":
+                event = {**event, "trace_id": trace_id, "input_type": payload.input_type or "auto",
+                         "preview": " ".join(payload.raw_input.split())[:140]}
+            yield json.dumps(event, ensure_ascii=False) + "\n"
 
-    def worker() -> None:
-        token = set_progress_callback(push_event)
-        t0 = time.monotonic()
-        mode_req = payload.request_context.get("mode", "auto")
-        logger.info(
-            "analyze_stream_start run_id=%s trace_id=%s input_type=%s mode=%s",
-            run_id, trace_id, payload.input_type or "auto", mode_req,
-        )
-        try:
-            preview = payload.raw_input.strip().replace("\r", " ").replace("\n", " ")
-            if len(preview) > 140:
-                preview = preview[:137] + "..."
-            push_event(
-                {
-                    "type": "session",
-                    "run_id": run_id,
-                    "trace_id": trace_id,
-                    "input_type": payload.input_type or "auto",
-                    "summary": "后端已接收分析任务，开始执行流式追踪。",
-                    "preview": preview,
-                }
-            )
-            pipeline = AnalyzePipeline()
-            payload.request_context["run_id"] = run_id
-            report = pipeline.analyze(payload)
-            push_event(
-                {
-                    "type": "report",
-                    "run_id": run_id,
-                    "summary": f"分析完成，输出 {report.mode}。",
-                    "report": report.model_dump(mode="json"),
-                }
-            )
-            logger.info(
-                "analyze_stream_ok run_id=%s trace_id=%s mode=%s elapsed_ms=%d",
-                run_id, trace_id, getattr(report, "mode", "?"), int((time.monotonic() - t0) * 1000),
-            )
-            push_event(
-                {
-                    "type": "complete",
-                    "run_id": run_id,
-                    "success": True,
-                    "summary": "分析流程已结束。",
-                }
-            )
-        except AppError as exc:
-            logger.warning(
-                "analyze_stream_app_error run_id=%s trace_id=%s code=%s status=%s elapsed_ms=%d",
-                run_id, trace_id, exc.code, exc.status_code, int((time.monotonic() - t0) * 1000),
-            )
-            push_event(
-                {
-                    "type": "error",
-                    "run_id": run_id,
-                    "code": exc.code,
-                    "message": exc.message,
-                    "status_code": exc.status_code,
-                    "details": _stringify_error_details(exc.details),
-                }
-            )
-            push_event(
-                {
-                    "type": "complete",
-                    "run_id": run_id,
-                    "success": False,
-                    "summary": f"分析失败: {exc.code}",
-                }
-            )
-        except Exception as exc:  # pragma: no cover
-            logger.exception(
-                "analyze_stream_crashed run_id=%s trace_id=%s error_type=%s elapsed_ms=%d",
-                run_id, trace_id, exc.__class__.__name__, int((time.monotonic() - t0) * 1000),
-            )
-            push_event(
-                {
-                    "type": "error",
-                    "run_id": run_id,
-                    "code": "internal_server_error",
-                    "message": "The server hit an unexpected error.",
-                    "status_code": 500,
-                    "details": [f"error_type={exc.__class__.__name__}"],
-                }
-            )
-            push_event(
-                {
-                    "type": "complete",
-                    "run_id": run_id,
-                    "success": False,
-                    "summary": "分析因意外错误中止。",
-                }
-            )
-        finally:
-            reset_progress_callback(token)
-            event_queue.put(_STREAM_DONE)
-
-    def event_stream():
-        worker_thread = Thread(target=worker, name=f"analyze-stream-{run_id}", daemon=True)
-        worker_thread.start()
-        while True:
-            try:
-                item = event_queue.get(timeout=_HEARTBEAT_INTERVAL_SECONDS)
-            except queue.Empty:
-                # Worker is busy (e.g. a slow web-search round) but alive; emit a
-                # keepalive so the connection is not idle-timed-out mid-analysis.
-                yield json.dumps(
-                    {
-                        "type": "heartbeat",
-                        "run_id": run_id,
-                        "emitted_at": datetime.now(UTC).isoformat(),
-                    },
-                    ensure_ascii=False,
-                ) + "\n"
-                continue
-            if item is _STREAM_DONE:
-                break
-            yield json.dumps(item, ensure_ascii=False) + "\n"
-
-    return StreamingResponse(event_stream(), media_type="application/x-ndjson")
-
-
-def _stringify_error_details(details: dict[str, Any] | None) -> list[str]:
-    if not details:
-        return []
-    lines: list[str] = []
-    for key, value in details.items():
-        if isinstance(value, (list, dict)):
-            lines.append(f"{key}={json.dumps(value, ensure_ascii=False)}")
-        else:
-            lines.append(f"{key}={value}")
-    return lines[:8]
+    return StreamingResponse(event_stream(), media_type="application/x-ndjson",
+                             headers={"X-Analysis-Run-ID": run.run_id, "Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

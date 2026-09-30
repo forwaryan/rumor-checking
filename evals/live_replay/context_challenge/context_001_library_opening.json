@@ -1,0 +1,13 @@
+{
+  "case_id": "context_001_library_opening",
+  "recorded_at": "2026-08-02T00:00:00Z",
+  "raw_input": "青岚市图书馆新馆已于2026年8月1日开放",
+  "retrieval_results": [
+    {"result_id": "r1", "title": "青岚市图书馆新馆正式开放", "url": "https://library.example/qinglan/opening", "source_name": "青岚市图书馆", "published_at": "2026-08-01", "snippet": "青岚市图书馆新馆已于2026年8月1日正式开放，读者可以入馆借阅。", "source_tier": "S", "origin_id": "qinglan-library-notice"},
+    {"result_id": "r2", "title": "记者现场走访青岚市图书馆新馆", "url": "https://daily.example/qinglan/visit", "source_name": "青岚日报", "published_at": "2026-08-01", "snippet": "记者于2026年8月1日在新馆现场采访读者，确认青岚市图书馆新馆当天已正式开放。", "source_tier": "A", "origin_id": "qinglan-reporter-visit"}
+  ],
+  "expected_claims": [
+    {"claim": "青岚市图书馆新馆已于2026年8月1日开放", "claim_type": "fact", "verdict": "supported", "confidence": "high", "evidence": [{"url": "https://library.example/qinglan/opening"}, {"url": "https://daily.example/qinglan/visit"}], "evidence_sets": [[{"url": "https://library.example/qinglan/opening"}], [{"url": "https://daily.example/qinglan/visit"}]], "evaluation": {"min_independent_sources": 2, "require_dated_evidence": true}}
+  ],
+  "metadata": {"source": "context_challenge", "provenance": "synthetic", "fixture_purpose": "coverage_regression", "review_status": "approved", "reviewed_at": "2026-09-13", "annotation_source": "project_review", "topic_group": "qinglan_library_opening", "evaluation_split": "development", "categories": ["multi_source_support", "public_service"], "annotation_rationale": "官方开放通告和独立现场采访均直接确认同一开放日期。"}
+}

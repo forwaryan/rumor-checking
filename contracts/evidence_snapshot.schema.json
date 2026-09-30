@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rumor-checking.local/contracts/evidence_snapshot.schema.json",
+  "title": "EvidenceSnapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["snapshot_id", "url", "kind", "text", "text_sha256", "captured_at", "acquisition", "extractor"],
+  "properties": {
+    "snapshot_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "url": {"type": "string", "format": "uri"},
+    "final_url": {"type": ["string", "null"], "format": "uri", "default": null},
+    "kind": {"type": "string", "enum": ["page_text", "search_snippet"]},
+    "text": {"type": "string", "minLength": 1, "maxLength": 24000},
+    "text_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "captured_at": {"type": "string", "format": "date-time"},
+    "acquisition": {"type": "string", "enum": ["fetched", "cached", "retrieved", "restored"]},
+    "extractor": {"type": "string", "enum": ["article-v1", "tag-strip-v1", "search-snippet-v1", "browser-text-v1", "checkpoint-text-v1"]},
+    "truncated": {"type": "boolean", "default": false}
+  }
+}

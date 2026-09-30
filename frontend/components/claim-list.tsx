@@ -1,6 +1,6 @@
 "use client";
 
-import type { ClaimResult, Evidence } from "@/types/report";
+import type { ClaimResult, Evidence, EvidenceSnapshot } from "@/types/report";
 import { getVerdictLabel, formatConfidence, formatProbability, getBasisLabel } from "@/lib/report-utils";
 import { getClaimAccent, type ClaimAccent } from "@/lib/claim-accent";
 import { splitEvidenceByStance } from "@/lib/evidence-stance";
@@ -8,6 +8,7 @@ import { EvidenceCard } from "@/components/evidence-list";
 
 export interface ClaimListProps {
   claims: ClaimResult[];
+  snapshots?: EvidenceSnapshot[];
   isOpen: boolean;
   onToggle: () => void;
 }
@@ -17,7 +18,7 @@ export interface ClaimListProps {
 // disagreement at a glance instead of scanning a flat list where refuting
 // snippets are visually identical to supporting ones. Non-conflicting claims
 // keep the single-column layout because the split adds no signal there.
-function ConflictEvidenceGrid({ evidence, accent }: { evidence: Evidence[]; accent: ClaimAccent }) {
+function ConflictEvidenceGrid({ evidence, snapshots, accent }: { evidence: Evidence[]; snapshots?: EvidenceSnapshot[]; accent: ClaimAccent }) {
   const { supporting, refuting } = splitEvidenceByStance(evidence);
   return (
     <div className="conflict-grid">
@@ -25,21 +26,21 @@ function ConflictEvidenceGrid({ evidence, accent }: { evidence: Evidence[]; acce
         <div className="conflict-grid__title">支持 · {supporting.length}</div>
         {supporting.length === 0 && <div className="conflict-grid__empty">当前没有明显支持证据。</div>}
         {supporting.map((ev, j) => (
-          <EvidenceCard key={`s-${ev.url}-${j}`} item={ev} claimAccents={[accent]} hideClaimBacklink />
+          <EvidenceCard key={`s-${ev.url}-${j}`} item={ev} snapshots={snapshots} claimAccents={[accent]} hideClaimBacklink />
         ))}
       </div>
       <div className="conflict-grid__col conflict-grid__col--refutes">
         <div className="conflict-grid__title">反驳 · {refuting.length}</div>
         {refuting.length === 0 && <div className="conflict-grid__empty">当前没有明显反驳证据。</div>}
         {refuting.map((ev, j) => (
-          <EvidenceCard key={`r-${ev.url}-${j}`} item={ev} claimAccents={[accent]} hideClaimBacklink />
+          <EvidenceCard key={`r-${ev.url}-${j}`} item={ev} snapshots={snapshots} claimAccents={[accent]} hideClaimBacklink />
         ))}
       </div>
     </div>
   );
 }
 
-export function ClaimList({ claims, isOpen, onToggle }: ClaimListProps) {
+export function ClaimList({ claims, snapshots, isOpen, onToggle }: ClaimListProps) {
   if (claims.length === 0) return null;
 
   return (
@@ -95,10 +96,10 @@ export function ClaimList({ claims, isOpen, onToggle }: ClaimListProps) {
                     </summary>
                     <div className="claim-item__evidence-body">
                       {useConflictGrid ? (
-                        <ConflictEvidenceGrid evidence={claim.evidence} accent={accent} />
+                        <ConflictEvidenceGrid evidence={claim.evidence} snapshots={snapshots} accent={accent} />
                       ) : (
                         claim.evidence.map((ev, j) => (
-                          <EvidenceCard key={`${ev.url}-${j}`} item={ev} claimAccents={[accent]} hideClaimBacklink />
+                          <EvidenceCard key={`${ev.url}-${j}`} item={ev} snapshots={snapshots} claimAccents={[accent]} hideClaimBacklink />
                         ))
                       )}
                     </div>

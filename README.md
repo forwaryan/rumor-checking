@@ -303,13 +303,19 @@ python backend/scripts/source_doctor.py --strict
 
 ### 回放评测与 Phoenix
 
-逐请求模型调用、Token 消耗、上下文变化与检索过程见 [模型调用可观测性](docs/model-call-observability.md)；GitHub 参考改进与验证边界见 [改进记录](docs/github-improvements-2026-09.md)。
+逐次 LLM 调用现在支持任务关联、上下文变化摘要、实际 Token 用量和失败记录；在 Agent Span 树查看详情。启用与字段解释见[模型调用可观测性](docs/model-call-observability.md)。
 
-回放集位于 `evals/live_replay/`：`seed/`（18 个 case，与规则引擎一起沉淀的回归集，默认全绿）与 `hard/`（8 个专挑规则引擎会判错的对抗 case，含 3 个已知误判 + 5 个防回归护栏）。默认不访问网络，可用于比较规则、提示词和模型版本：
+回放集位于 `evals/live_replay/`，共 56 条：`seed/`（8 条合成行为回归）、`hard/`（8 条合成对抗回归）、`cfever_curated/`（24 条来自固定版本 CFEVER dev、8 个主题的简体中文样本）、`covid19_health_rumor_curated/`（8 条有逐条来源与人工标注记录的历史健康谣言），以及 `context_challenge/`（8 条补充支持类、非空证据不足和同口径冲突的合成样本）。默认离线，评测的是给定 claim 和检索材料后的判定，不包含真实检索、claim 拆解或完整 Agent 执行：
 
 ```bash
 python backend/scripts/replay_eval.py
 python backend/scripts/replay_eval.py --dir evals/live_replay/hard
+python backend/scripts/replay_eval.py --dir evals/live_replay/cfever_curated
+python backend/scripts/replay_eval.py --dir evals/live_replay/covid19_health_rumor_curated
+python backend/scripts/audit_datasets.py
+python backend/scripts/replay_eval.py --dir evals/live_replay/cfever_curated --evaluation-split development
+python backend/scripts/replay_eval.py --dir evals/live_replay/cfever_curated --evaluation-split holdout
+python backend/scripts/replay_eval.py --dir evals/live_replay/context_challenge --evaluation-split development
 python backend/scripts/replay_eval.py --json --run-name rule-v1 > replay-rule-v1.json
 python backend/scripts/replay_eval.py --json --run-name rule-v2 \
   --compare-to replay-rule-v1.json > replay-rule-v2.json
@@ -317,7 +323,13 @@ python backend/scripts/replay_eval.py --run-name rule-v3 \
   --output artifacts/replay-rule-v3.json
 ```
 
-`hard/` 集刻意保留真实缺口（时态/完成态、实体共指、辟谣仲裁），规则引擎当前只能拿到约 62% FEVER，是"准确率提升"的可度量靶子；`seed/` 全绿只说明没有回归。
+仓库维护 24 条可人工审查的 CFEVER 样本，开发与留出验收分区各 12 条，主题互不重叠；`metadata.split=dev` 仍表示上游划分，项目的 `evaluation_split` 不冒充官方 test 集。需要扩充时，可使用 [CFEVER 转换器](./evals/external/cfever/README.md)按固定 seed、标签和主题轮转抽样。转换前检查 claim 摘要，严格解析全部证据指针，保留等价证据组；缺页、缺句、重复 ID 或坏指针直接失败。未经验证的本地导入明确隔离，不能直接进入金标评分。
+
+当前评分协议为 `url-evidence-groups-v2`：标准证据列表是一组必须全覆盖的 URL；`evidence_sets` 可表达多组替代证明，满足其中任一完整组即可。只引用冲突的一侧或多步证明的一部分不会过关。历史字段 `fever_score` 保留兼容，含义为“标签正确且覆盖完整 URL 组”，不是官方逐句 FEVER。不同评分协议、分区或语料摘要的报告禁止直接比较。
+
+`seed/` 的当前回归基线为 100%，`hard/` 为 75%；CFEVER 开发分区为 33.3%。这些小样本只诊断规则判定的边界，低分不能作为放宽证据要求或修改正确标签的理由。CI 对开发分区和既有回归集设置防退化门槛；留出分区通过显式参数另行验收。
+
+健康谣言集保留历史语境，不能当作当前医疗建议。上游 `wish/dread` 是希望/恐惧类别，真假判断是本项目独立审阅的标注；80401 已补全原文并限定细菌消毒用途，同时记录页面更新时间与当前抓取时间。其规则基线仍为 12.5%，而全猜反驳可得 87.5%，因此必须结合标签分布解释。公开集的置信度为派生值，不参与置信度评分。
 
 默认走离线规则引擎（确定、可复现）。加 `--engine llm` 可让同一语料改走线上 LLM 判定（`llm_judge_claims`，需已配置网关 key），用于对比"规则 vs LLM 判定"在同一批 case 上的准确率差异——该模式非确定、要联网，故 CI 仍用规则默认：
 
@@ -328,7 +340,7 @@ python backend/scripts/replay_eval.py --dir evals/live_replay/hard --engine llm 
   --compare-to /tmp/hard_rule.json
 ```
 
-报告同时给出 label/evidence/FEVER、置信度、引用精度、独立信源、权威来源、证据日期与时效性，并按 `time_sensitive`、`stale_news`、`subject_mismatch`、`conflicting_sources`、`tense_mismatch`、`coreference`、`debunk_dominance` 等类别聚合失败原因，重点用于定位"证据已找到，但 verdict 判断错误"的问题。
+报告给出标签、完整 URL 组、联合分数、引用精度及来源/日期诊断，并显示观测数；不适用的置信度、独立来源或新鲜度指标显示 N/A。来源独立性优先按 `origin_id`，记者转述同一机构不会变成两个独立信源。坏语料直接报错；隔离样本的 ID、原因和排除数量明确输出，全部隔离时返回非零。细节见 [数据质量与评测协议](./docs/dataset-quality.md)。
 
 每份 JSON 报告还包含可复现实验清单：Git SHA/工作区状态、Python 与平台版本、语料目录与 SHA-256、case ID、规则实现 SHA-256，以及脱敏后的确定性配置。CI 会保存该报告为 `replay-eval-<commit>` artifact，便于比较规则变化而不是只看单次总分。
 

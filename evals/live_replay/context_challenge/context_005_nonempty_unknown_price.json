@@ -1,0 +1,12 @@
+{
+  "case_id": "context_005_nonempty_unknown_price",
+  "recorded_at": "2026-08-09T00:00:00Z",
+  "raw_input": "明泉市博物馆每周三免票",
+  "retrieval_results": [
+    {"result_id": "r1", "title": "明泉市博物馆公布开放时间", "url": "https://museum.example/mingquan/hours", "source_name": "明泉市博物馆", "published_at": "2026-08-08", "snippet": "明泉市博物馆每周二至周日上午九点至下午五点开放，每周一闭馆。", "source_tier": "S", "origin_id": "mingquan-hours-notice"}
+  ],
+  "expected_claims": [
+    {"claim": "明泉市博物馆每周三免票", "claim_type": "fact", "verdict": "insufficient", "confidence": "low", "evidence": []}
+  ],
+  "metadata": {"source": "context_challenge", "provenance": "synthetic", "fixture_purpose": "coverage_regression", "review_status": "approved", "reviewed_at": "2026-09-13", "annotation_source": "project_review", "topic_group": "mingquan_museum_pricing", "evaluation_split": "development", "categories": ["nonempty_insufficient", "missing_attribute"], "annotation_rationale": "材料说明开放时间，没有门票价格，既不确认免票也不否定免票。不能通过检索结果是否为空猜标签。"}
+}

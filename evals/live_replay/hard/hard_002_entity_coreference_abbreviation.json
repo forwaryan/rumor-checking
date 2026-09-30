@@ -8,5 +8,5 @@
   "expected_claims": [
     {"claim": "中国科学技术大学新增人工智能学院", "claim_type": "fact", "verdict": "supported", "confidence": "high", "evidence": [{"url": "https://ustc.edu/ai-school", "title": "中科大成立人工智能学院"}], "evaluation": {"require_high_trust": true}}
   ],
-  "metadata": {"source": "hard", "topic": "education", "categories": ["coreference", "abbreviation"], "note": "全称 vs 简称'中科大'为同一实体;规则引擎主体锚点对不齐,当前误判 insufficient 且挂 0 证据"}
+  "metadata": {"source": "hard", "provenance": "synthetic", "fixture_purpose": "adversarial_regression", "topic": "education", "categories": ["coreference", "abbreviation"], "note": "全称 vs 简称'中科大'为同一实体;规则引擎主体锚点对不齐,当前误判 insufficient 且挂 0 证据"}
 }

@@ -164,7 +164,7 @@ def test_parallel_supervisor_llm_spans_keep_agent_parent_and_failure(traced_pipe
         )
 
     def run_impl(request, run_id):
-        return supervisor._execute_batch(agents, AgentState(request=request), None)
+        return supervisor._execute_batch_impl(agents, AgentState(request=request), None)
 
     monkeypatch.setattr(supervisor, "_run_agent_impl", run_agent)
     monkeypatch.setattr(supervisor, "_run_impl", run_impl)

@@ -1,0 +1,35 @@
+{
+  "id": "agent_missing_price",
+  "synthetic": true,
+  "input": "2026年9月1日，青岚市博物馆周三免费开放。",
+  "sources": [
+    {"result_id":"museum_hours","title":"青岚市博物馆开放时间","url":"https://museum.example.org/hours","source_name":"青岚市博物馆","published_at":"2026-09-01T09:00:00+08:00","snippet":"青岚市博物馆周二至周日开放，周三的参观时间为9:00至17:00。参观前请完成预约。","source_tier":"S","source_category":"official","independence_key":"museum.example.org"},
+    {"result_id":"museum_access","title":"青岚市博物馆参观须知","url":"https://museum.example.org/access","source_name":"青岚市博物馆","published_at":"2026-09-01T10:00:00+08:00","snippet":"青岚市博物馆参观者凭预约二维码入馆，请勿携带大型行李。本页只介绍预约流程。","source_tier":"S","source_category":"official","independence_key":"museum.example.org"}
+  ],
+  "retrieval": [
+    {"stage":"retrieval_initial","query":"2026 9 1 青岚市博物馆周三免费开放","source_ids":["museum_hours"]},
+    {"stage":"retrieval_initial","query":"青岚市博物馆周三免费开放","source_ids":["museum_hours"]},
+    {"stage":"retrieval_initial","query":"2026 9 1 青岚市博物馆周三免费开放 官方 回应 通报 说明","source_ids":["museum_hours"]},
+    {"stage":"retrieval_initial","query":"2026 9 1 青岚市博物馆周三免费开放 传闻 网传 热议 发酵","source_ids":["museum_hours"]},
+    {"stage":"investigation_retrieval","query":"青岚市博物馆 周三 门票价格 公告","source_ids":["museum_hours","museum_access"]},
+    {"stage":"investigation_retrieval","query":"青岚市博物馆 周三 门票价格 公告 官方 回应 通报 说明","source_ids":["museum_hours","museum_access"]},
+    {"stage":"investigation_retrieval","query":"青岚市博物馆 周三 门票价格 公告 传闻 网传 热议 发酵","source_ids":["museum_hours","museum_access"]},
+    {"stage":"per_claim_retrieval","query":"青岚市博物馆周三免费开放。 票价 收费标准 免费条件","source_ids":[]},
+    {"stage":"per_claim_retrieval","query":"青岚市博物馆周三免费开放 票价 收费标准 免费条件 官方 回应 通报 说明","source_ids":[]},
+    {"stage":"per_claim_retrieval","query":"青岚市博物馆周三免费开放 票价 收费标准 免费条件 传闻 网传 热议 发酵","source_ids":[]},
+    {"stage":"per_claim_retrieval","query":"青岚市博物馆周三免费开放。 票价 site:gov.cn","source_ids":[]},
+    {"stage":"per_claim_retrieval","query":"青岚市博物馆周三免费开放。 票价 site:xinhuanet.com","source_ids":[]},
+    {"stage":"per_claim_retrieval","query":"青岚市博物馆周三免费开放。 票价 site:people.com.cn","source_ids":[]},
+    {"stage":"per_claim_retrieval","query":"青岚市博物馆周三免费开放。 票价 site:cctv.com","source_ids":[]}
+  ],
+  "completions": [
+    {"template":"NEXT_ACTION_SEQUENCE_SYSTEM_PROMPT","response":{"actions":["investigate","synthesize"],"reason":"开放时间无法证明是否免费，补查票价公告。"}},
+    {"template":"INVESTIGATION_PLAN_SYSTEM_PROMPT","response":{"should_continue":true,"follow_up_query":"青岚市博物馆 周三 门票价格 公告","reason":"需要免费适用条件原文。"}},
+    {"template":"CLAIMS_ONLY_SYSTEM_PROMPT","response":{"claims":[{"claim":"青岚市博物馆周三免费开放。","claim_type":"fact","verdict":"supported","confidence":"high","evidence_result_ids":["q0-museum_hours"],"notes":"待由Critic检查开放时间能否支撑免费。"}]}},
+    {"template":"SYNTHESIS_CRITIC_SYSTEM_PROMPT","response":{"revisions":[{"index":0,"keep":false,"reason":"开放时间没有说明票价，不能证明免费。"}]}},
+    {"template":"CRITIC_REFINE_SYSTEM_PROMPT","response":{"refined_claims":[{"index":0,"verdict":"insufficient","confidence":"low","evidence_result_ids":["q0-museum_hours","q0-museum_access"],"notes":"补查后依然没有找到免费条件。"}]}},
+    {"template":"CLAIM_CORRECTION","response":[{"correction":null}]},
+    {"template":"ENRICHMENT_SYSTEM_PROMPT","response":{"timeline":[],"scenarios":[]}}
+  ],
+  "expected":{"claims":{"青岚市博物馆周三免费开放。":"insufficient"},"required_actions":["normalize","search_news","investigate","synthesize","finalize_report"],"no_decisive_verdicts":true,"evidence_gaps":{"青岚市博物馆周三免费开放。":["price"]}}
+}

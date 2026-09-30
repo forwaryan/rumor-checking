@@ -1,0 +1,84 @@
+{
+  "case_id": "covid19_health_rumor_80533",
+  "recorded_at": "2020-01-29T00:00:00Z",
+  "raw_input": "婴儿不会感染新型冠状病毒",
+  "retrieval_results": [
+    {
+      "result_id": "fact_check_1",
+      "title": "婴儿不会感染新型冠状病毒",
+      "url": "https://mdeer.taobao.com/guide/h5/science/article/167969",
+      "source_name": "央视新闻",
+      "published_at": "2020-01-29",
+      "snippet": "该消息已被辟谣。据央视新闻报道，1月26日18时至21时，北京新增5例新型冠状病毒感染的肺炎病例，其中有一名9个月大女婴，为首个确诊的婴儿感染者。此后，安徽也有婴儿被感染的报道。",
+      "source_tier": "B"
+    }
+  ],
+  "expected_claims": [
+    {
+      "claim": "婴儿不会感染新型冠状病毒",
+      "claim_type": "fact",
+      "verdict": "refuted",
+      "confidence": "high",
+      "evidence": [
+        {
+          "url": "https://mdeer.taobao.com/guide/h5/science/article/167969",
+          "title": "央视新闻辟谣材料"
+        }
+      ],
+      "evaluation": {
+        "score_confidence": false
+      }
+    }
+  ],
+  "metadata": {
+    "source": "COVID19-Health-Rumor",
+    "provenance": "public_dataset",
+    "source_case_id": "80533",
+    "source_revision": "f07382aa9ab38353c80b6c87eb665d7f6733bed2",
+    "dataset_license": "MIT",
+    "evidence_license": "third-party source terms",
+    "original_label": "wish",
+    "text_variant": "zh-Hans",
+    "domain": "健康",
+    "categories": [
+      "external_benchmark",
+      "health_rumor",
+      "covid19"
+    ],
+    "original_rumor_type": "wish",
+    "original_label_field": "rumor_type",
+    "original_label_meaning": "wish/dread describe hope/fear, not factual veracity",
+    "annotation_source": "project_review",
+    "annotation_rationale": "上游给出9个月女婴确诊与其他婴儿感染报道，反驳“婴儿不会感染”的全称断言。",
+    "original_claim": "婴儿不会感染新型冠状病毒",
+    "original_source_record": {
+      "rumor_id": "80533",
+      "publish_date": "2020-01-29",
+      "rumor_type": "wish",
+      "article_title": "婴儿不会感染新型冠状病毒",
+      "article_content": "该消息已被辟谣。据央视新闻报道，1月26日18时至21时，北京新增5例新型冠状病毒感染的肺炎病例，其中有一名9个月大女婴，为首个确诊的婴儿感染者。此后，安徽也有婴儿被感染的报道。",
+      "search_expression": "婴儿+(不会|不易)+(感染|传染)",
+      "source": "央视新闻",
+      "article_url": "https://mdeer.taobao.com/guide/h5/science/article/167969"
+    },
+    "claim_transformation": "原始article_title逐字保留。",
+    "evidence_transformation": "原始article_content逐字保留。",
+    "confidence_source": "project_derived_not_upstream_gold",
+    "source_file_sha256": "9f1abac0a4de9e74e9ed06a83ea67bcba4dc67550734edc44dcb10254e23587b",
+    "source_record_line": 55,
+    "source_url": "https://raw.githubusercontent.com/Kelaxon/COVID19-Health-Rumor/f07382aa9ab38353c80b6c87eb665d7f6733bed2/data/health_rumors.csv",
+    "source_verified": true,
+    "source_verification_scope": "Selected CSV record checked at pinned revision; labels are independent project annotations, not upstream veracity gold.",
+    "source_published_at": "2020-01-29",
+    "hosting_domain": "mdeer.taobao.com",
+    "attributed_source_name": "央视新闻",
+    "reviewed_at": "2026-09-13T07:36:57.121663+00:00",
+    "review_status": "approved",
+    "review_reason": "Pinned source record and project annotation rationale reviewed; original rumor_type is retained only as emotion metadata.",
+    "topic_group": "COVID-19健康谣言",
+    "evaluation_split": "development",
+    "as_of": "2020-01-29T00:00:00Z",
+    "snapshot_kind": "pinned_csv_excerpt_with_declared_historical_date",
+    "evidence_completeness": "complete_csv_excerpt"
+  }
+}

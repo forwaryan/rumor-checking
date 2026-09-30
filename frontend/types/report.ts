@@ -227,6 +227,23 @@ export interface Evidence {
   source_tier: SourceTier;
   stance?: "supports" | "refutes" | "irrelevant" | "ambiguous" | null;
   stance_quote?: string | null;
+  snapshot_id?: string | null;
+  quote_status?: "matched" | "unmatched" | "unavailable" | "not_provided";
+  quote_start?: number | null;
+  quote_end?: number | null;
+}
+
+export interface EvidenceSnapshot {
+  snapshot_id: string;
+  url: string;
+  final_url?: string | null;
+  kind: "page_text" | "search_snippet";
+  text: string;
+  text_sha256: string;
+  captured_at: string;
+  acquisition: "fetched" | "cached" | "retrieved" | "restored";
+  extractor: "article-v1" | "tag-strip-v1" | "search-snippet-v1" | "browser-text-v1" | "checkpoint-text-v1";
+  truncated: boolean;
 }
 
 export interface ClaimCorrection {
@@ -456,6 +473,7 @@ export interface Report {
   final_summary: string;
   risks: string[];
   sources: Evidence[];
+  evidence_snapshots?: EvidenceSnapshot[];
   retrieval_hits?: Evidence[];
   retrieval_diagnostics?: RetrievalDiagnostics | null;
   investigation?: Investigation | null;
@@ -474,11 +492,26 @@ export interface AnalyzeRequest {
   raw_input: string;
   input_type: InputType;
   request_context?: Record<string, unknown>;
+  mock_fetch_result?: MockFetchResult | null;
+  mock_evidence?: Evidence[];
+}
+
+export interface MockFetchResult {
+  status?: "ok" | "partial" | "empty" | "timeout" | "error" | "unsupported";
+  title?: string | null;
+  body?: string | null;
+  snippet?: string | null;
+  source_name?: string | null;
+  published_at?: string | null;
+  final_url?: string | null;
+  content_type?: string | null;
+  fallback_reason?: string | null;
+  error_message?: string | null;
 }
 
 export interface AnalysisRun {
   run_id: string;
-  status: "queued" | "running" | "completed" | "failed" | "interrupted";
+  status: "queued" | "running" | "completed" | "failed" | "interrupted" | "cancelled";
   created_at: string;
   updated_at: string;
   last_event_id: number;
@@ -488,6 +521,53 @@ export interface AnalysisRun {
   report: Report | null;
   error: string | null;
   resumable: boolean;
+  parent_run_id: string | null;
+  root_run_id: string;
+  revision: number;
+  cancel_requested: boolean;
+  review_note: string;
+  review_claim_indices: number[];
+  stop_reason: string | null;
+}
+
+export interface AnalysisRecheckRequest {
+  claim_indices: number[];
+  source_urls: string[];
+  note: string;
+  request_id: string;
+}
+
+export interface AnalysisRunSummary {
+  run_id: string;
+  parent_run_id: string | null;
+  revision: number;
+  status: AnalysisRun["status"];
+  mode: "fast" | "deep";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AnalysisRunHistory {
+  root_run_id: string;
+  revisions: AnalysisRunSummary[];
+}
+
+export interface ClaimChange {
+  claim: string;
+  kind: "changed" | "added" | "removed" | "not_rechecked";
+  before_verdict: Verdict | null;
+  after_verdict: Verdict | null;
+  added_evidence_urls: string[];
+  removed_evidence_urls: string[];
+}
+
+export interface AnalysisRunComparison {
+  run_id: string;
+  parent_run_id: string | null;
+  changes: ClaimChange[];
+  added_source_urls: string[];
+  removed_source_urls: string[];
+  changed_source_urls?: string[];
 }
 
 export interface AnalysisRunEvent {

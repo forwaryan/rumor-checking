@@ -13,12 +13,20 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from backend.app.models.schemas import (  # noqa: E402
+    AnalysisRecheckRequest,
     AnalysisRun,
+    AnalysisRunComparison,
     AnalysisRunEvent,
+    AnalysisRunHistory,
+    AnalysisRunSummary,
+    AnalyzeRequest,
+    ClaimChange,
     ClaimResult,
     Event,
     EvidenceGap,
     EvidenceItem,
+    EvidenceSnapshot,
+    MockFetchResult,
     Report,
     TimelineNode,
 )
@@ -26,7 +34,15 @@ from backend.app.models.schemas import (  # noqa: E402
 type ModelType = type[BaseModel]
 
 CONTRACTS: dict[str, tuple[str, ModelType, str]] = {
+    "analyze_request.schema.json": ("AnalyzeRequest", AnalyzeRequest, "AnalyzeRequest"),
+    "mock_fetch_result.schema.json": ("MockFetchResult", MockFetchResult, "MockFetchResult"),
+    "evidence_snapshot.schema.json": ("EvidenceSnapshot", EvidenceSnapshot, "EvidenceSnapshot"),
     "evidence_gap.schema.json": ("EvidenceGap", EvidenceGap, "EvidenceGap"),
+    "analysis_recheck_request.schema.json": ("AnalysisRecheckRequest", AnalysisRecheckRequest, "AnalysisRecheckRequest"),
+    "analysis_run_summary.schema.json": ("AnalysisRunSummary", AnalysisRunSummary, "AnalysisRunSummary"),
+    "analysis_run_history.schema.json": ("AnalysisRunHistory", AnalysisRunHistory, "AnalysisRunHistory"),
+    "claim_change.schema.json": ("ClaimChange", ClaimChange, "ClaimChange"),
+    "analysis_run_comparison.schema.json": ("AnalysisRunComparison", AnalysisRunComparison, "AnalysisRunComparison"),
     "analysis_run.schema.json": ("AnalysisRun", AnalysisRun, "AnalysisRun"),
     "analysis_run_event.schema.json": ("AnalysisRunEvent", AnalysisRunEvent, "AnalysisRunEvent"),
     "event.schema.json": ("Event", Event, "Event"),

@@ -1,0 +1,84 @@
+{
+  "case_id": "covid19_health_rumor_80406",
+  "recorded_at": "2020-01-28T00:00:00Z",
+  "raw_input": "海鲜会传染新型冠状病毒",
+  "retrieval_results": [
+    {
+      "result_id": "fact_check_1",
+      "title": "海鲜会传染新型冠状病毒",
+      "url": "https://vp.fact.qq.com/article?id=8c30841fe2230ced37fa194293d41704",
+      "source_name": "腾讯旗下专业医学科普平台",
+      "published_at": "2020-01-28",
+      "snippet": "海鲜不会传染新型冠状病毒。尽管此次疾病的起源是武汉的一个海鲜市场……",
+      "source_tier": "B"
+    }
+  ],
+  "expected_claims": [
+    {
+      "claim": "海鲜会传染新型冠状病毒",
+      "claim_type": "fact",
+      "verdict": "refuted",
+      "confidence": "high",
+      "evidence": [
+        {
+          "url": "https://vp.fact.qq.com/article?id=8c30841fe2230ced37fa194293d41704",
+          "title": "腾讯较真健康辟谣"
+        }
+      ],
+      "evaluation": {
+        "score_confidence": false
+      }
+    }
+  ],
+  "metadata": {
+    "source": "COVID19-Health-Rumor",
+    "provenance": "public_dataset",
+    "source_case_id": "80406",
+    "source_revision": "f07382aa9ab38353c80b6c87eb665d7f6733bed2",
+    "dataset_license": "MIT",
+    "evidence_license": "third-party source terms",
+    "original_label": "dread",
+    "text_variant": "zh-Hans",
+    "domain": "健康",
+    "categories": [
+      "external_benchmark",
+      "health_rumor",
+      "covid19"
+    ],
+    "original_rumor_type": "dread",
+    "original_label_field": "rumor_type",
+    "original_label_meaning": "wish/dread describe hope/fear, not factual veracity",
+    "annotation_source": "project_review",
+    "annotation_rationale": "2020-01-28上游摘录首句明确否定“海鲜会传染”；只评估当时该断言和给定摘录，不推及冷链传播或当前医学认识。",
+    "original_claim": "海鲜会传染新型冠状病毒",
+    "original_source_record": {
+      "rumor_id": "80406",
+      "publish_date": "2020-01-28",
+      "rumor_type": "dread",
+      "article_title": "海鲜会传染新型冠状病毒",
+      "article_content": "海鲜不会传染新型冠状病毒。尽管此次疾病的起源是武汉的一个海鲜市场...",
+      "search_expression": "(家畜|家禽|海鲜)+(传染|感染|传播|风险)",
+      "source": "腾讯旗下专业医学科普平台",
+      "article_url": "https://vp.fact.qq.com/article?id=8c30841fe2230ced37fa194293d41704"
+    },
+    "claim_transformation": "原始article_title逐字保留。",
+    "evidence_transformation": "仅将上游末尾三个英文句点规范为中文省略号；首句直接否定原断言，后续说明仍为截断摘录。",
+    "confidence_source": "project_derived_not_upstream_gold",
+    "source_file_sha256": "9f1abac0a4de9e74e9ed06a83ea67bcba4dc67550734edc44dcb10254e23587b",
+    "source_record_line": 41,
+    "source_url": "https://raw.githubusercontent.com/Kelaxon/COVID19-Health-Rumor/f07382aa9ab38353c80b6c87eb665d7f6733bed2/data/health_rumors.csv",
+    "source_verified": true,
+    "source_verification_scope": "Selected CSV record checked at pinned revision; labels are independent project annotations, not upstream veracity gold.",
+    "source_published_at": "2020-01-28",
+    "hosting_domain": "vp.fact.qq.com",
+    "attributed_source_name": "腾讯旗下专业医学科普平台",
+    "reviewed_at": "2026-09-13T07:36:57.121663+00:00",
+    "review_status": "approved",
+    "review_reason": "Pinned source record and project annotation rationale reviewed; original rumor_type is retained only as emotion metadata.",
+    "topic_group": "COVID-19健康谣言",
+    "evaluation_split": "development",
+    "as_of": "2020-01-28T00:00:00Z",
+    "snapshot_kind": "pinned_csv_excerpt_with_declared_historical_date",
+    "evidence_completeness": "truncated_upstream_excerpt_with_complete_direct_refutation_sentence"
+  }
+}

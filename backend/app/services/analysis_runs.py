@@ -18,13 +18,25 @@ from uuid import uuid4
 
 from backend.app.core.config import get_settings
 from backend.app.core.exceptions import AppError
-from backend.app.models.schemas import AnalysisRun, AnalyzeRequest, Report
+from backend.app.models.schemas import (
+    AnalysisRecheckRequest,
+    AnalysisRun,
+    AnalysisRunComparison,
+    AnalysisRunHistory,
+    AnalysisRunSummary,
+    AnalyzeRequest,
+    Report,
+)
 from backend.app.services.analyze_pipeline import AnalyzePipeline
 from backend.app.services.checking_playbooks import record_checking_experience
 from backend.app.services.progress import reset_progress_callback, set_progress_callback
+from backend.app.services.report_revisions import compare_reports
+from backend.app.services.run_control import RunControl, RunStopped, reset_run_control, set_run_control
 
 logger = logging.getLogger(__name__)
 _ACTIVE = {"queued", "running"}
+_SCHEMA_LOCK_NAME = "__schema_initialization__"
+_INITIALIZATION_TIMEOUT_SECONDS = 10.0
 
 
 class AnalysisRunManager:
@@ -53,22 +65,77 @@ class AnalysisRunManager:
         self.lease_seconds = max(0.1, lease_seconds)
         self.clock = clock
         self.pipeline_factory = pipeline_factory
+        # Status/event polling runs at a few hertz per connected client for the whole
+        # length of an analysis. Sweeping expired leases on every one of those polls
+        # would take a write lock (BEGIN IMMEDIATE) that many times a second and
+        # contend with the worker appending progress events, so the read paths only
+        # sweep once per interval and otherwise read without a write transaction.
+        self.cleanup_interval_seconds = min(1.0, self.lease_seconds / 3)
+        self._last_cleanup = float("-inf")
+        with self._initialization_lock():
+            self._initialize_schema()
+
+    def _sweep_if_due(self) -> None:
+        if self.clock() - self._last_cleanup < self.cleanup_interval_seconds:
+            return
+        with self._transaction() as connection:
+            self._cleanup(connection)
+            self._last_cleanup = self.clock()
+
+    @contextmanager
+    def _initialization_lock(self) -> Iterator[None]:
+        """The reserved schema lock is never a run ID and is not removed by run TTL cleanup."""
+        deadline = time.monotonic() + _INITIALIZATION_TIMEOUT_SECONDS
+        while True:
+            handle = self._try_execution_lock(_SCHEMA_LOCK_NAME)
+            if handle is not None:
+                break
+            if time.monotonic() >= deadline:
+                raise sqlite3.OperationalError("analysis schema initialization timed out")
+            time.sleep(0.01)
+        try:
+            yield
+        finally:
+            handle.close()
+
+    def _initialize_schema(self) -> None:
         with self._connection() as connection:
-            connection.execute("PRAGMA journal_mode=WAL")
-            connection.executescript("""
+            if connection.execute("PRAGMA journal_mode").fetchone()[0].lower() != "wal":
+                connection.execute("PRAGMA journal_mode=WAL")
+        with self._transaction() as connection:
+            connection.execute("""
                 CREATE TABLE IF NOT EXISTS runs (
                     run_id TEXT PRIMARY KEY, status TEXT NOT NULL,
                     created_at REAL NOT NULL, updated_at REAL NOT NULL,
                     request_json TEXT NOT NULL, mode TEXT NOT NULL, input_preview TEXT NOT NULL,
                     report_json TEXT, error TEXT, last_event_id INTEGER NOT NULL DEFAULT 0,
                     owner TEXT, lease_until REAL
-                );
+                )
+            """)
+            connection.execute("""
                 CREATE TABLE IF NOT EXISTS events (
                     run_id TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
                     event_id INTEGER NOT NULL, event_json TEXT NOT NULL,
                     PRIMARY KEY (run_id, event_id)
-                );
+                )
             """)
+            columns = {row["name"] for row in connection.execute("PRAGMA table_info(runs)")}
+            additions = {
+                "parent_run_id": "TEXT",
+                "root_run_id": "TEXT",
+                "revision": "INTEGER NOT NULL DEFAULT 1",
+                "request_id": "TEXT",
+                "cancel_requested": "INTEGER NOT NULL DEFAULT 0",
+                "stop_reason": "TEXT",
+                "llm_call_count": "INTEGER NOT NULL DEFAULT 0",
+                "reserved_tokens": "INTEGER NOT NULL DEFAULT 0",
+            }
+            for column, definition in additions.items():
+                if column not in columns:
+                    connection.execute(f"ALTER TABLE runs ADD COLUMN {column} {definition}")
+            connection.execute("UPDATE runs SET root_run_id=run_id WHERE root_run_id IS NULL")
+            connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS runs_root_revision ON runs(root_run_id, revision)")
+            connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS runs_recheck_request ON runs(parent_run_id, request_id)")
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
@@ -102,21 +169,30 @@ class AnalysisRunManager:
             (now,),
         )
         expired = connection.execute(
-            "SELECT run_id FROM runs WHERE status NOT IN ('queued', 'running') AND updated_at < ?",
+            "SELECT root_run_id FROM runs GROUP BY root_run_id HAVING MAX(updated_at) < ? "
+            "AND SUM(CASE WHEN status IN ('queued', 'running') THEN 1 ELSE 0 END)=0",
             (now - self.retention_seconds,),
         ).fetchall()
-        for row in expired:
-            execution_lock = self._try_execution_lock(row["run_id"])
-            if execution_lock is None:
-                continue
+        for group in expired:
+            rows = connection.execute("SELECT run_id FROM runs WHERE root_run_id=?", (group["root_run_id"],)).fetchall()
+            execution_locks = []
             try:
-                connection.execute("DELETE FROM runs WHERE run_id=?", (row["run_id"],))
+                for row in rows:
+                    execution_lock = self._try_execution_lock(row["run_id"])
+                    if execution_lock is None:
+                        break
+                    execution_locks.append(execution_lock)
+                if len(execution_locks) != len(rows):
+                    continue
+                connection.execute("DELETE FROM runs WHERE root_run_id=?", (group["root_run_id"],))
             finally:
-                execution_lock.close()
-            (self.lock_directory / f"{row['run_id']}.lock").unlink(missing_ok=True)
+                for execution_lock in execution_locks:
+                    execution_lock.close()
+            for row in rows:
+                (self.lock_directory / f"{row['run_id']}.lock").unlink(missing_ok=True)
 
     def _try_execution_lock(self, run_id: str) -> BinaryIO | None:
-        """Acquire only inside a database transaction, including during lock-file cleanup."""
+        """Acquire run locks inside a transaction; acquire the reserved schema lock before connecting."""
         descriptor = os.open(self.lock_directory / f"{run_id}.lock", os.O_CREAT | os.O_RDWR, 0o600)
         handle = os.fdopen(descriptor, "r+b")
         try:
@@ -148,6 +224,8 @@ class AnalysisRunManager:
 
     @staticmethod
     def _view(row: sqlite3.Row) -> AnalysisRun:
+        request = json.loads(row["request_json"])
+        context = request.get("request_context", {})
         return AnalysisRun(
             run_id=row["run_id"],
             status=row["status"],
@@ -156,16 +234,23 @@ class AnalysisRunManager:
             last_event_id=row["last_event_id"],
             mode=row["mode"],
             input_preview=row["input_preview"],
-            raw_input=json.loads(row["request_json"])["raw_input"],
+            raw_input=request["raw_input"],
             report=Report.model_validate_json(row["report_json"]) if row["report_json"] else None,
             error=row["error"],
             resumable=row["status"] == "interrupted",
+            parent_run_id=row["parent_run_id"],
+            root_run_id=row["root_run_id"],
+            revision=row["revision"],
+            cancel_requested=bool(row["cancel_requested"]),
+            stop_reason=row["stop_reason"],
+            review_note=context.get("review_note", ""),
+            review_claim_indices=context.get("review_claim_indices", []),
         )
 
     def _check_capacity(self, connection: sqlite3.Connection, *, exclude_run_id: str = "") -> None:
         count = connection.execute("SELECT COUNT(*) FROM runs WHERE status IN ('queued', 'running')").fetchone()[0]
         interrupted = connection.execute(
-            "SELECT run_id FROM runs WHERE status='interrupted' AND run_id != ?", (exclude_run_id,)
+            "SELECT run_id FROM runs WHERE status IN ('interrupted', 'cancelled') AND run_id != ?", (exclude_run_id,)
         ).fetchall()
         for row in interrupted:
             execution_lock = self._try_execution_lock(row["run_id"])
@@ -179,6 +264,8 @@ class AnalysisRunManager:
     def create(self, request: AnalyzeRequest) -> AnalysisRun:
         run_id, owner = uuid4().hex, uuid4().hex
         payload = request.model_copy(deep=True)
+        for key in ("parent_run_id", "root_run_id", "revision", "review_claim_texts", "review_claim_types", "review_claim_indices", "supplemental_urls", "review_note"):
+            payload.request_context.pop(key, None)
         payload.request_context["run_id"] = run_id
         requested_mode = payload.request_context.get("mode")
         mode = "deep" if isinstance(requested_mode, str) and requested_mode.strip().lower() == "deep" else "fast"
@@ -194,9 +281,9 @@ class AnalysisRunManager:
                 if execution_lock is None:
                     raise AppError(status_code=409, code="run_still_executing", message="Analysis is still stopping. Retry later.")
                 connection.execute(
-                    "INSERT INTO runs (run_id,status,created_at,updated_at,request_json,mode,input_preview,owner,lease_until) "
-                    "VALUES (?, 'queued', ?, ?, ?, ?, ?, ?, ?)",
-                    (run_id, now, now, payload.model_dump_json(), mode, preview, owner, now + self.lease_seconds),
+                    "INSERT INTO runs (run_id,status,created_at,updated_at,request_json,mode,input_preview,owner,lease_until,root_run_id) "
+                    "VALUES (?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (run_id, now, now, payload.model_dump_json(), mode, preview, owner, now + self.lease_seconds, run_id),
                 )
                 run = self._view(self._row(connection, run_id))
         except BaseException:
@@ -207,9 +294,133 @@ class AnalysisRunManager:
         return run
 
     def get(self, run_id: str) -> AnalysisRun:
+        self._sweep_if_due()
+        with self._connection() as connection:
+            return self._view(self._row(connection, run_id))
+
+    def recheck(self, parent_run_id: str, request: AnalysisRecheckRequest) -> AnalysisRun:
+        request = AnalysisRecheckRequest.model_validate(request.model_dump())
+        run_id, owner = uuid4().hex, uuid4().hex
+        execution_lock = None
+        try:
+            with self._transaction() as connection:
+                self._cleanup(connection)
+                parent = self._row(connection, parent_run_id)
+                existing = connection.execute(
+                    "SELECT * FROM runs WHERE parent_run_id=? AND request_id=?", (parent_run_id, str(request.request_id)),
+                ).fetchone()
+                if existing is not None:
+                    return self._view(existing)
+                if parent["status"] != "completed" or not parent["report_json"]:
+                    raise AppError(status_code=409, code="run_not_completed", message="Only a completed report can be rechecked.")
+                report = Report.model_validate_json(parent["report_json"])
+                indices = sorted(set(request.claim_indices)) if request.claim_indices else list(range(len(report.claim_results)))
+                if not indices or len(indices) > 50 or any(index < 0 or index >= len(report.claim_results) for index in indices):
+                    raise AppError(status_code=422, code="invalid_claim_indices", message="Choose claims present in the parent report.")
+                self._check_capacity(connection)
+                payload = AnalyzeRequest.model_validate_json(parent["request_json"])
+                source_urls = list(request.source_urls) or list(payload.request_context.get("supplemental_urls", []))
+                revision = connection.execute(
+                    "SELECT MAX(revision)+1 FROM runs WHERE root_run_id=?", (parent["root_run_id"],),
+                ).fetchone()[0]
+                payload.request_context.update({
+                    "run_id": run_id, "mode": "deep", "parent_run_id": parent_run_id,
+                    "root_run_id": parent["root_run_id"], "revision": revision,
+                    "review_claim_texts": [report.claim_results[index].claim for index in indices],
+                    "review_claim_types": [report.claim_results[index].claim_type for index in indices],
+                    "review_claim_indices": indices, "supplemental_urls": source_urls,
+                    "review_note": request.note,
+                })
+                execution_lock = self._try_execution_lock(run_id)
+                if execution_lock is None:
+                    raise AppError(status_code=409, code="run_still_executing", message="Analysis is still stopping. Retry later.")
+                now = self.clock()
+                connection.execute(
+                    "INSERT INTO runs (run_id,status,created_at,updated_at,request_json,mode,input_preview,owner,lease_until,"
+                    "parent_run_id,root_run_id,revision,request_id) VALUES (?, 'queued', ?, ?, ?, 'deep', ?, ?, ?, ?, ?, ?, ?)",
+                    (run_id, now, now, payload.model_dump_json(), parent["input_preview"], owner, now + self.lease_seconds,
+                     parent_run_id, parent["root_run_id"], revision, str(request.request_id)),
+                )
+                run = self._view(self._row(connection, run_id))
+        except BaseException:
+            if execution_lock is not None:
+                execution_lock.close()
+            raise
+        self._launch(run_id, owner, execution_lock)
+        return run
+
+    def versions(self, run_id: str) -> AnalysisRunHistory:
         with self._transaction() as connection:
             self._cleanup(connection)
+            root_run_id = self._row(connection, run_id)["root_run_id"]
+            rows = connection.execute("SELECT * FROM runs WHERE root_run_id=? ORDER BY revision", (root_run_id,)).fetchall()
+            return AnalysisRunHistory(root_run_id=root_run_id, revisions=[
+                AnalysisRunSummary(
+                    run_id=row["run_id"], parent_run_id=row["parent_run_id"], revision=row["revision"],
+                    status=row["status"], mode=row["mode"],
+                    created_at=datetime.fromtimestamp(row["created_at"], UTC).isoformat(),
+                    updated_at=datetime.fromtimestamp(row["updated_at"], UTC).isoformat(),
+                ) for row in rows
+            ])
+
+    def changes(self, run_id: str) -> AnalysisRunComparison:
+        with self._transaction() as connection:
+            self._cleanup(connection)
+            run = self._view(self._row(connection, run_id))
+            if run.parent_run_id is None:
+                return AnalysisRunComparison(run_id=run_id, parent_run_id=None)
+            parent = self._view(self._row(connection, run.parent_run_id))
+            if run.report is None or parent.report is None:
+                raise AppError(status_code=409, code="report_not_available", message="Both reports must be available for comparison.")
+            return compare_reports(run_id, run.parent_run_id, parent.report, run.report, run.review_claim_indices)
+
+    def cancel(self, run_id: str) -> AnalysisRun:
+        with self._transaction() as connection:
+            self._cleanup(connection)
+            row = self._row(connection, run_id)
+            if row["status"] not in _ACTIVE | {"interrupted"}:
+                return self._view(row)
+            self._mark_stopped(connection, run_id, "user_cancelled")
             return self._view(self._row(connection, run_id))
+
+    def _mark_stopped(self, connection: sqlite3.Connection, run_id: str, reason: str) -> None:
+        self._append(connection, run_id, {
+            "type": "complete", "run_id": run_id, "success": False,
+            "cancelled": True, "stop_reason": reason,
+        })
+        connection.execute(
+            "UPDATE runs SET status='cancelled', cancel_requested=?, stop_reason=?, "
+            "owner=NULL, lease_until=NULL WHERE run_id=?", (reason == "user_cancelled", reason, run_id),
+        )
+
+    def _stop(self, run_id: str, owner: str, reason: str) -> None:
+        with self._transaction() as connection:
+            if self._owns(connection, run_id, owner):
+                self._mark_stopped(connection, run_id, reason)
+
+    def cancellation_requested(self, run_id: str) -> bool:
+        with self._connection() as connection:
+            row = connection.execute("SELECT cancel_requested, status FROM runs WHERE run_id=?", (run_id,)).fetchone()
+            return row is None or bool(row["cancel_requested"]) or row["status"] == "cancelled"
+
+    def _reserve_model_call(
+        self, run_id: str, owner: str, estimated_tokens: int, *, max_llm_calls: int, max_tokens: int,
+    ) -> None:
+        with self._transaction() as connection:
+            row = self._row(connection, run_id)
+            if row["cancel_requested"] or row["status"] == "cancelled":
+                raise RunStopped(row["stop_reason"] or "user_cancelled")
+            if not self._owns(connection, run_id, owner):
+                raise RunStopped("lease_lost")
+            estimated_tokens = max(0, estimated_tokens)
+            if max_llm_calls and row["llm_call_count"] >= max_llm_calls:
+                raise RunStopped("call_budget_exhausted")
+            if max_tokens and row["reserved_tokens"] + estimated_tokens > max_tokens:
+                raise RunStopped("token_budget_exhausted")
+            connection.execute(
+                "UPDATE runs SET llm_call_count=llm_call_count+1, reserved_tokens=reserved_tokens+? WHERE run_id=?",
+                (estimated_tokens, run_id),
+            )
 
     def resume(self, run_id: str) -> AnalysisRun:
         owner = uuid4().hex
@@ -218,7 +429,7 @@ class AnalysisRunManager:
             with self._transaction() as connection:
                 self._cleanup(connection)
                 row = self._row(connection, run_id)
-                if row["status"] in _ACTIVE or row["status"] == "completed":
+                if row["status"] in _ACTIVE or row["status"] in {"completed", "cancelled"}:
                     return self._view(row)
                 if row["status"] == "failed":
                     raise AppError(status_code=409, code="run_failed", message="A failed analysis requires a new run.")
@@ -290,9 +501,13 @@ class AnalysisRunManager:
                 logger.warning("analysis_run_lease_renewal_failed run_id=%s", run_id)
                 return
 
-    def _finish(self, run_id: str, owner: str, *, report: Report | None = None, error: str | None = None) -> None:
+    def _finish(self, run_id: str, owner: str, *, report: Report | None = None, error: str | None = None,
+                error_type: str | None = None) -> None:
         with self._transaction() as connection:
             if not self._owns(connection, run_id, owner):
+                return
+            if self._row(connection, run_id)["cancel_requested"]:
+                self._mark_stopped(connection, run_id, "user_cancelled")
                 return
             if report is not None:
                 self._append(connection, run_id, {"type": "report", "run_id": run_id, "report": report.model_dump(mode="json")})
@@ -300,6 +515,7 @@ class AnalysisRunManager:
                 self._append(connection, run_id, {
                     "type": "error", "run_id": run_id, "code": error,
                     "message": "Analysis could not be completed. Please start a new run.", "status_code": 500,
+                    "error_type": error_type,
                 })
             self._append(connection, run_id, {"type": "complete", "run_id": run_id, "success": report is not None})
             connection.execute(
@@ -309,7 +525,22 @@ class AnalysisRunManager:
 
     def _worker(self, run_id: str, owner: str, execution_lock: BinaryIO) -> None:
         stop = Event()
-        token = set_progress_callback(lambda event: self._push(run_id, owner, event))
+        settings = get_settings()
+        control = RunControl(
+            cancelled=lambda: self.cancellation_requested(run_id),
+            stop_callback=lambda reason: self._stop(run_id, owner, reason),
+            reserve_callback=lambda estimate: self._reserve_model_call(
+                run_id, owner, estimate, max_llm_calls=settings.analysis_run_max_llm_calls, max_tokens=settings.agent_max_token_budget,
+            ),
+        )
+
+        def push(event: dict[str, Any]) -> None:
+            control.check()
+            self._push(run_id, owner, event)
+
+        push.run_control = control
+        token = set_progress_callback(push)
+        control_token = set_run_control(control)
         try:
             with self._transaction() as connection:
                 if not self._owns(connection, run_id, owner):
@@ -323,14 +554,21 @@ class AnalysisRunManager:
                 return
             self._record_experience(run_id, payload, report)
             self._finish(run_id, owner, report=report)
+        except RunStopped as exc:
+            try:
+                self._stop(run_id, owner, exc.reason)
+            except sqlite3.Error:
+                logger.warning("analysis_run_stop_failed run_id=%s", run_id)
         except Exception as exc:
             logger.warning("analysis_run_failed run_id=%s error_type=%s", run_id, type(exc).__name__)
             try:
-                self._finish(run_id, owner, error="analysis_failed" if isinstance(exc, AppError) else "internal_server_error")
+                self._finish(run_id, owner, error="analysis_failed" if isinstance(exc, AppError) else "internal_server_error",
+                             error_type=type(exc).__name__)
             except sqlite3.Error:
                 logger.warning("analysis_run_finalization_failed run_id=%s", run_id)
         finally:
             stop.set()
+            reset_run_control(control_token)
             reset_progress_callback(token)
             execution_lock.close()
 
@@ -350,8 +588,8 @@ class AnalysisRunManager:
             logger.warning("analysis_run_experience_failed run_id=%s error_type=%s", run_id, type(exc).__name__)
 
     def event_page(self, run_id: str, after: int) -> tuple[list[dict[str, Any]], AnalysisRun]:
-        with self._transaction() as connection:
-            self._cleanup(connection)
+        self._sweep_if_due()
+        with self._connection() as connection:
             run = self._view(self._row(connection, run_id))
             rows = connection.execute(
                 "SELECT event_id,event_json FROM events WHERE run_id=? AND event_id>? ORDER BY event_id LIMIT 200",

@@ -3,18 +3,22 @@ from __future__ import annotations
 import logging
 import re
 from contextlib import nullcontext
+from dataclasses import replace
 
 from backend.app.agent.trace import TraceExporter, get_current_trace
 from backend.app.core.config import get_settings
 from backend.app.models.schemas import AnalyzeRequest, Report, ReportProvenance, RetrievalDiagnostics
 from backend.app.services.agent_reasoner import LlmAgentReasoner
+from backend.app.services.cache_policy import evidence_cache_policy, requires_fresh_evidence, verdict_cache_fingerprint
 from backend.app.services.claim_extractor import ClaimExtractor
 from backend.app.services.content_check_builder import ContentCheckBuilder
+from backend.app.services.evidence_goals import review_claim_items
+from backend.app.services.evidence_snapshots import evidence_capture
 from backend.app.services.input_normalizer import InputNormalizer
 from backend.app.services.model_call_observer import model_observation_run
 from backend.app.services.model_health import diff_snapshot, get_model_health_registry
 from backend.app.services.page_fetcher import set_page_fetch_cache
-from backend.app.services.per_claim_retriever import enrich_retrieval_for_claims
+from backend.app.services.per_claim_retriever import enrich_retrieval_for_claims, refine_evidence_gaps
 from backend.app.services.pipeline_trace_builder import PipelineTraceBuilder
 from backend.app.services.progress import (
     StageTimingCollector,
@@ -27,6 +31,13 @@ from backend.app.services.provider_enricher import ProviderEnricher
 from backend.app.services.question_resolver import QuestionResolver
 from backend.app.services.report_builder import ReportBuilder
 from backend.app.services.retrieval_service import RetrievalService
+from backend.app.services.run_control import check_run_control
+from backend.app.services.supplemental_evidence import (
+    annotate_review_report,
+    load_supplemental_evidence,
+    merge_supplemental_evidence,
+    supplemental_evidence_scope,
+)
 from backend.app.services.timeline_builder import TimelineBuilder
 from backend.app.services.url_fetch_cache import UrlFetchCache
 from backend.app.services.verdict_engine import VerdictEngine
@@ -127,11 +138,15 @@ class AnalyzePipeline:
         re-running the pipeline. Disabled by default: a rumor's truth status can
         change as news breaks, so live-checking must opt in with a short TTL."""
         cache = self._get_verdict_cache()
-        if cache is None or request.request_context.get("skip_verdict_cache"):
+        if (cache is None or request.request_context.get("skip_verdict_cache")
+                or request.mock_evidence or request.mock_fetch_result is not None
+                or request.request_context.get("skip_retrieval_cache") or request.request_context.get("bypass_retrieval_cache")
+                or request.request_context.get("supplemental_urls") or requires_fresh_evidence(request.request_context)):
             return self._run_with_failover_summary(request)
 
-        from backend.app.agent.verdict_cache import fingerprint
-        fp = fingerprint(request.raw_input)
+        fp = verdict_cache_fingerprint(request, self.settings)
+        if fp is None:
+            return self._run_with_failover_summary(request)
         cached = cache.get(fp)
         if cached is not None:
             restored = self._report_from_cache(cached)
@@ -156,7 +171,11 @@ class AnalyzePipeline:
         registry = get_model_health_registry()
         before = registry.snapshot()
         try:
-            return self._analyze_uncached(request)
+            with (evidence_cache_policy(request.request_context), evidence_capture() as capture,
+                  supplemental_evidence_scope()):
+                load_supplemental_evidence(request)
+                report = annotate_review_report(request, self._analyze_uncached(request))
+                return capture.bind_report(report)
         finally:
             # Observability must never mask the real failure — if snapshot/emit
             # raises (progress callbacks are supplied by the caller and aren't
@@ -249,6 +268,7 @@ class AnalyzePipeline:
         return time.time()
 
     def _analyze_uncached(self, request: AnalyzeRequest) -> Report:
+        check_run_control()
         if request.request_context.get("force_error"):
             raise RuntimeError("forced_error_for_testing")
 
@@ -274,6 +294,8 @@ class AnalyzePipeline:
                 report = self._run_agent_orchestrator(request)
             if report is not None:
                 return report
+
+        check_run_control()
 
         emit_stage(
             stage_key="normalize_input",
@@ -302,6 +324,7 @@ class AnalyzePipeline:
             details=[f"provider={self.settings.retrieval_provider}"],
         )
         initial_retrieval_bundle = self.retriever.retrieve_for_event(normalized_event, request_context=request.request_context)
+        initial_retrieval_bundle = merge_supplemental_evidence(request, initial_retrieval_bundle)
         retrieval_bundle = initial_retrieval_bundle
         emit_stage(
             stage_key="retrieval_initial",
@@ -369,6 +392,7 @@ class AnalyzePipeline:
             retrieval_bundle=retrieval_bundle,
             deep_mode=deep_mode,
         )
+        retrieval_bundle = merge_supplemental_evidence(request, retrieval_bundle)
 
         agent_possibilities = []
         emit_stage(
@@ -389,6 +413,10 @@ class AnalyzePipeline:
             provider_claims = agent_synthesis.claim_extraction.claims
             claim_extraction = agent_synthesis.claim_extraction
             verdict = agent_synthesis.verdict
+            retrieval_bundle, verdict, _gap_iterations = refine_evidence_gaps(
+                request=request, event=event, verdict=verdict, bundle=retrieval_bundle,
+                retriever=self.retriever, verdict_engine=self.verdict_engine,
+            )
             timeline = agent_synthesis.timeline
             agent_possibilities = agent_synthesis.possibilities
             self._maybe_record_eval(request, retrieval_bundle, verdict)
@@ -468,6 +496,7 @@ class AnalyzePipeline:
                 details=[],
             )
             claim_extraction = self.claim_extractor.extract_with_source(event, provider_claims=provider_claims)
+            claim_extraction = replace(claim_extraction, claims=review_claim_items(request) or claim_extraction.claims)
             emit_stage(
                 stage_key="claim_extraction",
                 title="Claim 拆解",
@@ -519,6 +548,7 @@ class AnalyzePipeline:
                         retrieval_service=self.retriever,
                         resolved_event=resolved_event,
                         iteration=_iteration,
+                        claim_results=verdict.claim_results,
                     )
                     if enriched_bundle is retrieval_bundle:
                         break

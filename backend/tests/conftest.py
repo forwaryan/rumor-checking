@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import ipaddress
 import json
+import socket
 from pathlib import Path
 
 import pytest
@@ -41,11 +43,14 @@ def stable_test_env(monkeypatch, tmp_path):
     monkeypatch.setenv("RETRIEVAL_FALLBACK_TO_MOCK", "true")
     monkeypatch.setenv("XHS_SEARCH_ENABLED", "false")
     monkeypatch.setenv("TOUTIAO_SEARCH_ENABLED", "false")
+    monkeypatch.setenv("SOGOU_WEIXIN_SEARCH_ENABLED", "false")
+    monkeypatch.setenv("PIYAO_SEARCH_ENABLED", "false")
     monkeypatch.setenv("RETRIEVAL_CACHE_ENABLED", "true")
     monkeypatch.setenv("RETRIEVAL_CACHE_ALLOW_STALE_ON_ERROR", "false")
     # Isolate the retrieval cache per test so runs never read or clobber the
     # shared data/cache/retrieval directory (order-dependent contamination).
     monkeypatch.setenv("RETRIEVAL_CACHE_DIR", str(tmp_path / "retrieval-cache"))
+    monkeypatch.setenv("URL_FETCH_CACHE_DIR", str(tmp_path / "url-cache"))
     monkeypatch.setenv("ANALYSIS_RUN_DIR", str(tmp_path / "analysis-runs"))
     monkeypatch.setenv("AGENT_CONTEXT_MAX_TOKENS", "0")
     monkeypatch.setenv("AGENT_LAYERED_CONTEXT_ENABLED", "true")
@@ -56,6 +61,46 @@ def stable_test_env(monkeypatch, tmp_path):
     yield
     get_settings.cache_clear()
     reset_model_health_registry()
+
+
+@pytest.fixture(autouse=True)
+def fixture_domain_dns(monkeypatch, request):
+    if request.node.get_closest_marker("slow"):
+        return
+    original = socket.getaddrinfo
+    original_connect = socket.socket.connect
+    original_connect_ex = socket.socket.connect_ex
+
+    def resolve(host, port, *args, **kwargs):
+        if host is None or host in {"", "localhost"}:
+            return original(host, port, *args, **kwargs)
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", port or 443))]
+        return original(host, port, *args, **kwargs)
+
+    def allowed(address):
+        if not isinstance(address, tuple) or address[0] == "localhost":
+            return True
+        try:
+            return ipaddress.ip_address(address[0]).is_loopback
+        except ValueError:
+            return False
+
+    def connect(connection, address):
+        if not allowed(address):
+            raise OSError("Unrecorded external connection in an offline test")
+        return original_connect(connection, address)
+
+    def connect_ex(connection, address):
+        if not allowed(address):
+            raise OSError("Unrecorded external connection in an offline test")
+        return original_connect_ex(connection, address)
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve)
+    monkeypatch.setattr(socket.socket, "connect", connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", connect_ex)
 
 
 @pytest.fixture()

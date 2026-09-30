@@ -1,0 +1,85 @@
+{
+  "case_id": "covid19_health_rumor_81017",
+  "recorded_at": "2020-02-04T00:00:00Z",
+  "raw_input": "新型冠状病毒在体外存活不超过一天",
+  "retrieval_results": [
+    {
+      "result_id": "fact_check_1",
+      "title": "新型冠状病毒在体外存活不超过一天",
+      "url": "https://mdeer.taobao.com/guide/h5/science/article/170459",
+      "source_name": "央视新闻",
+      "published_at": "2020-02-04",
+      "snippet": "该消息已被辟谣。国家卫生健康委专家组成员蒋荣猛表示，病毒在光滑物体表面能存活数小时，在温度湿度合适的环境能存活1天，也有发现可达到5天。",
+      "source_tier": "B"
+    }
+  ],
+  "expected_claims": [
+    {
+      "claim": "新型冠状病毒在体外存活不超过一天",
+      "claim_type": "fact",
+      "verdict": "refuted",
+      "confidence": "high",
+      "evidence": [
+        {
+          "url": "https://mdeer.taobao.com/guide/h5/science/article/170459",
+          "title": "国家卫生健康委专家回应材料"
+        }
+      ],
+      "evaluation": {
+        "score_confidence": false
+      }
+    }
+  ],
+  "metadata": {
+    "source": "COVID19-Health-Rumor",
+    "provenance": "public_dataset",
+    "source_case_id": "81017",
+    "source_revision": "f07382aa9ab38353c80b6c87eb665d7f6733bed2",
+    "dataset_license": "MIT",
+    "evidence_license": "third-party source terms",
+    "original_label": "wish",
+    "text_variant": "zh-Hans",
+    "domain": "健康",
+    "categories": [
+      "external_benchmark",
+      "health_rumor",
+      "covid19",
+      "time_sensitive"
+    ],
+    "original_rumor_type": "wish",
+    "original_label_field": "rumor_type",
+    "original_label_meaning": "wish/dread describe hope/fear, not factual veracity",
+    "annotation_source": "project_review",
+    "annotation_rationale": "上游指出温湿度适宜的物体表面存活可达5天，反驳“体外不超过一天”；保留环境条件且不泛化至所有介质。",
+    "original_claim": "病毒在体外存活不超过一天",
+    "original_source_record": {
+      "rumor_id": "81017",
+      "publish_date": "2020-02-04",
+      "rumor_type": "wish",
+      "article_title": "病毒在体外存活不超过一天",
+      "article_content": "该消息已被辟谣。国家卫生健康委专家组成员蒋荣猛表示，病毒从人体出来后会很快沉降，不会在空气中飘移。从这个意义讲，空气中不会有病毒。但病毒可能落在物体上，人可以通过手来接触到病毒。病毒在光滑的物体表面能存活数小时，温度湿度合适的环境能存活1天，有发现可达到5天。",
+      "search_expression": "体外存活+一天",
+      "source": "央视新闻",
+      "article_url": "https://mdeer.taobao.com/guide/h5/science/article/170459"
+    },
+    "claim_transformation": "将“病毒”明确为来源语境中的“新型冠状病毒”，保留“不超过一天”的上限断言。",
+    "evidence_transformation": "人工节录，仅保留光滑物体表面、温湿度与可达5天的条件；不把被省略的空气传播描述扩展为本样本结论。",
+    "confidence_source": "project_derived_not_upstream_gold",
+    "source_file_sha256": "9f1abac0a4de9e74e9ed06a83ea67bcba4dc67550734edc44dcb10254e23587b",
+    "source_record_line": 98,
+    "source_url": "https://raw.githubusercontent.com/Kelaxon/COVID19-Health-Rumor/f07382aa9ab38353c80b6c87eb665d7f6733bed2/data/health_rumors.csv",
+    "source_verified": true,
+    "source_verification_scope": "Selected CSV record checked at pinned revision; labels are independent project annotations, not upstream veracity gold.",
+    "source_published_at": "2020-02-04",
+    "hosting_domain": "mdeer.taobao.com",
+    "attributed_source_name": "央视新闻",
+    "reviewed_at": "2026-09-13T07:36:57.121663+00:00",
+    "review_status": "approved",
+    "review_reason": "Pinned source record and project annotation rationale reviewed; original rumor_type is retained only as emotion metadata.",
+    "topic_group": "COVID-19健康谣言",
+    "evaluation_split": "development",
+    "as_of": "2020-02-04T00:00:00Z",
+    "snapshot_kind": "pinned_csv_excerpt_with_declared_historical_date",
+    "evidence_completeness": "project_summary_of_complete_csv_excerpt"
+  }
+}

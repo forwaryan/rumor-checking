@@ -19,6 +19,7 @@ from backend.app.services.retrieval_models import (
     detect_signal_tags,
     infer_source_category,
 )
+from backend.app.services.run_control import check_run_control, reserve_llm_call
 
 logger = logging.getLogger(__name__)
 
@@ -354,6 +355,11 @@ class LlmWebSearchProvider:
                 f"model={model}",
             ],
         )
+        reserve_llm_call(
+            system_prompt="",
+            user_prompt=json.dumps({"messages": messages, "tools": [LLM_WEB_SEARCH_TOOL]}, ensure_ascii=False),
+            max_output_tokens=2048,
+        )
         body = {
             "model": model,
             "temperature": self._request_temperature(),
@@ -378,7 +384,7 @@ class LlmWebSearchProvider:
                 json=body,
                 timeout=self.settings.retrieval_timeout_seconds,
             )
-
+            check_run_control()
             response.raise_for_status()
             payload = response.json()
             observation.response(payload, status_code=response.status_code)

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Literal, TypedDict, Union
+import json
+from hashlib import sha256
+from typing import Annotated, Any, Literal, TypedDict, Union
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 InternalInputType = Literal["text_news", "url_news", "url_unknown", "question_only"]
 ClaimType = Literal["fact", "opinion", "prediction", "unverifiable"]
@@ -44,6 +47,31 @@ class MockFetchResult(BaseModel):
     error_message: str | None = None
 
 
+class EvidenceSnapshot(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    snapshot_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    url: str
+    final_url: str | None = None
+    kind: Literal["page_text", "search_snippet"]
+    text: str = Field(min_length=1, max_length=24000)
+    text_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    captured_at: str
+    acquisition: Literal["fetched", "cached", "retrieved", "restored"]
+    extractor: Literal["article-v1", "tag-strip-v1", "search-snippet-v1", "browser-text-v1", "checkpoint-text-v1"]
+    truncated: bool = False
+
+    @model_validator(mode="after")
+    def validate_text_hash(self) -> EvidenceSnapshot:
+        if sha256(self.text.encode()).hexdigest() != self.text_sha256:
+            raise ValueError("Snapshot text hash mismatch")
+        identity = json.dumps([self.url, self.final_url, self.kind, self.extractor, self.text_sha256, self.truncated],
+                              separators=(",", ":"))
+        if sha256(identity.encode()).hexdigest() != self.snapshot_id:
+            raise ValueError("Snapshot identity mismatch")
+        return self
+
+
 class EvidenceItem(BaseModel):
     title: str
     url: str
@@ -54,6 +82,10 @@ class EvidenceItem(BaseModel):
     source_tier: SourceTier = "C"
     stance: EvidenceStance | None = None
     stance_quote: str | None = None
+    snapshot_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    quote_status: Literal["matched", "unmatched", "unavailable", "not_provided"] = "not_provided"
+    quote_start: int | None = Field(default=None, ge=0)
+    quote_end: int | None = Field(default=None, ge=0)
 
 
 class TimelineNode(BaseModel):
@@ -261,6 +293,7 @@ class Report(BaseModel):
     final_summary: str
     risks: list[str] = Field(default_factory=list)
     sources: list[EvidenceItem] = Field(default_factory=list)
+    evidence_snapshots: list[EvidenceSnapshot] = Field(default_factory=list, max_length=24)
     retrieval_hits: list[EvidenceItem] = Field(default_factory=list)
     retrieval_diagnostics: RetrievalDiagnostics | None = None
     overall_credibility_score: float | None = Field(default=None, ge=0, le=100)
@@ -277,7 +310,7 @@ class Report(BaseModel):
 
 class AnalysisRun(BaseModel):
     run_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-    status: Literal["queued", "running", "completed", "failed", "interrupted"]
+    status: Literal["queued", "running", "completed", "failed", "interrupted", "cancelled"]
     created_at: str
     updated_at: str
     last_event_id: int = Field(ge=0)
@@ -287,6 +320,68 @@ class AnalysisRun(BaseModel):
     report: Report | None = None
     error: str | None = None
     resumable: bool = False
+    parent_run_id: str | None = None
+    root_run_id: str = ""
+    revision: int = Field(default=1, ge=1)
+    cancel_requested: bool = False
+    review_note: str = ""
+    review_claim_indices: list[int] = Field(default_factory=list)
+    stop_reason: str | None = None
+
+
+class AnalysisRecheckRequest(BaseModel):
+    claim_indices: list[Annotated[int, Field(strict=True, ge=0)]] = Field(default_factory=list, max_length=50)
+    source_urls: list[str] = Field(default_factory=list, max_length=5)
+    note: str = Field(default="", max_length=2000)
+    request_id: str = Field(min_length=1, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
+
+    @field_validator("source_urls")
+    @classmethod
+    def validate_source_urls(cls, values: list[str]) -> list[str]:
+        cleaned = []
+        for value in values:
+            value = value.strip()
+            parsed = urlsplit(value)
+            if len(value) > 2048 or parsed.scheme not in {"http", "https"} or not parsed.hostname:
+                raise ValueError("Evidence links must be HTTP(S) URLs")
+            if parsed.username is not None or parsed.password is not None:
+                raise ValueError("Evidence links cannot include credentials")
+            if value not in cleaned:
+                cleaned.append(value)
+        return cleaned
+
+
+class AnalysisRunSummary(BaseModel):
+    run_id: str
+    parent_run_id: str | None = None
+    revision: int = Field(ge=1)
+    status: Literal["queued", "running", "completed", "failed", "interrupted", "cancelled"]
+    mode: Literal["fast", "deep"]
+    created_at: str
+    updated_at: str
+
+
+class AnalysisRunHistory(BaseModel):
+    root_run_id: str
+    revisions: list[AnalysisRunSummary]
+
+
+class ClaimChange(BaseModel):
+    claim: str
+    kind: Literal["changed", "added", "removed", "not_rechecked"]
+    before_verdict: VerdictType | None = None
+    after_verdict: VerdictType | None = None
+    added_evidence_urls: list[str] = Field(default_factory=list)
+    removed_evidence_urls: list[str] = Field(default_factory=list)
+
+
+class AnalysisRunComparison(BaseModel):
+    run_id: str
+    parent_run_id: str | None = None
+    changes: list[ClaimChange] = Field(default_factory=list)
+    added_source_urls: list[str] = Field(default_factory=list)
+    removed_source_urls: list[str] = Field(default_factory=list)
+    changed_source_urls: list[str] = Field(default_factory=list)
 
 
 class AnalysisRunEvent(BaseModel):
@@ -295,7 +390,7 @@ class AnalysisRunEvent(BaseModel):
 
 
 class AnalyzeRequest(BaseModel):
-    raw_input: str = Field(..., min_length=1)
+    raw_input: str = Field(..., min_length=1, max_length=100000)
     input_type: str | None = None
     mock_fetch_result: MockFetchResult | None = None
     mock_evidence: list[EvidenceItem] = Field(default_factory=list)

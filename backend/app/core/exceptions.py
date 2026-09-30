@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from fastapi import FastAPI, Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -40,7 +41,7 @@ def _trace_id_from_request(request: Request) -> str:
     return getattr(request.state, "request_id", "unknown")
 
 
-def _error_response(
+def error_response(
     *,
     request: Request,
     status_code: int,
@@ -65,7 +66,7 @@ def install_exception_handlers(app: FastAPI) -> None:
             _trace_id_from_request(request),
             exc.code,
         )
-        return _error_response(
+        return error_response(
             request=request,
             status_code=exc.status_code,
             code=exc.code,
@@ -77,19 +78,19 @@ def install_exception_handlers(app: FastAPI) -> None:
     async def handle_validation_error(
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
-        return _error_response(
+        return error_response(
             request=request,
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             code="validation_error",
             message="Request validation failed.",
-            details={"errors": exc.errors()},
+            details={"errors": jsonable_encoder(exc.errors(), custom_encoder={ValueError: str})},
         )
 
     @app.exception_handler(StarletteHTTPException)
     async def handle_http_error(
         request: Request, exc: StarletteHTTPException
     ) -> JSONResponse:
-        return _error_response(
+        return error_response(
             request=request,
             status_code=exc.status_code,
             code="http_error",
@@ -99,7 +100,7 @@ def install_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(Exception)
     async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
         logger.exception("unhandled_exception trace_id=%s", _trace_id_from_request(request))
-        return _error_response(
+        return error_response(
             request=request,
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             code="internal_server_error",

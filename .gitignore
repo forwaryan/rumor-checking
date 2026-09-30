@@ -9,9 +9,12 @@ __pycache__/
 # Local runtime artifacts
 data/cache/retrieval/
 data/cache/url_fetch/
+data/external/
 data/model_ledger/
 data/traces/
 artifacts/
+evals/live_replay/cfever/
+evals/live_replay/cfever.manifest.json
 tmp-utf8-test.txt
 
 # Process logs / pids (dev server output, not source)

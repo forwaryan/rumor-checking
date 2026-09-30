@@ -55,6 +55,26 @@
     "stance_quote": {
       "type": ["string", "null"],
       "default": null
+    },
+    "snapshot_id": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$",
+      "default": null
+    },
+    "quote_status": {
+      "type": "string",
+      "enum": ["matched", "unmatched", "unavailable", "not_provided"],
+      "default": "not_provided"
+    },
+    "quote_start": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "default": null
+    },
+    "quote_end": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "default": null
     }
   }
 }

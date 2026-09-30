@@ -30,18 +30,60 @@ jobs:
       - run: pip install -r backend/requirements-dev.txt ruff
       - run: ruff check backend/
       - run: python backend/scripts/check_contracts.py
+      - name: Audit dataset integrity and partitions
+        run: |
+          mkdir -p artifacts
+          python backend/scripts/audit_datasets.py --json > artifacts/dataset-audit.json
       - run: python -m pytest backend/tests/ -q
+      - name: Replay the deep Agent workflow offline
+        run: python backend/scripts/replay_agent.py --output artifacts/agent-replay-local.json
       - name: Run deterministic replay evaluation
+        # Thresholds are regression ratchets pinned just below the score measured on
+        # 2026-09-30 with the rule engine — NOT accuracy targets. Each is set so that
+        # losing a single case fails the job, and no threshold claims a score the
+        # corpus does not support. When a rule change genuinely improves a set, raise
+        # its ratchet in the same commit; never raise one ahead of a measured score.
+        #   seed 100.0% (8)  hard 62.5% (8)  cfever dev 33.3% (12)
+        #   covid19-health 12.5% (8)  context dev 75.0% (4)
+        # covid19-health sits far below that corpus's 87.5% majority-class baseline
+        # (see docs/dataset-quality.md): its ratchet only detects regressions and must
+        # not be read as evidence that the engine handles health rumours well.
         run: |
           mkdir -p artifacts
           python backend/scripts/replay_eval.py \
             --run-name "ci-${GITHUB_SHA::12}" \
+            --pass-threshold 1.0 \
             --output artifacts/replay-eval.json
+          python backend/scripts/replay_eval.py \
+            --dir evals/live_replay/hard \
+            --run-name "hard-ci-${GITHUB_SHA::12}" \
+            --pass-threshold 0.62 \
+            --output artifacts/replay-hard.json
+          python backend/scripts/replay_eval.py \
+            --dir evals/live_replay/cfever_curated \
+            --evaluation-split development \
+            --run-name "cfever-ci-${GITHUB_SHA::12}" \
+            --pass-threshold 0.33 \
+            --output artifacts/replay-cfever.json
+          python backend/scripts/replay_eval.py \
+            --dir evals/live_replay/covid19_health_rumor_curated \
+            --run-name "covid19-health-ci-${GITHUB_SHA::12}" \
+            --pass-threshold 0.12 \
+            --output artifacts/replay-covid19-health.json
+          python backend/scripts/replay_eval.py \
+            --dir evals/live_replay/context_challenge \
+            --evaluation-split development \
+            --run-name "context-ci-${GITHUB_SHA::12}" \
+            --pass-threshold 0.74 \
+            --output artifacts/replay-context.json
       - name: Upload replay report
         uses: actions/upload-artifact@v4
         with:
           name: replay-eval-${{ github.sha }}
-          path: artifacts/replay-eval.json
+          path: |
+            artifacts/replay-*.json
+            artifacts/dataset-audit.json
+            artifacts/agent-replay-local.json
           if-no-files-found: error
 
   frontend:

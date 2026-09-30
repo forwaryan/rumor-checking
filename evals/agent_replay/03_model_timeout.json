@@ -1,0 +1,31 @@
+{
+  "id":"agent_model_timeout",
+  "synthetic":true,
+  "input":"青岚市博物馆宣布所有展览永久免费。",
+  "sources":[
+    {"result_id":"museum_booking","title":"青岚市博物馆预约办法","url":"https://museum.example.org/booking","source_name":"青岚市博物馆","published_at":"2026-09-01T09:00:00+08:00","snippet":"青岚市博物馆参观者须提前预约，入馆时出示预约凭证。本文只介绍预约流程。","source_tier":"S","source_category":"official","independence_key":"museum.example.org"}
+  ],
+  "pages":{"https://museum.example.org/booking":{"calls":1,"html":"<html><body><article><h1>青岚市博物馆预约办法</h1><p>青岚市博物馆参观者须提前预约，入馆时出示预约凭证。本文只介绍预约流程。预约时请选择日期和人数，填写必要的联系信息。预约成功后保管好二维码。请在选定的时间段到达入口，配合工作人员核验身份。携带儿童的参观者需要遵守现场秩序。馆内请保持安静，遵守参观规则。</p></article></body></html>"}},
+  "retrieval":[
+    {"stage":"retrieval_initial","query":"青岚市博物馆宣布所有展览 永久免费","source_ids":["museum_booking"]},
+    {"stage":"retrieval_initial","query":"青岚市博物馆宣布所有展览 永久免费 官方 回应 通报 说明 辟谣","source_ids":["museum_booking"]},
+    {"stage":"retrieval_initial","query":"青岚市博物馆宣布所有展览 永久免费 传闻 网传 热议 发酵 转发","source_ids":["museum_booking"]},
+    {"stage":"per_claim_retrieval","query":"青岚市博物馆宣布所有展览永久免费。 票价 收费标准 免费条件","source_ids":[]},
+    {"stage":"per_claim_retrieval","query":"青岚市博物馆宣布所有展览 永久免费 票价 收费标准 免费条件 官方 回应 通报","source_ids":[]},
+    {"stage":"per_claim_retrieval","query":"青岚市博物馆宣布所有展览 永久免费 票价 收费标准 免费条件 传闻 网传 热议","source_ids":[]},
+    {"stage":"per_claim_retrieval","query":"青岚市博物馆宣布所有展览永久免费。 票价 site:gov.cn","source_ids":[]},
+    {"stage":"per_claim_retrieval","query":"青岚市博物馆宣布所有展览永久免费。 票价 site:xinhuanet.com","source_ids":[]},
+    {"stage":"per_claim_retrieval","query":"青岚市博物馆宣布所有展览永久免费。 票价 site:people.com.cn","source_ids":[]},
+    {"stage":"per_claim_retrieval","query":"青岚市博物馆宣布所有展览永久免费。 票价 site:cctv.com","source_ids":[]}
+  ],
+  "completions":[
+    {"template":"NEXT_ACTION_SEQUENCE_SYSTEM_PROMPT","response":{"actions":["synthesize"],"reason":"检索完成，进入核查。"}},
+    {"template":"CLAIMS_ONLY_SYSTEM_PROMPT","error":"timeout"},
+    {"template":"LLM_VERDICT","response":{"verdict":"insufficient","confidence":"low","reason":"预约说明未载明票价。"}},
+    {"template":"CLAIM_CORRECTION","response":[{"correction":null}]},
+    {"template":"LLM_VERDICT","response":{"verdict":"insufficient","confidence":"low","reason":"没有找到新的票价证据。"}},
+    {"template":"CLAIM_CORRECTION","response":[{"correction":null}]},
+    {"template":"NEXT_ACTION_SEQUENCE_SYSTEM_PROMPT","response":{"actions":["build_timeline"],"reason":"模型超时，保留保守结论并完成报告。"}}
+  ],
+  "expected":{"claims":{"青岚市博物馆宣布所有展览永久免费。":"insufficient"},"required_actions":["normalize","search_news","synthesize","enrich","extract_claims","judge_claims","build_timeline","finalize_report"],"no_decisive_verdicts":true}
+}

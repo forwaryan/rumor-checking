@@ -34,7 +34,10 @@ class _FakeClient:
     def __exit__(self, *a):
         return False
 
-    def get(self, url, headers=None, timeout=None):
+    def build_request(self, method, url, **kwargs):
+        return httpx.Request(method, url, **kwargs)
+
+    def send(self, request, **kwargs):
         return self._script.next()
 
 
@@ -49,6 +52,8 @@ def _patch_client(monkeypatch, script):
         return _FakeClient(shared)
 
     monkeypatch.setattr(http_reliability.httpx, "Client", _factory)
+    monkeypatch.setattr("backend.app.services.url_validator.socket.getaddrinfo",
+                        lambda host, port: [(2, 1, 6, "", ("93.184.216.34", port))])
     return {"script": shared}
 
 

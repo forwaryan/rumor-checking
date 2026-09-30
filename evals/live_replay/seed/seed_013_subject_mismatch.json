@@ -9,5 +9,5 @@
   "expected_claims": [
     {"claim": "星河科技宣布裁员30%", "claim_type": "fact", "verdict": "refuted", "confidence": "medium", "evidence": [{"url": "https://tech.example/xinghe-response", "title": "星河科技回应裁员传闻"}], "evaluation": {"require_high_trust": true}}
   ],
-  "metadata": {"source": "seed", "topic": "corporate", "categories": ["subject_mismatch"], "note": "名称相近但主体不同"}
+  "metadata": {"source": "seed", "provenance": "synthetic", "fixture_purpose": "behavior_regression", "topic": "corporate", "categories": ["subject_mismatch"], "note": "名称相近但主体不同"}
 }

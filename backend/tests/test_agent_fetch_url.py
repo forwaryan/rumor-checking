@@ -141,6 +141,18 @@ def test_fetch_url_reuses_cached_body_without_refetching():
     assert extractor.calls == 0
 
 
+def test_recheck_fetch_url_refreshes_existing_body():
+    state = _branch_state(max_fetches=1)
+    state.request.request_context["review_claim_texts"] = ["所选声明"]
+    extractor = _FakeExtractor(MockFetchResult(status="ok", body="new body"))
+    cache = _FakeCache(MockFetchResult(status="ok", body="old body"))
+    tools.fetch_url(_Ctx(extractor, cache=cache), state)
+    assert state.fetched_bodies["r2"] == "new body"
+    assert not cache.read_urls
+    assert extractor.calls == 1
+    assert cache.writes[0][1].body == "new body"
+
+
 def test_fetch_url_dedups_already_fetched():
     state = _branch_state(max_fetches=2)
     state.fetched_bodies["r2"] = "already"

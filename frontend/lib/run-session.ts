@@ -1,5 +1,6 @@
 import {
   ApiClientError,
+  cancelAnalysisRun,
   createAnalysisRun,
   getAnalysisRun,
   resumeAnalysisRun,
@@ -77,6 +78,12 @@ export function createRunSession(target: RunTarget, dependencies = defaultDepend
   let receivedReport: Report | null = null;
 
   return {
+    async cancel(cancel = cancelAnalysisRun): Promise<AnalysisRun> {
+      if (!runId) throw new ApiClientError("任务尚未创建，请稍后停止。");
+      const run = await cancel(runId);
+      subscription++;
+      return run;
+    },
     async watch(observer: RunObserver, signal: AbortSignal, resume = false): Promise<AnalysisRun> {
       const currentSubscription = ++subscription;
       const assertCurrent = () => {
@@ -99,7 +106,7 @@ export function createRunSession(target: RunTarget, dependencies = defaultDepend
       observer.onRun(run);
       for (let attempt = 0; attempt <= 3; attempt++) {
         assertCurrent();
-        if (run.status === "failed" || run.status === "interrupted") return run;
+        if (run.status === "failed" || run.status === "interrupted" || run.status === "cancelled") return run;
         if (run.status === "completed" && run.report) return run;
         try {
           await dependencies.stream(runId, cursor, (eventId, event) => {
@@ -120,7 +127,7 @@ export function createRunSession(target: RunTarget, dependencies = defaultDepend
           assertCurrent();
           if (run.status === "completed" && !run.report && receivedReport) run = { ...run, report: receivedReport };
           observer.onRun(run);
-          if (run.status === "failed" || run.status === "interrupted" || (run.status === "completed" && run.report)) return run;
+          if (run.status === "failed" || run.status === "interrupted" || run.status === "cancelled" || (run.status === "completed" && run.report)) return run;
         } catch (error) {
           assertCurrent();
           if (error instanceof ApiClientError && error.status && error.status >= 400 && error.status < 500) throw error;

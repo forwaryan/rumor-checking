@@ -1,0 +1,13 @@
+{
+  "case_id": "context_008_factory_scope",
+  "recorded_at": "2026-08-06T12:00:00Z",
+  "raw_input": "松原工厂截至2026年8月6日12时已经全面停产",
+  "retrieval_results": [
+    {"result_id": "r1", "title": "记者称松原工厂全部产线停产", "url": "https://industry.example/songyuan/all-lines", "source_name": "工业日报", "published_at": "2026-08-06", "snippet": "记者称截至2026年8月6日12时，松原工厂全部六条产线均已停产，没有任何产线继续生产。", "source_tier": "A", "origin_id": "songyuan-reporter-observation"},
+    {"result_id": "r2", "title": "松原工厂称五条产线正常运行", "url": "https://factory.example/songyuan/response", "source_name": "松原工厂", "published_at": "2026-08-06", "snippet": "松原工厂表示截至2026年8月6日12时，只有一条产线停产，其余五条正常生产，全面停产的说法不实。", "source_tier": "A", "origin_id": "songyuan-factory-response"}
+  ],
+  "expected_claims": [
+    {"claim": "松原工厂截至2026年8月6日12时已经全面停产", "claim_type": "fact", "verdict": "conflicting", "confidence": "medium", "evidence": [{"url": "https://industry.example/songyuan/all-lines"}, {"url": "https://factory.example/songyuan/response"}], "evaluation": {"min_independent_sources": 2}}
+  ],
+  "metadata": {"source": "context_challenge", "provenance": "synthetic", "fixture_purpose": "coverage_regression", "review_status": "approved", "reviewed_at": "2026-09-13", "annotation_source": "project_review", "topic_group": "songyuan_factory_scope", "evaluation_split": "holdout", "categories": ["conflicting_sources", "absolute_scope"], "annotation_rationale": "同一时间的全部停产与五条仍生产直接冲突，材料明确包含全部限定词，不从停产整顿一词推断范围。"}
+}

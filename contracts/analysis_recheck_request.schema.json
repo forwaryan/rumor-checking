@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rumor-checking.local/contracts/analysis_recheck_request.schema.json",
+  "properties": {
+    "claim_indices": {
+      "items": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "maxItems": 50,
+      "title": "Claim Indices",
+      "type": "array"
+    },
+    "source_urls": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 5,
+      "title": "Source Urls",
+      "type": "array"
+    },
+    "note": {
+      "default": "",
+      "maxLength": 2000,
+      "title": "Note",
+      "type": "string"
+    },
+    "request_id": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_-]+$",
+      "title": "Request Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "request_id"
+  ],
+  "title": "AnalysisRecheckRequest",
+  "type": "object",
+  "additionalProperties": false
+}

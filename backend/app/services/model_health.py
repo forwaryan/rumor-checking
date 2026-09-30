@@ -29,6 +29,7 @@ import httpx
 
 from backend.app.services.model_call_observer import model_call_attempt, observe_model_call
 from backend.app.services.progress import emit_log
+from backend.app.services.run_control import check_run_control, reserve_llm_call
 
 if TYPE_CHECKING:
     from backend.app.core.config import Settings
@@ -258,6 +259,7 @@ def complete_once(
         prev_model = model
         base_url = settings.base_url_for_model(model)
         try:
+            reserve_llm_call(system_prompt=system_prompt, user_prompt=user_prompt, max_output_tokens=max_tokens)
             body = {
                 "model": model,
                 "temperature": temperature,
@@ -267,7 +269,8 @@ def complete_once(
                     {"role": "user", "content": user_prompt},
                 ],
             }
-            # Each actual failover HTTP attempt gets its own usage and parent.
+            # Reserve before opening the observation: rejected budgets are not
+            # HTTP attempts. Each failover candidate gets its own usage/parent.
             with model_call_attempt(stage_key, attempt), observe_model_call(
                 settings=settings, provider="completion", model=model,
                 stage_key=stage_key, request=body,
@@ -279,7 +282,7 @@ def complete_once(
                     timeout=timeout,
                 )
                 observation.response(None, status_code=resp.status_code)
-
+                check_run_control()
                 if resp.status_code != 200:
                     observation.status = "error"
                     observation.error_class = "HTTPStatusError"

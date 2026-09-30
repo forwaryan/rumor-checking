@@ -1,0 +1,13 @@
+{
+  "case_id": "context_003_school_holiday",
+  "recorded_at": "2026-09-03T00:00:00Z",
+  "raw_input": "云岭中学将在2026年9月整月停课",
+  "retrieval_results": [
+    {"result_id": "r1", "title": "云岭中学辟谣整月停课", "url": "https://school.example/yunling/notice", "source_name": "云岭中学", "published_at": "2026-09-02", "snippet": "云岭中学表示2026年9月整月停课的说法不实，学校于9月2日正常开课，没有整月停课安排。", "source_tier": "S", "origin_id": "yunling-school-response"},
+    {"result_id": "r2", "title": "云岭中学已正常开课", "url": "https://education.example/yunling/visit", "source_name": "云岭教育报", "published_at": "2026-09-02", "snippet": "记者9月2日现场看到云岭中学多个班级正常上课，整月停课传闻不实。", "source_tier": "A", "origin_id": "yunling-classroom-visit"}
+  ],
+  "expected_claims": [
+    {"claim": "云岭中学将在2026年9月整月停课", "claim_type": "fact", "verdict": "refuted", "confidence": "high", "evidence": [{"url": "https://school.example/yunling/notice"}, {"url": "https://education.example/yunling/visit"}], "evidence_sets": [[{"url": "https://school.example/yunling/notice"}], [{"url": "https://education.example/yunling/visit"}]]}
+  ],
+  "metadata": {"source": "context_challenge", "provenance": "synthetic", "fixture_purpose": "coverage_regression", "review_status": "approved", "reviewed_at": "2026-09-13", "annotation_source": "project_review", "topic_group": "yunling_school_schedule", "evaluation_split": "holdout", "categories": ["direct_refutation", "education"], "annotation_rationale": "9月正常上课的直接反例否定整月停课；不是从缺少通知推断传闻为假。"}
+}

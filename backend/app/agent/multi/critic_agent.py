@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextvars import copy_context
 
 from backend.app.agent.multi import AgentConfig, AgentRole, AgentStatus, SubAgentResult
 from backend.app.agent.state import AgentState
@@ -280,7 +281,7 @@ class CriticAgent:
 
         results: list[set[int]] = []
         with ThreadPoolExecutor(max_workers=len(lenses)) as pool:
-            futures = [pool.submit(_one_lens, lens) for lens in lenses]
+            futures = [pool.submit(copy_context().run, _one_lens, lens) for lens in lenses]
             for future in as_completed(futures):
                 try:
                     results.append(future.result())
