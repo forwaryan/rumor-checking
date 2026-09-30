@@ -17,6 +17,7 @@ from backend.app.models.schemas import (  # noqa: E402
     AnalysisRunEvent,
     ClaimResult,
     Event,
+    EvidenceGap,
     EvidenceItem,
     Report,
     TimelineNode,
@@ -25,6 +26,7 @@ from backend.app.models.schemas import (  # noqa: E402
 type ModelType = type[BaseModel]
 
 CONTRACTS: dict[str, tuple[str, ModelType, str]] = {
+    "evidence_gap.schema.json": ("EvidenceGap", EvidenceGap, "EvidenceGap"),
     "analysis_run.schema.json": ("AnalysisRun", AnalysisRun, "AnalysisRun"),
     "analysis_run_event.schema.json": ("AnalysisRunEvent", AnalysisRunEvent, "AnalysisRunEvent"),
     "event.schema.json": ("Event", Event, "Event"),

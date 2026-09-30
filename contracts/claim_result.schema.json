@@ -70,6 +70,11 @@
       },
       "default": []
     },
+    "evidence_gaps": {
+      "type": "array",
+      "items": {"$ref": "./evidence_gap.schema.json"},
+      "default": []
+    },
     "notes": {
       "type": "string",
       "minLength": 1

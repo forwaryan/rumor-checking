@@ -245,6 +245,13 @@ export interface ClaimResult {
   evidence: Evidence[];
   notes: string;
   correction?: ClaimCorrection | null;
+  evidence_gaps?: EvidenceGap[];
+}
+
+export interface EvidenceGap {
+  dimension: "price" | "route" | "time" | "quantity" | "scope" | "source" | "general";
+  description: string;
+  suggested_queries: string[];
 }
 
 export interface ClaimContribution {

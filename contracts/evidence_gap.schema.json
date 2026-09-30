@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rumor-checking.local/contracts/evidence_gap.schema.json",
+  "properties": {
+    "dimension": {
+      "enum": [
+        "price",
+        "route",
+        "time",
+        "quantity",
+        "scope",
+        "source",
+        "general"
+      ],
+      "title": "Dimension",
+      "type": "string"
+    },
+    "description": {
+      "minLength": 1,
+      "title": "Description",
+      "type": "string"
+    },
+    "suggested_queries": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 3,
+      "title": "Suggested Queries",
+      "type": "array"
+    }
+  },
+  "required": [
+    "dimension",
+    "description"
+  ],
+  "title": "EvidenceGap",
+  "type": "object",
+  "additionalProperties": false
+}

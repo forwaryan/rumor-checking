@@ -9,6 +9,7 @@ from backend.app.models.schemas import (
     AnalyzeRequest,
     ClaimItem,
     ClaimResult,
+    EvidenceGap,
     EvidenceItem,
     EvidenceSourceType,
     NormalizedEvent,
@@ -19,6 +20,7 @@ from backend.app.services.entity_anchor import (
     extract_subject_anchors,
     text_contains_subject_mismatch,
 )
+from backend.app.services.evidence_goals import apply_evidence_goals
 from backend.app.services.llm_verdict import llm_judge_claims
 from backend.app.services.page_fetcher import fetch_page_snippets
 from backend.app.services.question_intent import detect_trend_topic, is_broad_trend_claim
@@ -28,6 +30,19 @@ _SHANGHAI_TZ = timezone(timedelta(hours=8))
 # Undated evidence sorts AFTER any dated evidence in recency order — mirrors
 # SearchResult.effective_published_dt so the two layers agree on "no date = oldest".
 _DATELESS_SENTINEL = datetime(1970, 1, 1, tzinfo=_SHANGHAI_TZ)
+_EXPLICIT_CURRENT_MARKERS = ("目前", "现在", "当前", "今天", "今日", "本周", "本月", "今年")
+_CURRENT_SERVICE_STATE = re.compile(r"开放|闭馆|开馆|营业|停业|开业|停课|复课|停运|运营|收费|免票|门票|票价|购房资格|限购|预约")
+_CALENDAR_DATE = re.compile(r"(?<!\d)((?:19|20)\d{2})(?:年|[-/])(\d{1,2})(?:月|[-/])(\d{1,2})(?:日|号)?(?!\d)")
+
+
+def _has_calendar_date(text: str) -> bool:
+    for match in _CALENDAR_DATE.finditer(text):
+        try:
+            datetime(*(int(value) for value in match.groups()))
+        except ValueError:
+            continue
+        return True
+    return False
 
 
 def _evidence_published_dt(item: EvidenceItem) -> datetime | None:
@@ -532,12 +547,54 @@ class VerdictEngine:
             evidence_pool=evidence_pool,
         )
 
+        results = apply_evidence_goals(results, retrieval_bundle, page_bodies,
+                                       raw_evidence=evidence_pool if evidence_source == "request_mock" else None)
+        results = self._guard_undated_current_claims(results, evidence_pool, retrieval_bundle, page_bodies)
         return VerdictEvaluation(
             claim_results=results,
             evidence=evidence_pool,
             evidence_grade=evidence_grade,
             evidence_source=evidence_source,
         )
+
+    @staticmethod
+    def _guard_undated_current_claims(
+        results: list[ClaimResult], evidence_pool: list[EvidenceItem],
+        bundle: RetrievalBundle | None, page_bodies: dict[str, str],
+    ) -> list[ClaimResult]:
+        # Run after every verdict/correction/property pass so a model cannot
+        # silently reinstate certainty about an undated current arrangement.
+        # This checks only the existence of a time anchor, not its freshness.
+        raw_by_url: dict[str, list[EvidenceItem]] = {}
+        for item in evidence_pool:
+            raw_by_url.setdefault(item.url, []).append(item)
+        bodies_by_url = dict(page_bodies)
+        for item in bundle.canonical_results if bundle else ():
+            if item.result_id in page_bodies:
+                bodies_by_url[item.url] = page_bodies[item.result_id]
+        guarded = []
+        for result in results:
+            if (result.claim_type != "fact"
+                    or not any(marker in result.claim for marker in _EXPLICIT_CURRENT_MARKERS)
+                    or not _CURRENT_SERVICE_STATE.search(result.claim)):
+                guarded.append(result)
+                continue
+            cited = [raw for item in result.evidence for raw in raw_by_url.get(item.url, [])]
+            if any(_evidence_published_dt(item) is not None
+                   or _has_calendar_date(f"{item.snippet}\n{bodies_by_url.get(item.url, '')}") for item in cited):
+                guarded.append(result)
+                continue
+            description = "当前状态的关联证据缺少可核验发布日期或正文年月日时间锚，无法确认其适用于当前。"
+            gaps = list(result.evidence_gaps)
+            if not any(gap.dimension == "time" for gap in gaps):
+                gaps.append(EvidenceGap(dimension="time", description=description,
+                                        suggested_queries=[f"{result.claim[:100]} 最新 官方 日期 适用时间"]))
+            guarded.append(result.model_copy(update={
+                "verdict": "insufficient", "confidence": "low", "correction": None,
+                "truth_probability": None, "probability_basis": None, "evidence_gaps": gaps,
+                "notes": f"{result.notes} 时间证据缺口：{description}",
+            }))
+        return guarded
 
     def _backfill_rule_fallback_evidence(
         self,

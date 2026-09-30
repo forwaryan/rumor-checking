@@ -115,6 +115,12 @@ class ClaimCorrection(TypedDict):
     source: str
 
 
+class EvidenceGap(BaseModel):
+    dimension: Literal["price", "route", "time", "quantity", "scope", "source", "general"]
+    description: str = Field(min_length=1)
+    suggested_queries: list[str] = Field(default_factory=list, max_length=3)
+
+
 class ClaimResult(BaseModel):
     claim: str
     claim_type: ClaimType
@@ -125,6 +131,7 @@ class ClaimResult(BaseModel):
     evidence: list[EvidenceItem] = Field(default_factory=list)
     notes: str
     correction: ClaimCorrection | None = None
+    evidence_gaps: list[EvidenceGap] = Field(default_factory=list)
 
 
 class ReportProvenance(BaseModel):

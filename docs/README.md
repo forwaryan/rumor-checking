@@ -23,4 +23,6 @@
 
 - [ADR index](adr/README.md): durable architectural decisions and proposal template.
 
+- [Verdict time and attribute constraints](adr/0013-verdict-time-and-attribute-coverage.md): date metadata, final date gaps and transit fares.
+
 When documentation conflicts with executable contracts or tests, treat `contracts/`, tests, and current code as the source of truth and update the stale document in the same change.

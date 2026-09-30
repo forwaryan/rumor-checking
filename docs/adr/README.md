@@ -21,4 +21,6 @@ ADRs capture decisions that are expensive to reverse or easy to misunderstand la
 - [0011 — Model-call observability](0011-model-call-observability.md)
 - [0012 — Evidence alignment and retrieval tracing](0012-evidence-alignment-and-retrieval-tracing.md)
 
+- [0013 — Verdict time and attribute constraints](0013-verdict-time-and-attribute-coverage.md)
+
 Copy `0000-template.md`, assign the next number, and link the new record here.

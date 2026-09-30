@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from backend.app.models.schemas import AnalyzeRequest, ClaimItem, EvidenceItem, NormalizedEvent
+import pytest
+
+from backend.app.models.schemas import AnalyzeRequest, ClaimItem, ClaimResult, EvidenceItem, NormalizedEvent
 from backend.app.services.retrieval_models import RetrievalBundle, SearchResult
 from backend.app.services.verdict_engine import VerdictEngine
 
@@ -886,3 +888,96 @@ def test_entity_action_claim_does_not_over_extract_whole_claim_as_anchor():
 
     assert "中国科学技术大学" in anchors
     assert "中国科学技术大学新增人工智能学院" not in anchors
+
+
+def _evaluate_forced_current_verdict(monkeypatch, *, claim, published_at="", snippet="周一闭馆，周二至周日开放。",
+                                     body="", verdict="supported", claim_type="fact"):
+    source = _result(result_id="date-source", title="青山市博物馆参观须知", snippet=snippet,
+                     source_name="青山市博物馆", source_tier="S", published_at=published_at,
+                     url="https://museum.example/notice")
+    evidence = source.to_evidence(relevance_reason="原文依据")
+    forced = ClaimResult(claim=claim, claim_type=claim_type, verdict=verdict, confidence="high",
+                         notes="模型强判", evidence=[evidence], truth_probability=90,
+                         probability_basis="evidence")
+    monkeypatch.setattr("backend.app.services.verdict_engine.llm_judge_claims", lambda *a, **kw: [forced])
+
+    def annotate(results, **kwargs):
+        return [item.model_copy(update={"correction": {"original": claim, "actual": "模型纠错", "source": evidence.url}})
+                for item in results]
+
+    monkeypatch.setattr("backend.app.services.verdict_engine.annotate_claim_corrections", annotate)
+    monkeypatch.setattr("backend.app.services.verdict_engine.fetch_page_snippets", lambda *a: {source.result_id: body})
+    result = VerdictEngine().evaluate_with_source(
+        request=AnalyzeRequest(raw_input=claim),
+        event=NormalizedEvent(summary=claim, raw_input=claim, input_type="text_news"),
+        claims=[ClaimItem(claim=claim, claim_type=claim_type)],
+        retrieval_bundle=RetrievalBundle(query=claim, canonical_results=(source,)),
+    ).claim_results[0]
+    return result, evidence
+
+
+@pytest.mark.parametrize("current", ["目前", "现在", "当前", "今天", "今日", "本周", "本月", "今年"])
+@pytest.mark.parametrize("verdict", ["supported", "refuted", "conflicting"])
+def test_final_current_service_date_guard_survives_llm_and_correction(monkeypatch, current, verdict):
+    result, evidence = _evaluate_forced_current_verdict(
+        monkeypatch, claim=f"青山市博物馆{current}周一闭馆", verdict=verdict)
+    assert (result.verdict, result.confidence) == ("insufficient", "low")
+    assert result.evidence == [evidence]
+    assert result.correction is None
+    assert result.truth_probability is None and result.probability_basis is None
+    assert [gap.dimension for gap in result.evidence_gaps] == ["time"]
+    assert result.evidence_gaps[0].suggested_queries
+    assert "时间证据缺口" in result.notes
+
+
+@pytest.mark.parametrize("published_at,snippet", [
+    ("not-a-date", "周一闭馆。"),
+    ("2026-02-30", "周一闭馆。"),
+    ("", "2026年2月30日起周一闭馆。"),
+    ("", "今年周一闭馆。"),
+])
+def test_invalid_or_relative_evidence_dates_cannot_anchor_current_service(monkeypatch, published_at, snippet):
+    result, _ = _evaluate_forced_current_verdict(
+        monkeypatch, claim="青山市博物馆目前周一闭馆", published_at=published_at, snippet=snippet)
+    assert result.verdict == "insufficient"
+    assert [gap.dimension for gap in result.evidence_gaps] == ["time"]
+
+
+@pytest.mark.parametrize("published_at,snippet,body", [
+    ("2026-09-01", "周一闭馆。", ""),
+    ("1999-01-01", "周一闭馆。", ""),
+    ("2026-09-01T10:30:00+08:00", "周一闭馆。", ""),
+    ("", "2026年9月1日起周一闭馆。", ""),
+    ("", "自2026-09-01起周一闭馆。", ""),
+    ("", "周一闭馆。", "2026年9月1日起执行每周一闭馆安排。"),
+])
+def test_current_service_guard_leaves_dated_applicability_to_judge(monkeypatch, published_at, snippet, body):
+    result, evidence = _evaluate_forced_current_verdict(
+        monkeypatch, claim="青山市博物馆目前周一闭馆", published_at=published_at, snippet=snippet, body=body)
+    assert (result.verdict, result.confidence) == ("supported", "high")
+    assert result.evidence == [evidence]
+    assert not result.evidence_gaps
+
+
+@pytest.mark.parametrize("claim", [
+    "水在标准大气压下沸点为100摄氏度", "目前水在标准大气压下沸点为100摄氏度",
+    "青山市博物馆在1999年成立", "青山市博物馆已经宣布周一闭馆", "青山市博物馆正式开馆",
+])
+def test_current_service_guard_does_not_generalize_to_static_or_nonrelative_claims(monkeypatch, claim):
+    result, _ = _evaluate_forced_current_verdict(monkeypatch, claim=claim, snippet=claim)
+    assert result.verdict == "supported"
+    assert not result.evidence_gaps
+
+
+def test_current_service_date_gap_is_added_after_other_property_gaps(monkeypatch):
+    result, _ = _evaluate_forced_current_verdict(
+        monkeypatch, claim="青山市博物馆目前门票免费", snippet="周一闭馆。")
+    assert result.verdict == "insufficient"
+    assert {gap.dimension for gap in result.evidence_gaps} == {"price", "time"}
+
+
+@pytest.mark.parametrize("claim_type", ["opinion", "prediction", "unverifiable"])
+def test_current_service_date_guard_does_not_reclassify_nonfacts(monkeypatch, claim_type):
+    result, _ = _evaluate_forced_current_verdict(
+        monkeypatch, claim="青山市博物馆今天闭馆", claim_type=claim_type)
+    assert not result.evidence_gaps
