@@ -66,7 +66,11 @@ def compact_retrieval_text(text: str) -> str:
 
 
 def infer_source_category(url: str, source_name: str) -> str:
-    host = ((urlparse(url).netloc or source_name).lower()).strip()
+    try:
+        netloc = urlparse(url).netloc
+    except ValueError:
+        netloc = ""
+    host = ((netloc or source_name).lower()).strip()
     source = source_name.lower().strip()
     if any(marker in host or marker in source for marker in OFFICIAL_HOST_MARKERS + OFFICIAL_SIGNAL_KEYWORDS):
         return "official"
@@ -78,7 +82,10 @@ def infer_source_category(url: str, source_name: str) -> str:
 
 
 def build_independence_key(url: str, source_name: str) -> str:
-    host = (urlparse(url).netloc or "").lower().strip(".")
+    try:
+        host = (urlparse(url).netloc or "").lower().strip(".")
+    except ValueError:
+        host = ""
     if host:
         parts = [item for item in host.split(".") if item]
         if len(parts) >= 3 and ".".join(parts[-2:]) in {"com.cn", "org.cn", "net.cn", "gov.cn", "edu.cn"}:
@@ -235,7 +242,11 @@ class SearchResult:
         # section index (apple.com/, jd.com/index.html) rather than an article
         # about the claim. These carry no evidentiary content, so we rank them
         # below real articles instead of dropping them outright.
-        parsed = urlparse(self.url)
+        try:
+            parsed = urlparse(self.url)
+        except ValueError:
+            # A malformed result URL carries no navigable article evidence.
+            return True
         path = parsed.path.rstrip("/").lower()
         if path in ("", "/index", "/index.html", "/index.htm", "/home"):
             return True

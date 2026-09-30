@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from itertools import combinations
 
 from backend.app.services.retrieval_models import SearchResult
+from backend.app.services.retrieval_url import retrieval_url_identity
 
 REPOST_PREFIXES = ("转载", "转发", "聚合页", "聚合", "搬运")
 REPOST_SOURCE_MARKERS = ("聚合", "快讯", "转发")
@@ -49,7 +50,9 @@ def merge_search_results(results: Sequence[SearchResult]) -> tuple[SearchResult,
             union(index, id_to_indices[item.duplicate_of][0])
 
     for (left_index, left), (right_index, right) in combinations(enumerate(results), 2):
-        if classify_relation(left, right) is not None:
+        # Explicit references were resolved above against the entire pool. Do
+        # not let pairwise checks accidentally honor an ambiguous result ID.
+        if classify_relation(left, right, allow_explicit=False) is not None:
             union(left_index, right_index)
 
     groups: dict[int, list[SearchResult]] = defaultdict(list)
@@ -63,26 +66,33 @@ def merge_search_results(results: Sequence[SearchResult]) -> tuple[SearchResult,
             merged_results.append(
                 item.with_merge_metadata(
                     canonical_result_id=item.result_id,
+                    merged_result_ids=item.merged_result_ids,
+                    merged_notes=item.merged_notes,
                     relation_type="repost" if item.is_repost_like else "original",
                 )
             )
             continue
 
         canonical = max(group_items, key=lambda item: canonical_sort_key(item, group_items))
-        merged_ids: list[str] = []
-        merged_notes: list[str] = []
+        merged_ids: list[str] = list(canonical.merged_result_ids)
+        merged_notes: list[str] = list(canonical.merged_notes)
         for item in sorted(group_items, key=chronological_sort_key):
-            if item.result_id == canonical.result_id:
+            if item is canonical:
                 continue
-            merged_ids.append(item.result_id)
-            relation = classify_relation(item, canonical) or item.duplicate_reason or NEAR_DUPLICATE_LABEL
+            if item.result_id != canonical.result_id:
+                merged_ids.append(item.result_id)
+            merged_ids.extend(item.merged_result_ids)
+            merged_notes.extend(item.merged_notes)
+            relation = classify_relation(item, canonical, allow_explicit=False) or item.duplicate_reason or (
+                REPOST_LABEL if item.is_repost_like else DUPLICATE_LABEL
+            )
             merged_notes.append(f"{item.result_id}:{relation}:{item.source_name}")
 
         merged_results.append(
             canonical.with_merge_metadata(
                 canonical_result_id=canonical.result_id,
-                merged_result_ids=tuple(merged_ids),
-                merged_notes=tuple(merged_notes),
+                merged_result_ids=tuple(dict.fromkeys(value for value in merged_ids if value != canonical.result_id)),
+                merged_notes=tuple(dict.fromkeys(merged_notes)),
                 relation_type="repost" if canonical.is_repost_like else "original",
             )
         )
@@ -101,15 +111,27 @@ def canonical_sort_key(item: SearchResult, group_items: list[SearchResult]) -> t
     )
 
 
-def classify_relation(left: SearchResult, right: SearchResult) -> str | None:
-    if left.result_id == right.result_id:
-        return None
-    if left.duplicate_of == right.result_id or right.duplicate_of == left.result_id:
+def classify_relation(left: SearchResult, right: SearchResult, *, allow_explicit: bool = True) -> str | None:
+    if allow_explicit and (left.duplicate_of == right.result_id or right.duplicate_of == left.result_id):
         is_repost = looks_like_repost(left.title, left.source_name) or looks_like_repost(right.title, right.source_name)
         return REPOST_LABEL if is_repost else DUPLICATE_LABEL
-    if compact_text(left.url) == compact_text(right.url):
+    left_url = retrieval_url_identity(left.url)
+    if left_url is not None and left_url == retrieval_url_identity(right.url):
         return DUPLICATE_LABEL
-    if normalize_title(left.title) == normalize_title(right.title):
+    # Headlines are not identities: two sources can use the same headline for
+    # conflicting accounts. Require substantial identical text before merging
+    # by title, preserving negation, numbers and punctuation in that text.
+    left_snippet = " ".join(left.snippet.split())
+    right_snippet = " ".join(right.snippet.split())
+    if len(re.findall(r"\w", left_snippet)) < 32 or left_snippet != right_snippet:
+        return None
+    # A shared article introduction is not proof that quantitative headlines
+    # agree. Punctuation folding loses signs and decimals, and fuzzy overlap
+    # can hide a changed amount among many shared headline words.
+    if title_quantities(left.title) != title_quantities(right.title):
+        return None
+    left_title = normalize_title(left.title)
+    if left_title and left_title == normalize_title(right.title):
         is_repost = (
             looks_like_repost(left.title, left.source_name)
             or looks_like_repost(right.title, right.source_name)
@@ -117,14 +139,9 @@ def classify_relation(left: SearchResult, right: SearchResult) -> str | None:
             or right.is_aggregator_source
         )
         return REPOST_LABEL if is_repost else DUPLICATE_LABEL
-    if not left.published_at or not right.published_at:
-        return None
-    if left.effective_published_at[:10] != right.effective_published_at[:10]:
-        return None
-    if titles_overlap(left.title, right.title):
-        if left.is_aggregator_source or right.is_aggregator_source:
-            return REPOST_LABEL
-        return NEAR_DUPLICATE_LABEL
+    # Different headlines can disagree through a single word even when their
+    # shared background snippet is identical. Fuzzy title similarity is useful
+    # for investigation, but is not enough to discard an evidence source.
     return None
 
 
@@ -138,6 +155,10 @@ def titles_overlap(left_title: str, right_title: str) -> bool:
         return True
     shorter = min(len(left_terms), len(right_terms))
     return shorter > 0 and len(shared) / shorter >= 0.75
+
+
+def title_quantities(title: str) -> tuple[str, ...]:
+    return tuple(re.findall(r"[+\-−负正]?\d+(?:[.,]\d+)*(?:[%％‰]|万|亿)?", title))
 
 
 def normalize_title(title: str) -> str:

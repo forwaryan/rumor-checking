@@ -303,7 +303,7 @@ python backend/scripts/source_doctor.py --strict
 
 ### 回放评测与 Phoenix
 
-逐请求模型调用、Token 消耗、上下文变化与检索过程见 [模型调用可观测性](docs/model-call-observability.md)。
+逐请求模型调用、Token 消耗、上下文变化与检索过程见 [模型调用可观测性](docs/model-call-observability.md)；GitHub 参考改进与验证边界见 [改进记录](docs/github-improvements-2026-09.md)。
 
 回放集位于 `evals/live_replay/`：`seed/`（18 个 case，与规则引擎一起沉淀的回归集，默认全绿）与 `hard/`（8 个专挑规则引擎会判错的对抗 case，含 3 个已知误判 + 5 个防回归护栏）。默认不访问网络，可用于比较规则、提示词和模型版本：
 

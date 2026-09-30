@@ -15,6 +15,7 @@
 - `evals/live_replay/seed/`: versioned end-to-end replay corpus.
 - `evals/live_replay/hard/`: harder replay corpus for regressions around timeliness, subject alignment, and conflicting evidence.
 - [Model call observability](model-call-observability.md): per-request usage, context and retrieval diagnostics.
+- [GitHub improvements](github-improvements-2026-09.md): quantitative evidence, URL identity and retrieval tracing.
 - [Contributing](../CONTRIBUTING.md): development workflow and validation commands.
 - [Security](../SECURITY.md): vulnerability and sensitive-data policy.
 

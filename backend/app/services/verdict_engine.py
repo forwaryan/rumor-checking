@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
 from backend.app.models.schemas import (
     AnalyzeRequest,
@@ -181,6 +182,164 @@ QUANTITY_TOKEN_PATTERN = re.compile(
     r"\d+(?:\.\d+)?%|\d+(?:\.\d+)?(?:万|亿)?(?:元|人|名|例|起|条|线|艘|班|个|年|月|天|小时|分钟)"
 )
 QUANTITATIVE_CORRECTION_MARKERS = ("并非", "实际", "而是", "仅为", "最高", "不超过", "更正")
+# Compare measurements, not bags of number strings. Attribute families are
+# intentionally conservative: unrecognized quantities do not establish a
+# contradiction by themselves. The ordinary evidence alignment still runs.
+_MEASUREMENT = re.compile(
+    r"(?P<value>\d+(?:\.\d+)?)\s*(?P<scale>百|千|万|亿)?\s*"
+    r"(?P<unit>%|元|人|名|位|例|起|条线|条|艘|班|个|家|栋|天|小时|分钟)"
+)
+_MEASUREMENT_ATTRIBUTES = (
+    ("recruitment", r"招聘|招收|招募|招了|招(?=\d)"),
+    ("layoffs", r"裁员|裁减|解雇"),
+    ("injuries", r"受伤|伤者|伤员"),
+    ("deaths", r"死亡|遇难|死者"),
+    ("cases", r"确诊|病例|感染"),
+    ("staff", r"员工|职工|在职|共有"),
+    ("salary", r"工资|薪资|薪酬|月薪|年薪|日薪|时薪"),
+    ("price", r"票价|售价|价格|门票|收费"),
+    ("revenue", r"营收|营业收入|销售额"),
+    ("profit", r"净利润|利润"),
+)
+_MEASUREMENT_ACTION = re.compile("|".join(f"(?P<a{i}>{pattern})" for i, (_, pattern) in enumerate(_MEASUREMENT_ATTRIBUTES)))
+_MEASUREMENT_SCOPE = re.compile(r"新增|累计|总人数|总数|合计|共有|全职|兼职")
+_MEASUREMENT_TIME = re.compile(
+    r"(?:19|20)\d{2}(?:年(?:\d{1,2}月(?:\d{1,2}[日号])?)?|[-/]\d{1,2}[-/]\d{1,2})"
+    r"|\d{1,2}时(?:\d{1,2}分)?"
+)
+_MEASUREMENT_PERIOD = re.compile(r"月薪|年薪|日薪|时薪|每月|每年|每日|每小时")
+_MEASUREMENT_BOUND = re.compile(r"最高|最多|不超过|至多|最低|至少|不少于|超过|多于|不足|少于")
+_MEASUREMENT_NOISE = re.compile(
+    r"招聘规模|招聘人数|招聘数量|规模|人数|数量|总人数|总数|实际|事实上|目前|本次|本轮|"
+    r"新增|累计|合计|共有|截至|截止|已确认|确认|据称|网传|宣布|此前|传闻|消息|"
+    r"今日|今天|现已|已经|正式|应为|仅为|更正为|而是|最高|最多|不超过|最低|至少|"
+    r"明确表示|表示|没有|并未|尚未|并非|否认|"
+    r"在|于|为|的|了|共|有|是|\s|[：:、]"
+)
+
+
+def _measurement_context(text: str) -> str:
+    return _MEASUREMENT_NOISE.sub("", _MEASUREMENT_TIME.sub("", text)).strip()
+
+
+@dataclass(frozen=True)
+class _Measurement:
+    value: Decimal
+    unit: str
+    attribute: str
+    scope: frozenset[str]
+    context: str
+    time: tuple[tuple[int, ...], ...]
+    period: str
+    bounded: bool
+    corrected: bool
+    denied: bool
+
+
+def _measurements(text: str, *, default_context: str = "") -> list[_Measurement]:
+    measurements = []
+    for sentence in re.split(r"[。！？!?\n]", text):
+        clauses = re.split(r"[，,；;]", sentence)
+        inherited: _Measurement | None = None
+        sentence_time: tuple[tuple[int, ...], ...] = ()
+        statement_context = ""
+        for index, clause in enumerate(clauses):
+            matches = list(_MEASUREMENT.finditer(clause))
+            if not matches:
+                dates = tuple(tuple(map(int, re.findall(r"\d+", value)))
+                              for value in _MEASUREMENT_TIME.findall(clause))
+                if dates:
+                    sentence_time = dates
+                if re.search(r"(?:表示|通报|说明|宣布|回应)\s*$", clause):
+                    statement_context = _measurement_context(re.sub(r"(?:通报|说明|回应)\s*$", "", clause))
+                continue
+            actions = list(_MEASUREMENT_ACTION.finditer(clause))
+            for measurement_index, match in enumerate(matches):
+                start = matches[measurement_index - 1].end() if measurement_index else 0
+                end = matches[measurement_index + 1].start() if measurement_index + 1 < len(matches) else len(clause)
+                local_actions = [action for action in actions if start <= action.start() < end]
+                nearest = min(local_actions, key=lambda action: min(
+                    abs(action.end() - match.start()), abs(action.start() - match.end())
+                ), default=None)
+                # Role nouns within a recruitment phrase are objects, whereas
+                # "招聘结束后员工2000人" describes a different population.
+                recruitment = next((action for action in local_actions if action.lastgroup == "a0"), None)
+                if nearest and nearest.lastgroup == "a5" and recruitment and re.fullmatch(
+                    r"新?", clause[recruitment.end():nearest.start()]
+                ):
+                    nearest = recruitment
+                # Generic "共有5人受伤" takes the explicit following predicate.
+                if nearest and nearest.group() == "共有":
+                    following_action = next((action for action in local_actions
+                                             if action.start() >= match.end()), None)
+                    nearest = following_action or nearest
+                attribute = _MEASUREMENT_ATTRIBUTES[int(nearest.lastgroup[1:])][0] if nearest else ""
+                prefix_end = nearest.start() if nearest and nearest.start() < match.start() else match.start()
+                if nearest and nearest.start() < match.start():
+                    # Adjacent synonyms can form one predicate ("确诊病例").
+                    # Do not turn the earlier synonym into a subject qualifier
+                    # merely because the last synonym is closest to the number.
+                    for action in reversed(local_actions):
+                        if action.lastgroup == nearest.lastgroup and action.end() == prefix_end:
+                            prefix_end = action.start()
+                prefix = clause[start:prefix_end]
+                # Limit correction/polarity to this measurement's relation.
+                next_action = min((action.start() for action in actions
+                                   if action.start() >= match.end() and action != nearest), default=end)
+                local_end = min(end, next_action)
+                local = clause[start:local_end]
+                correction = any(marker in local for marker in QUANTITATIVE_CORRECTION_MARKERS)
+                context = _measurement_context(prefix)
+                inherited_correction = not attribute and correction and not context and inherited is not None
+                if inherited_correction:
+                    attribute = inherited.attribute
+                # Unknown predicates retain their literal relation rather than
+                # disappearing and permitting a later lexical-support shortcut.
+                if not attribute:
+                    attribute = "literal"
+                    if statement_context and statement_context not in context:
+                        context = statement_context + context
+                dates = tuple(tuple(map(int, re.findall(r"\d+", value)))
+                              for value in _MEASUREMENT_TIME.findall(local))
+                time = dates or sentence_time
+                scope = frozenset("total" if value in {"总人数", "总数", "合计", "共有"} else value
+                                  for value in _MEASUREMENT_SCOPE.findall(local))
+                periods = _MEASUREMENT_PERIOD.findall(local)
+                period = {"月薪": "month", "每月": "month", "年薪": "year", "每年": "year",
+                          "日薪": "day", "每日": "day", "时薪": "hour", "每小时": "hour"}.get(periods[-1], "") if periods else ""
+                if context in {"公司", "该公司", "本公司", "该机构", "本机构"} and default_context:
+                    context = default_context
+                elif not context:
+                    context = inherited.context if inherited else default_context
+                if inherited_correction:
+                    time = time or inherited.time
+                    scope = scope or inherited.scope
+                    period = period or inherited.period
+                following = clauses[index + 1] if index + 1 < len(clauses) else ""
+                if not _MEASUREMENT.search(following) and not _MEASUREMENT_ACTION.search(following):
+                    correction |= bool(re.fullmatch(r"\s*(?:并非|不是|更正)[^，,。]{0,16}(?:传闻|数字|说法|数量)[^，,。]*", following))
+                denied = bool(re.search(r"传言不实|报道有误|消息不实|并非|不属实|不是|没有|并未", local))
+                scale = {None: 1, "百": 100, "千": 1000, "万": 10000, "亿": 100000000}[match.group("scale")]
+                unit = match.group("unit")
+                unit = "person" if unit in {"人", "名", "位"} else unit
+                current = _Measurement(Decimal(match.group("value")) * scale,
+                                       unit, attribute, scope, context, time, period,
+                                       bool(_MEASUREMENT_BOUND.search(local)), correction, denied)
+                measurements.append(current)
+                inherited = current
+    return measurements
+
+
+def _same_measurement_relation(expected: _Measurement, actual: _Measurement) -> bool:
+    # Missing scope, date or period is uncertainty, not a wildcard. Named
+    # contexts must align locally; a different entity elsewhere in the document
+    # cannot borrow the claim subject from the first sentence.
+    return (actual.unit == expected.unit and actual.attribute == expected.attribute
+            and actual.scope == expected.scope and actual.time == expected.time
+            and actual.period == expected.period
+            and bool(expected.context) and expected.context in actual.context)
+
+
 SUPERSESSION_MARKERS = (
     "不再",
     "现行",
@@ -616,6 +775,7 @@ class VerdictEngine:
                 full_scope_claim=full_scope_claim,
                 subject_anchors=subject_anchors,
                 anchor_context=item.source_name,
+                measurement_attributes=frozenset(item.attribute for item in _measurements(normalized_claim)),
             )
             if matched_segment:
                 relevant.append(item)
@@ -877,6 +1037,7 @@ class VerdictEngine:
         full_scope_claim: bool,
         subject_anchors: list[str] | None = None,
         anchor_context: str | None = None,
+        measurement_attributes: frozenset[str] = frozenset(),
     ) -> tuple[bool, bool, bool]:
         matched_segment = False
         segment_supports = False
@@ -889,6 +1050,16 @@ class VerdictEngine:
         # text alone, or an authoritative source_name would inflate matches.
         anchor_context_norm = self._normalize_claim(anchor_context) if anchor_context else ""
         for segment in re.split(r"[。！？!?；;\n]", segment_text):
+            if measurement_attributes:
+                # Do not borrow polarity from a separately quantified attribute:
+                # "招聘2000人，工资并非8000元" still supports the hiring count.
+                clauses = []
+                for clause in re.split(r"[，,]", segment):
+                    attributes = {item.attribute for item in _measurements(clause)}
+                    if attributes and attributes.isdisjoint(measurement_attributes):
+                        continue
+                    clauses.append(clause)
+                segment = "，".join(clauses)
             haystack = self._normalize_claim(segment)
             overlap = self._overlap_terms(claim_terms, haystack)
             if not haystack:
@@ -973,69 +1144,80 @@ class VerdictEngine:
         claim_text: str,
         evidence_pool: list[EvidenceItem],
     ) -> tuple[str, str, str, list[EvidenceItem]] | None:
-        claim_quantity_tokens = set(self._extract_quantity_tokens(claim_text))
-        if not claim_quantity_tokens:
+        claim_measurements = _measurements(claim_text)
+        if not claim_measurements:
             return None
 
-        evidence_with_quantities: list[tuple[EvidenceItem, set[str]]] = []
-        distinct_quantities = set()
+        matching: list[EvidenceItem] = []
+        differing: list[EvidenceItem] = []
+        corrections: list[EvidenceItem] = []
+        corrected_matches: list[EvidenceItem] = []
+        aligned: set[int] = set()
+        uncertain = False
         for item in evidence_pool:
-            haystack = self._normalize_claim(f"{item.title} {item.snippet} {item.source_name}")
-            quantity_tokens = {
-                token
-                for token in self._extract_quantity_tokens(haystack)
-                if not token.endswith(("年", "月"))
-            }
-            if not quantity_tokens:
-                continue
-            evidence_with_quantities.append((item, quantity_tokens))
-            distinct_quantities.update(quantity_tokens)
+            title_measurements = _measurements(item.title)
+            contexts = {measurement.context for measurement in title_measurements}
+            default_context = next(iter(contexts)) if len(contexts) == 1 else ""
+            if not default_context:
+                title_subjects = extract_subject_anchors(item.title)
+                if len(title_subjects) == 1:
+                    default_context = title_subjects[0]
+            measurements = title_measurements + _measurements(item.snippet, default_context=default_context)
+            for index, expected in enumerate(claim_measurements):
+                comparable = [measurement for measurement in measurements
+                              if _same_measurement_relation(expected, measurement)]
+                precise = [measurement for measurement in comparable if not measurement.bounded]
+                uncertain |= bool(comparable) and not precise
+                if not precise:
+                    continue
+                aligned.add(index)
+                same = [measurement for measurement in precise if measurement.value == expected.value]
+                different = [measurement for measurement in precise
+                             if measurement.value != expected.value and not measurement.denied]
+                if same and item not in matching:
+                    matching.append(item)
+                if different and item not in differing:
+                    differing.append(item)
+                if any(measurement.corrected for measurement in different) and item not in corrections:
+                    corrections.append(item)
+                if any(measurement.corrected and not measurement.denied for measurement in same) and item not in corrected_matches:
+                    corrected_matches.append(item)
 
-        if len(evidence_with_quantities) < 1 or not distinct_quantities:
-            return None
-
-        # Evidence contains numbers different from the claim's numbers
-        evidence_numbers = distinct_quantities - claim_quantity_tokens
-        if not evidence_numbers:
-            return None
-
-        # At least one source has a number that differs from the claim — either
-        # the source contains ONLY different numbers (disjoint) or it explicitly
-        # presents a different number alongside the claim's number (correction).
-        has_conflict = any(
-            (tokens - claim_quantity_tokens)
-            for _, tokens in evidence_with_quantities
-        )
-        if not has_conflict:
-            return None
-
-        # Sort by tier for best evidence selection
-        selected = sorted(
-            [item for item, _ in evidence_with_quantities],
-            key=lambda item: TIER_PRIORITY.get(item.source_tier, 99),
-        )[:2]
-        explicit_corrections = [
-            item
-            for item in selected
-            if any(
-                marker in self._normalize_claim(f"{item.title} {item.snippet}")
-                for marker in QUANTITATIVE_CORRECTION_MARKERS
+        if len(aligned) != len(claim_measurements) or (uncertain and not matching and not differing):
+            return (
+                "insufficient", "low",
+                "数量证据的主体、事项、时间、统计范围或单位尚未完整对齐，不能仅凭词语重合支持或否定该说法。",
+                evidence_pool[:2],
             )
-        ]
-        high_trust_corrections = [
-            item for item in explicit_corrections if item.source_tier in HIGH_TRUST_SOURCE_TIERS
-        ]
+        if not differing:
+            high_trust_matches = [item for item in corrected_matches if item.source_tier in HIGH_TRUST_SOURCE_TIERS]
+            if high_trust_matches and not self._contains_claim_negation(claim_text):
+                return ("supported", self._confidence_from_high_trust_hits(high_trust_matches),
+                        "高可信来源明确更正为与该说法一致的数量，旧值不作为反向证据。", high_trust_matches[:2])
+            return None
+        high_trust_corrections = [item for item in corrections if item.source_tier in HIGH_TRUST_SOURCE_TIERS]
+        # A directly scoped correction may quote the original number as well.
+        # Preserve that useful case instead of suppressing all multi-number text.
         if high_trust_corrections:
+            selected = sorted(high_trust_corrections, key=lambda item: TIER_PRIORITY.get(item.source_tier, 99))[:2]
             return (
                 "refuted",
                 self._confidence_from_high_trust_hits(high_trust_corrections),
-                "高可信来源明确给出了不同数字并纠正原说法，当前按不成立处理。",
+                "高可信来源针对同一事项明确给出了不同数量并纠正原说法，当前按不成立处理。",
                 selected,
             )
+        # For unresolved disagreement show both values when both are available;
+        # sorting all hits by tier first can hide one side behind duplicate hits.
+        selected = sorted(differing, key=lambda item: TIER_PRIORITY.get(item.source_tier, 99))[:1]
+        opposite = next((item for item in matching if item not in selected), None)
+        if opposite is not None:
+            selected.append(opposite)
+        else:
+            selected.extend(item for item in differing if item not in selected and len(selected) < 2)
         return (
             "conflicting",
             "medium",
-            "检索到的来源给出了与该说法不同的具体数字，当前应保持冲突态。",
+            "关联来源对同一事项、可比较单位的具体数量存在差异，当前应保持冲突态。",
             selected,
         )
 
