@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rumor-checking.local/contracts/analysis_run_comparison.schema.json",
+  "properties": {
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "parent_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Run Id"
+    },
+    "changes": {
+      "items": {
+        "$ref": "./claim_change.schema.json"
+      },
+      "title": "Changes",
+      "type": "array"
+    },
+    "added_source_urls": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Added Source Urls",
+      "type": "array"
+    },
+    "removed_source_urls": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Removed Source Urls",
+      "type": "array"
+    },
+    "changed_source_urls": {
+      "items": {"type": "string"},
+      "type": "array",
+      "default": []
+    }
+  },
+  "required": [
+    "run_id"
+  ],
+  "title": "AnalysisRunComparison",
+  "type": "object",
+  "additionalProperties": false
+}

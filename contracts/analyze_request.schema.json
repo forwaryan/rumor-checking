@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rumor-checking.local/contracts/analyze_request.schema.json",
+  "properties": {
+    "raw_input": {
+      "maxLength": 100000,
+      "minLength": 1,
+      "title": "Raw Input",
+      "type": "string"
+    },
+    "input_type": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Input Type"
+    },
+    "mock_fetch_result": {
+      "anyOf": [
+        {
+          "$ref": "./mock_fetch_result.schema.json"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "mock_evidence": {
+      "items": {
+        "$ref": "./evidence.schema.json"
+      },
+      "title": "Mock Evidence",
+      "type": "array"
+    },
+    "request_context": {
+      "additionalProperties": true,
+      "title": "Request Context",
+      "type": "object"
+    }
+  },
+  "required": [
+    "raw_input"
+  ],
+  "title": "AnalyzeRequest",
+  "type": "object",
+  "additionalProperties": false
+}

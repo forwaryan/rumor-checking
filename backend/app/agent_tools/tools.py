@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from backend.app.agent.state import AgentState
 from backend.app.agent_tools.base import ToolContext, tool
 from backend.app.services.analyze_pipeline import (
@@ -12,7 +14,9 @@ from backend.app.services.analyze_pipeline import (
     _retrieval_bundle_details,
     _timeline_details,
 )
+from backend.app.services.cache_policy import requires_fresh_evidence
 from backend.app.services.progress import emit_log, emit_stage
+from backend.app.services.run_control import check_run_control
 from backend.app.services.timeline_builder import TimelineBuild
 
 # Provenance fallback reason: LLM synthesis was expected (LLM enabled) but did
@@ -73,6 +77,9 @@ def normalize(ctx: ToolContext, state: AgentState) -> None:
 
 @tool("search_news", description="联网检索与事件相关的新闻和证据", critical=True, retries=2)
 def search_news(ctx: ToolContext, state: AgentState) -> None:
+    from backend.app.services.supplemental_evidence import merge_supplemental_evidence
+
+    check_run_control()
     emit_stage(
         stage_key="retrieval_initial",
         title="首轮检索",
@@ -83,6 +90,7 @@ def search_news(ctx: ToolContext, state: AgentState) -> None:
     bundle = ctx.retriever.retrieve_for_event(
         state.normalized_event, request_context=state.request.request_context
     )
+    bundle = merge_supplemental_evidence(state.request, bundle)
     state.initial_retrieval_bundle = bundle
     state.retrieval_bundle = bundle
     emit_stage(
@@ -291,7 +299,7 @@ def _pick_fetch_target(state: AgentState):
     candidates = [
         r
         for r in bundle.canonical_results
-        if r.result_id not in state.fetched_bodies and r.url and r.url not in state.fetched_urls
+        if r.case_id != "supplemental" and r.result_id not in state.fetched_bodies and r.url and r.url not in state.fetched_urls
     ]
     if not candidates:
         return None
@@ -316,6 +324,7 @@ def _try_rendered_fallback(url: str, ctx: ToolContext) -> tuple[str | None, str]
     instead of a silent None."""
     if not getattr(ctx.settings, "rendered_fetch_enabled", False):
         return None, "disabled"
+    check_run_control()
     # The ENTIRE render+extract path is best-effort: this is a SAFE fallback, so
     # ANY failure — import error (playwright absent), render raising, or extraction
     # blowing up — must degrade to the snippet, never propagate and break fetch_url.
@@ -348,6 +357,7 @@ def fetch_url(ctx: ToolContext, state: AgentState) -> None:
     against the existing SearchResult.result_id so synthesis can ground on it
     without introducing a new evidence source.
     """
+    check_run_control()
     target = _pick_fetch_target(state)
     if target is None:
         emit_stage(
@@ -367,7 +377,8 @@ def fetch_url(ctx: ToolContext, state: AgentState) -> None:
         details=[f"url={target.url}", f"source={target.source_name}", f"tier={target.source_tier}"],
     )
     fetch = None
-    if ctx.settings.url_fetch_cache_enabled and ctx.url_fetch_cache is not None:
+    if (ctx.settings.url_fetch_cache_enabled and ctx.url_fetch_cache is not None
+            and not requires_fresh_evidence(state.request.request_context)):
         try:
             fetch = ctx.url_fetch_cache.read(url=target.url)
         except Exception:
@@ -426,6 +437,10 @@ def fetch_url(ctx: ToolContext, state: AgentState) -> None:
             )
             return
 
+    from backend.app.services.evidence_snapshots import capture_evidence_text
+    capture_evidence_text(url=target.url, final_url=fetch.final_url if fetch_path == "static" else None,
+                          text=body, kind="page_text", acquisition="cached" if cache_hit and fetch_path == "static" else "fetched",
+                          extractor="browser-text-v1" if fetch_path == "browser" else "article-v1")
     body = body[:_FETCH_BODY_MAX_CHARS]
     state.fetched_bodies[target.result_id] = body
     emit_stage(
@@ -447,6 +462,10 @@ def fetch_url(ctx: ToolContext, state: AgentState) -> None:
 @tool("synthesize", description="LLM 综合证据生成结构化判定")
 def synthesize(ctx: ToolContext, state: AgentState) -> bool:
     """Try the agent synthesis path. Returns True if it produced a result."""
+    from backend.app.services.per_claim_retriever import refine_evidence_gaps
+    from backend.app.services.supplemental_evidence import merge_supplemental_evidence
+
+    state.retrieval_bundle = merge_supplemental_evidence(state.request, state.retrieval_bundle)
     # "Attempted" only when the LLM reasoner is actually enabled — on the
     # zero-key off+mock path this stays False so no fallback signal is emitted.
     state.synthesis_attempted = bool(getattr(ctx.agent_reasoner, "enabled", False))
@@ -480,6 +499,15 @@ def synthesize(ctx: ToolContext, state: AgentState) -> bool:
     state.provider_claims = agent_synthesis.claim_extraction.claims
     state.claim_extraction = agent_synthesis.claim_extraction
     state.verdict = agent_synthesis.verdict
+    state.retrieval_bundle, state.verdict, gap_iterations = refine_evidence_gaps(
+        request=state.request, event=state.final_event, verdict=state.verdict, bundle=state.retrieval_bundle,
+        retriever=ctx.retriever, verdict_engine=ctx.verdict_engine,
+        max_iterations=max(0, state.max_per_claim_iterations - state.per_claim_iterations),
+        should_stop=lambda: state.time_exhausted or (state.max_token_budget > 0 and state.token_usage.total_tokens >= state.max_token_budget),
+        completion_fn=_build_completion_fn(ctx),
+    )
+    state.per_claim_iterations += gap_iterations
+    state.per_claim_searches += gap_iterations
     state.timeline = agent_synthesis.timeline
     state.possibilities = agent_synthesis.possibilities
     state.agent_synthesized = True
@@ -532,6 +560,8 @@ def enrich(ctx: ToolContext, state: AgentState) -> None:
 
 @tool("extract_claims", description="从事件和检索结果中抽取可核查声明")
 def extract_claims(ctx: ToolContext, state: AgentState) -> None:
+    from backend.app.services.evidence_goals import review_claim_items
+
     emit_stage(
         stage_key="claim_extraction",
         title="Claim 拆解",
@@ -542,6 +572,7 @@ def extract_claims(ctx: ToolContext, state: AgentState) -> None:
     claim_extraction = ctx.claim_extractor.extract_with_source(
         state.final_event, provider_claims=state.provider_claims
     )
+    claim_extraction = replace(claim_extraction, claims=review_claim_items(state.request) or claim_extraction.claims)
     state.claim_extraction = claim_extraction
     emit_stage(
         stage_key="claim_extraction",
@@ -584,6 +615,7 @@ def per_claim_search(ctx: ToolContext, state: AgentState) -> None:
             retrieval_service=ctx.retriever,
             resolved_event=state.resolved_event,
             iteration=state.per_claim_iterations,
+            claim_results=verdict.claim_results,
         )
 
         if enriched_bundle is not state.retrieval_bundle:
@@ -734,6 +766,9 @@ def build_timeline(ctx: ToolContext, state: AgentState) -> None:
 @tool("finalize_report", description="组装最终核查报告", critical=True, retries=2)
 def finalize_report(ctx: ToolContext, state: AgentState) -> None:
     from backend.app.services.analyze_pipeline import _report_details
+    from backend.app.services.evidence_snapshots import bind_captured_report, restore_captured_evidence
+
+    restore_captured_evidence(state.retrieval_bundle, state.fetched_bodies)
 
     event = state.final_event
     claim_extraction = state.claim_extraction
@@ -799,7 +834,7 @@ def finalize_report(ctx: ToolContext, state: AgentState) -> None:
     )
     final_report = report.model_copy(update={"content_check": content_check, "pipeline_trace": pipeline_trace})
     final_report = _apply_clarification_note(ctx.settings, final_report, state.question_resolution)
-    state.report = final_report
+    state.report = bind_captured_report(final_report)
     emit_stage(
         stage_key="report_build",
         title="生成报告",

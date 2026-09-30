@@ -1,0 +1,66 @@
+{
+  "case_id": "cfever_dev_2167",
+  "recorded_at": "2024-02-27T00:00:00Z",
+  "raw_input": "抄袭亦称作剽窃，抄袭的认定也因公共使用的资源的复杂程度影响抄袭争议的严重程度。",
+  "retrieval_results": [],
+  "expected_claims": [
+    {
+      "claim": "抄袭亦称作剽窃，抄袭的认定也因公共使用的资源的复杂程度影响抄袭争议的严重程度。",
+      "claim_type": "fact",
+      "verdict": "insufficient",
+      "confidence": "low",
+      "evidence": [],
+      "evidence_sets": [],
+      "evaluation": {
+        "score_confidence": false
+      }
+    }
+  ],
+  "metadata": {
+    "source": "CFEVER",
+    "provenance": "public_dataset",
+    "source_case_id": 2167,
+    "source_revision": "1f8fa4bd290832d7ad3109f49e347eb5dc77b7ad",
+    "review_status": "approved",
+    "review_reason": "Original claim, label and required sentence locations checked against the pinned CFEVER revision; no model outcome used for relabeling.",
+    "annotation_source": "upstream_label",
+    "confidence_source": "converter_derived_not_upstream_gold",
+    "dataset_license": "Apache-2.0",
+    "evidence_license": "CC BY-SA (source-dump version)",
+    "split": "dev",
+    "domain": "生活",
+    "topic_group": "抄袭",
+    "original_label": "NOT ENOUGH INFO",
+    "original_claim": "抄襲亦稱作剽竊，抄襲的認定也因公共使用的資源的複雜程度影響抄襲爭議的嚴重程度。",
+    "original_evidence_sets": [],
+    "text_variant": "zh-Hans",
+    "source_text_variant": "zh-Hant",
+    "text_conversion": "OpenCC t2s",
+    "categories": [
+      "external_benchmark",
+      "wikipedia_evidence"
+    ],
+    "source_verified": true,
+    "source_file_sha256": "c4bdeaebc90e8a21768919d212ff4a25cd8bf0edef00f64f0197066e7b034ddc",
+    "source_record_line": 137,
+    "source_url": "https://huggingface.co/datasets/IKMLab-team/cfever/resolve/1f8fa4bd290832d7ad3109f49e347eb5dc77b7ad/dev.jsonl",
+    "original_evidence": [
+      [
+        {
+          "annotation_id": 2694,
+          "evidence_id": null,
+          "page_title": null,
+          "sentence_id": null
+        }
+      ]
+    ],
+    "evaluation_split": "holdout",
+    "reviewed_at": "2026-09-13T07:36:57.121663+00:00",
+    "source_verification_scope": "Selected claim records and required sentence text reviewed; full Wikipedia-file digest was not recomputed.",
+    "claim_transformation": "OpenCC t2s; original claim preserved verbatim in original_claim.",
+    "evidence_transformation": "Resolve every upstream evidence group; group page sentences by original line number and apply OpenCC t2s.",
+    "wikipedia_source_records": [],
+    "wikipedia_source_sha256_declared": "7f5e58930aab686ed596005baabdea27103c9994f635eabdfbb07ca95ad62d2a",
+    "wikipedia_full_file_digest_verified": false
+  }
+}

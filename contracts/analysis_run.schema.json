@@ -7,7 +7,7 @@
   "required": ["run_id", "status", "created_at", "updated_at", "last_event_id", "mode", "input_preview", "raw_input"],
   "properties": {
     "run_id": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
-    "status": { "type": "string", "enum": ["queued", "running", "completed", "failed", "interrupted"] },
+    "status": { "type": "string", "enum": ["queued", "running", "completed", "failed", "interrupted", "cancelled"] },
     "created_at": { "type": "string", "format": "date-time" },
     "updated_at": { "type": "string", "format": "date-time" },
     "last_event_id": { "type": "integer", "minimum": 0 },
@@ -16,6 +16,13 @@
     "raw_input": { "type": "string" },
     "report": { "anyOf": [{ "$ref": "report.schema.json" }, { "type": "null" }], "default": null },
     "error": { "type": ["string", "null"], "default": null },
-    "resumable": { "type": "boolean", "default": false }
+    "resumable": { "type": "boolean", "default": false },
+    "parent_run_id": { "type": ["string", "null"], "default": null },
+    "root_run_id": { "type": "string", "default": "" },
+    "revision": { "type": "integer", "minimum": 1, "default": 1 },
+    "cancel_requested": { "type": "boolean", "default": false },
+    "review_note": { "type": "string", "default": "" },
+    "review_claim_indices": { "type": "array", "items": {"type": "integer"}, "default": [] },
+    "stop_reason": { "type": ["string", "null"], "default": null }
   }
 }

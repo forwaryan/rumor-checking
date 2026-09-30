@@ -734,6 +734,119 @@ def test_parallel_batch_rejects_model_override():
         sup._execute_batch(agents, state, deadline=None)
 
 
+@pytest.mark.parametrize("max_parallel", [1, 2])
+@pytest.mark.parametrize("agent_timeout", [None, 10.0])
+def test_batch_deadline_shares_local_control_and_drains(monkeypatch, max_parallel, agent_timeout):
+    import threading
+    import time
+    from types import SimpleNamespace
+
+    from backend.app.agent.multi import supervisor as supervisor_module
+    from backend.app.services.run_control import RunControl, RunStopped, check_run_control, get_run_control
+
+    release = threading.Event()
+    entered = threading.Event()
+    notified = threading.Event()
+    controls = []
+    late_effects = []
+    outcomes = []
+
+    class RecordingControl(RunControl):
+        def __init__(self):
+            super().__init__(stop_callback=lambda reason: notified.set())
+
+    monkeypatch.setattr(supervisor_module, "RunControl", RecordingControl, raising=False)
+
+    def blocked_agent(state, context):
+        controls.append(get_run_control())
+        entered.set()
+        release.wait(3)
+        check_run_control()
+        late_effects.append("late call")
+        raise RuntimeError("must not retry")
+
+    agents = [
+        SimpleNamespace(
+            role=role, description="blocked", run=blocked_agent,
+            config=SimpleNamespace(timeout_seconds=agent_timeout, max_retries=1),
+        )
+        for role in (AgentRole.RETRIEVAL_BAIDU, AgentRole.RETRIEVAL_XHS)
+    ]
+    supervisor = Supervisor(SimpleNamespace(agent_reasoner=None), agents=agents, max_parallel=max_parallel)
+
+    def run_batch():
+        try:
+            supervisor._execute_batch(agents, None, deadline=time.monotonic() + 0.15)
+            outcomes.append("returned")
+        except RunStopped as exc:
+            outcomes.append(exc.reason)
+
+    worker = threading.Thread(target=run_batch)
+    worker.start()
+    try:
+        assert entered.wait(1)
+        assert notified.wait(1)
+        assert worker.is_alive()
+        assert len(controls) == max_parallel and controls[0] is not None
+        assert all(control is controls[0] for control in controls)
+        with pytest.raises(RunStopped, match="agent_timeout"):
+            controls[0].check()
+    finally:
+        release.set()
+        worker.join(3)
+    assert not worker.is_alive()
+    assert outcomes == ["agent_timeout"]
+    assert not late_effects
+    assert get_run_control() is None
+
+
+def test_expired_batch_stops_before_starting_agents():
+    import time
+    from types import SimpleNamespace
+
+    from backend.app.services.run_control import RunControl, RunStopped, reset_run_control, set_run_control
+
+    notifications = []
+    control = RunControl(stop_callback=notifications.append)
+    token = set_run_control(control)
+    try:
+        with pytest.raises(RunStopped, match="agent_timeout"):
+            Supervisor(SimpleNamespace())._execute_batch([object()], None, deadline=time.monotonic() - 1)
+    finally:
+        reset_run_control(token)
+    assert notifications == ["agent_timeout"]
+
+
+def test_batch_deadline_during_backoff_prevents_retry(monkeypatch):
+    from types import SimpleNamespace
+
+    from backend.app.agent.multi import SubAgentResult
+    from backend.app.agent.multi import supervisor as supervisor_module
+    from backend.app.services.run_control import RunControl, RunStopped, reset_run_control, set_run_control
+
+    clock = [10.0]
+    calls = []
+    notifications = []
+    monkeypatch.setattr(supervisor_module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(supervisor_module.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+    supervisor = Supervisor(SimpleNamespace(agent_reasoner=None))
+    agent = SimpleNamespace(role=AgentRole.RETRIEVAL, config=None, description="failed")
+
+    def invoke(agent, state, timeout):
+        calls.append(agent.role)
+        return SubAgentResult(role=agent.role, status=AgentStatus.FAILED)
+
+    monkeypatch.setattr(supervisor, "_invoke_agent", invoke)
+    token = set_run_control(RunControl(stop_callback=notifications.append))
+    try:
+        with pytest.raises(RunStopped, match="agent_timeout"):
+            supervisor._execute_batch([agent], None, deadline=10.1)
+    finally:
+        reset_run_control(token)
+    assert calls == [AgentRole.RETRIEVAL]
+    assert notifications == ["agent_timeout"]
+
+
 def test_merge_agent_combines_bundles():
     """MergeAgent unions per-source bundles into a deduped retrieval_bundle."""
     from backend.app.agent.multi.merge_agent import MergeAgent

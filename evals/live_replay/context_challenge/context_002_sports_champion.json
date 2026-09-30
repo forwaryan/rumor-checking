@@ -1,0 +1,13 @@
+{
+  "case_id": "context_002_sports_champion",
+  "recorded_at": "2026-08-04T00:00:00Z",
+  "raw_input": "林河市青羽队获得2026年市联赛冠军",
+  "retrieval_results": [
+    {"result_id": "r1", "title": "市联赛官方公布青羽队夺冠", "url": "https://league.example/linhe/2026-results", "source_name": "林河市联赛组委会", "published_at": "2026-08-03", "snippet": "2026年林河市联赛结束，青羽队获得冠军，最终积分排名第一。", "source_tier": "S", "origin_id": "linhe-league-results"},
+    {"result_id": "r2", "title": "青羽队夺冠现场报道", "url": "https://sports.example/linhe/final", "source_name": "林河体育报", "published_at": "2026-08-03", "snippet": "记者在决赛和颁奖现场确认，青羽队获得2026年林河市联赛冠军。", "source_tier": "A", "origin_id": "linhe-final-reporter"}
+  ],
+  "expected_claims": [
+    {"claim": "林河市青羽队获得2026年市联赛冠军", "claim_type": "fact", "verdict": "supported", "confidence": "high", "evidence": [{"url": "https://league.example/linhe/2026-results"}, {"url": "https://sports.example/linhe/final"}], "evidence_sets": [[{"url": "https://league.example/linhe/2026-results"}], [{"url": "https://sports.example/linhe/final"}]], "evaluation": {"min_independent_sources": 2, "require_dated_evidence": true}}
+  ],
+  "metadata": {"source": "context_challenge", "provenance": "synthetic", "fixture_purpose": "coverage_regression", "review_status": "approved", "reviewed_at": "2026-09-13", "annotation_source": "project_review", "topic_group": "linhe_sports_champion", "evaluation_split": "holdout", "categories": ["multi_source_support", "sports"], "annotation_rationale": "补充体育主题，官方赛果与独立现场证据一致，全部人名和事件为合成。"}
+}

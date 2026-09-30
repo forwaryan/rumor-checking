@@ -1291,6 +1291,44 @@ def test_retrieval_service_skip_cache_alias_bypasses_cached_bundle(tmp_path: Pat
     assert len(provider.calls) == per_run_call_count * 2
 
 
+@pytest.mark.parametrize("failed", [False, True])
+def test_recheck_refreshes_cache_and_never_falls_back_to_old_results(tmp_path: Path, failed):
+    event = _event_for_case("R01")
+    old = _make_result(result_id="old", title=event.title or event.summary, snippet="旧公告", published_at="2026-03-01")
+    provider = FakeProvider(results=[old])
+    service = RetrievalService(settings=replace(get_settings(), retrieval_provider="gdelt", retrieval_cache_enabled=True,
+                                                retrieval_fallback_to_mock=False, retrieval_cache_allow_stale_on_error=True),
+                               provider=provider, cache=RetrievalCache(cache_root=tmp_path, ttl_seconds=3600))
+    first = service._retrieve_for_event(event, request_context={}, stage_key="test")
+    assert first.canonical_results
+    provider._results = [replace(old, result_id="new", snippet="新公告")]
+    provider._error = RuntimeError("offline failure") if failed else None
+    calls = len(provider.calls)
+    reviewed = service._retrieve_for_event(event, request_context={"review_claim_texts": [event.summary],
+                                          "retrieval_cache_only": True, "allow_stale_retrieval_cache": True}, stage_key="test")
+    assert len(provider.calls) > calls
+    assert reviewed.cache_status != "stale_hit"
+    if failed:
+        assert not reviewed.canonical_results
+    else:
+        assert _base_ids(reviewed.canonical_results[:1]) == {"new"}
+        current = service._retrieve_for_event(event, request_context={}, stage_key="test")
+        assert _base_ids(current.canonical_results[:1]) == {"new"}
+
+
+def test_explicit_cache_bypass_does_not_use_stale_on_provider_error(tmp_path: Path):
+    event = _event_for_case("R01")
+    provider = FakeProvider(results=[_make_result(result_id="old", title=event.title or event.summary,
+                                               snippet="旧公告", published_at="2026-03-01")])
+    service = RetrievalService(settings=replace(get_settings(), retrieval_provider="gdelt", retrieval_cache_enabled=True,
+                                                retrieval_fallback_to_mock=False, retrieval_cache_allow_stale_on_error=True),
+                               provider=provider, cache=RetrievalCache(cache_root=tmp_path, ttl_seconds=3600))
+    service._retrieve_for_event(event, request_context={}, stage_key="test")
+    provider._error = RuntimeError("offline failure")
+    result = service._retrieve_for_event(event, request_context={"skip_retrieval_cache": True}, stage_key="test")
+    assert not result.canonical_results
+
+
 def test_timeline_builder_selects_key_nodes_from_real_bundle():
     event = NormalizedEvent(
         summary="晨星生物 裁员40% 传闻",

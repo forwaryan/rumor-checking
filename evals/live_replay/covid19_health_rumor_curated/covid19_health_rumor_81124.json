@@ -1,0 +1,85 @@
+{
+  "case_id": "covid19_health_rumor_81124",
+  "recorded_at": "2020-02-05T00:00:00Z",
+  "raw_input": "截至2020年2月5日，已有确切有效的新型冠状病毒抗病毒药物被发现",
+  "retrieval_results": [
+    {
+      "result_id": "fact_check_1",
+      "title": "截至2020年2月5日，已有确切有效的新型冠状病毒抗病毒药物被发现",
+      "url": "https://mdeer.taobao.com/guide/h5/science/article/170840",
+      "source_name": "央视新闻",
+      "published_at": "2020-02-05",
+      "snippet": "目前尚没有确认有效的药物。2月5日，国家卫健委发布《新型冠状病毒感染的肺炎诊疗方案（试行第五版）》，明确增加“目前没有确认有效的抗病毒治疗方法”的描述。",
+      "source_tier": "B"
+    }
+  ],
+  "expected_claims": [
+    {
+      "claim": "截至2020年2月5日，已有确切有效的新型冠状病毒抗病毒药物被发现",
+      "claim_type": "fact",
+      "verdict": "refuted",
+      "confidence": "high",
+      "evidence": [
+        {
+          "url": "https://mdeer.taobao.com/guide/h5/science/article/170840",
+          "title": "国家卫健委第五版诊疗方案相关材料"
+        }
+      ],
+      "evaluation": {
+        "score_confidence": false
+      }
+    }
+  ],
+  "metadata": {
+    "source": "COVID19-Health-Rumor",
+    "provenance": "public_dataset",
+    "source_case_id": "81124",
+    "source_revision": "f07382aa9ab38353c80b6c87eb665d7f6733bed2",
+    "dataset_license": "MIT",
+    "evidence_license": "third-party source terms",
+    "original_label": "wish",
+    "text_variant": "zh-Hans",
+    "domain": "健康",
+    "categories": [
+      "external_benchmark",
+      "health_rumor",
+      "covid19",
+      "time_sensitive"
+    ],
+    "original_rumor_type": "wish",
+    "original_label_field": "rumor_type",
+    "original_label_meaning": "wish/dread describe hope/fear, not factual veracity",
+    "annotation_source": "project_review",
+    "annotation_rationale": "以2020-02-05第五版诊疗方案“目前没有确认有效的抗病毒治疗方法”为依据，反驳该历史时点已有确切有效药物的断言；不用于当前药物判断。",
+    "original_claim": "已有确切抗病毒药物被发现",
+    "original_source_record": {
+      "rumor_id": "81124",
+      "publish_date": "2020-02-05",
+      "rumor_type": "wish",
+      "article_title": "已有确切抗病毒药物被发现",
+      "article_content": "目前尚没有确认有效的药物。2月5日，卫健委发布最新《新型冠状病毒感染的肺炎诊疗方案（试行第五版）》，在该方案中，明确增加“目前没有确认有效的抗病毒治疗方法”的描述。",
+      "search_expression": "抗病毒药物+(已经|已有|已经有)",
+      "source": "央视新闻",
+      "article_url": "https://mdeer.taobao.com/guide/h5/science/article/170840"
+    },
+    "claim_transformation": "补充来源发布日期“截至2020年2月5日”和新型冠状病毒语境，将“确切”表述为“确切有效”；限定历史适用时间。",
+    "evidence_transformation": "人工摘要，将“卫健委”展开为“国家卫健委”，保留第五版诊疗方案及尚无确认有效治疗方法的历史限定。",
+    "confidence_source": "project_derived_not_upstream_gold",
+    "source_file_sha256": "9f1abac0a4de9e74e9ed06a83ea67bcba4dc67550734edc44dcb10254e23587b",
+    "source_record_line": 111,
+    "source_url": "https://raw.githubusercontent.com/Kelaxon/COVID19-Health-Rumor/f07382aa9ab38353c80b6c87eb665d7f6733bed2/data/health_rumors.csv",
+    "source_verified": true,
+    "source_verification_scope": "Selected CSV record checked at pinned revision; labels are independent project annotations, not upstream veracity gold.",
+    "source_published_at": "2020-02-05",
+    "hosting_domain": "mdeer.taobao.com",
+    "attributed_source_name": "央视新闻",
+    "reviewed_at": "2026-09-13T07:36:57.121663+00:00",
+    "review_status": "approved",
+    "review_reason": "Pinned source record and project annotation rationale reviewed; original rumor_type is retained only as emotion metadata.",
+    "topic_group": "COVID-19健康谣言",
+    "evaluation_split": "development",
+    "as_of": "2020-02-05T00:00:00Z",
+    "snapshot_kind": "pinned_csv_excerpt_with_declared_historical_date",
+    "evidence_completeness": "project_summary_of_complete_csv_excerpt"
+  }
+}

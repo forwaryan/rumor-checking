@@ -12,6 +12,7 @@ from backend.app.models.schemas import ClaimResult, EvidenceItem
 from backend.app.services import model_health, model_ledger
 from backend.app.services.llm_verdict import llm_judge_claims
 from backend.app.services.model_health import complete_once
+from backend.app.services.run_control import RunControl, RunStopped, reset_run_control, set_run_control
 
 SECRET = "TEST_PRIVATE_PROMPT_KEY_ENDPOINT_RESPONSE_SENTINEL"
 
@@ -96,6 +97,19 @@ def test_opt_in_reasoning_fallback_is_observed_as_usable(settings, monkeypatch):
     assert span.metadata["status"] == "ok" and span.metadata["response_chars"] == 0
     assert span.metadata["reasoning_chars"] > 0
 
+
+def test_budget_rejection_does_not_create_phantom_attempt(settings, monkeypatch):
+    monkeypatch.setattr(model_health.httpx, "post", lambda *a, **kw: response(status=503))
+    control = RunControl(max_llm_calls=1)
+    token = set_run_control(control)
+    exporter = TraceExporter("budget")
+    try:
+        with exporter.activate(), pytest.raises(RunStopped, match="call_budget_exhausted"):
+            complete(settings)
+    finally:
+        reset_run_control(token)
+    assert len(exporter.record.spans) == control.llm_calls == 1
+    assert exporter.record.spans[0].metadata["attempt"] == 1
 
 
 def test_actual_parallel_judge_path_inherits_trace_and_records_every_judgment(settings, monkeypatch):

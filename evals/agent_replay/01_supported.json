@@ -1,0 +1,21 @@
+{
+  "id": "agent_supported",
+  "synthetic": true,
+  "input": "2026年9月1日，青岚市博物馆发布公告：博物馆自9月2日起恢复开放。",
+  "sources": [
+    {"result_id":"museum_notice","title":"青岚市博物馆恢复开放公告","url":"https://museum.example.org/notice","source_name":"青岚市博物馆","published_at":"2026-09-01T09:00:00+08:00","snippet":"青岚市博物馆公告：维护工作已经完成，博物馆自2026年9月2日起恢复开放。","source_tier":"S","source_category":"official","independence_key":"museum.example.org"}
+  ],
+  "retrieval": [
+    {"stage":"retrieval_initial","query":"2026 9 1 青岚市博物馆发布公告 博物馆自 2 日起恢复开放 日起","source_ids":["museum_notice"]},
+    {"stage":"retrieval_initial","query":"青岚市博物馆发布公告 博物馆自 日起恢复开放 日起","source_ids":["museum_notice"]},
+    {"stage":"retrieval_initial","query":"2026 9 1 青岚市博物馆发布公告 博物馆自 2 日起恢复开放","source_ids":["museum_notice"]}
+  ],
+  "completions": [
+    {"template":"NEXT_ACTION_SEQUENCE_SYSTEM_PROMPT","response":{"actions":["synthesize"],"reason":"已有对应公告"}},
+    {"template":"CLAIMS_ONLY_SYSTEM_PROMPT","response":{"claims":[{"claim":"青岚市博物馆自2026年9月2日起恢复开放。","claim_type":"fact","verdict":"supported","confidence":"high","evidence_result_ids":["q0-museum_notice"],"notes":"公告明确说明恢复开放日期。"}]}},
+    {"template":"SYNTHESIS_CRITIC_SYSTEM_PROMPT","response":{"revisions":[{"index":0,"keep":true,"reason":"对应公告明确支持开放日期。"}]}},
+    {"template":"CLAIM_CORRECTION","response":[{"correction":null}]},
+    {"template":"ENRICHMENT_SYSTEM_PROMPT","response":{"timeline":[{"node_type":"clarification","result_id":"q0-museum_notice","summary":"馆方公告恢复开放。","why_selected":"可追溯公告"}],"scenarios":[]}}
+  ],
+  "expected": {"claims":{"青岚市博物馆自2026年9月2日起恢复开放。":"supported"},"required_actions":["normalize","search_news","resolve_question","follow_up_retrieval","synthesize","finalize_report"]}
+}

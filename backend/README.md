@@ -17,9 +17,13 @@ FastAPI 主进程。产品能力/两档核查/概率维度看主 [README.md](../
 
 同一进程通过 `request_context.mode=fast|deep` 提供两档分析，详见主 [README.md](../README.md#两档核查--秒级-vs-分钟级)。
 
+同步与流式兼容入口共享持久任务的容量/预算，响应头返回 `X-Analysis-Run-ID`。分析文本最多 100,000 字符，JSON 请求体最多 1 MiB；网页通过固定公网 IP 的有界传输读取。复核缓存与浏览器安全降级边界见 [执行安全](../docs/execution-safety.md)。
+
 前端默认使用 `/api/v1/analysis-runs` 创建持久化任务，通过带游标的事件流连接；刷新可恢复原任务或报告。新增查询、重连、显式恢复接口及部署边界见 [可恢复核查任务](../docs/durable-analysis.md)。
 
 深度推理按来源索引、摘要和原文片段组织证据，并对完整提示统一预算。上下文消耗诊断、配置与经审核的核查策略库见 [证据上下文与核查经验](../docs/evidence-context.md)。
+
+完成报告可以选择声明补证复核、浏览版本并比较变化；运行中可明确停止。价格和航线声明有结构化证据缺口与定向补查，见 [证据目标](../docs/evidence-goals.md)。深度执行流程可通过 `python backend/scripts/replay_agent.py` 进行离线回放，包含真实规划、解析、Critic与保守降级，但不代表在线模型准确率。
 
 ## 本地运行
 
@@ -64,7 +68,7 @@ RETRIEVAL_FALLBACK_TO_MOCK=true
 
 - 检索缓存：`data/cache/retrieval/<provider>/<cache_key>.json`；key = `sha256(v1|provider|compact_query)` 前 24 位
 - URL 正文缓存：`data/cache/url_fetch/<cache_key>.json`；key = `sha256(v1|url)` 前 24 位；TTL 由 `URL_FETCH_CACHE_TTL_SECONDS` 控制（默认 12h）
-- 抓取可靠性：正文抓取走 `reliable_get`，对**瞬时故障**（连接/读超时、连接错误、5xx）做退避重试，次数由 `URL_FETCH_MAX_RETRIES` 控制（默认 1，保守）；4xx（含 403/429）视为确定答复**不重试**，避免对明确拒绝的站点反复敲门。每次请求用独立短连接（会话隔离）。**只借鉴可靠性设计，不做任何绕过反爬**。
+- 抓取可靠性：正文抓取走 `reliable_get`，对**瞬时故障**（连接/读超时、连接错误、5xx）做退避重试，次数由 `URL_FETCH_MAX_RETRIES` 控制（默认 1，保守；上限硬编码为 3，配更大会被夹住并打 warning）；4xx（含 403/429）视为确定答复**不重试**，避免对明确拒绝的站点反复敲门。每次请求用独立短连接（会话隔离）。**只借鉴可靠性设计，不做任何绕过反爬**。
 - SearXNG 补充源（默认关）：`SEARXNG_SEARCH_ENABLED=true` 且配置 `SEARXNG_BASE_URL` 后，`SearxngSearchProvider` 走该独立实例的 `/search?format=json` 扩英文/海外来源覆盖。**AGPL：只作为独立 HTTP 服务调用，绝不并入本仓代码**（见 ADR 0004）。任何失败降级为空、不影响其他源。当前为脚手架，未接真实实例验证。
 - 诊断入口：`request_context.retrieval_cache_only=true` 强制只读缓存；`bypass_retrieval_cache=true` 跳过缓存直连 provider
 - Provider Doctor：`python backend/scripts/source_doctor.py`；加 `--json` 输出机器可读快照，加 `--strict` 检查所有已配置来源的本地依赖。该命令不访问外网。

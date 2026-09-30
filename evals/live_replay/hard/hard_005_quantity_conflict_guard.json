@@ -7,7 +7,7 @@
     {"result_id": "r2", "title": "某市发布会通报新增确诊500例", "url": "https://gov.example/b", "source_name": "某市政府", "published_at": "2026-08-20", "snippet": "今日新增确诊500例。", "source_tier": "S"}
   ],
   "expected_claims": [
-    {"claim": "某市新增确诊病例500例", "claim_type": "fact", "verdict": "conflicting", "confidence": "medium", "evidence": [{"url": "https://gov.example/b", "title": "某市发布会通报新增确诊500例"}], "evaluation": {"require_high_trust": true}}
+    {"claim": "某市新增确诊病例500例", "claim_type": "fact", "verdict": "conflicting", "confidence": "medium", "evidence": [{"url": "https://health.example/a", "title": "某市卫健委：新增确诊50例"}, {"url": "https://gov.example/b", "title": "某市发布会通报新增确诊500例"}], "evaluation": {"require_high_trust": true}}
   ],
-  "metadata": {"source": "hard", "topic": "health", "categories": ["quantity_conflict", "guardrail"], "note": "护栏:两个 S 级来源数字打架应为 conflicting;当前判对,防回归"}
+  "metadata": {"source": "hard", "provenance": "synthetic", "fixture_purpose": "adversarial_regression", "topic": "health", "categories": ["quantity_conflict", "guardrail"], "as_of": "2026-08-20", "review_status": "approved", "reviewed_at": "2026-09-13", "annotation_rationale": "冲突结论必须引用同日50例与500例两侧材料；只引用一侧不足以证明来源矛盾。", "note": "护栏:两个 S 级来源对同一日新增数量给出相反数据，应保留conflicting。"}
 }

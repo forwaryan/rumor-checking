@@ -129,6 +129,9 @@ def reset_retrieval_stage_key(token: Token) -> None:
 
 
 def emit_progress(event_type: str, **payload: Any) -> None:
+    from backend.app.services.run_control import check_run_control
+
+    check_run_control()
     callback = _progress_callback.get()
     if callback is None:
         return

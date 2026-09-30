@@ -1,0 +1,12 @@
+{
+  "case_id": "context_006_nonempty_unknown_route",
+  "recorded_at": "2026-08-10T00:00:00Z",
+  "raw_input": "远桥市机场已经开通到澄海市的直飞航班",
+  "retrieval_results": [
+    {"result_id": "r1", "title": "远桥市机场新航站楼开放", "url": "https://airport.example/yuanqiao/terminal", "source_name": "远桥市机场", "published_at": "2026-08-09", "snippet": "远桥市机场新航站楼正式开放，新增候机座椅和安检设备，原跑道继续使用。", "source_tier": "S", "origin_id": "yuanqiao-terminal-notice"}
+  ],
+  "expected_claims": [
+    {"claim": "远桥市机场已经开通到澄海市的直飞航班", "claim_type": "fact", "verdict": "insufficient", "confidence": "low", "evidence": []}
+  ],
+  "metadata": {"source": "context_challenge", "provenance": "synthetic", "fixture_purpose": "coverage_regression", "review_status": "approved", "reviewed_at": "2026-09-13", "annotation_source": "project_review", "topic_group": "yuanqiao_airport_route", "evaluation_split": "holdout", "categories": ["nonempty_insufficient", "missing_attribute"], "annotation_rationale": "航站楼开放不能证明某条航线开通；来源与机场有关，但不包含航班目的地信息。"}
+}

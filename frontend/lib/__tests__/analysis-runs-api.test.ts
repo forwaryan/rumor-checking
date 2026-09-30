@@ -6,6 +6,11 @@ import {
   parseAnalysisRunEvent,
   resumeAnalysisRun,
   streamAnalysisRunEvents,
+  recheckAnalysisRun,
+  cancelAnalysisRun,
+  getAnalysisRunHistory,
+  getAnalysisRunChanges,
+  parseReport,
 } from "@/lib/api-client";
 
 const runId = "a".repeat(32);
@@ -18,6 +23,35 @@ const snapshot = {
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("analysis run API", () => {
+  it("preserves changed source URLs independently of verdict changes and defaults old comparisons", async () => {
+    const comparison = { run_id: runId, parent_run_id: "b".repeat(32), changes: [], added_source_urls: [], removed_source_urls: [] };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(Response.json({ ...comparison, changed_source_urls: ["https://example.org/source", 123] }))
+      .mockResolvedValueOnce(Response.json(comparison)));
+    expect((await getAnalysisRunChanges(runId)).changed_source_urls).toEqual(["https://example.org/source"]);
+    expect((await getAnalysisRunChanges(runId)).changed_source_urls).toEqual([]);
+  });
+  it("sends the selected scope and idempotency key then loads versions and changes by GET", async () => {
+    const request = { claim_indices: [1], source_urls: ["https://example.org/source"], note: "补证", request_id: "12345678-1234-1234-1234-123456789abc" };
+    const child = { ...snapshot, parent_run_id: "b".repeat(32), root_run_id: "b".repeat(32), revision: 2, review_claim_indices: [1], review_note: "补证" };
+    const comparison = { run_id: runId, parent_run_id: child.parent_run_id, changes: [{ claim: "未选事项", kind: "not_rechecked", before_verdict: "supported", after_verdict: null, added_evidence_urls: [], removed_evidence_urls: [] }], added_source_urls: [], removed_source_urls: [] };
+    const fetchMock = vi.fn().mockResolvedValueOnce(Response.json(child))
+      .mockResolvedValueOnce(Response.json({ ...child, status: "cancelled", cancel_requested: true }))
+      .mockResolvedValueOnce(Response.json({ root_run_id: child.root_run_id, revisions: [child] }))
+      .mockResolvedValueOnce(Response.json(comparison));
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await recheckAnalysisRun(runId, request)).toMatchObject({ revision: 2, review_claim_indices: [1] });
+    expect(await cancelAnalysisRun(runId)).toMatchObject({ status: "cancelled", cancel_requested: true });
+    expect((await getAnalysisRunHistory(runId)).revisions[0]).toMatchObject({ revision: 2 });
+    expect(await getAnalysisRunChanges(runId)).toEqual({ ...comparison, changed_source_urls: [] });
+    expect(fetchMock.mock.calls[0]).toEqual([`/api/v1/analysis-runs/${runId}/recheck`, expect.objectContaining({ method: "POST", body: JSON.stringify(request) })]);
+    expect(fetchMock.mock.calls[1][0]).toContain("/cancel");
+    expect(fetchMock.mock.calls.slice(2).map((call) => call[1].method)).toEqual([undefined, undefined]);
+  });
+
+  it("keeps structured evidence gaps and safely ignores unknown dimensions", () => {
+    const report = parseReport({ claim_results: [{ claim: "免费", evidence_gaps: [{ dimension: "price", description: "缺票价公告", suggested_queries: ["门票价格"] }, { dimension: "unknown" }] }] });
+    expect(report.claim_results[0].evidence_gaps).toEqual([{ dimension: "price", description: "缺票价公告", suggested_queries: ["门票价格"] }]);
+  });
   it("uses the create, read and explicit resume routes", async () => {
     const fetchMock = vi.fn().mockImplementation(async () => Response.json(snapshot));
     vi.stubGlobal("fetch", fetchMock);

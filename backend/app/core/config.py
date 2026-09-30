@@ -139,6 +139,7 @@ class Settings:
     analysis_run_dir: Path
     analysis_run_retention_seconds: float
     analysis_run_max_active: int
+    analysis_run_max_llm_calls: int
     llm_api_key: str | None
     llm_base_url: str
     llm_model_base_urls: dict[str, str]
@@ -319,6 +320,7 @@ def get_settings() -> Settings:
         analysis_run_dir=Path(os.getenv("ANALYSIS_RUN_DIR", str(project_root / "data" / "analysis_runs"))),
         analysis_run_retention_seconds=max(_as_float(os.getenv("ANALYSIS_RUN_RETENTION_SECONDS"), 86400.0), 0.0),
         analysis_run_max_active=max(_as_int(os.getenv("ANALYSIS_RUN_MAX_ACTIVE"), 4), 1),
+        analysis_run_max_llm_calls=max(_as_int(os.getenv("ANALYSIS_RUN_MAX_LLM_CALLS"), 30), 0),
         llm_api_key=os.getenv("LLM_API_KEY") or os.getenv("KIMI_API_KEY"),
         llm_base_url=(os.getenv("LLM_BASE_URL") or os.getenv("KIMI_BASE_URL") or "https://api.openai.com/v1").rstrip("/"),
         llm_model_base_urls=_parse_model_base_urls(os.getenv("LLM_MODEL_BASE_URLS")),

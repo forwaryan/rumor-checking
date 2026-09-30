@@ -1,0 +1,92 @@
+{
+  "case_id": "covid19_health_rumor_80401",
+  "recorded_at": "2020-02-04T00:00:00Z",
+  "raw_input": "对细菌消毒时，95%的酒精比75%的酒精消毒效果更好",
+  "retrieval_results": [
+    {
+      "result_id": "fact_check_1",
+      "title": "95%的酒精比75%的酒精消毒效果更好",
+      "url": "https://vp.fact.qq.com/article?id=65b017b6e4bdf505116062c0c3bdebfb",
+      "source_name": "腾讯医典",
+      "published_at": "2020-01-28",
+      "snippet": "并不是浓度越高的酒精消毒效果越好。对于细菌，酒精是通过溶解细菌的细胞膜来起效的。95%的酒精会导致细菌表面的蛋白质迅速凝固，但细菌内部可能仍然存活，效果不如75%的酒精。",
+      "source_tier": "B"
+    }
+  ],
+  "expected_claims": [
+    {
+      "claim": "对细菌消毒时，95%的酒精比75%的酒精消毒效果更好",
+      "claim_type": "fact",
+      "verdict": "refuted",
+      "confidence": "high",
+      "evidence": [
+        {
+          "url": "https://vp.fact.qq.com/article?id=65b017b6e4bdf505116062c0c3bdebfb",
+          "title": "腾讯较真健康辟谣"
+        }
+      ],
+      "evaluation": {
+        "score_confidence": false
+      }
+    }
+  ],
+  "metadata": {
+    "source": "COVID19-Health-Rumor",
+    "provenance": "public_dataset",
+    "source_case_id": "80401",
+    "source_revision": "f07382aa9ab38353c80b6c87eb665d7f6733bed2",
+    "dataset_license": "MIT",
+    "evidence_license": "third-party source terms; page says unauthorized reproduction prohibited",
+    "original_label": "wish",
+    "text_variant": "zh-Hans",
+    "domain": "健康",
+    "categories": [
+      "external_benchmark",
+      "health_rumor",
+      "covid19"
+    ],
+    "original_rumor_type": "wish",
+    "original_label_field": "rumor_type",
+    "original_label_meaning": "wish/dread describe hope/fear, not factual veracity",
+    "annotation_source": "project_review",
+    "annotation_rationale": "把核查范围明确限定为原文直接比较的细菌消毒用途，完整引文明确说明此条件下95%酒精效果不如75%。不从细菌机制推断病毒的最优浓度。",
+    "original_claim": "95%的酒精比75%的酒精消毒效果更好",
+    "original_source_record": {
+      "rumor_id": "80401",
+      "publish_date": "2020-01-28",
+      "rumor_type": "wish",
+      "article_title": "95%的酒精比75%的酒精消毒效果更好",
+      "article_content": "并不是浓度越高的酒精消毒效果越好。对于细菌...",
+      "search_expression": "95%酒精更好",
+      "source": "腾讯旗下专业医学科普平台",
+      "article_url": "https://vp.fact.qq.com/article?id=65b017b6e4bdf505116062c0c3bdebfb"
+    },
+    "claim_transformation": "在原始article_title前增加“对细菌消毒时”，使命题范围与补全引文一致；原始未限定标题完整保存在original_claim。",
+    "evidence_transformation": "以相同URL当前发布页的完整第一条关键证据替换CSV中的省略摘录；保留细菌限定，并分别记录当前抓取时间、历史发布日期与页面更新日期。",
+    "confidence_source": "project_derived_not_upstream_gold",
+    "source_file_sha256": "9f1abac0a4de9e74e9ed06a83ea67bcba4dc67550734edc44dcb10254e23587b",
+    "source_record_line": 39,
+    "source_url": "https://raw.githubusercontent.com/Kelaxon/COVID19-Health-Rumor/f07382aa9ab38353c80b6c87eb665d7f6733bed2/data/health_rumors.csv",
+    "source_verified": true,
+    "source_verification_scope": "Selected CSV record checked at pinned revision; labels are independent project annotations, not upstream veracity gold.",
+    "source_published_at": "2020-01-28",
+    "hosting_domain": "vp.fact.qq.com",
+    "attributed_source_name": "腾讯医典",
+    "reviewed_at": "2026-09-13T07:36:57.121663+00:00",
+    "review_status": "approved",
+    "review_reason": "Pinned source record and project annotation rationale reviewed; original rumor_type is retained only as emotion metadata.",
+    "topic_group": "COVID-19健康谣言",
+    "evaluation_split": "development",
+    "as_of": "2020-02-04T00:00:00Z",
+    "snapshot_kind": "live_page_with_declared_historical_dates",
+    "evidence_completeness": "complete_decisive_key_point_with_bacterial_scope",
+    "source_updated_at": "2020-02-03T20:47:27.000Z",
+    "source_created_at": "2020-01-28T04:25:40.000Z",
+    "captured_at": "2026-09-13T07:32:32.353269+00:00",
+    "source_response_sha256": "7156e31dcc84321b8b5c96fc6dd31fe5ea32df6f15f6746d3f638be0c84a7d56",
+    "extraction_path": "props.pageProps.initialState.abstract[0].content (complete first key point)",
+    "original_csv_snippet": "并不是浓度越高的酒精消毒效果越好。对于细菌...",
+    "evidence_scope": "Direct comparison for bacterial disinfection only; the reviewed claim explicitly carries that scope and does not establish virus-specific optimal concentration.",
+    "temporal_note": "Live publisher page carrying historical publication date; upstream page updatedAt is 2020-02-03, so this is not proof of an immutable 2020-01-28 page snapshot. Preserve source_updated_at separately and set evidence cutoff no earlier than that update if using it in historical replay."
+  }
+}

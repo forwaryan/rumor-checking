@@ -2,8 +2,8 @@
 
 Records real pipeline runs (input + retrieval snapshot + output) and replays
 them deterministically by injecting the saved retrieval results. Supports
-FEVER-style scoring: a case passes ONLY when both the verdict label AND the
-cited evidence are correct.
+URL-group scoring: a claim passes only when its label and a complete evidence
+group match. The legacy fever_score field is not official sentence-level FEVER.
 
 Usage:
   # Record a run:
@@ -18,11 +18,20 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import asdict, dataclass
+import unicodedata
+from collections import defaultdict, deque
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+from backend.app.services.eval_snapshot_validation import validate_snapshot
+
 logger = logging.getLogger(__name__)
+
+SCORING_VERSION = "url-evidence-groups-v2"
+EVIDENCE_GRANULARITY = "url"
+EVALUATION_PROTOCOL = "gold_claims_supplied_evidence"
+SOURCE_INDEPENDENCE_BASIS = "retrieval_origin_id_else_source_name"
 
 COMPARABLE_METRICS = (
     "label_accuracy",
@@ -56,7 +65,7 @@ class EvalSnapshot:
 
 @dataclass
 class FeverScore:
-    """FEVER-style evaluation result for a single claim."""
+    """Label-and-URL-group result with legacy FEVER-compatible field names."""
 
     claim: str
     label_correct: bool
@@ -90,10 +99,15 @@ def record_snapshot(
         raw_input=raw_input,
         retrieval_results=retrieval_results,
         expected_claims=claim_results,
-        metadata=metadata or {},
+        metadata={
+            **(metadata or {}),
+            "review_status": "quarantined",
+            "review_reason": "unreviewed_model_output",
+        },
     )
 
     path = output_dir / f"{case_id}.json"
+    validate_snapshot(asdict(snapshot), path=path)
     path.write_text(json.dumps(asdict(snapshot), ensure_ascii=False, indent=2), encoding="utf-8")
     logger.info("eval_snapshot_recorded case_id=%s path=%s", case_id, path)
     return path
@@ -101,24 +115,48 @@ def record_snapshot(
 
 def load_snapshot(path: Path) -> EvalSnapshot:
     """Load a previously recorded eval snapshot."""
-    data = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ValueError(f"{path}: invalid snapshot JSON: {exc}") from exc
+    validate_snapshot(data, path=path)
     return EvalSnapshot(**data)
 
 
-def iter_snapshots(directory: Path) -> list[EvalSnapshot]:
+def iter_snapshots(directory: Path, *, include_quarantined: bool = False) -> list[EvalSnapshot]:
     """Load every *.json snapshot in a directory (skips aggregate cases.json).
 
+    Validate the full corpus before excluding quarantined examples. Invalid or
+    duplicate snapshots are errors, never silently removed from the denominator.
     Ordered by filename so replay runs are deterministic across machines."""
-    if not directory.exists():
-        return []
+    if not directory.is_dir():
+        raise ValueError(f"{directory}: snapshot directory does not exist or is not a directory")
     paths = sorted(p for p in directory.glob("*.json") if p.name != "cases.json")
     snapshots: list[EvalSnapshot] = []
-    for p in paths:
-        try:
-            snapshots.append(load_snapshot(p))
-        except Exception as exc:
-            logger.warning("eval_snapshot_load_failed path=%s error=%s", p, exc)
-    return snapshots
+    paths_by_case: dict[str, Path] = {}
+    for path in paths:
+        snapshot = load_snapshot(path)
+        if snapshot.case_id in paths_by_case:
+            raise ValueError(f"{path}: duplicate case_id {snapshot.case_id!r}; first in {paths_by_case[snapshot.case_id]}")
+        paths_by_case[snapshot.case_id] = path
+        snapshots.append(snapshot)
+    return [snapshot for snapshot in snapshots if include_quarantined or not is_quarantined(snapshot)]
+
+
+def is_quarantined(snapshot: EvalSnapshot) -> bool:
+    return snapshot.metadata.get("review_status") == "quarantined"
+
+
+def corpus_summary(snapshots: list[EvalSnapshot]) -> dict:
+    excluded = [
+        {"case_id": snapshot.case_id, "reason": snapshot.metadata["review_reason"]}
+        for snapshot in snapshots if is_quarantined(snapshot)
+    ]
+    return {
+        "total_snapshot_count": len(snapshots),
+        "scored_snapshot_count": len(snapshots) - len(excluded),
+        "excluded_snapshots": excluded,
+    }
 
 
 def bundle_from_snapshot(snapshot: EvalSnapshot):
@@ -160,18 +198,16 @@ def fever_score_claim(
     actual_verdict: str,
     expected_evidence_urls: set[str],
     actual_evidence_urls: set[str],
+    expected_evidence_sets: list[set[str]] | None = None,
 ) -> FeverScore:
-    """Score a single claim using FEVER methodology.
-
-    FEVER requires BOTH:
-    1. Label correct: predicted verdict matches expected
-    2. Evidence correct: predicted evidence set covers at least one expected URL
-       (relaxed from strict set equality — following FEVER "at least one" rule)
-    """
+    """Score label plus one complete gold URL group (not sentence-level FEVER)."""
     label_correct = actual_verdict == expected_verdict
-
-    # Evidence is correct if the actual set contains at least one expected URL
-    evidence_correct = bool(expected_evidence_urls & actual_evidence_urls) if expected_evidence_urls else True
+    groups = expected_evidence_sets if expected_evidence_sets is not None else [expected_evidence_urls]
+    if expected_verdict == "insufficient" and expected_evidence_urls and not any(groups):
+        groups = [expected_evidence_urls]
+    evidence_correct = any(bool(group) and group <= actual_evidence_urls for group in groups)
+    if expected_verdict == "insufficient" and not any(groups):
+        evidence_correct = True
 
     return FeverScore(
         claim="",
@@ -197,6 +233,17 @@ class EvalReport:
     fresh_evidence_rate: float
     category_metrics: dict[str, dict]
     per_case: list[dict]
+    scoring_version: str = SCORING_VERSION
+    evidence_granularity: str = EVIDENCE_GRANULARITY
+    evaluation_protocol: str = EVALUATION_PROTOCOL
+    source_independence_basis: str = SOURCE_INDEPENDENCE_BASIS
+    total_snapshot_count: int = 0
+    scored_snapshot_count: int = 0
+    excluded_snapshots: list[dict] = field(default_factory=list)
+    confidence_scored_claims: int = 0
+    source_independence_scored_claims: int = 0
+    freshness_scored_evidence: int = 0
+    unexpected_claim_count: int = 0
 
 
 def _ratio(values: list[bool | float]) -> float:
@@ -261,8 +308,18 @@ def _evidence_details(snapshot: EvalSnapshot, actual: dict) -> list[dict]:
     details = []
     for item in actual.get("evidence", []):
         url = item.get("url", "")
-        details.append({**by_url.get(url, {}), **item})
+        detail = {**item, **by_url.get(url, {})}
+        detail["origin_id"] = by_url.get(url, {}).get("origin_id", "")
+        detail["source_name"] = by_url.get(url, {}).get("source_name", "")
+        detail["source_tier"] = by_url.get(url, {}).get("source_tier", "C")
+        detail["published_at"] = by_url.get(url, {}).get("published_at", "")
+        details.append(detail)
     return details
+
+
+def _claim_key(claim: dict) -> tuple[str, str]:
+    text = unicodedata.normalize("NFKC", str(claim.get("claim", "")))
+    return " ".join(text.split()), claim.get("claim_type", "fact")
 
 
 def _category_report(scores: list[FeverScore]) -> dict[str, float | int]:
@@ -291,13 +348,20 @@ def evaluate_batch(snapshots: list[EvalSnapshot], actual_results: list[list[dict
     dated_scores: list[bool] = []
     fresh_scores: list[bool] = []
     scores_by_category: dict[str, list[FeverScore]] = {}
+    unexpected_claim_count = 0
 
     for snapshot_index, snapshot in enumerate(snapshots):
+        if is_quarantined(snapshot):
+            continue
         actuals = actual_results[snapshot_index] if snapshot_index < len(actual_results) else []
+        actuals_by_claim = defaultdict(deque)
+        for actual in actuals:
+            actuals_by_claim[_claim_key(actual)].append(actual)
         case_scores: list[FeverScore] = []
         failure_reasons: list[str] = []
-        for index, expected in enumerate(snapshot.expected_claims):
-            if index >= len(actuals):
+        for expected in snapshot.expected_claims:
+            matching_actuals = actuals_by_claim[_claim_key(expected)]
+            if not matching_actuals:
                 score = FeverScore(
                     claim=expected.get("claim", ""),
                     label_correct=False,
@@ -311,8 +375,12 @@ def evaluate_batch(snapshots: list[EvalSnapshot], actual_results: list[list[dict
                     scores_by_category.setdefault(category, []).append(score)
                 continue
 
-            actual = actuals[index]
-            expected_urls = {e.get("url", "") for e in expected.get("evidence", []) if e.get("url")}
+            actual = matching_actuals.popleft()
+            evidence_groups = expected.get("evidence_sets", [expected.get("evidence", [])])
+            if expected.get("verdict") == "insufficient" and not any(evidence_groups):
+                evidence_groups = [expected.get("evidence", [])]
+            expected_sets = [{item["url"] for item in group if item.get("url")} for group in evidence_groups]
+            expected_urls = set().union(*expected_sets)
             actual_urls = {e.get("url", "") for e in actual.get("evidence", []) if e.get("url")}
 
             score = fever_score_claim(
@@ -320,6 +388,7 @@ def evaluate_batch(snapshots: list[EvalSnapshot], actual_results: list[list[dict
                 actual_verdict=actual.get("verdict", ""),
                 expected_evidence_urls=expected_urls,
                 actual_evidence_urls=actual_urls,
+                expected_evidence_sets=expected_sets,
             )
             score = FeverScore(
                 claim=expected.get("claim", ""),
@@ -339,7 +408,8 @@ def evaluate_batch(snapshots: list[EvalSnapshot], actual_results: list[list[dict
                 failure_reasons.append("missing_expected_evidence")
 
             expected_confidence = str(expected.get("confidence", "")).strip()
-            if expected_confidence:
+            evaluation = expected.get("evaluation", {})
+            if expected_confidence and evaluation.get("score_confidence", True):
                 confidence_correct = str(actual.get("confidence", "")).strip() == expected_confidence
                 confidence_scores.append(confidence_correct)
                 if not confidence_correct:
@@ -351,15 +421,17 @@ def evaluate_batch(snapshots: list[EvalSnapshot], actual_results: list[list[dict
                 citation_precisions.append(1.0 if not expected_urls else 0.0)
 
             evidence_details = _evidence_details(snapshot, actual)
-            evaluation = expected.get("evaluation", {})
             minimum_sources = int(evaluation.get("min_independent_sources", 0) or 0)
             if minimum_sources:
-                source_names = {
-                    str(item.get("source_name", "")).strip().lower()
-                    for item in evidence_details
-                    if str(item.get("source_name", "")).strip()
-                }
-                independence = min(len(source_names) / minimum_sources, 1.0)
+                source_ids = set()
+                for item in evidence_details:
+                    origin = str(item.get("origin_id", "")).strip()
+                    source = str(item.get("source_name", "")).strip().casefold()
+                    if origin:
+                        source_ids.add(("origin", origin))
+                    elif source:
+                        source_ids.add(("source", source))
+                independence = min(len(source_ids) / minimum_sources, 1.0)
                 source_independence_scores.append(independence)
                 if independence < 1.0:
                     failure_reasons.append("low_source_diversity")
@@ -394,6 +466,13 @@ def evaluate_batch(snapshots: list[EvalSnapshot], actual_results: list[list[dict
                 if not claim_fresh_scores or not all(claim_fresh_scores):
                     failure_reasons.append("stale_evidence")
 
+        unexpected_claims = [
+            {"claim": actual.get("claim", ""), "claim_type": actual.get("claim_type", "fact")}
+            for remaining in actuals_by_claim.values() for actual in remaining
+        ]
+        unexpected_claim_count += len(unexpected_claims)
+        if unexpected_claims:
+            failure_reasons.append("unexpected_claim")
         per_case.append({
             "case_id": snapshot.case_id,
             "categories": _categories(snapshot),
@@ -401,6 +480,7 @@ def evaluate_batch(snapshots: list[EvalSnapshot], actual_results: list[list[dict
             "fever_pass": sum(1 for s in case_scores if s.fever_pass),
             "label_correct": sum(1 for s in case_scores if s.label_correct),
             "failure_reasons": list(dict.fromkeys(failure_reasons)),
+            "unexpected_claims": unexpected_claims,
         })
 
     total = len(all_scores)
@@ -418,6 +498,7 @@ def evaluate_batch(snapshots: list[EvalSnapshot], actual_results: list[list[dict
             fresh_evidence_rate=0,
             category_metrics={},
             per_case=[],
+            **corpus_summary(snapshots),
         )
 
     return EvalReport(
@@ -436,4 +517,9 @@ def evaluate_batch(snapshots: list[EvalSnapshot], actual_results: list[list[dict
             for category, scores in sorted(scores_by_category.items())
         },
         per_case=per_case,
+        confidence_scored_claims=len(confidence_scores),
+        source_independence_scored_claims=len(source_independence_scores),
+        freshness_scored_evidence=len(fresh_scores),
+        unexpected_claim_count=unexpected_claim_count,
+        **corpus_summary(snapshots),
     )

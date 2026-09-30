@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rumor-checking.local/contracts/claim_change.schema.json",
+  "properties": {
+    "claim": {
+      "title": "Claim",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "changed",
+        "added",
+        "removed",
+        "not_rechecked"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "before_verdict": {
+      "anyOf": [
+        {
+          "enum": [
+            "supported",
+            "refuted",
+            "insufficient",
+            "conflicting"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Before Verdict"
+    },
+    "after_verdict": {
+      "anyOf": [
+        {
+          "enum": [
+            "supported",
+            "refuted",
+            "insufficient",
+            "conflicting"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "After Verdict"
+    },
+    "added_evidence_urls": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Added Evidence Urls",
+      "type": "array"
+    },
+    "removed_evidence_urls": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Removed Evidence Urls",
+      "type": "array"
+    }
+  },
+  "required": [
+    "claim",
+    "kind"
+  ],
+  "title": "ClaimChange",
+  "type": "object",
+  "additionalProperties": false
+}

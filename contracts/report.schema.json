@@ -67,6 +67,12 @@
       },
       "default": []
     },
+    "evidence_snapshots": {
+      "type": "array",
+      "items": {"$ref": "./evidence_snapshot.schema.json"},
+      "maxItems": 24,
+      "default": []
+    },
     "retrieval_diagnostics": {
       "anyOf": [
         {

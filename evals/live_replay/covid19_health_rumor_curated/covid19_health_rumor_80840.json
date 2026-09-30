@@ -1,0 +1,86 @@
+{
+  "case_id": "covid19_health_rumor_80840",
+  "recorded_at": "2020-02-02T00:00:00Z",
+  "raw_input": "新型冠状病毒可通过粪口传播",
+  "retrieval_results": [
+    {
+      "result_id": "fact_check_1",
+      "title": "新型冠状病毒可通过粪口传播",
+      "url": "https://mdeer.taobao.com/guide/h5/science/article/170152",
+      "source_name": "人民日报",
+      "published_at": "2020-02-02",
+      "snippet": "有待进一步证实。中国疾控中心传染病处研究员冯录召在国家卫健委发布会上回应，在患者粪便中检测到病毒说明病毒可以在消化道存在，但是否通过粪口传播仍需进一步证实。",
+      "source_tier": "B"
+    }
+  ],
+  "expected_claims": [
+    {
+      "claim": "新型冠状病毒可通过粪口传播",
+      "claim_type": "fact",
+      "verdict": "insufficient",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "url": "https://mdeer.taobao.com/guide/h5/science/article/170152",
+          "title": "人民日报：传播途径仍需进一步证实"
+        }
+      ],
+      "evaluation": {
+        "score_confidence": false
+      }
+    }
+  ],
+  "metadata": {
+    "source": "COVID19-Health-Rumor",
+    "provenance": "public_dataset",
+    "source_case_id": "80840",
+    "source_revision": "f07382aa9ab38353c80b6c87eb665d7f6733bed2",
+    "dataset_license": "MIT",
+    "evidence_license": "third-party source terms",
+    "original_label": "dread",
+    "text_variant": "zh-Hans",
+    "domain": "健康",
+    "categories": [
+      "external_benchmark",
+      "health_rumor",
+      "covid19",
+      "insufficient_evidence",
+      "time_sensitive"
+    ],
+    "original_rumor_type": "dread",
+    "original_label_field": "rumor_type",
+    "original_label_meaning": "wish/dread describe hope/fear, not factual veracity",
+    "annotation_source": "project_review",
+    "annotation_rationale": "2020-02-02来源明确说传播途径仍需进一步证实；粪便检出不等于证实粪口传播，因此保留证据不足而非判假。",
+    "original_claim": "新型病毒可通过粪-口传播",
+    "original_source_record": {
+      "rumor_id": "80840",
+      "publish_date": "2020-02-02",
+      "rumor_type": "dread",
+      "article_title": "新型病毒可通过粪-口传播",
+      "article_content": "有待进一步证实。针对近日在确诊患者粪便中检测到新型冠状病毒，中国疾控中心传染病处研究员冯录召2日在国家卫健委发布会上回应，这说明病毒可以在消化道存在，但是否通过粪-口传播，还是通过含有病毒的飞沫形成气溶胶的方式再传播，需要我们进一步证实。但是专家同时提醒，应注意消化系统传播新型冠状病毒风险，做好相关防护。",
+      "search_expression": "粪口+传播",
+      "source": "人民日报",
+      "article_url": "https://mdeer.taobao.com/guide/h5/science/article/170152"
+    },
+    "claim_transformation": "将“新型病毒”明确为来源语境中的“新型冠状病毒”；规范“粪-口”为“粪口”，不改变传播断言。",
+    "evidence_transformation": "人工节录，保留疾控专家、粪便检出与传播途径仍需证实的区别；删去重复说明和防护提醒，不添加确定性。",
+    "confidence_source": "project_derived_not_upstream_gold",
+    "source_file_sha256": "9f1abac0a4de9e74e9ed06a83ea67bcba4dc67550734edc44dcb10254e23587b",
+    "source_record_line": 81,
+    "source_url": "https://raw.githubusercontent.com/Kelaxon/COVID19-Health-Rumor/f07382aa9ab38353c80b6c87eb665d7f6733bed2/data/health_rumors.csv",
+    "source_verified": true,
+    "source_verification_scope": "Selected CSV record checked at pinned revision; labels are independent project annotations, not upstream veracity gold.",
+    "source_published_at": "2020-02-02",
+    "hosting_domain": "mdeer.taobao.com",
+    "attributed_source_name": "人民日报",
+    "reviewed_at": "2026-09-13T07:36:57.121663+00:00",
+    "review_status": "approved",
+    "review_reason": "Pinned source record and project annotation rationale reviewed; original rumor_type is retained only as emotion metadata.",
+    "topic_group": "COVID-19健康谣言",
+    "evaluation_split": "development",
+    "as_of": "2020-02-02T00:00:00Z",
+    "snapshot_kind": "pinned_csv_excerpt_with_declared_historical_date",
+    "evidence_completeness": "project_summary_of_complete_csv_excerpt"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "case_id": "context_007_same_scope_quantity",
+  "recorded_at": "2026-08-05T12:00:00Z",
+  "raw_input": "清港码头事故截至2026年8月5日18时共有5人受伤",
+  "retrieval_results": [
+    {"result_id": "r1", "title": "应急部门通报清港码头事故5人受伤", "url": "https://emergency.example/qinggang/casualties", "source_name": "清港应急部门", "published_at": "2026-08-05", "snippet": "截至2026年8月5日18时，清港码头事故受伤总人数为5人，包括全部轻微伤人员。", "source_tier": "S", "origin_id": "qinggang-emergency-count"},
+    {"result_id": "r2", "title": "联合医疗通报清港码头事故3人受伤", "url": "https://hospital.example/qinggang/casualties", "source_name": "清港联合医疗组", "published_at": "2026-08-05", "snippet": "截至2026年8月5日18时，清港码头事故受伤总人数为3人，包括全部轻微伤人员。", "source_tier": "S", "origin_id": "qinggang-medical-count"}
+  ],
+  "expected_claims": [
+    {"claim": "清港码头事故截至2026年8月5日18时共有5人受伤", "claim_type": "fact", "verdict": "conflicting", "confidence": "medium", "evidence": [{"url": "https://emergency.example/qinggang/casualties"}, {"url": "https://hospital.example/qinggang/casualties"}], "evaluation": {"min_independent_sources": 2}}
+  ],
+  "metadata": {"source": "context_challenge", "provenance": "synthetic", "fixture_purpose": "coverage_regression", "review_status": "approved", "reviewed_at": "2026-09-13", "annotation_source": "project_review", "topic_group": "qinggang_injury_count", "evaluation_split": "development", "categories": ["conflicting_sources", "same_scope_quantity"], "annotation_rationale": "两个来源对同一事故、截止时间和受伤总人数口径给出不同数字，必须同时引用两侧。"}
+}

@@ -4,9 +4,9 @@ Usage:
     python backend/scripts/replay_eval.py [--dir evals/live_replay/seed] [--json]
 
 Loads every snapshot in the given dir, runs the rule verdict engine over
-the recorded retrieval bundle, and prints a FEVER-scored report.
+the recorded retrieval bundle, and reports label plus complete URL evidence groups.
 
-Exit code is non-zero when the FEVER score is below the pass threshold so
+Exit code is non-zero when the label-plus-URL-group score is below the pass threshold so
 this can be wired into CI (`--pass-threshold 0.3`).
 """
 from __future__ import annotations
@@ -23,9 +23,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 # Pin the eval to the pure rule verdict path by default — no live LLM calls.
-# The verdict engine's llm_judge_claims override is gated by ANALYSIS_PROVIDER=kimi
-# + an API key, so clearing both keeps replay deterministic and offline. Set
-# BEFORE any backend import so get_settings caches the offline config.
+# Empty key values prevent dotenv setdefault from restoring live credentials.
+# Set BEFORE any backend import so get_settings caches the offline config.
 #
 # Opt in to the live LLM judge with `--engine llm`: we peek at argv here (argparse
 # runs later, inside main) and, in that mode, leave the ambient LLM settings
@@ -39,7 +38,7 @@ for _i, _arg in enumerate(sys.argv[1:]):
         _ENGINE = _arg.split("=", 1)[1]
 if _ENGINE != "llm":
     os.environ["ANALYSIS_PROVIDER"] = "off"
-    os.environ.pop("KIMI_API_KEY", None)
+    os.environ["KIMI_API_KEY"] = ""
     os.environ["LLM_API_KEY"] = ""
 
 # Make backend package importable when invoked from repo root or scripts dir.
@@ -49,9 +48,15 @@ if str(REPO_ROOT) not in sys.path:
 
 from backend.app.models.schemas import AnalyzeRequest, ClaimItem, NormalizedEvent  # noqa: E402
 from backend.app.services.eval_recorder import (  # noqa: E402
+    EVALUATION_PROTOCOL,
+    EVIDENCE_GRANULARITY,
+    SCORING_VERSION,
+    SOURCE_INDEPENDENCE_BASIS,
     bundle_from_snapshot,
     category_metric_deltas,
+    corpus_summary,
     evaluate_batch,
+    is_quarantined,
     iter_snapshots,
     metric_deltas,
 )
@@ -83,7 +88,10 @@ def _git_value(*args: str) -> str | None:
     return result.stdout.strip() or None
 
 
-def build_run_manifest(*, snap_dir: Path, snapshots: list, run_name: str, engine: str = "rule") -> dict:
+def build_run_manifest(
+    *, snap_dir: Path, snapshots: list, run_name: str, engine: str = "rule",
+    evaluation_split: str = "all", corpus_snapshots: list | None = None,
+) -> dict:
     """Describe the code, corpus, and configuration behind a run."""
     snapshot_paths = sorted(path for path in snap_dir.glob("*.json") if path.name != "cases.json")
     implementation_paths = [
@@ -91,12 +99,27 @@ def build_run_manifest(*, snap_dir: Path, snapshots: list, run_name: str, engine
         *(REPO_ROOT / "backend" / "app").rglob("*.py"),
     ]
     is_llm = engine == "llm"
+    corpus_snapshots = snapshots if corpus_snapshots is None else corpus_snapshots
+    selected_case_ids = {snapshot.case_id for snapshot in snapshots}
+    selection = {
+        "evaluation_split": evaluation_split,
+        "total_snapshot_count": len(corpus_snapshots),
+        "selected_snapshot_count": len(snapshots),
+        "excluded_by_split": [
+            snapshot.case_id for snapshot in corpus_snapshots if snapshot.case_id not in selected_case_ids
+        ],
+    }
     configuration = {
         "analysis_provider": "kimi" if is_llm else "off",
         "engine": engine,
         "network_access": is_llm,
         "temperature": None,
         "seed": None,
+        "scoring_version": SCORING_VERSION,
+        "evidence_granularity": EVIDENCE_GRANULARITY,
+        "evaluation_protocol": EVALUATION_PROTOCOL,
+        "source_independence_basis": SOURCE_INDEPENDENCE_BASIS,
+        "evaluation_split": evaluation_split,
     }
     configuration_json = json.dumps(configuration, sort_keys=True, separators=(",", ":"))
     git_sha = os.getenv("GITHUB_SHA") or _git_value("rev-parse", "HEAD")
@@ -109,9 +132,16 @@ def build_run_manifest(*, snap_dir: Path, snapshots: list, run_name: str, engine
 
     return {
         "schema_version": 1,
+        "scoring_version": SCORING_VERSION,
+        "evidence_granularity": EVIDENCE_GRANULARITY,
+        "evaluation_protocol": EVALUATION_PROTOCOL,
+        "source_independence_basis": SOURCE_INDEPENDENCE_BASIS,
+        "evaluation_split": evaluation_split,
+        "selection": selection,
         "name": run_name,
         "engine": engine,
-        "snapshot_count": len(snapshots),
+        "snapshot_count": sum(not is_quarantined(snapshot) for snapshot in snapshots),
+        **corpus_summary(snapshots),
         "generated_at": datetime.now(UTC).isoformat(),
         "git": {
             "sha": git_sha,
@@ -124,8 +154,11 @@ def build_run_manifest(*, snap_dir: Path, snapshots: list, run_name: str, engine
         "corpus": {
             "path": corpus_path,
             "sha256": _sha256_files(snapshot_paths, base=snap_dir),
-            "snapshot_count": len(snapshots),
-            "case_ids": [snapshot.case_id for snapshot in snapshots],
+            "snapshot_count": sum(not is_quarantined(snapshot) for snapshot in snapshots),
+            "case_ids": [snapshot.case_id for snapshot in snapshots if not is_quarantined(snapshot)],
+            "all_case_ids": [snapshot.case_id for snapshot in corpus_snapshots],
+            "selection": selection,
+            **corpus_summary(snapshots),
         },
         "implementation": {
             "engine": engine,
@@ -226,7 +259,7 @@ def _verdict_path_metrics(actuals: list[list[dict]], *, engine: str) -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Replay eval snapshots and compute FEVER score.")
+    parser = argparse.ArgumentParser(description="Replay supplied evidence and score labels plus complete URL groups.")
     parser.add_argument(
         "--dir",
         default=str(REPO_ROOT / "evals" / "live_replay" / "seed"),
@@ -234,6 +267,10 @@ def main() -> int:
     )
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
     parser.add_argument("--run-name", default="rule-current", help="Label stored in JSON reports")
+    parser.add_argument(
+        "--evaluation-split", choices=["all", "development", "holdout"], default="all",
+        help="Select metadata.evaluation_split; all includes every partition (default)",
+    )
     parser.add_argument(
         "--engine",
         choices=["rule", "llm"],
@@ -258,17 +295,30 @@ def main() -> int:
         "--pass-threshold",
         type=float,
         default=0.0,
-        help="Exit non-zero when FEVER score falls below this (default 0 = never fail)",
+        help="Positive thresholds require this label-plus-URL-group score and no unexpected claims (default 0 = diagnostic)",
     )
     args = parser.parse_args()
 
     snap_dir = Path(args.dir)
-    snapshots = iter_snapshots(snap_dir)
+    try:
+        snapshots = iter_snapshots(snap_dir, include_quarantined=True)
+    except (OSError, ValueError) as exc:
+        print(f"invalid replay corpus: {exc}", file=sys.stderr)
+        return 2
     if not snapshots:
         print(f"no snapshots in {snap_dir}", file=sys.stderr)
         return 2
+    corpus_snapshots = snapshots
+    if args.evaluation_split != "all":
+        snapshots = [
+            snapshot for snapshot in snapshots
+            if snapshot.metadata.get("evaluation_split") == args.evaluation_split
+        ]
+        if not snapshots:
+            print(f"no snapshots with evaluation_split={args.evaluation_split} in {snap_dir}", file=sys.stderr)
+            return 2
 
-    actuals = [_replay_one(s) for s in snapshots]
+    actuals = [[] if is_quarantined(snapshot) else _replay_one(snapshot) for snapshot in snapshots]
     report = evaluate_batch(snapshots, actuals)
     report_payload = asdict(report)
     report_payload["run"] = build_run_manifest(
@@ -276,10 +326,25 @@ def main() -> int:
         snapshots=snapshots,
         run_name=args.run_name,
         engine=args.engine,
+        evaluation_split=args.evaluation_split,
+        corpus_snapshots=corpus_snapshots,
     )
+    report_payload["selection"] = report_payload["run"]["selection"]
     report_payload["verdict_path"] = _verdict_path_metrics(actuals, engine=args.engine)
     if args.compare_to:
         baseline = json.loads(args.compare_to.read_text(encoding="utf-8"))
+        if any(baseline.get(key) != report_payload[key] for key in (
+            "scoring_version", "evidence_granularity", "evaluation_protocol",
+        )):
+            print("cannot compare reports with different or missing scoring protocols", file=sys.stderr)
+            return 2
+        baseline_run = baseline.get("run", {})
+        if (
+            baseline_run.get("evaluation_split") != args.evaluation_split
+            or baseline_run.get("corpus", {}).get("sha256") != report_payload["run"]["corpus"]["sha256"]
+        ):
+            print("cannot compare reports from different corpora or evaluation splits", file=sys.stderr)
+            return 2
         report_payload["comparison"] = {
             "baseline_run": baseline.get("run", {}).get("name", args.compare_to.stem),
             "metric_deltas": metric_deltas(report_payload, baseline),
@@ -297,16 +362,35 @@ def main() -> int:
     if args.json:
         print(serialized_report)
     else:
-        print(f"Replayed {len(snapshots)} snapshots, {report.total_claims} claims total")
+        print(
+            f"Corpus: {report.total_snapshot_count} total, {report.scored_snapshot_count} scored, "
+            f"{len(report.excluded_snapshots)} quarantined; {report.total_claims} scored claims"
+        )
+        print(f"Protocol: {report.evaluation_protocol}; {report.scoring_version} (URL groups)")
+        print(f"Selection: {args.evaluation_split}; {len(snapshots)}/{len(corpus_snapshots)} snapshots selected")
+        for excluded in report.excluded_snapshots:
+            print(f"  Excluded {excluded['case_id']}: {excluded['reason']}")
         print(f"  Label accuracy:    {report.label_accuracy:.2%}")
         print(f"  Evidence accuracy: {report.evidence_accuracy:.2%}")
-        print(f"  FEVER score:       {report.fever_score:.2%}")
-        print(f"  Confidence:        {report.confidence_accuracy:.2%}")
+        print(f"  Label + URL group: {report.fever_score:.2%} (legacy fever_score)")
+        confidence = (
+            f"{report.confidence_accuracy:.2%} (n={report.confidence_scored_claims})"
+            if report.confidence_scored_claims else "N/A (no scored claims)"
+        )
+        independence = (
+            f"{report.source_independence_score:.2%} (n={report.source_independence_scored_claims})"
+            if report.source_independence_scored_claims else "N/A (no scored claims)"
+        )
+        freshness = (
+            f"{report.fresh_evidence_rate:.2%} (n={report.freshness_scored_evidence})"
+            if report.freshness_scored_evidence else "N/A (no scored evidence)"
+        )
+        print(f"  Confidence:        {confidence}")
         print(f"  Citation precision:{report.citation_precision:>7.2%}")
-        print(f"  Source independence:{report.source_independence_score:>6.2%}")
+        print(f"  Source independence: {independence}")
         print(f"  High-trust evidence:{report.high_trust_evidence_rate:>6.2%}")
         print(f"  Dated evidence:    {report.dated_evidence_rate:.2%}")
-        print(f"  Fresh evidence:    {report.fresh_evidence_rate:.2%}")
+        print(f"  Fresh evidence:    {freshness}")
         vp = report_payload["verdict_path"]
         print(
             f"  Rule-fallback rate:{vp['rule_fallback_rate']:>7.2%} "
@@ -337,6 +421,12 @@ def main() -> int:
                 f"failures={','.join(case['failure_reasons']) or '-'}"
             )
 
+    if not report.scored_snapshot_count:
+        print("no scoreable snapshots: all corpus snapshots are quarantined", file=sys.stderr)
+        return 2
+    if args.pass_threshold > 0 and report.unexpected_claim_count:
+        print(f"acceptance failed: {report.unexpected_claim_count} unexpected claims", file=sys.stderr)
+        return 1
     if args.pass_threshold and report.fever_score < args.pass_threshold:
         print(
             f"FEVER {report.fever_score:.2%} below threshold {args.pass_threshold:.2%}",

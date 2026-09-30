@@ -11,9 +11,11 @@ from __future__ import annotations
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from dataclasses import replace
 
-from backend.app.models.schemas import ClaimItem, NormalizedEvent
+from backend.app.models.schemas import ClaimItem, ClaimResult, NormalizedEvent
+from backend.app.services.evidence_goals import evidence_gaps_for_claim
 from backend.app.services.progress import (
     emit_log,
     emit_stage,
@@ -25,8 +27,32 @@ from backend.app.services.progress import (
 )
 from backend.app.services.retrieval_deduper import merge_search_results
 from backend.app.services.retrieval_models import RetrievalBundle, SearchResult
+from backend.app.services.run_control import check_run_control
 
 logger = logging.getLogger(__name__)
+
+
+def refine_evidence_gaps(*, request, event, verdict, bundle, retriever, verdict_engine,
+                         max_iterations=3, should_stop=None, completion_fn=None):
+    iterations = 0
+    for iteration in range(max_iterations):
+        affected = {claim.claim for claim in verdict.claim_results if claim.evidence_gaps}
+        if not affected or bundle is None or (should_stop is not None and should_stop()):
+            break
+        check_run_control()
+        claims = [ClaimItem(claim=claim.claim, claim_type=claim.claim_type)
+                  for claim in verdict.claim_results if claim.claim in affected]
+        enriched = enrich_retrieval_for_claims(claims, bundle, retriever, event, iteration=iteration,
+                                             claim_results=verdict.claim_results)
+        iterations += 1
+        if enriched is bundle:
+            break
+        bundle = enriched
+        judged = verdict_engine.evaluate_with_source(request=request, event=event, claims=claims,
+                                                     retrieval_bundle=bundle, completion_fn=completion_fn)
+        updates = {claim.claim: claim for claim in judged.claim_results if claim.claim in affected}
+        verdict = replace(judged, claim_results=[updates.get(claim.claim, claim) for claim in verdict.claim_results])
+    return bundle, verdict, iterations
 
 # Maximum number of per-claim queries to avoid excessive latency.
 MAX_PER_CLAIM_QUERIES = 3
@@ -137,6 +163,7 @@ def enrich_retrieval_for_claims(
     retrieval_service: RetrievalService,  # noqa: F821 — forward ref to avoid circular import
     resolved_event: NormalizedEvent,
     iteration: int = 0,
+    claim_results: list[ClaimResult] | None = None,
 ) -> RetrievalBundle:
     """Run per-claim focused retrieval and merge results into the bundle.
 
@@ -161,6 +188,12 @@ def enrich_retrieval_for_claims(
     """
     # Filter to fact claims that need focused retrieval.
     candidates = [c for c in claims if _claim_needs_retrieval(c, retrieval_bundle)]
+    check_run_control()
+    outcomes_by_claim = {item.claim: item for item in (claim_results or [])}
+    if claim_results is not None:
+        candidates = [claim for claim in candidates if claim.claim in outcomes_by_claim
+                      and outcomes_by_claim[claim.claim].verdict == "insufficient"]
+        candidates.sort(key=lambda claim: not bool(outcomes_by_claim[claim.claim].evidence_gaps))
     if not candidates:
         emit_stage(
             stage_key="per_claim_retrieval",
@@ -193,7 +226,13 @@ def enrich_retrieval_for_claims(
     # Compute the query for every candidate up front, keep the first candidate
     # that owns each unique query as the executor, and reuse its results for
     # subsequent duplicates so the merge below still sees per-candidate output.
-    candidate_queries = [_build_focused_query(c.claim, iteration=iteration) for c in candidates]
+    candidate_queries = []
+    for claim in candidates:
+        outcome = outcomes_by_claim.get(claim.claim)
+        gaps = outcome.evidence_gaps if outcome else evidence_gaps_for_claim(claim.claim, list(retrieval_bundle.canonical_results))
+        suggestions = [query for gap in gaps for query in gap.suggested_queries]
+        candidate_queries.append(suggestions[min(iteration, len(suggestions) - 1)] if suggestions
+                                 else _build_focused_query(claim.claim, iteration=iteration))
     query_owner: dict[str, int] = {}
     duplicate_of: dict[int, int] = {}
     for i, q in enumerate(candidate_queries):
@@ -221,6 +260,7 @@ def enrich_retrieval_for_claims(
     parent_callback = get_progress_callback()
 
     def _run_claim_query(index: int, claim: ClaimItem) -> tuple[int, list[SearchResult] | None, Exception | None]:
+        check_run_control()
         callback_token = set_progress_callback(parent_callback) if parent_callback is not None else None
         stage_token = set_retrieval_stage_key("per_claim_retrieval")
         try:
@@ -248,7 +288,7 @@ def enrich_retrieval_for_claims(
 
     outcomes: dict[int, tuple[list[SearchResult] | None, Exception | None]] = {}
     with ThreadPoolExecutor(max_workers=max(1, len(candidate_queries_effective))) as executor:
-        futures = [executor.submit(_run_claim_query, i, candidates[i]) for i in candidate_queries_effective]
+        futures = [executor.submit(copy_context().run, _run_claim_query, i, candidates[i]) for i in candidate_queries_effective]
         for future in futures:
             index, results, exc = future.result()
             outcomes[index] = (results, exc)

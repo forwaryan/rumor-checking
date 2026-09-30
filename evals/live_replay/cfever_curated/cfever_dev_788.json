@@ -1,0 +1,92 @@
+{
+  "case_id": "cfever_dev_788",
+  "recorded_at": "2024-02-27T00:00:00Z",
+  "raw_input": "共和党籍政治家罗纳德 · 威尔逊 · 雷根是第33任纽约州州长",
+  "retrieval_results": [
+    {
+      "result_id": "wiki_1",
+      "title": "罗纳德·里根",
+      "url": "https://zh.wikipedia.org/wiki/%E7%BE%85%E7%B4%8D%E5%BE%B7%C2%B7%E9%87%8C%E6%A0%B9",
+      "source_name": "中文维基百科",
+      "published_at": "",
+      "snippet": "罗纳德 · 威尔逊 · 雷根 （ Ronald Wilson Reagan ) ， 美国共和党籍政治家 ， 第40任美国总统 （ 1981年 － 1989年 ） ， 第33任加利福尼亚州州长 （ 1967年 － 1975年 ） 。",
+      "source_tier": "B"
+    }
+  ],
+  "expected_claims": [
+    {
+      "claim": "共和党籍政治家罗纳德 · 威尔逊 · 雷根是第33任纽约州州长",
+      "claim_type": "fact",
+      "verdict": "refuted",
+      "confidence": "high",
+      "evidence": [
+        {
+          "url": "https://zh.wikipedia.org/wiki/%E7%BE%85%E7%B4%8D%E5%BE%B7%C2%B7%E9%87%8C%E6%A0%B9",
+          "title": "罗纳德·里根（第 0 行）"
+        }
+      ],
+      "evidence_sets": [
+        [
+          {
+            "url": "https://zh.wikipedia.org/wiki/%E7%BE%85%E7%B4%8D%E5%BE%B7%C2%B7%E9%87%8C%E6%A0%B9",
+            "title": "罗纳德·里根（第 0 行）"
+          }
+        ]
+      ],
+      "evaluation": {
+        "score_confidence": false
+      }
+    }
+  ],
+  "metadata": {
+    "source": "CFEVER",
+    "provenance": "public_dataset",
+    "source_case_id": 788,
+    "source_revision": "1f8fa4bd290832d7ad3109f49e347eb5dc77b7ad",
+    "review_status": "approved",
+    "review_reason": "Original claim, label and required sentence locations checked against the pinned CFEVER revision; no model outcome used for relabeling.",
+    "annotation_source": "upstream_label",
+    "confidence_source": "converter_derived_not_upstream_gold",
+    "dataset_license": "Apache-2.0",
+    "evidence_license": "CC BY-SA (source-dump version)",
+    "split": "dev",
+    "domain": "政治",
+    "topic_group": "罗纳德·里根",
+    "original_label": "refutes",
+    "original_claim": "共和黨籍政治家羅納德 · 威爾遜 · 雷根是第33任紐約州州長",
+    "original_evidence_sets": [
+      [
+        {
+          "page_title": "羅納德·里根",
+          "sentence_id": 0
+        }
+      ]
+    ],
+    "text_variant": "zh-Hans",
+    "source_text_variant": "zh-Hant",
+    "text_conversion": "OpenCC t2s",
+    "categories": [
+      "external_benchmark",
+      "wikipedia_evidence"
+    ],
+    "source_verified": true,
+    "source_file_sha256": "c4bdeaebc90e8a21768919d212ff4a25cd8bf0edef00f64f0197066e7b034ddc",
+    "source_record_line": 17,
+    "source_url": "https://huggingface.co/datasets/IKMLab-team/cfever/resolve/1f8fa4bd290832d7ad3109f49e347eb5dc77b7ad/dev.jsonl",
+    "original_evidence": [
+      [
+        {
+          "annotation_id": 580,
+          "evidence_id": 578,
+          "page_title": "羅納德·里根",
+          "sentence_id": 0
+        }
+      ]
+    ],
+    "evaluation_split": "development",
+    "reviewed_at": "2026-09-13T07:36:57.121663+00:00",
+    "source_verification_scope": "Selected claim records and required sentence text reviewed; full Wikipedia-file digest was not recomputed.",
+    "claim_transformation": "OpenCC t2s; original claim preserved verbatim in original_claim.",
+    "evidence_transformation": "Resolve every upstream evidence group; group page sentences by original line number and apply OpenCC t2s."
+  }
+}

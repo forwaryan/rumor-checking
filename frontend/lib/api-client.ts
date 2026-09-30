@@ -1,6 +1,9 @@
 import type {
   AnalyzeRequest,
   AnalysisRun,
+  AnalysisRunHistory,
+  AnalysisRunComparison,
+  AnalysisRecheckRequest,
   AnalysisLiveApiCallEvent,
   AnalysisLiveCompleteEvent,
   AnalysisLiveErrorEvent,
@@ -17,6 +20,7 @@ import type {
   ConfidenceValue,
   ContentCheck,
   Evidence,
+  EvidenceSnapshot,
   EvidenceSourceType,
   Event,
   EventSourceType,
@@ -39,6 +43,9 @@ import type {
   AgentTraceRecord,
   AgentTraceSpan,
 } from "@/types/report";
+import { getEvidenceSnapshotView } from "@/lib/evidence-snapshot";
+
+import { analysisInputError } from "@/lib/request-limits";
 
 const DEFAULT_API_BASE = "";
 const reportSourceTypes = [
@@ -129,28 +136,88 @@ function ensureTimestamp(value: unknown) {
   return ensureString(value, new Date().toISOString());
 }
 
-function parseEvidence(value: unknown): Evidence[] {
+function isSnapshotUrl(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    const parsed = new URL(value);
+    return ["http:", "https:"].includes(parsed.protocol) && !parsed.username && !parsed.password;
+  } catch { return false; }
+}
+
+function parseEvidenceSnapshots(value: unknown): EvidenceSnapshot[] {
+  if (value == null) return [];
+  if (!Array.isArray(value) || value.length > 24) throw new ApiClientError("报告留存文本数量或格式无效。");
+  const ids = new Set<string>();
+  let totalCharacters = 0;
+  return value.map((item) => {
+    if (!isObject(item)) throw new ApiClientError("报告留存文本格式无效。");
+    const id = ensureOptionalString(item.snapshot_id);
+    const hash = ensureOptionalString(item.text_sha256);
+    const kind = ensureLiteral(item.kind, ["page_text", "search_snippet"] as const);
+    const acquisition = ensureLiteral(item.acquisition, ["fetched", "cached", "retrieved", "restored"] as const);
+    const extractor = ensureLiteral(item.extractor, ["article-v1", "tag-strip-v1", "search-snippet-v1", "browser-text-v1", "checkpoint-text-v1"] as const);
+    if (!id || !/^[0-9a-f]{64}$/.test(id) || ids.has(id) || !hash || !/^[0-9a-f]{64}$/.test(hash) ||
+      !isSnapshotUrl(item.url) || (item.final_url != null && !isSnapshotUrl(item.final_url)) ||
+      typeof item.text !== "string" || !item.text || item.text.length > 48000 ||
+      !kind || !acquisition || !extractor || typeof item.truncated !== "boolean" ||
+      typeof item.captured_at !== "string" || !Number.isFinite(Date.parse(item.captured_at))) {
+      throw new ApiClientError("报告留存文本格式无效。");
+    }
+    const characters = Array.from(item.text).length;
+    totalCharacters += characters;
+    if (characters > 24000 || totalCharacters > 120000) throw new ApiClientError("报告留存文本超过大小限制。");
+    ids.add(id);
+    return { snapshot_id: id, url: item.url, final_url: ensureOptionalString(item.final_url), kind,
+      text: item.text, text_sha256: hash, captured_at: item.captured_at, acquisition, extractor, truncated: item.truncated };
+  });
+}
+
+function parseQuoteOffset(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function parseEvidence(value: unknown, snapshots: EvidenceSnapshot[] = []): Evidence[] {
   if (!Array.isArray(value)) {
     return [];
   }
 
   return value
     .filter(isObject)
-    .map((item) => ({
-      title: ensureString(item.title, "未命名证据"),
-      url: ensureString(item.url, "https://example.org/demo/missing-source"),
-      source_name: ensureString(item.source_name, "来源待补充"),
-      published_at: ensureString(item.published_at),
-      snippet: ensureString(item.snippet, "暂无摘要"),
-      relevance_reason: ensureString(item.relevance_reason, "未提供相关性说明"),
-      source_tier:
-        item.source_tier === "S" ||
-        item.source_tier === "A" ||
-        item.source_tier === "B" ||
-        item.source_tier === "C"
-          ? item.source_tier
-          : "C",
-    }));
+    .map((item) => {
+      const parsed: Evidence = {
+        title: ensureString(item.title, "未命名证据"),
+        url: ensureString(item.url, "https://example.org/demo/missing-source"),
+        source_name: ensureString(item.source_name, "来源待补充"),
+        published_at: ensureString(item.published_at),
+        snippet: ensureString(item.snippet, "暂无摘要"),
+        relevance_reason: ensureString(item.relevance_reason, "未提供相关性说明"),
+        source_tier:
+          item.source_tier === "S" ||
+          item.source_tier === "A" ||
+          item.source_tier === "B" ||
+          item.source_tier === "C"
+            ? item.source_tier
+            : "C",
+        stance: ensureLiteral(item.stance, ["supports", "refutes", "irrelevant", "ambiguous"] as const),
+        stance_quote: ensureOptionalString(item.stance_quote),
+        snapshot_id: ensureOptionalString(item.snapshot_id),
+        quote_status: ensureLiteral(item.quote_status, ["matched", "unmatched", "unavailable", "not_provided"] as const) ?? "not_provided",
+        quote_start: parseQuoteOffset(item.quote_start),
+        quote_end: parseQuoteOffset(item.quote_end),
+      };
+      const view = getEvidenceSnapshotView(parsed, snapshots);
+      if (!view.snapshot) {
+        parsed.snapshot_id = null;
+        parsed.quote_status = parsed.stance_quote || parsed.quote_status === "matched" ? "unavailable" : "not_provided";
+      } else if (parsed.quote_status === "matched" && !view.highlight) {
+        parsed.quote_status = "unavailable";
+      }
+      if (parsed.quote_status !== "matched") {
+        parsed.quote_start = null;
+        parsed.quote_end = null;
+      }
+      return parsed;
+    });
 }
 
 function parseRetrievalResults(value: unknown): RetrievalResultItem[] {
@@ -213,7 +280,7 @@ function parseTimeline(value: unknown): TimelineNode[] {
   }));
 }
 
-function parseClaimResults(value: unknown): ClaimResult[] {
+function parseClaimResults(value: unknown, snapshots: EvidenceSnapshot[] = []): ClaimResult[] {
   if (!Array.isArray(value)) {
     return [];
   }
@@ -231,7 +298,11 @@ function parseClaimResults(value: unknown): ClaimResult[] {
     confidence: ensureConfidence(item.confidence),
     truth_probability: ensureProbability(item.truth_probability),
     probability_basis: ensureProbabilityBasis(item.probability_basis),
-    evidence: parseEvidence(item.evidence),
+    evidence: parseEvidence(item.evidence, snapshots),
+    evidence_gaps: Array.isArray(item.evidence_gaps) ? item.evidence_gaps.filter(isObject).flatMap((gap) => {
+      const dimension = ensureLiteral(gap.dimension, ["price", "route", "time", "quantity", "scope", "source", "general"] as const);
+      return dimension ? [{ dimension, description: ensureString(gap.description), suggested_queries: ensureStringArray(gap.suggested_queries) }] : [];
+    }) : [],
     notes: ensureString(item.notes, "未提供补充说明"),
   }));
 }
@@ -395,16 +466,18 @@ export function parseReport(value: unknown): Report {
   }
 
   const mode = ensureMode(value.mode);
+  const snapshots = parseEvidenceSnapshots(value.evidence_snapshots);
 
   const report: Report = {
     mode,
     event: parseEvent(value.event, mode),
     timeline: parseTimeline(value.timeline),
-    claim_results: parseClaimResults(value.claim_results),
+    claim_results: parseClaimResults(value.claim_results, snapshots),
     final_summary: ensureString(value.final_summary, "\u7f3a\u5c11\u6700\u7ec8\u603b\u7ed3\u5b57\u6bb5"),
     risks: ensureStringArray(value.risks),
-    sources: parseEvidence(value.sources),
-    retrieval_hits: parseEvidence(value.retrieval_hits),
+    sources: parseEvidence(value.sources, snapshots),
+    evidence_snapshots: snapshots,
+    retrieval_hits: parseEvidence(value.retrieval_hits, snapshots),
     retrieval_diagnostics: parseRetrievalDiagnostics(value.retrieval_diagnostics),
     investigation: parseInvestigation(value.investigation),
     content_check: parseContentCheck(value.content_check),
@@ -604,6 +677,8 @@ export async function analyzeReportStream(
   request: AnalyzeRequest,
   onEvent: (event: AnalysisLiveEvent) => void,
 ): Promise<Report> {
+  const inputError = analysisInputError(request.raw_input);
+  if (inputError) throw new ApiClientError(inputError, 422);
   const response = await fetch(`${getApiBase()}/api/v1/analyze/stream`, {
     method: "POST",
     headers: {
@@ -694,10 +769,17 @@ export async function analyzeReportStream(
 
 export function parseAnalysisRun(value: unknown): AnalysisRun {
   if (!isObject(value)) throw new ApiClientError("任务响应格式无效。");
-  const status = ensureLiteral(value.status, ["queued", "running", "completed", "failed", "interrupted"] as const);
+  const status = ensureLiteral(value.status, ["queued", "running", "completed", "failed", "interrupted", "cancelled"] as const);
   if (!status || !/^[a-f0-9]{32}$/.test(ensureString(value.run_id))) throw new ApiClientError("任务响应格式无效。");
   return {
     run_id: ensureString(value.run_id),
+    parent_run_id: ensureOptionalString(value.parent_run_id) ?? null,
+    root_run_id: ensureString(value.root_run_id, ensureString(value.run_id)),
+    revision: Math.max(1, Math.floor(ensureNumber(value.revision, 1))),
+    cancel_requested: value.cancel_requested === true,
+    review_note: ensureString(value.review_note),
+    review_claim_indices: Array.isArray(value.review_claim_indices) ? value.review_claim_indices.filter((index): index is number => Number.isSafeInteger(index) && index >= 0) : [],
+    stop_reason: ensureOptionalString(value.stop_reason) ?? null,
     status,
     created_at: ensureString(value.created_at),
     updated_at: ensureString(value.updated_at),
@@ -720,6 +802,8 @@ async function requestAnalysisRun(path: string, options: RequestInit): Promise<A
 }
 
 export function createAnalysisRun(request: AnalyzeRequest): Promise<AnalysisRun> {
+  const inputError = analysisInputError(request.raw_input);
+  if (inputError) return Promise.reject(new ApiClientError(inputError, 422));
   return requestAnalysisRun("", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -735,6 +819,59 @@ export function getAnalysisRun(runId: string, signal?: AbortSignal): Promise<Ana
 export function resumeAnalysisRun(runId: string): Promise<AnalysisRun> {
   if (!/^[a-f0-9]{32}$/.test(runId)) throw new ApiClientError("核查任务编号无效。");
   return requestAnalysisRun(`/${encodeURIComponent(runId)}/resume`, { method: "POST" });
+}
+
+export type RecheckRequest = AnalysisRecheckRequest;
+
+export function recheckAnalysisRun(runId: string, request: RecheckRequest): Promise<AnalysisRun> {
+  if (!/^[a-f0-9]{32}$/.test(runId)) throw new ApiClientError("核查任务编号无效。");
+  return requestAnalysisRun(`/${encodeURIComponent(runId)}/recheck`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request),
+  });
+}
+
+export function cancelAnalysisRun(runId: string): Promise<AnalysisRun> {
+  if (!/^[a-f0-9]{32}$/.test(runId)) throw new ApiClientError("核查任务编号无效。");
+  return requestAnalysisRun(`/${encodeURIComponent(runId)}/cancel`, { method: "POST" });
+}
+
+async function requestRunDetails(runId: string, resource: string, signal?: AbortSignal): Promise<unknown> {
+  if (!/^[a-f0-9]{32}$/.test(runId)) throw new ApiClientError("核查任务编号无效。");
+  const response = await fetch(`${getApiBase()}/api/v1/analysis-runs/${encodeURIComponent(runId)}/${resource}`, { cache: "no-store", signal });
+  if (!response.ok) throw new ApiClientError("暂时无法读取核查版本，请稍后重试。", response.status);
+  return response.json();
+}
+
+export async function getAnalysisRunHistory(runId: string, signal?: AbortSignal): Promise<AnalysisRunHistory> {
+  const value = await requestRunDetails(runId, "versions", signal);
+  if (!isObject(value) || !Array.isArray(value.revisions) || !/^[a-f0-9]{32}$/.test(ensureString(value.root_run_id))) throw new ApiClientError("核查版本格式无效。");
+  return {
+    root_run_id: ensureString(value.root_run_id),
+    revisions: value.revisions.map((item) => {
+      const run = parseAnalysisRun(item);
+      return { run_id: run.run_id, parent_run_id: run.parent_run_id, revision: run.revision, status: run.status, mode: run.mode, created_at: run.created_at, updated_at: run.updated_at };
+    }),
+  };
+}
+
+export async function getAnalysisRunChanges(runId: string, signal?: AbortSignal): Promise<AnalysisRunComparison> {
+  const value = await requestRunDetails(runId, "changes", signal);
+  if (!isObject(value) || !Array.isArray(value.changes) || value.run_id !== runId) throw new ApiClientError("版本比较格式无效。");
+  return {
+    run_id: runId,
+    parent_run_id: ensureOptionalString(value.parent_run_id) ?? null,
+    added_source_urls: ensureStringArray(value.added_source_urls),
+    removed_source_urls: ensureStringArray(value.removed_source_urls),
+    changed_source_urls: ensureStringArray(value.changed_source_urls),
+    changes: value.changes.filter(isObject).map((item) => {
+      const kind = ensureLiteral(item.kind, ["changed", "added", "removed", "not_rechecked"] as const);
+      if (!kind) throw new ApiClientError("版本比较格式无效。");
+      const beforeVerdict = item.before_verdict == null ? null : ensureLiteral(item.before_verdict, ["supported", "refuted", "insufficient", "conflicting"] as const);
+      const afterVerdict = item.after_verdict == null ? null : ensureLiteral(item.after_verdict, ["supported", "refuted", "insufficient", "conflicting"] as const);
+      if ((item.before_verdict != null && !beforeVerdict) || (item.after_verdict != null && !afterVerdict)) throw new ApiClientError("版本比较格式无效。");
+      return { claim: ensureString(item.claim), kind, before_verdict: beforeVerdict, after_verdict: afterVerdict, added_evidence_urls: ensureStringArray(item.added_evidence_urls), removed_evidence_urls: ensureStringArray(item.removed_evidence_urls) };
+    }),
+  };
 }
 
 export function parseAnalysisRunEvent(value: unknown): { event_id: number; event: AnalysisLiveEvent | null } | null {

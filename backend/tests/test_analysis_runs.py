@@ -376,6 +376,7 @@ def test_ttl_and_capacity_preserve_expired_but_executing_run(tmp_path, monkeypat
         assert lock_path.exists()
     finally:
         handles[0].close()
+    now[0] += 2  # read paths sweep at most once per cleanup interval
     with pytest.raises(AppError) as error:
         manager.get(run.run_id)
     assert error.value.status_code == 404

@@ -10,36 +10,33 @@ import socket
 from urllib.parse import urlparse
 
 
-def is_safe_url(url: str) -> bool:
-    """Return True only if the URL is safe to fetch (public, HTTP(S))."""
+def resolve_public_ip(url: str) -> str:
+    """Validate the logical URL and return one address safe to pin for this hop."""
     try:
+        if len(url) > 2048 or any(ord(character) < 32 or ord(character) == 127 for character in url):
+            raise ValueError("invalid_public_url")
         parsed = urlparse(url.strip())
-    except Exception:
-        return False
-
-    if parsed.scheme not in ("http", "https"):
-        return False
-
-    hostname = parsed.hostname
-    if not hostname:
-        return False
-
-    if hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
-        return False
-
-    try:
-        addr = ipaddress.ip_address(hostname)
-        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
-            return False
-    except ValueError:
+        hostname = (parsed.hostname or "").rstrip(".")
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        if (parsed.scheme not in {"http", "https"} or not hostname or parsed.username is not None
+                or parsed.password is not None or hostname == "localhost" or hostname.endswith((".localhost", ".local", ".internal"))):
+            raise ValueError("invalid_public_url")
         try:
-            resolved = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
-            for _, _, _, _, sockaddr in resolved:
-                ip = sockaddr[0]
-                addr = ipaddress.ip_address(ip)
-                if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
-                    return False
-        except (socket.gaierror, OSError):
-            pass
+            addresses = [ipaddress.ip_address(hostname)]
+        except ValueError:
+            resolved = socket.getaddrinfo(hostname, port)
+            addresses = [ipaddress.ip_address(entry[4][0]) for entry in resolved]
+        if not addresses or any(not address.is_global or address.is_multicast for address in addresses):
+            raise ValueError("non_public_address")
+        return str(addresses[0])
+    except (OSError, ValueError, IndexError, TypeError) as exc:
+        raise ValueError("unsafe_public_url") from exc
 
-    return True
+
+def is_safe_url(url: str) -> bool:
+    """Return False on validation or DNS failure; transports must still pin the IP."""
+    try:
+        resolve_public_ip(url)
+        return True
+    except ValueError:
+        return False

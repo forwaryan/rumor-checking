@@ -10,6 +10,7 @@ from backend.app.api.router import router as api_router
 from backend.app.core.config import get_settings
 from backend.app.core.exceptions import install_exception_handlers
 from backend.app.core.logging import configure_logging
+from backend.app.core.request_limits import RequestBodyLimitMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ def create_app() -> FastAPI:
     configure_logging(settings)
 
     app = FastAPI(title=settings.app_name, version=settings.version, debug=settings.debug)
+    app.add_middleware(RequestBodyLimitMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[],
@@ -26,7 +28,7 @@ def create_app() -> FastAPI:
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
-        expose_headers=["X-Request-ID"],
+        expose_headers=["X-Request-ID", "X-Analysis-Run-ID"],
     )
 
     @app.middleware("http")

@@ -11,6 +11,7 @@ from backend.app.models.schemas import NormalizedEvent
 from backend.app.services import model_ledger
 from backend.app.services.llm_provider import LlmStructuredProvider
 from backend.app.services.retrieval_provider import LlmWebSearchProvider
+from backend.app.services.run_control import RunControl, RunStopped, reset_run_control, set_run_control
 
 
 @pytest.fixture
@@ -103,3 +104,20 @@ def test_json_transport_failures_are_recorded_and_propagated(monkeypatch, observ
     assert record["status"] == "error"
     assert record["error_class"] == expected_error.__name__
     assert "private-" not in json.dumps(record)
+
+
+@pytest.mark.parametrize("provider", ["structured", "web_search"])
+def test_budget_rejections_do_not_record_unsent_requests(monkeypatch, observed_settings, provider):
+    def unexpected_post(*args, **kwargs):
+        pytest.fail("exhausted budget must prevent the HTTP request")
+
+    monkeypatch.setattr(httpx, "post", unexpected_post)
+    control = RunControl(max_llm_calls=1)
+    control.reserve(1)
+    token = set_run_control(control)
+    try:
+        with pytest.raises(RunStopped, match="call_budget_exhausted"):
+            _invoke(provider, observed_settings)
+    finally:
+        reset_run_control(token)
+    assert _records(observed_settings) == []

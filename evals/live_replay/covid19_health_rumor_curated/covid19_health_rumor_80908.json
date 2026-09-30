@@ -1,0 +1,84 @@
+{
+  "case_id": "covid19_health_rumor_80908",
+  "recorded_at": "2020-02-03T00:00:00Z",
+  "raw_input": "孕妇感染新型冠状病毒需要流产",
+  "retrieval_results": [
+    {
+      "result_id": "fact_check_1",
+      "title": "孕妇感染新型冠状病毒需要流产",
+      "url": "https://mdeer.taobao.com/guide/h5/science/article/170416",
+      "source_name": "央视新闻",
+      "published_at": "2020-02-03",
+      "snippet": "该消息已被辟谣。通过采取合理措施可能阻断病毒母婴传播。国内已有确诊感染孕妇顺利产下女婴的报道，母亲产后情况良好，新生儿两次核酸检测结果均为阴性。",
+      "source_tier": "B"
+    }
+  ],
+  "expected_claims": [
+    {
+      "claim": "孕妇感染新型冠状病毒需要流产",
+      "claim_type": "fact",
+      "verdict": "refuted",
+      "confidence": "high",
+      "evidence": [
+        {
+          "url": "https://mdeer.taobao.com/guide/h5/science/article/170416",
+          "title": "央视新闻辟谣材料"
+        }
+      ],
+      "evaluation": {
+        "score_confidence": false
+      }
+    }
+  ],
+  "metadata": {
+    "source": "COVID19-Health-Rumor",
+    "provenance": "public_dataset",
+    "source_case_id": "80908",
+    "source_revision": "f07382aa9ab38353c80b6c87eb665d7f6733bed2",
+    "dataset_license": "MIT",
+    "evidence_license": "third-party source terms",
+    "original_label": "dread",
+    "text_variant": "zh-Hans",
+    "domain": "健康",
+    "categories": [
+      "external_benchmark",
+      "health_rumor",
+      "covid19"
+    ],
+    "original_rumor_type": "dread",
+    "original_label_field": "rumor_type",
+    "original_label_meaning": "wish/dread describe hope/fear, not factual veracity",
+    "annotation_source": "project_review",
+    "annotation_rationale": "上游确诊孕妇顺利分娩且新生儿两次阴性的具体反例，反驳感染即必须流产；不构成个体医疗建议。",
+    "original_claim": "孕妇感染病毒需要流产",
+    "original_source_record": {
+      "rumor_id": "80908",
+      "publish_date": "2020-02-03",
+      "rumor_type": "dread",
+      "article_title": "孕妇感染病毒需要流产",
+      "article_content": "该消息已被辟谣。通过采取合理的措施可能阻断病毒母婴传播。国内已有确诊感染孕妇顺利产下女婴的报道。据央视新闻，1月30日，黑龙江哈尔滨1名孕38周+3的孕妇被确诊为新冠病毒感染病人。为确保母婴安全，医生为她实施剖宫产手术，顺利剖出1女婴，重6斤1两，母亲产后情况良好。新生儿分别于1月31日、2月2日两次采取标本进行核酸检测，结果均为阴性，状态良好。",
+      "search_expression": "流产+(怀孕|孕|孕妇)+(感染|传染)",
+      "source": "央视新闻",
+      "article_url": "https://mdeer.taobao.com/guide/h5/science/article/170416"
+    },
+    "claim_transformation": "将“病毒”明确为来源语境中的“新型冠状病毒”，不改变“需要流产”的全称判断。",
+    "evidence_transformation": "人工摘要，省略地点、孕周、体重和检测日期细节；保留合理措施可能阻断传播、分娩成功与新生儿两次阴性的反例。",
+    "confidence_source": "project_derived_not_upstream_gold",
+    "source_file_sha256": "9f1abac0a4de9e74e9ed06a83ea67bcba4dc67550734edc44dcb10254e23587b",
+    "source_record_line": 92,
+    "source_url": "https://raw.githubusercontent.com/Kelaxon/COVID19-Health-Rumor/f07382aa9ab38353c80b6c87eb665d7f6733bed2/data/health_rumors.csv",
+    "source_verified": true,
+    "source_verification_scope": "Selected CSV record checked at pinned revision; labels are independent project annotations, not upstream veracity gold.",
+    "source_published_at": "2020-02-03",
+    "hosting_domain": "mdeer.taobao.com",
+    "attributed_source_name": "央视新闻",
+    "reviewed_at": "2026-09-13T07:36:57.121663+00:00",
+    "review_status": "approved",
+    "review_reason": "Pinned source record and project annotation rationale reviewed; original rumor_type is retained only as emotion metadata.",
+    "topic_group": "COVID-19健康谣言",
+    "evaluation_split": "development",
+    "as_of": "2020-02-03T00:00:00Z",
+    "snapshot_kind": "pinned_csv_excerpt_with_declared_historical_date",
+    "evidence_completeness": "project_summary_of_complete_csv_excerpt"
+  }
+}

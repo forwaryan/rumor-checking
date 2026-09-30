@@ -56,6 +56,13 @@ from backend.app.services.progress import (
     reset_progress_callback,
     set_progress_callback,
 )
+from backend.app.services.run_control import (
+    RunControl,
+    check_run_control,
+    get_run_control,
+    reset_run_control,
+    set_run_control,
+)
 
 if TYPE_CHECKING:
     from backend.app.agent.multi import AgentConfig
@@ -137,6 +144,8 @@ class Supervisor:
             if latest is not None:
                 try:
                     state = restore_state(latest)
+                    from backend.app.services.evidence_snapshots import restore_captured_evidence
+                    restore_captured_evidence(state.retrieval_bundle, state.fetched_bodies, state.report)
                     completed = {
                         AgentRole(a) for a in state.done_actions
                         if any(a == role.value for role in AgentRole)
@@ -194,15 +203,7 @@ class Supervisor:
                 )
                 break
 
-            if deadline is not None and time.monotonic() >= deadline:
-                state.time_exhausted = True
-                emit_log(
-                    stage_key=_STAGE_KEY,
-                    level="warning",
-                    title="Supervisor 超时",
-                    summary="已超过整体时限，跳过剩余 Agent 直接出报告。",
-                )
-                break
+            self._remaining_time(deadline)
 
             if state.cancelled:
                 emit_log(
@@ -297,6 +298,7 @@ class Supervisor:
                 state.per_claim_iterations = 0
                 state.per_claim_searches = 0
 
+        self._remaining_time(deadline)
         if state.report is None:
             self._force_finalize(state, completed)
 
@@ -531,6 +533,29 @@ class Supervisor:
         deadline: float | None,
     ) -> list[SubAgentResult]:
         """Execute a batch of ready agents. Parallel if >1 and max_parallel allows."""
+        control_token = set_run_control(get_run_control() or RunControl())
+        try:
+            self._remaining_time(deadline)
+            results = self._execute_batch_impl(agents, state, deadline)
+            self._remaining_time(deadline)
+            return results
+        finally:
+            reset_run_control(control_token)
+
+    @staticmethod
+    def _remaining_time(deadline: float | None) -> float | None:
+        check_run_control()
+        remaining = deadline - time.monotonic() if deadline is not None else None
+        if remaining is not None and remaining <= 0:
+            (get_run_control() or RunControl()).stop("agent_timeout")
+        return remaining
+
+    def _execute_batch_impl(
+        self,
+        agents: list[SubAgent],
+        state: AgentState,
+        deadline: float | None,
+    ) -> list[SubAgentResult]:
         if len(agents) == 1 or self.max_parallel <= 1:
             results = []
             for agent in agents:
@@ -558,24 +583,14 @@ class Supervisor:
                 pool.submit(copy_context().run, self._run_agent, agent, state, deadline): agent
                 for agent in agents
             }
-            # Bound the wait by the supervisor deadline so one hung agent can't
-            # block the whole batch past the wall-clock budget. Providers already
-            # have their own IO timeouts; this is the supervisor-level backstop.
-            timeout = max(deadline - time.monotonic(), 0.0) if deadline is not None else None
+            timeout = self._remaining_time(deadline)
             done, not_done = wait(futures, timeout=timeout)
+            if not_done:
+                for future in not_done:
+                    future.cancel()
+                get_run_control().stop("agent_timeout")
             for future in done:
                 results.append(future.result())
-            for future in not_done:
-                agent = futures[future]
-                future.cancel()
-                logger.warning("supervisor_agent_timed_out role=%s", agent.role.value)
-                results.append(
-                    SubAgentResult(
-                        role=agent.role,
-                        status=AgentStatus.FAILED,
-                        error="batch_deadline_exceeded",
-                    )
-                )
         return results
 
     def _run_agent(
@@ -617,6 +632,7 @@ class Supervisor:
         state: AgentState,
         deadline: float | None,
     ) -> SubAgentResult:
+        self._remaining_time(deadline)
         config = agent.config if hasattr(agent, "config") else None
         model_name = getattr(config, "model", None)
 
@@ -649,9 +665,11 @@ class Supervisor:
         result: SubAgentResult | None = None
 
         for attempt in range(max_retries + 1):
+            remaining = self._remaining_time(deadline)
             if attempt > 0:
                 backoff = 0.5 * (2 ** (attempt - 1))
-                time.sleep(backoff)
+                time.sleep(min(backoff, remaining) if remaining is not None else backoff)
+                self._remaining_time(deadline)
                 emit_log(
                     stage_key=_STAGE_KEY,
                     level="info",
@@ -663,7 +681,11 @@ class Supervisor:
             reasoner = self.ctx.agent_reasoner
             prev_model = getattr(reasoner, "model_override", None) if reasoner else None
             try:
-                result = self._invoke_agent(agent, state, timeout_seconds)
+                remaining = self._remaining_time(deadline)
+                effective_timeout = timeout_seconds
+                if remaining is not None:
+                    effective_timeout = min(timeout_seconds, remaining) if timeout_seconds and timeout_seconds > 0 else remaining
+                result = self._invoke_agent(agent, state, effective_timeout)
             except TimeoutError:
                 logger.warning("supervisor_agent_timeout role=%s attempt=%d limit=%ss", agent.role.value, attempt, timeout_seconds)
                 result = SubAgentResult(
@@ -682,6 +704,7 @@ class Supervisor:
                 if reasoner and hasattr(reasoner, "model_override"):
                     reasoner.model_override = prev_model
 
+            self._remaining_time(deadline)
             if result and result.status in (AgentStatus.COMPLETED, AgentStatus.SKIPPED):
                 break
 
@@ -704,33 +727,36 @@ class Supervisor:
         state: AgentState,
         timeout_seconds: float | None,
     ) -> SubAgentResult:
-        """Run agent.run, optionally bounded by a per-agent timeout.
-
-        With no timeout, runs inline. With a timeout, runs on a worker thread and
-        raises TimeoutError if it overruns; the progress ContextVar is rebound in
-        the worker since ContextVars don't cross threads. An overrun leaves the
-        worker orphaned, but every provider has its own IO timeout so it cannot
-        run unbounded — this is a supervisor-level backstop, not the only guard."""
+        """Publish timeout immediately, then drain shared-state workers before releasing the run lock."""
         if not timeout_seconds or timeout_seconds <= 0:
-            return agent.run(state, self.ctx)
+            check_run_control()
+            result = agent.run(state, self.ctx)
+            check_run_control()
+            return result
 
         parent_callback = get_progress_callback()
+        control = get_run_control() or RunControl()
 
         def _worker() -> SubAgentResult:
             token = set_progress_callback(parent_callback) if parent_callback is not None else None
+            control_token = set_run_control(control)
             try:
-                return agent.run(state, self.ctx)
+                control.check()
+                result = agent.run(state, self.ctx)
+                control.check()
+                return result
             finally:
+                reset_run_control(control_token)
                 if token is not None:
                     reset_progress_callback(token)
 
         with ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(_worker)
+            future = pool.submit(copy_context().run, _worker)
             try:
                 return future.result(timeout=timeout_seconds)
-            except FuturesTimeout as exc:
+            except FuturesTimeout:
                 future.cancel()
-                raise TimeoutError(str(timeout_seconds)) from exc
+                control.stop("agent_timeout")
 
     def _force_finalize(self, state: AgentState, completed: set[AgentRole]) -> None:
         """Last-resort: force report generation with whatever state we have."""

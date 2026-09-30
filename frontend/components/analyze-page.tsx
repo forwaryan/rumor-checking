@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getHealth, getModels, getSearchSources } from "@/lib/api-client";
-import type { SearchSource } from "@/lib/api-client";
+import { getHealth, getModels, getSearchSources, getAnalysisRunHistory, getAnalysisRunChanges, recheckAnalysisRun } from "@/lib/api-client";
+import type { SearchSource, RecheckRequest } from "@/lib/api-client";
 import { buildAnalysisRequest, createRunSession, runLocation, selectRunTarget } from "@/lib/run-session";
 import type { RunSession } from "@/lib/run-session";
 import { getLocalDemoCaseSummaries } from "@/lib/demo-cases";
 import { getStatusFromMode, validateInput, collectEvidence } from "@/lib/report-utils";
 import { deriveTraceSteps, applyBackendTiming } from "@/lib/trace-steps";
-import type { AnalysisLiveEvent, AnalysisRun, AnalysisStatus, Report, ReportProvenanceState } from "@/types/report";
+import type { AnalysisLiveEvent, AnalysisRun, AnalysisRunHistory, AnalysisRunComparison, AnalysisStatus, Report, ReportProvenanceState } from "@/types/report";
 import { SearchInput } from "@/components/search-input";
 import { VerdictCard } from "@/components/verdict-card";
 import { CredibilityHeader } from "@/components/credibility-header";
@@ -19,6 +19,7 @@ import { TimelineSection } from "@/components/timeline-section";
 import { TraceTimeline } from "@/components/trace-timeline";
 import { RunMetricsPanel } from "@/components/run-metrics-panel";
 import { AgentSpanTree } from "@/components/agent-span-tree";
+import { RecheckPanel, RunVersions } from "@/components/recheck-panel";
 
 type BackendState = "checking" | "online" | "offline" | "degraded";
 
@@ -58,10 +59,30 @@ export function AnalyzePage() {
   const [metricsOpen, setMetricsOpen] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
   const [runState, setRunState] = useState<AnalysisRun | null>(null);
+  const [runHistory, setRunHistory] = useState<AnalysisRunHistory | null>(null);
+  const [comparison, setComparison] = useState<AnalysisRunComparison | null>(null);
+  const [versionError, setVersionError] = useState<string | null>(null);
+  const [stopping, setStopping] = useState(false);
+  const stoppingRef = useRef(false);
   const sessionRef = useRef<RunSession | null>(null);
   const subscriptionRef = useRef<AbortController | null>(null);
   const busyRef = useRef(false);
   const [agentSpanTreeOpen, setAgentSpanTreeOpen] = useState(false);
+
+  useEffect(() => {
+    setComparison(null); setRunHistory(null); setVersionError(null);
+    if (!runState) return;
+    const controller = new AbortController();
+    void getAnalysisRunHistory(runState.run_id, controller.signal).then((history) => {
+      if (!controller.signal.aborted) setRunHistory(history);
+    }).catch(() => { if (!controller.signal.aborted) setVersionError("版本列表暂时无法读取。"); });
+    if (runState.parent_run_id && runState.status === "completed") {
+      void getAnalysisRunChanges(runState.run_id, controller.signal).then((changes) => {
+        if (!controller.signal.aborted) setComparison(changes);
+      }).catch(() => { if (!controller.signal.aborted) setVersionError("版本比较暂时无法读取。"); });
+    }
+    return () => controller.abort();
+  }, [runState?.run_id, runState?.status]);
 
   useEffect(() => {
     let active = true;
@@ -126,6 +147,7 @@ export function AnalyzePage() {
           if (!isCurrent()) return;
           setRunId(run.run_id); setRunState(run); setActiveMode(run.mode);
           setInputValue(run.raw_input); setLastQuery(run.raw_input);
+          if (run.report) { setReport(run.report); setReportProvenance(buildReportProvenance(run.report)); }
           window.history.replaceState(null, "", runLocation(window.location.pathname, run.run_id));
         },
         onEvent: (event) => { if (isCurrent()) handleStreamEvent(event); },
@@ -134,8 +156,10 @@ export function AnalyzePage() {
       if (nextRun.status === "completed" && nextRun.report) {
         setReport(nextRun.report); setReportProvenance(buildReportProvenance(nextRun.report));
         setStatus(getStatusFromMode(nextRun.report.mode));
+      } else if (nextRun.status === "cancelled") {
+        setStatus(nextRun.report ? getStatusFromMode(nextRun.report.mode) : "idle");
       } else {
-        setReport(null); setReportProvenance(null); setStatus("error");
+        setStatus("error");
         setErrorMessage(nextRun.status === "interrupted"
           ? "核查已中断。继续时将从可用检查点恢复；没有检查点时重新执行。"
           : "此次核查未能完成，请开始新查询。");
@@ -146,6 +170,42 @@ export function AnalyzePage() {
       setErrorMessage(error instanceof Error && error.name === "ApiClientError" ? error.message : "暂时无法连接核查服务，请稍后重新连接。");
     } finally {
       if (isCurrent()) { busyRef.current = false; setIsStreaming(false); }
+    }
+  }
+
+  function selectVersion(nextRunId: string) {
+    setReport(null); setReportProvenance(null); setLiveEvents([]); setRunState(null);
+    setRunId(nextRunId); setStopping(false); stoppingRef.current = false;
+    sessionRef.current = createRunSession({ runId: nextRunId });
+    void watchRun(sessionRef.current);
+  }
+
+  async function handleRecheck(request: RecheckRequest) {
+    if (!runId || busyRef.current) return;
+    const session = sessionRef.current;
+    busyRef.current = true;
+    try {
+      const nextRun = await recheckAnalysisRun(runId, request);
+      if (sessionRef.current === session) selectVersion(nextRun.run_id);
+    } finally {
+      if (sessionRef.current === session) busyRef.current = false;
+    }
+  }
+
+  async function handleStop() {
+    const session = sessionRef.current;
+    if (!session || stoppingRef.current) return;
+    stoppingRef.current = true; setStopping(true);
+    try {
+      const nextRun = await session.cancel();
+      if (sessionRef.current !== session) return;
+      subscriptionRef.current?.abort();
+      setRunState(nextRun);
+      await watchRun(session);
+    } catch (failure) {
+      if (sessionRef.current === session) setErrorMessage(failure instanceof Error ? failure.message : "停止请求失败，请重试。");
+    } finally {
+      if (sessionRef.current === session) { setStopping(false); stoppingRef.current = false; }
     }
   }
 
@@ -165,6 +225,7 @@ export function AnalyzePage() {
     setReportProvenance(null); setLiveEvents([]); setClaimsOpen(true);
     setEvidenceOpen(false); setTimelineOpen(false); setTraceOpen(mode === "deep");
     setRunId(null); setRunState(null); setAgentSpanTreeOpen(false);
+    setStopping(false); stoppingRef.current = false;
     const request = buildAnalysisRequest(trimmed, mode, { model: explicitModel, searchSources: activeSources });
     sessionRef.current = createRunSession({ request });
     await watchRun(sessionRef.current);
@@ -174,6 +235,7 @@ export function AnalyzePage() {
     subscriptionRef.current?.abort(); subscriptionRef.current = null;
     sessionRef.current = null; busyRef.current = false;
     setIsStreaming(false); setRunId(null); setRunState(null);
+    setStopping(false); stoppingRef.current = false;
     setInputValue(""); setStatus("idle"); setReport(null); setReportProvenance(null);
     setErrorMessage(null); setLiveEvents([]); setLastQuery("");
     if (typeof window !== "undefined") window.history.replaceState(null, "", window.location.pathname);
@@ -205,7 +267,7 @@ export function AnalyzePage() {
     return null;
   }, [liveEvents]);
 
-  const showResult = report !== null || status === "submitting" || status === "error";
+  const showResult = report !== null || status === "submitting" || status === "error" || runState?.status === "cancelled";
 
   if (!showResult) {
     return (
@@ -240,6 +302,14 @@ export function AnalyzePage() {
           </div>
           <span className="result-header__query" title={lastQuery || runState?.input_preview}>{lastQuery || runState?.input_preview}</span>
         </header>
+
+        {runState && <RunVersions run={runState} history={runHistory} comparison={comparison} error={versionError} onSelect={selectVersion} />}
+        {runId && (runState?.status === "queued" || runState?.status === "running") && <div className="review-panel" role="status">
+          <p>{stopping || runState.cancel_requested ? "已请求停止，正在保存已有信息。" : "核查仍在后台运行，离开页面后可通过此任务链接继续查看。"}</p>
+          <button type="button" disabled={stopping || runState.cancel_requested} onClick={() => void handleStop()}>停止核查</button>
+          {errorMessage && status !== "error" && <p role="alert">{errorMessage}</p>}
+        </div>}
+        {runState?.status === "cancelled" && <div className="review-panel" role="status"><strong>核查已停止</strong><p>已有信息已保留。停止只表示任务结束，不代表传闻为真或为假。</p></div>}
 
         {status === "submitting" && !report && (
           <div className="loading-card">
@@ -285,12 +355,13 @@ export function AnalyzePage() {
 
         {report?.content_check && <PossibleAnswers answers={report.content_check.possible_answers} isOpen={answersOpen} onToggle={() => setAnswersOpen(!answersOpen)} />}
         {report?.investigation && <PossibilitiesDistribution possibilities={report.investigation.possibilities} isOpen={possibilitiesOpen} onToggle={() => setPossibilitiesOpen(!possibilitiesOpen)} />}
-        {report && <ClaimList claims={report.claim_results} isOpen={claimsOpen} onToggle={() => setClaimsOpen(!claimsOpen)} />}
+        {report && <ClaimList claims={report.claim_results} snapshots={report.evidence_snapshots} isOpen={claimsOpen} onToggle={() => setClaimsOpen(!claimsOpen)} />}
+        {report && runState?.status === "completed" && <RecheckPanel key={runId} report={report} disabled={isStreaming} onSubmit={handleRecheck} />}
         {report && <EvidenceList evidence={evidence} isOpen={evidenceOpen} onToggle={() => setEvidenceOpen(!evidenceOpen)} report={report} />}
         {report && <RetrievalHitsList hits={retrievalOnlyHits} isOpen={retrievalHitsOpen} onToggle={() => setRetrievalHitsOpen(!retrievalHitsOpen)} />}
         {report && <TimelineSection timeline={report.timeline} isOpen={timelineOpen} onToggle={() => setTimelineOpen(!timelineOpen)} />}
         {runMetrics && <RunMetricsPanel metrics={runMetrics} isOpen={metricsOpen} onToggle={() => setMetricsOpen(!metricsOpen)} />}
-        {runId && !isStreaming && (report || (runState && ["completed", "failed", "interrupted"].includes(runState.status))) && <AgentSpanTree key={`${runId}:${runState?.status ?? "report"}`} runId={runId} isOpen={agentSpanTreeOpen} onToggle={() => setAgentSpanTreeOpen(!agentSpanTreeOpen)} />}
+        {runId && !isStreaming && (report || (runState && ["completed", "failed", "cancelled", "interrupted"].includes(runState.status))) && <AgentSpanTree key={`${runId}:${runState?.status ?? "report"}`} runId={runId} isOpen={agentSpanTreeOpen} onToggle={() => setAgentSpanTreeOpen(!agentSpanTreeOpen)} />}
         <TraceTimeline traceSteps={traceSteps} isStreaming={isStreaming} traceOpen={traceOpen} onToggleTrace={() => setTraceOpen(!traceOpen)} />
       </div>
     </main>

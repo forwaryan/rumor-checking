@@ -17,10 +17,15 @@ ADRs capture decisions that are expensive to reverse or easy to misunderstand la
 - [0004 — Optional SearXNG search provider (default-off, AGPL-external)](0004-searxng-provider-poc.md)
 - [0005 — Durable analysis runs](0005-durable-analysis-runs.md)
 - [0006 — Layered evidence and reviewed playbooks](0006-layered-evidence-and-reviewed-playbooks.md)
+- [0007 — Versioned dataset evaluation](0007-versioned-dataset-evaluation.md)
+- [0008 — Evidence goals and report rechecks](0008-evidence-goals-and-report-rechecks.md)
+- [0009 — Report-bound evidence snapshots](0009-report-bound-evidence-snapshots.md)
+- [0010 — Unified fetch and execution boundaries](0010-unified-fetch-and-execution-boundaries.md)
 
 - [0011 — Model-call observability](0011-model-call-observability.md)
+
 - [0012 — Evidence alignment and retrieval tracing](0012-evidence-alignment-and-retrieval-tracing.md)
 
-- [0013 — Verdict time and attribute constraints](0013-verdict-time-and-attribute-coverage.md)
+- [0013 — Verdict time and attribute coverage](0013-verdict-time-and-attribute-coverage.md)
 
 Copy `0000-template.md`, assign the next number, and link the new record here.

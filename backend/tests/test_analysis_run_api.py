@@ -101,13 +101,12 @@ def test_private_run_response_preserves_full_input(run_client):
 
 
 @pytest.mark.parametrize("suffix", ["", "/stream"])
-def test_legacy_endpoints_cannot_write_into_a_client_selected_run(client, monkeypatch, suffix):
+def test_legacy_endpoints_cannot_write_into_a_client_selected_run(client, tmp_path, suffix):
     seen = []
     selected_run_id = "a" * 32
-    monkeypatch.setattr(
-        "backend.app.api.v1.endpoints.analyze.AnalyzePipeline",
-        lambda: SimpleNamespace(analyze=lambda request: seen.append(request.request_context["run_id"]) or sample_report()),
-    )
+    manager = AnalysisRunManager(tmp_path, pipeline_factory=lambda: SimpleNamespace(
+        analyze=lambda request: seen.append(request.request_context["run_id"]) or sample_report()))
+    client.app.dependency_overrides[get_analysis_run_manager] = lambda: manager
     response = client.post(
         f"/api/v1/analyze{suffix}",
         json={"raw_input": "隔离旧接口", "request_context": {"run_id": selected_run_id}},

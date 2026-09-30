@@ -41,6 +41,7 @@ from backend.app.services.contract_utils import (
     ensure_datetime_string_or_empty,
 )
 from backend.app.services.evidence_context import ContextBudgetExceeded, build_evidence_prompt
+from backend.app.services.evidence_goals import apply_evidence_goals, restrict_review_results, review_claim_items
 from backend.app.services.model_call_observer import model_call_attempt, observe_model_call
 from backend.app.services.model_health import get_model_health_registry
 from backend.app.services.progress import emit_api_call, emit_log
@@ -48,6 +49,8 @@ from backend.app.services.question_intent import is_broad_trend_question
 from backend.app.services.question_resolver import QuestionResolution
 from backend.app.services.report_builder import TIMELINE_COMPLETENESS_WEIGHTS
 from backend.app.services.retrieval_models import RetrievalBundle, SearchResult
+from backend.app.services.run_control import check_run_control, reserve_llm_call
+from backend.app.services.supplemental_evidence import merge_supplemental_evidence
 from backend.app.services.timeline_builder import TimelineBuild
 from backend.app.services.verdict_engine import VerdictEvaluation
 
@@ -535,6 +538,7 @@ class LlmAgentReasoner:
     ) -> AgentSynthesis | None:
         if not self.enabled:
             return None
+        retrieval_bundle = merge_supplemental_evidence(request, retrieval_bundle)
         if retrieval_bundle is None or not retrieval_bundle.canonical_results:
             return None
 
@@ -615,6 +619,7 @@ class LlmAgentReasoner:
         # correction so the user sees the real figure, not just a bare "refuted".
         # Number-grounded (actual must appear in evidence) and degrades to no-op.
         claim_results = self._annotate_corrections(claim_results, retrieval_bundle, fetched_bodies)
+        claim_results = apply_evidence_goals(restrict_review_results(claim_results, request), retrieval_bundle, fetched_bodies)
 
         # Second-phase enrichment: produce timeline, scenarios, and refined event
         # in a SEPARATE lighter call to avoid the truncation the old all-in-one
@@ -1131,7 +1136,7 @@ class LlmAgentReasoner:
 
         if getattr(self.settings, "llm_stream_include_usage", True):
             body["stream_options"] = {"include_usage": True}
-
+        reserve_llm_call(system_prompt=system_prompt, user_prompt=user_prompt, max_output_tokens=max_tokens)
         with observe_model_call(
             settings=self.settings, provider="llm", model=model, request=body,
         ) as observation:
@@ -1165,7 +1170,7 @@ class LlmAgentReasoner:
                     observation.status_code = getattr(response, "status_code", None)
                     response.raise_for_status()
                     for raw_line in response.iter_lines():
-
+                        check_run_control()
                         if collected >= char_budget or time.monotonic() >= deadline:
                             truncated = True
                             break
@@ -1352,6 +1357,11 @@ class LlmAgentReasoner:
             "retrieval_provider": retrieval_bundle.provider_name,
             "evidence_grade_hint": retrieval_bundle.evidence_grade,
         }
+        selected = review_claim_items(request)
+        if selected:
+            context["review_claim_texts"] = [item.claim for item in selected]
+            context["review_claim_types"] = [item.claim_type for item in selected]
+            context["review_scope_instruction"] = "只逐字输出并核查 review_claim_texts 中的声明，保留同行 review_claim_types 类型；原始输入仅作背景，不新增声明。"
         prompt = build_evidence_prompt(
             context=context, hits=raw_hits, fetched_bodies=fetched_bodies or {},
             query=request.raw_input, system_prompt=CLAIMS_ONLY_SYSTEM_PROMPT,

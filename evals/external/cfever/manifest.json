@@ -1,0 +1,51 @@
+{
+  "dataset": "CFEVER",
+  "source_repository": "https://github.com/IKMLab/CFEVER-data",
+  "source_revision": "01395ed4a7ab125c3e131c97d33d188159d9a1da",
+  "huggingface_repository": "https://huggingface.co/datasets/IKMLab-team/cfever",
+  "huggingface_revision": "1f8fa4bd290832d7ad3109f49e347eb5dc77b7ad",
+  "license": {
+    "dataset_repository": "Apache-2.0",
+    "wikipedia_evidence": "CC BY-SA; preserve attribution and verify the applicable dump license"
+  },
+  "files": {
+    "dev.jsonl": {
+      "sha256": "c4bdeaebc90e8a21768919d212ff4a25cd8bf0edef00f64f0197066e7b034ddc",
+      "records": 3000
+    },
+    "wikipedia_corpus": {
+      "pattern": "wiki-*.jsonl",
+      "file_count": 24,
+      "total_bytes": 1001994506,
+      "integrity": "Pinned by huggingface_revision; individual files use Hugging Face LFS SHA-256 objects"
+    }
+  },
+  "default_subset": {
+    "split": "dev",
+    "per_label": 100,
+    "total_records": 300,
+    "seed": 20260913,
+    "sampling_rule": "per-label topic round-robin; sorted IDs then seeded shuffle",
+    "topic_key": "upstream domain, otherwise first evidence page, otherwise unknown",
+    "selection_audit": "Generated manifests record selected_source_ids, topic_counts, actual claims_sha256, and wikipedia_input_sha256",
+    "labels": [
+      "supports",
+      "refutes",
+      "NOT ENOUGH INFO"
+    ]
+  },
+  "conversion_policy": {
+    "claims_verification": "Require pinned dev digest and split by default; --allow-unverified quarantines other inputs",
+    "wikipedia_verification": "Local file hashes are recorded, not assumed to match upstream; CLI snapshots remain quarantined pending review",
+    "evidence_sets": "AND within each group, OR across groups; retrieve the union of every group",
+    "invalid_input": "Reject malformed pointers, missing pages/lines, duplicate IDs, blank claims, unsafe split names before writing snapshots",
+    "confidence": "Converter-derived, not upstream gold; expected claims disable confidence scoring",
+    "project_split": "Assign development/holdout by topic after review while preserving upstream split"
+  },
+  "text_conversion": {
+    "tool": "OpenCC",
+    "config": "t2s",
+    "output_variant": "zh-Hans",
+    "source_variant": "zh-Hant"
+  }
+}

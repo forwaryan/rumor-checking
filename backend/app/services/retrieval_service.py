@@ -11,6 +11,7 @@ from typing import Any
 from backend.app.core.config import Settings, get_settings
 from backend.app.core.exceptions import AppError
 from backend.app.models.schemas import NormalizedEvent
+from backend.app.services.cache_policy import requires_fresh_evidence
 from backend.app.services.contract_utils import INPUT_PLACEHOLDER_SOURCE_NAMES, ensure_datetime_string
 from backend.app.services.mock_retriever import MockRetriever
 from backend.app.services.piyao_provider import PiyaoSearchProvider
@@ -217,6 +218,8 @@ class RetrievalService:
                 bundle = self._append_official_source_results(bundle, bundle.query, stage_key=stage_key)
         finally:
             reset_retrieval_stage_key(stage_token)
+        from backend.app.services.evidence_snapshots import capture_retrieval_bundle
+        capture_retrieval_bundle(bundle)
         return bundle
 
     @staticmethod
@@ -261,10 +264,11 @@ class RetrievalService:
         provider_name = self.settings.retrieval_provider
         if self.provider is not None and provider_name in {"mock", "off"} and self.provider.name not in {"mock", "off"}:
             provider_name = self.provider.name
-        bypass_cache = self._as_bool(
+        refresh_required = requires_fresh_evidence(request_context)
+        bypass_cache = refresh_required or self._as_bool(
             request_context.get("skip_retrieval_cache") or request_context.get("bypass_retrieval_cache")
         )
-        cache_only = self._as_bool(request_context.get("retrieval_cache_only"))
+        cache_only = self._as_bool(request_context.get("retrieval_cache_only")) and not refresh_required
         allow_stale = self._as_bool(request_context.get("allow_stale_retrieval_cache"))
 
         if provider_name == "off":
@@ -399,7 +403,7 @@ class RetrievalService:
                     spec.label,
                     exc.__class__.__name__,
                 )
-                if cache_enabled and (allow_stale or self.settings.retrieval_cache_allow_stale_on_error):
+                if cache_enabled and not bypass_cache and (allow_stale or self.settings.retrieval_cache_allow_stale_on_error):
                     with observe_retrieval("cache", provider=provider_name, stage_key=stage_key,
                                            query_index=index, fallback_used=True) as observation:
                         stale_cached = self.cache.read(
@@ -452,7 +456,7 @@ class RetrievalService:
                 provider_name=provider_name,
                 cache_status="bypassed" if bypass_cache else ("write_only" if cache_enabled else "not_used"),
             )
-            if cache_enabled and not bypass_cache:
+            if cache_enabled and (not bypass_cache or refresh_required):
                 with observe_retrieval("cache", provider=provider_name, stage_key=stage_key,
                                        query_index=index, cache_status="write_only"):
                     self.cache.write(

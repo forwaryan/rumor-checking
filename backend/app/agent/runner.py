@@ -97,6 +97,8 @@ class AgentRunner:
             raise RuntimeError(f"no checkpoint found for run_id={run_id}")
 
         state = restore_state(checkpoint)
+        from backend.app.services.evidence_snapshots import restore_captured_evidence
+        restore_captured_evidence(state.retrieval_bundle, state.fetched_bodies, state.report)
         state.cancelled = False
         self._state = state
 

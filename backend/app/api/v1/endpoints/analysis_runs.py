@@ -6,7 +6,13 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
 from backend.app.core.exceptions import AppError
-from backend.app.models.schemas import AnalysisRun, AnalyzeRequest
+from backend.app.models.schemas import (
+    AnalysisRecheckRequest,
+    AnalysisRun,
+    AnalysisRunComparison,
+    AnalysisRunHistory,
+    AnalyzeRequest,
+)
 from backend.app.services.analysis_runs import AnalysisRunManager, get_analysis_run_manager
 
 router = APIRouter()
@@ -27,6 +33,28 @@ def get_analysis_run(run_id: UUID, manager: AnalysisRunManager = Depends(get_ana
 @router.post("/analysis-runs/{run_id}/resume", response_model=AnalysisRun)
 def resume_analysis_run(run_id: UUID, manager: AnalysisRunManager = Depends(get_analysis_run_manager)) -> AnalysisRun:
     return manager.resume(run_id.hex)
+
+
+@router.post("/analysis-runs/{run_id}/recheck", response_model=AnalysisRun, status_code=202)
+def recheck_analysis_run(
+    run_id: UUID, payload: AnalysisRecheckRequest, manager: AnalysisRunManager = Depends(get_analysis_run_manager),
+) -> AnalysisRun:
+    return manager.recheck(run_id.hex, payload)
+
+
+@router.get("/analysis-runs/{run_id}/versions", response_model=AnalysisRunHistory)
+def analysis_run_versions(run_id: UUID, manager: AnalysisRunManager = Depends(get_analysis_run_manager)) -> AnalysisRunHistory:
+    return manager.versions(run_id.hex)
+
+
+@router.get("/analysis-runs/{run_id}/changes", response_model=AnalysisRunComparison)
+def analysis_run_changes(run_id: UUID, manager: AnalysisRunManager = Depends(get_analysis_run_manager)) -> AnalysisRunComparison:
+    return manager.changes(run_id.hex)
+
+
+@router.post("/analysis-runs/{run_id}/cancel", response_model=AnalysisRun)
+def cancel_analysis_run(run_id: UUID, manager: AnalysisRunManager = Depends(get_analysis_run_manager)) -> AnalysisRun:
+    return manager.cancel(run_id.hex)
 
 
 @router.get("/analysis-runs/{run_id}/events")

@@ -2,6 +2,74 @@ import { describe, expect, it, vi } from "vitest";
 import { analyzeReportStream, parseReport } from "@/lib/api-client";
 import type { AnalysisLiveEvent, Report } from "@/types/report";
 
+const retainedText = {
+  snapshot_id: "a".repeat(64), url: "https://example.org/evidence", final_url: null,
+  kind: "page_text", text: "😀原文𠮷", text_sha256: "b".repeat(64),
+  captured_at: "2026-09-13T10:00:00Z", acquisition: "fetched", extractor: "article-v1", truncated: false,
+};
+const citedEvidence = {
+  title: "来源", url: retainedText.url, source_name: "发布方", published_at: "", snippet: "模型摘要不能当快照",
+  relevance_reason: "核查引用", source_tier: "A", stance: "refutes", stance_quote: "原文𠮷",
+  snapshot_id: retainedText.snapshot_id, quote_status: "matched", quote_start: 1, quote_end: 4,
+};
+
+describe("parseReport evidence snapshots", () => {
+  it("preserves source, claim, and retrieval-hit snapshot bindings and stance metadata", () => {
+    const report = parseReport({ evidence_snapshots: [retainedText], sources: [citedEvidence],
+      retrieval_hits: [citedEvidence], claim_results: [{ claim: "事项", evidence: [citedEvidence] }] });
+    expect(report.evidence_snapshots).toEqual([retainedText]);
+    for (const evidence of [...report.sources, ...report.retrieval_hits!, ...report.claim_results[0].evidence]) {
+      expect(evidence).toMatchObject(citedEvidence);
+    }
+  });
+
+  it("defaults old reports to no snapshots without deriving text from snippets", () => {
+    const report = parseReport({ sources: [{ ...citedEvidence, snapshot_id: undefined }] });
+    expect(report.evidence_snapshots).toEqual([]);
+    expect(report.sources[0]).toMatchObject({ snippet: citedEvidence.snippet, snapshot_id: null,
+      quote_status: "unavailable", quote_start: null, quote_end: null });
+  });
+
+  it.each([
+    { url: "https://other.example.org/" }, { snapshot_id: "c".repeat(64) },
+  ])("does not expose an invalid reference as matched: %o", (patch) => {
+    const report = parseReport({ evidence_snapshots: [{ ...retainedText, ...patch }], sources: [citedEvidence] });
+    expect(report.sources[0]).toMatchObject({ snapshot_id: null, quote_status: "unavailable", quote_start: null, quote_end: null });
+  });
+
+  it.each([{ quote_start: -1 }, { quote_end: 999 }, { quote_start: "1" }, { quote_start: 1.5 },
+    { stance_quote: "假引文" }, { stance_quote: { text: "原文𠮷" } }])("downgrades malformed quotation coordinates or text: %o", (patch) => {
+    const report = parseReport({ evidence_snapshots: [retainedText], sources: [{ ...citedEvidence, ...patch }] });
+    expect(report.sources[0]).toMatchObject({ snapshot_id: retainedText.snapshot_id,
+      quote_status: "unavailable", quote_start: null, quote_end: null });
+  });
+
+  it("keeps explicit unmatched quotes unmatched and clears unusable offsets", () => {
+    const report = parseReport({ evidence_snapshots: [retainedText], sources: [{ ...citedEvidence, quote_status: "unmatched" }] });
+    expect(report.sources[0]).toMatchObject({ stance: "refutes", stance_quote: "原文𠮷", snapshot_id: retainedText.snapshot_id,
+      quote_status: "unmatched", quote_start: null, quote_end: null });
+  });
+
+  it.each([
+    { text: "" }, { text: 123 }, { text: "字".repeat(24001) }, { text: "😀".repeat(24001) },
+    { snapshot_id: "bad" }, { text_sha256: "invalid" }, { url: "javascript:alert(1)" },
+    { final_url: 23 }, { final_url: "file:///tmp/source" }, { captured_at: "invalid" },
+    { acquisition: "unknown" }, { extractor: "unknown" }, { kind: "html" }, { truncated: "false" },
+  ])("rejects malformed snapshot metadata: %o", (patch) => {
+    expect(() => parseReport({ evidence_snapshots: [{ ...retainedText, ...patch }] })).toThrow("留存文本");
+  });
+
+  it("bounds snapshot count and aggregate codepoints and rejects duplicate IDs", () => {
+    expect(() => parseReport({ evidence_snapshots: Array(25).fill(retainedText) })).toThrow("留存文本");
+    expect(() => parseReport({ evidence_snapshots: [retainedText, retainedText] })).toThrow("留存文本");
+    expect(() => parseReport({ evidence_snapshots: {} })).toThrow("留存文本");
+    expect(() => parseReport({ evidence_snapshots: Array.from({ length: 6 }, (_, index) => ({
+      ...retainedText, snapshot_id: index.toString(16).padStart(64, "0"), text: "😀".repeat(24000),
+    })) })).toThrow("留存文本");
+    expect(parseReport({ evidence_snapshots: [{ ...retainedText, text: "😀".repeat(24000) }] }).evidence_snapshots).toHaveLength(1);
+  });
+});
+
 describe("parseReport", () => {
   it("parses a full backend report payload with provenance", () => {
     const report = parseReport({

@@ -20,11 +20,13 @@ from backend.app.services.entity_anchor import (
     extract_subject_anchors,
     text_contains_subject_mismatch,
 )
-from backend.app.services.evidence_goals import apply_evidence_goals
+from backend.app.services.evidence_goals import apply_evidence_goals, review_claim_items
 from backend.app.services.llm_verdict import llm_judge_claims
 from backend.app.services.page_fetcher import fetch_page_snippets
 from backend.app.services.question_intent import detect_trend_topic, is_broad_trend_claim
 from backend.app.services.retrieval_models import RetrievalBundle
+from backend.app.services.run_control import check_run_control
+from backend.app.services.supplemental_evidence import merge_supplemental_evidence
 
 _SHANGHAI_TZ = timezone(timedelta(hours=8))
 # Undated evidence sorts AFTER any dated evidence in recency order — mirrors
@@ -467,6 +469,8 @@ class VerdictEngine:
         retrieval_bundle: RetrievalBundle | None = None,
         completion_fn=None,
     ) -> VerdictEvaluation:
+        claims = review_claim_items(request) or claims
+        retrieval_bundle = merge_supplemental_evidence(request, retrieval_bundle)
         evidence_pool, evidence_grade, evidence_source = self._resolve_evidence_pool(
             request=request,
             event=event,
@@ -476,6 +480,7 @@ class VerdictEngine:
         # Fetch page content for top results to enrich correction context
         page_bodies: dict[str, str] = {}
         if retrieval_bundle and retrieval_bundle.canonical_results:
+            check_run_control()
             page_bodies = fetch_page_snippets(retrieval_bundle.canonical_results)
 
         results: list[ClaimResult] = []
