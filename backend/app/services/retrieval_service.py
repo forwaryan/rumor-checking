@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
@@ -36,6 +37,7 @@ from backend.app.services.retrieval_models import (
     infer_source_category,
     looks_like_repost,
 )
+from backend.app.services.retrieval_observer import bundle_counts, observe_retrieval
 from backend.app.services.retrieval_provider import GdeltNewsProvider, LlmWebSearchProvider, RetrievalProvider
 from backend.app.services.sogou_weixin_provider import SogouWeixinSearchProvider
 from backend.app.services.toutiao_search_provider import ToutiaoSearchProvider
@@ -161,6 +163,19 @@ class RetrievalService:
         *,
         request_context: dict[str, Any] | None = None,
     ) -> RetrievalBundle:
+        context = request_context or {}
+        stage = context.get("retrieval_stage_key") or (
+            "retrieval_follow_up" if context.get("force_retrieval_query") else "retrieval_initial"
+        )
+        with observe_retrieval("round", stage_key=stage) as observation:
+            bundle = self._retrieve_with_sources(event, request_context=context)
+            observation.update(bundle_counts(bundle))
+            observation["status"] = "ok" if bundle.canonical_results else "empty"
+            return bundle
+
+    def _retrieve_with_sources(
+        self, event: NormalizedEvent, *, request_context: dict[str, Any]
+    ) -> RetrievalBundle:
         request_context = request_context or {}
         # The caller (agent tool) owns the pipeline step this retrieval belongs to
         # and passes it via retrieval_stage_key; only fall back to the force-query
@@ -269,12 +284,18 @@ class RetrievalService:
         fetch_indices: list[int] = []
         for index, spec in enumerate(query_plan):
             if cache_enabled and not bypass_cache:
-                cached = self.cache.read(
-                    query_text=spec.query,
-                    provider_name=provider_name,
-                    allow_stale=cache_only or allow_stale,
-                    scope_key=spec.normalized_scope(),
-                )
+                with observe_retrieval("cache", provider=provider_name, stage_key=stage_key,
+                                       query_index=index, query_chars=len(spec.query)) as observation:
+                    cached = self.cache.read(
+                        query_text=spec.query,
+                        provider_name=provider_name,
+                        allow_stale=cache_only or allow_stale,
+                        scope_key=spec.normalized_scope(),
+                    )
+                    observation["cache_status"] = cached.cache_status if cached else "miss"
+                    observation["status"] = "ok" if cached else "miss"
+                    if cached is not None:
+                        observation.update(bundle_counts(cached))
                 if cached is not None:
                     cached_bundle = cached.with_runtime_metadata(
                         query_groups=(spec,),
@@ -306,6 +327,9 @@ class RetrievalService:
                 continue
 
             if provider_unavailable:
+                with observe_retrieval("query", provider=provider_name, stage_key=stage_key,
+                                       query_index=index, query_chars=len(spec.query)) as observation:
+                    observation["status"] = "unavailable"
                 logger.warning("retrieval_provider_unavailable provider=%s query_label=%s", provider_name, spec.label)
                 query_failures.append(f"{spec.label}:provider_unavailable")
                 emit_log(
@@ -341,7 +365,13 @@ class RetrievalService:
                             f"rationale={spec.rationale}",
                         ],
                     )
-                    return self.provider.search(spec.query), None
+                    with observe_retrieval("query", provider=provider_name, stage_key=stage_key,
+                                           query_index=index, query_chars=len(spec.query),
+                                           cache_status="bypassed" if bypass_cache else "not_used") as observation:
+                        hits = self.provider.search(spec.query)
+                        observation["raw_result_count"] = len(hits)
+                        observation["status"] = "ok" if hits else "empty"
+                        return hits, None
                 except AppError:
                     raise
                 except Exception as exc:  # noqa: BLE001 - degraded per-query, surfaced below
@@ -352,7 +382,7 @@ class RetrievalService:
                         reset_progress_callback(token)
 
             with ThreadPoolExecutor(max_workers=len(fetch_indices)) as executor:
-                future_map = {executor.submit(_run_fetch, index): index for index in fetch_indices}
+                future_map = {executor.submit(copy_context().run, _run_fetch, index): index for index in fetch_indices}
                 for future, index in future_map.items():
                     fetch_outcomes[index] = future.result()
 
@@ -370,12 +400,19 @@ class RetrievalService:
                     exc.__class__.__name__,
                 )
                 if cache_enabled and (allow_stale or self.settings.retrieval_cache_allow_stale_on_error):
-                    stale_cached = self.cache.read(
-                        query_text=spec.query,
-                        provider_name=provider_name,
-                        allow_stale=True,
-                        scope_key=spec.normalized_scope(),
-                    )
+                    with observe_retrieval("cache", provider=provider_name, stage_key=stage_key,
+                                           query_index=index, fallback_used=True) as observation:
+                        stale_cached = self.cache.read(
+                            query_text=spec.query,
+                            provider_name=provider_name,
+                            allow_stale=True,
+                            scope_key=spec.normalized_scope(),
+                        )
+                        observation["cache_status"] = stale_cached.cache_status if stale_cached else "miss"
+                        observation["status"] = "ok" if stale_cached else "miss"
+                        if stale_cached is not None:
+                            observation.update(bundle_counts(stale_cached))
+                            observation["fallback_used"] = True
                     if stale_cached is not None:
                         query_bundles_by_index[index] = stale_cached.with_runtime_metadata(
                             fallback_used=True,
@@ -416,12 +453,14 @@ class RetrievalService:
                 cache_status="bypassed" if bypass_cache else ("write_only" if cache_enabled else "not_used"),
             )
             if cache_enabled and not bypass_cache:
-                self.cache.write(
-                    query_text=spec.query,
-                    provider_name=provider_name,
-                    bundle=bundle,
-                    scope_key=spec.normalized_scope(),
-                )
+                with observe_retrieval("cache", provider=provider_name, stage_key=stage_key,
+                                       query_index=index, cache_status="write_only"):
+                    self.cache.write(
+                        query_text=spec.query,
+                        provider_name=provider_name,
+                        bundle=bundle,
+                        scope_key=spec.normalized_scope(),
+                    )
             query_bundles_by_index[index] = bundle
             cache_status_by_index[index] = bundle.cache_status
             emit_retrieval(
@@ -533,7 +572,10 @@ class RetrievalService:
             for item in raw_results
         ]
         relevant_results = self._filter_relevant_results(runtime_results)
-        canonical_results = merge_search_results(relevant_results)
+        with observe_retrieval("selection", raw_result_count=len(relevant_results)) as observation:
+            canonical_results = merge_search_results(relevant_results)
+            observation.update(selected_result_count=len(canonical_results),
+                               duplicate_count=len(relevant_results) - len(canonical_results))
         return RetrievalBundle(
             query=spec.query,
             matched_case_id="real_search",
@@ -593,7 +635,10 @@ class RetrievalService:
             child_failures.extend(bundle.query_failures)
 
         relevant_raw_results = self._filter_relevant_results(raw_results)
-        canonical_results = merge_search_results(relevant_raw_results)
+        with observe_retrieval("selection", raw_result_count=len(relevant_raw_results)) as observation:
+            canonical_results = merge_search_results(relevant_raw_results)
+            observation.update(selected_result_count=len(canonical_results),
+                               duplicate_count=len(relevant_raw_results) - len(canonical_results))
         all_failures = list(dict.fromkeys([*query_failures, *child_failures]))
         combined = RetrievalBundle(
             query=primary_query,
@@ -639,7 +684,10 @@ class RetrievalService:
         if not short_query:
             return bundle
         try:
-            hits = provider.search(short_query, max_results=5)
+            with observe_retrieval("supplement", provider=log_prefix, query_chars=len(short_query)) as observation:
+                hits = provider.search(short_query, max_results=5)
+                observation["raw_result_count"] = len(hits)
+                observation["status"] = "ok" if hits else "empty"
         except Exception as exc:
             logger.warning("%s_append_failed error=%s", log_prefix, exc)
             return bundle
@@ -663,7 +711,12 @@ class RetrievalService:
         ]
 
         existing_keys = {r.independence_key for r in bundle.canonical_results if r.independence_key}
-        new_results = [r for r in enriched if r.independence_key not in existing_keys]
+        with observe_retrieval("selection", provider=log_prefix,
+                               raw_result_count=len(enriched)) as observation:
+            new_results = [r for r in enriched if r.independence_key not in existing_keys]
+            observation.update(selected_result_count=len(new_results),
+                               duplicate_count=len(enriched) - len(new_results),
+                               status="ok" if new_results else "empty")
         if not new_results:
             return bundle
 
@@ -777,7 +830,12 @@ class RetrievalService:
             callback_token = set_progress_callback(parent_callback) if parent_callback is not None else None
             stage_token = set_retrieval_stage_key(stage_key)
             try:
-                hits = self.provider.search(boost_query)
+                with observe_retrieval("official_boost", provider=self.provider.name,
+                                       stage_key=stage_key, query_index=domains.index(domain),
+                                       query_chars=len(boost_query)) as observation:
+                    hits = self.provider.search(boost_query)
+                    observation["raw_result_count"] = len(hits) if hits else 0
+                    observation["status"] = "ok" if hits else "empty"
             except Exception as exc:
                 return domain, None, exc
             finally:
@@ -787,7 +845,7 @@ class RetrievalService:
             return domain, list(hits) if hits else None, None
 
         with ThreadPoolExecutor(max_workers=min(4, len(domains))) as executor:
-            futures = [executor.submit(_fetch_domain, d) for d in domains]
+            futures = [executor.submit(copy_context().run, _fetch_domain, d) for d in domains]
 
         for future in futures:
             domain, hits, exc = future.result()
@@ -814,6 +872,9 @@ class RetrievalService:
                 new_results.append(enriched)
             matched_domains.append(domain)
 
+        with observe_retrieval("selection", stage_key=stage_key,
+                               selected_result_count=len(new_results)) as observation:
+            observation["status"] = "ok" if new_results else "empty"
         if not new_results:
             return bundle
 
@@ -873,27 +934,34 @@ class RetrievalService:
         return renamed
 
     def _filter_relevant_results(self, results: list[SearchResult]) -> list[SearchResult]:
-        if not results:
-            return results
-        # Hard filter: dictionary/encyclopedia junk (surfaced when a search engine
-        # splits a Chinese phrase into single chars) and navigational brand pages
-        # (a homepage / section index that only matches the entity term) are never
-        # real evidence, so drop them even when they're all we have — returning
-        # nothing is more honest than presenting a 字典 entry or a bare homepage as
-        # a source.
-        grounded = [
-            item
-            for item in results
-            if not self._is_noise_result(item)
-            and not self._is_navigational_non_evidence(item)
-            and not self._is_topically_disjoint(item)
-        ]
-        if len(grounded) <= 1:
-            return grounded
-        # Soft filter: query relevance can be over-aggressive, so fall back to the
-        # hard-filtered set rather than dropping everything.
-        on_topic = [item for item in grounded if self._result_matches_query(item)]
-        return on_topic or grounded
+        with observe_retrieval("selection", raw_result_count=len(results)) as observation:
+            grounded = []
+            rejected = {"filtered_noise_count": 0, "filtered_navigation_count": 0,
+                        "filtered_disjoint_count": 0, "filtered_relevance_count": 0}
+            # First matching reason wins, matching the original short-circuit
+            # filter while keeping rejection counts mutually exclusive.
+            for item in results:
+                if self._is_noise_result(item):
+                    rejected["filtered_noise_count"] += 1
+                elif self._is_navigational_non_evidence(item):
+                    rejected["filtered_navigation_count"] += 1
+                elif self._is_topically_disjoint(item):
+                    rejected["filtered_disjoint_count"] += 1
+                else:
+                    grounded.append(item)
+            selected = grounded
+            fallback = False
+            if len(grounded) > 1:
+                on_topic = [item for item in grounded if self._result_matches_query(item)]
+                fallback = not on_topic
+                selected = on_topic or grounded
+                rejected["filtered_relevance_count"] = len(grounded) - len(selected)
+            observation.update(rejected)
+            observation.update(selected_result_count=len(selected),
+                               filtered_result_count=len(results) - len(selected),
+                               soft_relevance_fallback=fallback,
+                               status="ok" if selected else "empty")
+            return selected
 
     def _is_noise_result(self, result: SearchResult) -> bool:
         title = result.title

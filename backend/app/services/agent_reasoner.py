@@ -41,8 +41,8 @@ from backend.app.services.contract_utils import (
     ensure_datetime_string_or_empty,
 )
 from backend.app.services.evidence_context import ContextBudgetExceeded, build_evidence_prompt
+from backend.app.services.model_call_observer import model_call_attempt, observe_model_call
 from backend.app.services.model_health import get_model_health_registry
-from backend.app.services.model_ledger import record_call
 from backend.app.services.progress import emit_api_call, emit_log
 from backend.app.services.question_intent import is_broad_trend_question
 from backend.app.services.question_resolver import QuestionResolution
@@ -978,13 +978,14 @@ class LlmAgentReasoner:
                 ],
             )
             self._acquire_rate_limit(current_model)
-            content = self._stream_completion(
-                endpoint=endpoint,
-                model=current_model,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                timeout_multiplier=timeout_multiplier,
-            )
+            with model_call_attempt(stage_key, attempt):
+                content = self._stream_completion(
+                    endpoint=endpoint,
+                    model=current_model,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    timeout_multiplier=timeout_multiplier,
+                )
             # Two distinct notions, kept separate so the trace never overclaims:
             #  - `retry`: does the loop try again? (only empties, or a failed
             #    validator, are retried.)
@@ -1128,138 +1129,135 @@ class LlmAgentReasoner:
         # slow-trickle to the deadline and truncate. Both are prompted to "output
         # JSON only" and the caller's lenient parser recovers a fenced/sliced block.
 
-        parts: list[str] = []
-        char_budget = max_tokens * _STREAM_CHARS_PER_TOKEN
-        deadline = time.monotonic() + timeout_seconds
-        _call_start = time.monotonic()
-        collected = 0
-        reasoning_chars = 0
-        truncated = False
-        usage_data: dict | None = None
-        try:
-            with self._client.stream(
-                "POST",
-                endpoint,
-                headers={
-                    "Authorization": f"Bearer {self.settings.llm_api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=body,
-                timeout=timeout_seconds,
-            ) as response:
-                response.raise_for_status()
-                for raw_line in response.iter_lines():
-                    if collected >= char_budget or time.monotonic() >= deadline:
-                        truncated = True
-                        break
-                    if not raw_line:
-                        continue
-                    line = raw_line.strip()
-                    if not line.startswith("data:"):
-                        continue
-                    data = line[len("data:") :].strip()
-                    if not data or data == "[DONE]":
-                        if data == "[DONE]":
-                            break
-                        continue
-                    try:
-                        chunk = json.loads(data)
-                    except json.JSONDecodeError:
-                        continue
-                    # Capture usage from the final chunk (OpenAI SSE format).
-                    chunk_usage = chunk.get("usage")
-                    if isinstance(chunk_usage, dict):
-                        usage_data = chunk_usage
-                    choices = chunk.get("choices") or [{}]
-                    delta = choices[0].get("delta") or {}
-                    piece = delta.get("content")
-                    if isinstance(piece, str):
-                        parts.append(piece)
-                        collected += len(piece)
-                    # Reasoning tokens don't count toward the answer, but they do
-                    # count toward the runaway budget so a CoT that never terminates
-                    # still gets cut off.
-                    thought = delta.get("reasoning_content")
-                    if isinstance(thought, str):
-                        reasoning_chars += len(thought)
-                        collected += len(thought)
-        except httpx.ReadTimeout:
-            truncated = True
-            logger.warning(
-                "llm_stream_read_timeout model=%s content_chars=%s reasoning_chars=%s",
-                model,
-                len("".join(parts)),
-                reasoning_chars,
-            )
-        except (httpx.HTTPStatusError, httpx.TransportError) as exc:
-            logger.warning(
-                "llm_stream_network_error model=%s error_type=%s error=%s",
-                model, type(exc).__name__, str(exc)[:200],
-            )
-            return ""
-        if truncated:
-            logger.warning(
-                "llm_stream_truncated model=%s reasoning=%s content_chars=%s reasoning_chars=%s char_budget=%s",
-                model,
-                is_reasoning,
-                len("".join(parts)),
-                reasoning_chars,
-                char_budget,
-            )
-        # Report token usage to the runner (if callback is set).
-        if usage_data and self._on_token_usage:
+        if getattr(self.settings, "llm_stream_include_usage", True):
+            body["stream_options"] = {"include_usage": True}
+
+        with observe_model_call(
+            settings=self.settings, provider="llm", model=model, request=body,
+        ) as observation:
+            if hasattr(user_prompt, "context_counts"):
+                observation.stage_key = observation.stage_key or "agent_synthesis"
+                if getattr(self.settings, "agent_context_diagnostics_enabled", True):
+                    observation.context_estimate = {
+                        **user_prompt.context_counts, "output_reserve": max_tokens,
+                        "context_limit": self._context_limit(model),
+                        "total_estimated": estimate_tokens(system_prompt) + estimate_tokens(user_prompt) + 16 + max_tokens,
+                    }
+            parts: list[str] = []
+            char_budget = max_tokens * _STREAM_CHARS_PER_TOKEN
+            deadline = time.monotonic() + timeout_seconds
+            collected = 0
+            reasoning_chars = 0
+            truncated = False
+            stream_finished = False
+            usage_data: dict | None = None
             try:
-                self._on_token_usage(
-                    usage_data.get("prompt_tokens", 0),
-                    usage_data.get("completion_tokens", 0),
-                    usage_data.get("total_tokens", 0),
+                with self._client.stream(
+                    "POST",
+                    endpoint,
+                    headers={
+                        "Authorization": f"Bearer {self.settings.llm_api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=body,
+                    timeout=timeout_seconds,
+                ) as response:
+                    observation.status_code = getattr(response, "status_code", None)
+                    response.raise_for_status()
+                    for raw_line in response.iter_lines():
+
+                        if collected >= char_budget or time.monotonic() >= deadline:
+                            truncated = True
+                            break
+                        if not raw_line:
+                            continue
+                        line = raw_line.strip()
+                        if not line.startswith("data:"):
+                            continue
+                        data = line[len("data:") :].strip()
+                        if not data or data == "[DONE]":
+                            if data == "[DONE]":
+                                stream_finished = True
+                                break
+                            continue
+                        try:
+                            chunk = json.loads(data)
+                        except json.JSONDecodeError:
+                            continue
+                        observation.chunk(chunk)
+                        # Capture usage from the final chunk (OpenAI SSE format).
+                        chunk_usage = chunk.get("usage")
+                        if isinstance(chunk_usage, dict):
+                            usage_data = chunk_usage
+                        choices = chunk.get("choices") or [{}]
+                        if any(choice.get("finish_reason") for choice in choices if isinstance(choice, dict)):
+                            stream_finished = True
+                        delta = choices[0].get("delta") or {}
+                        piece = delta.get("content")
+                        if isinstance(piece, str):
+                            parts.append(piece)
+                            collected += len(piece)
+                        # Reasoning tokens don't count toward the answer, but they do
+                        # count toward the runaway budget so a CoT that never terminates
+                        # still gets cut off.
+                        thought = delta.get("reasoning_content")
+                        if isinstance(thought, str):
+                            reasoning_chars += len(thought)
+                            collected += len(thought)
+            except httpx.ReadTimeout as exc:
+                observation.fail(exc, truncated=True)
+                truncated = True
+                logger.warning(
+                    "llm_stream_read_timeout model=%s content_chars=%s reasoning_chars=%s",
+                    model,
+                    len("".join(parts)),
+                    reasoning_chars,
                 )
-            except Exception as exc:
-                logger.debug(
-                    "token_usage_callback_failed model=%s error=%s",
-                    model, exc, exc_info=True,
+            except (httpx.HTTPStatusError, httpx.TransportError) as exc:
+                observation.fail(exc)
+                logger.warning(
+                    "llm_stream_network_error model=%s error_type=%s error=%s",
+                    model, type(exc).__name__, str(exc)[:200],
                 )
-        # Prompt-cache visibility: OpenAI-compatible gateways report reused input
-        # tokens under prompt_tokens_details.cached_tokens. Log it only when the
-        # feature is on and the gateway actually returned a hit, so we can confirm
-        # the cache is engaging rather than silently being ignored.
-        if usage_data and getattr(self.settings, "agent_prompt_cache_enabled", False):
-            details = usage_data.get("prompt_tokens_details")
-            cached = details.get("cached_tokens") if isinstance(details, dict) else None
-            if cached:
-                logger.info(
-                    "llm_prompt_cache_hit model=%s cached_tokens=%s prompt_tokens=%s",
-                    model, cached, usage_data.get("prompt_tokens", 0),
+                return ""
+            if not stream_finished:
+                truncated = True
+            if truncated:
+                observation.status = "truncated"
+                logger.warning(
+                    "llm_stream_truncated model=%s reasoning=%s content_chars=%s reasoning_chars=%s char_budget=%s",
+                    model,
+                    is_reasoning,
+                    len("".join(parts)),
+                    reasoning_chars,
+                    char_budget,
                 )
-        # Persistent desensitized ledger (default-off). One line per completion
-        # attempt: model + token counts + latency + status only — never prompt or
-        # completion text, never the gateway host/key. Best-effort; a ledger error
-        # must not fail the completion.
-        _content = "".join(parts).strip()
-        record_call(
-            provider="llm",
-            model=model,
-            input_tokens=usage_data.get("prompt_tokens", 0) if usage_data else 0,
-            output_tokens=usage_data.get("completion_tokens", 0) if usage_data else 0,
-            cache_tokens=(
-                (usage_data.get("prompt_tokens_details") or {}).get("cached_tokens", 0)
-                if usage_data and isinstance(usage_data.get("prompt_tokens_details"), dict)
-                else 0
-            ),
-            latency_ms=int((time.monotonic() - _call_start) * 1000),
-            status="ok" if _content else "empty",
-            stage_key="agent_synthesis" if hasattr(user_prompt, "context_counts") else None,
-            context_estimate=(
-                {**user_prompt.context_counts,
-                 "output_reserve": max_tokens,
-                 "context_limit": self._context_limit(model),
-                 "total_estimated": estimate_tokens(system_prompt) + estimate_tokens(user_prompt) + 16 + max_tokens}
-                if hasattr(user_prompt, "context_counts")
-                and getattr(self.settings, "agent_context_diagnostics_enabled", True) else None
-            ),
-            settings=self.settings,
-        )
-        return "".join(parts).strip()
+            # Report token usage to the runner (if callback is set).
+            if observation.usage and self._on_token_usage:
+                try:
+                    self._on_token_usage(
+                        observation.usage.get("prompt", 0),
+                        observation.usage.get("completion", 0),
+                        observation.usage.get("total", 0),
+                    )
+                except Exception as exc:
+                    logger.debug(
+                        "token_usage_callback_failed model=%s error=%s",
+                        model, exc, exc_info=True,
+                    )
+            # Prompt-cache visibility: OpenAI-compatible gateways report reused input
+            # tokens under prompt_tokens_details.cached_tokens. Log it only when the
+            # feature is on and the gateway actually returned a hit, so we can confirm
+            # the cache is engaging rather than silently being ignored.
+            if usage_data and getattr(self.settings, "agent_prompt_cache_enabled", False):
+                details = usage_data.get("prompt_tokens_details")
+                cached = details.get("cached_tokens") if isinstance(details, dict) else None
+                if cached:
+                    logger.info(
+                        "llm_prompt_cache_hit model=%s cached_tokens=%s prompt_tokens=%s",
+                        model, cached, usage_data.get("prompt_tokens", 0),
+                    )
+            return "".join(parts).strip()
 
     def _reasoning_model(self) -> str:
         if self.model_override:

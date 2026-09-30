@@ -589,48 +589,27 @@ class Supervisor:
             return self._run_agent_impl(agent, state, deadline)
         config = agent.config if hasattr(agent, "config") else None
         model_name = getattr(config, "model", None)
-        # Do NOT push onto the exporter's active stack — `_run_agent` runs on
-        # worker threads inside `ThreadPoolExecutor` when a batch fans out, and
-        # a shared LIFO stack would let one worker's end_span pop another
-        # worker's span. Instead, capture the current top (the supervisor.run
-        # span, pushed on the main thread) as our parent, run the agent, and
-        # record a completed child span under it — `record_child_span` is
-        # already lock-guarded and safe to call from any thread.
-        parent = self._trace_exporter.current_span()
-        start = time.time()
+        # Each copied worker context gets its own stack, so LLM requests and
+        # nested critic steps remain children of the agent that issued them.
+        span = self._trace_exporter.begin_span(
+            f"agent.{agent.role.value}", role=agent.role.value, model=model_name,
+        )
         try:
             result = self._run_agent_impl(agent, state, deadline)
-        except Exception as exc:
-            if parent is not None:
-                self._trace_exporter.record_child_span(
-                    f"agent.{agent.role.value}",
-                    parent=parent,
-                    start_time=start,
-                    end_time=time.time(),
-                    success=False,
-                    error_type=exc.__class__.__name__,
-                    error_message=str(exc)[:200],
-                    role=agent.role.value,
-                    model=model_name,
-                )
-            raise
-        if parent is not None:
-            self._trace_exporter.record_child_span(
-                f"agent.{agent.role.value}",
-                parent=parent,
-                start_time=start,
-                end_time=time.time(),
-                success=result.status != AgentStatus.FAILED,
-                error_type=None,
-                error_message=result.error,
-                role=agent.role.value,
-                model=model_name,
-                status=result.status.value,
-                elapsed_ms=result.elapsed_ms,
-                actions=list(result.actions_taken),
-                model_used=result.model_used,
+        except BaseException as exc:
+            self._trace_exporter.end_span(
+                success=False, error_type=exc.__class__.__name__, error_message=str(exc)[:200],
             )
-        return result
+            raise
+        else:
+            span.metadata.update(
+                status=result.status.value, elapsed_ms=result.elapsed_ms,
+                actions=list(result.actions_taken), model_used=result.model_used,
+            )
+            self._trace_exporter.end_span(
+                success=result.status != AgentStatus.FAILED, error_message=result.error,
+            )
+            return result
 
     def _run_agent_impl(
         self,

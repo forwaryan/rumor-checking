@@ -61,11 +61,16 @@ class ModelCallRecord:
     output_tokens: int
     cache_tokens: int
     latency_ms: int
-    status: str  # "ok" | "empty" | "error"
+    status: str  # "ok" | "empty" | "error" | "truncated"
     error_class: str | None
     trace_id: str | None
     stage_key: str | None
     context_estimate: dict[str, int | str] | None = None
+    call_id: str | None = None
+    parent_span_id: str | None = None
+    attempt: int = 1
+    usage_reported: bool | None = None
+    total_tokens: int | None = None
 
 
 class ModelLedger:
@@ -135,6 +140,11 @@ def record_call(
     stage_key: str | None = None,
     settings: Settings | None = None,
     context_estimate: dict[str, int] | None = None,
+    call_id: str | None = None,
+    parent_span_id: str | None = None,
+    attempt: int = 1,
+    usage_reported: bool | None = None,
+    total_tokens: int | None = None,
 ) -> None:
     """Best-effort ledger append. No-op when disabled; never raises."""
     try:
@@ -155,6 +165,8 @@ def record_call(
                 trace_id=trace_id,
                 stage_key=stage_key,
                 context_estimate=_safe_context_estimate(context_estimate),
+                call_id=call_id, parent_span_id=parent_span_id, attempt=attempt,
+                usage_reported=usage_reported, total_tokens=total_tokens,
             )
         )
     except Exception as exc:  # pragma: no cover - defensive; ledger must never break a run

@@ -147,6 +147,7 @@ class Settings:
     llm_models: tuple[str, ...]
     llm_temperature: float
     llm_max_tokens: int
+    llm_stream_include_usage: bool
     llm_reasoning_models: tuple[str, ...]
     llm_reasoning_max_tokens: int
     llm_reasoning_timeout_seconds: float
@@ -328,6 +329,7 @@ def get_settings() -> Settings:
         ),
         llm_temperature=_as_float(os.getenv("LLM_TEMPERATURE") or os.getenv("KIMI_TEMPERATURE"), 0.1),
         llm_max_tokens=max(_as_int(os.getenv("LLM_MAX_TOKENS"), 4096), 256),
+        llm_stream_include_usage=_as_bool(os.getenv("LLM_STREAM_INCLUDE_USAGE"), default=True),
         llm_reasoning_models=tuple(
             m.strip() for m in (os.getenv("LLM_REASONING_MODELS") or "").split(",") if m.strip()
         ),

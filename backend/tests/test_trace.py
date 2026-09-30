@@ -6,6 +6,7 @@ import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 
 from backend.app.agent.trace import TraceExporter, TraceRecord, TraceSpan
 from backend.app.services.phoenix_exporter import export_trace_to_phoenix, span_attributes
@@ -174,11 +175,13 @@ def test_exporter_hook_integration():
     # Simulate pre → post cycle
     ctx1 = FakeHookCtx(action="search_news", state=FakeState())
     exporter.pre_hook(ctx1)
+    ctx1.state.token_usage = SimpleNamespace(prompt_tokens=200, completion_tokens=100, total_tokens=300)
     ctx1.outcome = FakeOutcome(success=True)
     exporter.post_hook(ctx1)
 
-    ctx2 = FakeHookCtx(action="synthesize", state=FakeState())
+    ctx2 = FakeHookCtx(action="synthesize", state=ctx1.state)
     exporter.pre_hook(ctx2)
+    ctx2.state.token_usage = SimpleNamespace(prompt_tokens=220, completion_tokens=110, total_tokens=330)
     ctx2.outcome = FakeOutcome(success=False, error_type="Timeout", error_message="timed out")
     exporter.post_hook(ctx2)
 
@@ -188,6 +191,8 @@ def test_exporter_hook_integration():
     assert record.spans[0].token_usage["total"] == 150
     assert record.spans[1].success is False
     assert record.spans[1].error_type == "Timeout"
+    assert record.spans[1].token_usage["total"] == 30
+    assert record.total_tokens == 180
 
 
 def test_exporter_metadata():

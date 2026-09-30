@@ -290,7 +290,7 @@ export function AnalyzePage() {
         {report && <RetrievalHitsList hits={retrievalOnlyHits} isOpen={retrievalHitsOpen} onToggle={() => setRetrievalHitsOpen(!retrievalHitsOpen)} />}
         {report && <TimelineSection timeline={report.timeline} isOpen={timelineOpen} onToggle={() => setTimelineOpen(!timelineOpen)} />}
         {runMetrics && <RunMetricsPanel metrics={runMetrics} isOpen={metricsOpen} onToggle={() => setMetricsOpen(!metricsOpen)} />}
-        {runId && report && <AgentSpanTree runId={runId} isOpen={agentSpanTreeOpen} onToggle={() => setAgentSpanTreeOpen(!agentSpanTreeOpen)} />}
+        {runId && !isStreaming && (report || (runState && ["completed", "failed", "interrupted"].includes(runState.status))) && <AgentSpanTree key={`${runId}:${runState?.status ?? "report"}`} runId={runId} isOpen={agentSpanTreeOpen} onToggle={() => setAgentSpanTreeOpen(!agentSpanTreeOpen)} />}
         <TraceTimeline traceSteps={traceSteps} isStreaming={isStreaming} traceOpen={traceOpen} onToggleTrace={() => setTraceOpen(!traceOpen)} />
       </div>
     </main>

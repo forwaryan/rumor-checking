@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import logging
+import re
+from contextlib import nullcontext
 
+from backend.app.agent.trace import TraceExporter, get_current_trace
 from backend.app.core.config import get_settings
 from backend.app.models.schemas import AnalyzeRequest, Report, ReportProvenance, RetrievalDiagnostics
 from backend.app.services.agent_reasoner import LlmAgentReasoner
 from backend.app.services.claim_extractor import ClaimExtractor
 from backend.app.services.content_check_builder import ContentCheckBuilder
 from backend.app.services.input_normalizer import InputNormalizer
+from backend.app.services.model_call_observer import model_observation_run
 from backend.app.services.model_health import diff_snapshot, get_model_health_registry
 from backend.app.services.page_fetcher import set_page_fetch_cache
 from backend.app.services.per_claim_retriever import enrich_retrieval_for_claims
@@ -107,6 +111,17 @@ class AnalyzePipeline:
         self._verdict_cache_built = False
 
     def analyze(self, request: AnalyzeRequest) -> Report:
+        """Keep one trace/run binding across fixed, agent, fallback and cache paths."""
+        run_id = self._agent_run_id(request)
+        request = request.model_copy(update={"request_context": {**request.request_context, "run_id": run_id}})
+        exporter = TraceExporter(run_id, metadata={"path": "analysis"}) if self.settings.agent_trace_enabled else None
+        with model_observation_run(run_id), exporter.activate() if exporter else nullcontext():
+            try:
+                return self._analyze_with_cache(request)
+            finally:
+                self._export_trace(exporter)
+
+    def _analyze_with_cache(self, request: AnalyzeRequest) -> Report:
         """Cache-wrapped entrypoint. When the verdict cache is enabled and a
         fresh result exists for this input's fingerprint, return it without
         re-running the pipeline. Disabled by default: a rumor's truth status can
@@ -793,9 +808,8 @@ class AnalyzePipeline:
         )
 
         run_id = self._agent_run_id(request)
-        trace_exporter = None
-        if self.settings.agent_trace_enabled:
-            from backend.app.agent.trace import TraceExporter
+        trace_exporter = get_current_trace()
+        if trace_exporter is None and self.settings.agent_trace_enabled:
             trace_exporter = TraceExporter(run_id=run_id, metadata={"path": "supervisor"})
 
         supervisor = Supervisor(
@@ -816,7 +830,8 @@ class AnalyzePipeline:
             )
             return None
         finally:
-            self._export_trace(trace_exporter)
+            if get_current_trace() is not trace_exporter:
+                self._export_trace(trace_exporter)
 
     def _run_agent_orchestrator(self, request: AnalyzeRequest):
         from backend.app.agent.planner import LlmPlanner, RulePlanner
@@ -875,14 +890,15 @@ class AnalyzePipeline:
             )
             return None
         finally:
-            self._export_trace(trace_exporter)
+            if get_current_trace() is not trace_exporter:
+                self._export_trace(trace_exporter)
 
     def _agent_run_id(self, request: AnalyzeRequest) -> str:
         """The run_id used for checkpoint keying and trace export. Reuses the
         SSE run_id the API layer stamps into request_context so a resumed run
         keys on the same id; falls back to a fresh id for the non-stream path."""
         existing = request.request_context.get("run_id")
-        if isinstance(existing, str) and existing.strip():
+        if isinstance(existing, str) and re.fullmatch(r"[A-Za-z0-9_-]{4,128}", existing.strip()):
             return existing.strip()
         from uuid import uuid4
         return uuid4().hex
@@ -896,9 +912,8 @@ class AnalyzePipeline:
     def _build_trace_hooks(self, run_id: str):
         if not self.settings.agent_trace_enabled:
             return None, None
-        from backend.app.agent.trace import TraceExporter
         from backend.app.agent_tools.base import HookRegistry
-        exporter = TraceExporter(run_id=run_id, metadata={"path": "agent_orchestrator"})
+        exporter = get_current_trace() or TraceExporter(run_id=run_id, metadata={"path": "agent_orchestrator"})
         hooks = HookRegistry()
         hooks.add_pre(exporter.pre_hook)
         hooks.add_post(exporter.post_hook)

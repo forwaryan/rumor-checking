@@ -11,6 +11,7 @@ import httpx
 
 from backend.app.core.config import Settings, get_settings
 from backend.app.services.contract_utils import ensure_datetime_string, loads_lenient_json
+from backend.app.services.model_call_observer import observe_model_call
 from backend.app.services.progress import emit_api_call, get_retrieval_stage_key
 from backend.app.services.retrieval_models import (
     SearchResult,
@@ -353,29 +354,41 @@ class LlmWebSearchProvider:
                 f"model={model}",
             ],
         )
-        response = httpx.post(
-            f"{self.settings.base_url_for_model(model)}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {self.settings.llm_api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": model,
-                "temperature": self._request_temperature(),
-                "response_format": {"type": "json_object"},
-                "messages": messages,
-                "tools": [LLM_WEB_SEARCH_TOOL],
-                "max_tokens": 2048,
-            },
-            timeout=self.settings.retrieval_timeout_seconds,
-        )
-        response.raise_for_status()
-        payload = response.json()
-        tool_call_count = 0
-        choice = payload.get("choices", [{}])[0]
-        message = choice.get("message")
-        if isinstance(message, dict) and isinstance(message.get("tool_calls"), list):
-            tool_call_count = len(message.get("tool_calls") or [])
+        body = {
+            "model": model,
+            "temperature": self._request_temperature(),
+            "response_format": {"type": "json_object"},
+            "messages": messages,
+            "tools": [LLM_WEB_SEARCH_TOOL],
+            "max_tokens": 2048,
+        }
+        with observe_model_call(
+            settings=self.settings,
+            provider="web_search",
+            model=model,
+            stage_key=get_retrieval_stage_key() or "retrieval_initial",
+            request=body,
+        ) as observation:
+            response = httpx.post(
+                f"{self.settings.base_url_for_model(model)}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.settings.llm_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=body,
+                timeout=self.settings.retrieval_timeout_seconds,
+            )
+
+            response.raise_for_status()
+            payload = response.json()
+            observation.response(payload, status_code=response.status_code)
+            choice = payload.get("choices", [{}])[0]
+            message = choice.get("message")
+            if not isinstance(message, dict):
+                raise ValueError("LLM web search returned an invalid message payload")
+            tool_call_count = 0
+            if isinstance(message.get("tool_calls"), list):
+                tool_call_count = len(message.get("tool_calls") or [])
         emit_api_call(
             stage_key=get_retrieval_stage_key() or "retrieval_initial",
             call_type="llm",
@@ -388,8 +401,6 @@ class LlmWebSearchProvider:
                 f"tool_calls={tool_call_count}",
             ],
         )
-        if not isinstance(message, dict):
-            raise ValueError("LLM web search returned an invalid message payload")
         return message
 
     def _search_model(self) -> str:

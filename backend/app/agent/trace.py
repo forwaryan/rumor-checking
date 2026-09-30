@@ -10,9 +10,27 @@ import json
 import threading
 import time
 from contextlib import contextmanager
+from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+_current_binding: ContextVar[tuple[TraceExporter, TraceSpan | None] | None] = ContextVar(
+    "agent_trace_binding", default=None,
+)
+_INHERIT_PARENT = object()
+
+
+def get_current_trace() -> TraceExporter | None:
+    """Return the exporter bound to this request/task context."""
+    binding = _current_binding.get()
+    return binding[0] if binding else None
+
+
+def get_current_parent() -> TraceSpan | None:
+    """Return the parent for new request spans in this task context."""
+    binding = _current_binding.get()
+    return binding[1] if binding else None
 
 
 @dataclass
@@ -99,23 +117,36 @@ class TraceRecord:
         return json.dumps(self.to_dict(), ensure_ascii=False, indent=indent)
 
 
+@dataclass
+class _SpanFrame:
+    span: TraceSpan
+    binding_token: Token
+    stack_token: Token = field(init=False, repr=False)
+
+
+@dataclass
+class _UsageFrame:
+    usage: dict[str, int]
+    stack_token: Token = field(init=False, repr=False)
+
+
 class TraceExporter:
     """Collects spans during a run and exports the complete trace.
 
     Integrates with the runner via the hook system — register as a pre/post hook.
-    Spans nest via an internal stack: `begin_span` pushes, `end_span` pops. Each
-    span's parent is whatever was on top of the stack when it started, so a
-    supervisor span wraps its child-agent spans without callers having to thread
-    parent ids manually.
-
-    For concurrent code (thread pool workers), use `record_child_span` — it
-    records a completed span directly under a specified parent without touching
-    the stack, so parallel workers can't corrupt parent relationships.
+    Active spans are local to each context. Use ``copy_context().run`` when
+    submitting thread workers so they inherit their caller's parent. Completed
+    span writes are guarded by a lock; independent requests never share a stack.
     """
 
     def __init__(self, run_id: str, metadata: dict[str, Any] | None = None):
         self._record = TraceRecord(run_id=run_id, metadata=metadata or {})
-        self._active_stack: list[TraceSpan] = []
+        self._frames: ContextVar[tuple[_SpanFrame, ...]] = ContextVar(
+            f"trace_frames_{id(self)}", default=(),
+        )
+        self._hook_usage: ContextVar[tuple[_UsageFrame, ...]] = ContextVar(
+            f"trace_hook_usage_{id(self)}", default=(),
+        )
         self._id_counter = itertools.count(1)
         self._lock = threading.Lock()
 
@@ -127,35 +158,56 @@ class TraceExporter:
         return f"span_{next(self._id_counter):04d}"
 
     def current_span(self) -> TraceSpan | None:
-        """Peek the currently-active span without touching the stack. Callers
-        that need to record a child span from a worker thread should read the
-        parent this way, then use `record_child_span` — never `span()` /
-        `begin_span()`, which push onto a stack shared across threads."""
-        return self._active_stack[-1] if self._active_stack else None
+        """Return the active parent in the caller's context."""
+        if get_current_trace() is self:
+            return get_current_parent()
+        frames = self._frames.get()
+        return frames[-1].span if frames else None
+
+    @property
+    def _active_stack(self) -> list[TraceSpan]:
+        """Compatibility snapshot for legacy callers; never a shared stack."""
+        return [frame.span for frame in self._frames.get()]
+
+    @contextmanager
+    def activate(self, parent: TraceSpan | None | object = _INHERIT_PARENT):
+        """Bind this exporter and a parent, restoring the prior binding on exit."""
+        if parent is _INHERIT_PARENT:
+            parent = self.current_span()
+        token = _current_binding.set((self, parent))
+        frames_token = self._frames.set(self._frames.get())
+        usage_token = self._hook_usage.set(self._hook_usage.get())
+        try:
+            yield self
+        finally:
+            # Cancellation can interrupt a pre/post hook pair. Restore the
+            # activation boundary even when an inner frame was never closed.
+            self._hook_usage.reset(usage_token)
+            self._frames.reset(frames_token)
+            _current_binding.reset(token)
 
     def begin_span(self, action: str, **metadata: Any) -> TraceSpan:
-        """Start a new span for the given action. Nests under the currently-active
-        span (if any) so parent-child structure is captured automatically.
-
-        For concurrent workers use `record_child_span` instead — pushing onto the
-        shared stack from multiple threads would interleave parents. This method
-        is intended for the single-threaded main flow only."""
-        parent_span = self._active_stack[-1] if self._active_stack else None
+        """Start a span under the current context's parent."""
+        parent_span = self.current_span()
+        with self._lock:
+            span_id = self._next_span_id()
         span = TraceSpan(
             action=action,
             start_time=time.time(),
-            span_id=self._next_span_id(),
+            span_id=span_id,
             parent_span_id=parent_span.span_id if parent_span else None,
             metadata=metadata,
         )
-        self._active_stack.append(span)
+        binding_token = _current_binding.set((self, span))
+        frame = _SpanFrame(span=span, binding_token=binding_token)
+        frame.stack_token = self._frames.set((*self._frames.get(), frame))
         return span
 
     def record_child_span(
         self,
         action: str,
         *,
-        parent: TraceSpan,
+        parent: TraceSpan | None,
         start_time: float,
         end_time: float,
         success: bool,
@@ -173,7 +225,7 @@ class TraceExporter:
                 start_time=start_time,
                 end_time=end_time,
                 span_id=self._next_span_id(),
-                parent_span_id=parent.span_id,
+                parent_span_id=parent.span_id if parent else None,
                 success=success,
                 error_type=error_type,
                 error_message=error_message,
@@ -192,10 +244,16 @@ class TraceExporter:
         token_usage: dict[str, int] | None = None,
     ) -> None:
         """Complete the top active span and add it to the trace."""
+        frames = self._frames.get()
+        if not frames:
+            return
+        frame = frames[-1]
+        span = frame.span
+        # Reset, rather than setting an empty tuple: contexts hold strong
+        # references to their variables, and each exporter owns distinct ones.
+        self._frames.reset(frame.stack_token)
+        _current_binding.reset(frame.binding_token)
         with self._lock:
-            if not self._active_stack:
-                return
-            span = self._active_stack.pop()
             span.end_time = time.time()
             span.success = success
             span.error_type = error_type
@@ -211,7 +269,7 @@ class TraceExporter:
         span_obj = self.begin_span(action, **metadata)
         try:
             yield span_obj
-        except Exception as exc:
+        except BaseException as exc:
             self.end_span(
                 success=False,
                 error_type=exc.__class__.__name__,
@@ -235,22 +293,63 @@ class TraceExporter:
 
     def pre_hook(self, hook_ctx: Any) -> None:
         """Pre-dispatch hook: starts a span."""
-        self.begin_span(hook_ctx.action)
+        frame = _UsageFrame(usage=self._state_usage(hook_ctx.state))
+        frame.stack_token = self._hook_usage.set((*self._hook_usage.get(), frame))
+        try:
+            self.begin_span(hook_ctx.action)
+        except BaseException:
+            self._hook_usage.reset(frame.stack_token)
+            raise
+
+    @staticmethod
+    def _state_usage(state: Any) -> dict[str, int]:
+        usage = getattr(state, "token_usage", None)
+        return {
+            key: getattr(usage, attribute, 0)
+            for key, attribute in (
+                ("prompt", "prompt_tokens"),
+                ("completion", "completion_tokens"),
+                ("total", "total_tokens"),
+            )
+        }
+
+    def _llm_descendant_usage(self, parent: TraceSpan | None) -> dict[str, int]:
+        if parent is None:
+            return {}
+        with self._lock:
+            spans = tuple(self._record.spans)
+        by_id = {span.span_id: span for span in spans}
+        totals: dict[str, int] = {}
+        for span in spans:
+            if span.metadata.get("span_kind") != "LLM":
+                continue
+            ancestor = span.parent_span_id
+            seen: set[str] = set()
+            while ancestor and ancestor not in seen:
+                if ancestor == parent.span_id:
+                    for key, value in span.token_usage.items():
+                        totals[key] = totals.get(key, 0) + value
+                    break
+                seen.add(ancestor)
+                ancestor_span = by_id.get(ancestor)
+                ancestor = ancestor_span.parent_span_id if ancestor_span else None
+        return totals
 
     def post_hook(self, hook_ctx: Any) -> None:
         """Post-dispatch hook: completes the span."""
+        snapshots = self._hook_usage.get()
+        before = snapshots[-1].usage if snapshots else {}
+        if snapshots:
+            self._hook_usage.reset(snapshots[-1].stack_token)
         outcome = hook_ctx.outcome
         if outcome is None:
             self.end_span(success=False, error_type="no_outcome")
             return
-        token_info = {}
-        state = hook_ctx.state
-        if hasattr(state, "token_usage"):
-            token_info = {
-                "prompt": state.token_usage.prompt_tokens,
-                "completion": state.token_usage.completion_tokens,
-                "total": state.token_usage.total_tokens,
-            }
+        observed = self._llm_descendant_usage(self.current_span())
+        token_info = {
+            key: max(0, value - before.get(key, 0) - observed.get(key, 0))
+            for key, value in self._state_usage(hook_ctx.state).items()
+        }
         self.end_span(
             success=outcome.success,
             error_type=outcome.error_type,

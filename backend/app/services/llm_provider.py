@@ -9,6 +9,7 @@ import httpx
 from backend.app.core.config import Settings, get_settings
 from backend.app.models.schemas import ClaimItem, NormalizedEvent, ProviderAnalysis, ProviderEventDraft
 from backend.app.services.contract_utils import ensure_datetime_string, loads_lenient_json
+from backend.app.services.model_call_observer import observe_model_call
 from backend.app.services.progress import emit_api_call, emit_log
 from backend.app.services.question_intent import is_broad_trend_question
 
@@ -124,6 +125,8 @@ class LlmStructuredProvider:
         return analysis
 
     def _request_completion(self, event: NormalizedEvent) -> str:
+        user_prompt = self._build_user_prompt(event)
+        model = self._model()
         emit_api_call(
             stage_key="provider_enrichment",
             call_type="llm",
@@ -131,28 +134,42 @@ class LlmStructuredProvider:
             title="调用 LLM structured analysis",
             summary="正在请求 LLM 结构化抽取事件和 claims。",
             details=[
-                f"model={self._model()}",
+                f"model={model}",
             ],
         )
-        response = httpx.post(
-            f"{self.settings.base_url_for_model(self._model())}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {self.settings.llm_api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": self._model(),
-                "temperature": self._request_temperature(),
-                "response_format": {"type": "json_object"},
-                "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": self._build_user_prompt(event)},
-                ],
-            },
-            timeout=self.settings.provider_timeout_seconds,
-        )
-        response.raise_for_status()
-        payload = response.json()
+
+        body = {
+            "model": model,
+            "temperature": self._request_temperature(),
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+        }
+        with observe_model_call(
+            settings=self.settings,
+            provider="structured",
+            model=model,
+            stage_key="provider_enrichment",
+            request=body,
+        ) as observation:
+            response = httpx.post(
+                f"{self.settings.base_url_for_model(model)}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.settings.llm_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=body,
+                timeout=self.settings.provider_timeout_seconds,
+            )
+
+            response.raise_for_status()
+            payload = response.json()
+            observation.response(payload, status_code=response.status_code)
+            choice = payload.get("choices", [{}])[0]
+            message = choice.get("message", {})
+            content = self._coerce_content(message.get("content"))
         emit_api_call(
             stage_key="provider_enrichment",
             call_type="llm",
@@ -161,12 +178,10 @@ class LlmStructuredProvider:
             summary="LLM 已返回结构化抽取结果。",
             details=[
                 f"status_code={response.status_code}",
-                f"model={self._model()}",
+                f"model={model}",
             ],
         )
-        choice = payload.get("choices", [{}])[0]
-        message = choice.get("message", {})
-        return self._coerce_content(message.get("content"))
+        return content
 
     def _request_temperature(self) -> float:
         return self.settings.llm_temperature

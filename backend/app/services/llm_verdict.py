@@ -17,6 +17,7 @@ import json
 import logging
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextvars import copy_context
 
 from backend.app.core.config import Settings, get_settings
 from backend.app.models.schemas import ClaimResult
@@ -89,7 +90,7 @@ def llm_judge_claims(
         return i, result
 
     with ThreadPoolExecutor(max_workers=min(len(candidates), 4)) as pool:
-        futures = {pool.submit(_judge_one, (i, cr)): (i, cr) for i, cr in candidates}
+        futures = {pool.submit(copy_context().run, _judge_one, (i, cr)): (i, cr) for i, cr in candidates}
         for future in as_completed(futures):
             i, cr = futures[future]
             try:

@@ -18,4 +18,6 @@ ADRs capture decisions that are expensive to reverse or easy to misunderstand la
 - [0005 — Durable analysis runs](0005-durable-analysis-runs.md)
 - [0006 — Layered evidence and reviewed playbooks](0006-layered-evidence-and-reviewed-playbooks.md)
 
+- [0011 — Model-call observability](0011-model-call-observability.md)
+
 Copy `0000-template.md`, assign the next number, and link the new record here.

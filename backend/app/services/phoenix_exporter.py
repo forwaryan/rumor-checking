@@ -25,7 +25,11 @@ def _safe_attributes(values: dict[str, Any], *, prefix: str = "") -> dict[str, A
 def span_attributes(span: TraceSpan) -> dict[str, Any]:
     """Translate a local trace span into Phoenix/OpenTelemetry attributes."""
     attributes = {
-        "openinference.span.kind": "TOOL",
+        "openinference.span.kind": (
+            span.metadata["span_kind"]
+            if span.metadata.get("span_kind") in {"LLM", "RETRIEVER", "CHAIN", "RERANKER", "TOOL", "AGENT"}
+            else "TOOL"
+        ),
         "rumor_checking.span_id": span.span_id,
         "rumor_checking.success": span.success,
         **_safe_attributes(span.metadata, prefix="rumor_checking.metadata."),
@@ -36,6 +40,11 @@ def span_attributes(span: TraceSpan) -> dict[str, Any]:
         attributes["error.type"] = span.error_type
     if span.error_message:
         attributes["error.message"] = span.error_message
+    if span.metadata.get("span_kind") == "LLM":
+        if span.metadata.get("model"):
+            attributes["llm.model_name"] = span.metadata["model"]
+        if isinstance(span.metadata.get("status_code"), int):
+            attributes["http.response.status_code"] = span.metadata["status_code"]
     for key, value in span.token_usage.items():
         attributes[f"llm.token_count.{key}"] = value
     return attributes

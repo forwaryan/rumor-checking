@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from backend.app.services.model_call_observer import model_call_attempt, observe_model_call
 from backend.app.services.progress import emit_log
 
 if TYPE_CHECKING:
@@ -246,7 +247,7 @@ def complete_once(
     registry = get_model_health_registry()
 
     prev_model: str | None = None
-    for model in candidates:
+    for attempt, model in enumerate(candidates, start=1):
         if stage_key and prev_model is not None and model != prev_model:
             emit_log(
                 stage_key=stage_key,
@@ -257,30 +258,45 @@ def complete_once(
         prev_model = model
         base_url = settings.base_url_for_model(model)
         try:
-            resp = httpx.post(
-                f"{base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {settings.llm_api_key}"},
-                json={
-                    "model": model,
-                    "temperature": temperature,
-                    "max_tokens": max_tokens,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                },
-                timeout=timeout,
-            )
-            if resp.status_code != 200:
-                logger.debug("complete_once got HTTP %d on %s", resp.status_code, model)
-                registry.report_failure(model)
-                continue
-            message = resp.json()["choices"][0]["message"]
-            content = (message.get("content") or "").strip()
-            if not content and include_reasoning:
-                reasoning = (message.get("reasoning_content") or "").strip()
-                if reasoning:
-                    content = reasoning.rsplit("\n", 1)[-1].strip()
+            body = {
+                "model": model,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            }
+            # Each actual failover HTTP attempt gets its own usage and parent.
+            with model_call_attempt(stage_key, attempt), observe_model_call(
+                settings=settings, provider="completion", model=model,
+                stage_key=stage_key, request=body,
+            ) as observation:
+                resp = httpx.post(
+                    f"{base_url}/chat/completions",
+                    headers={"Authorization": f"Bearer {settings.llm_api_key}"},
+                    json=body,
+                    timeout=timeout,
+                )
+                observation.response(None, status_code=resp.status_code)
+
+                if resp.status_code != 200:
+                    observation.status = "error"
+                    observation.error_class = "HTTPStatusError"
+                    logger.debug("complete_once got HTTP %d on %s", resp.status_code, model)
+                    registry.report_failure(model)
+                    continue
+                payload = resp.json()
+                observation.response(payload, status_code=resp.status_code)
+                message = payload["choices"][0]["message"]
+                content = (message.get("content") or "").strip()
+                if not content and include_reasoning:
+                    reasoning = (message.get("reasoning_content") or "").strip()
+                    if reasoning:
+                        content = reasoning.rsplit("\n", 1)[-1].strip()
+                # Whitespace and unused reasoning are empty for this caller;
+                # accepting the last reasoning line is explicitly opt-in.
+                observation.status = "ok" if content else "empty"
         except Exception as exc:
             # Transport error OR a malformed 200 body — either way this model did
             # not usefully answer, so evict it and fail over to the next candidate.

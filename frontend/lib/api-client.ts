@@ -916,12 +916,13 @@ function coerceSpan(value: unknown): AgentTraceSpan | null {
  *
  * Returns null when tracing is off (404 from the backend) or the trace file
  * hasn't been written yet — callers should treat that as "trace unavailable"
- * and hide the panel instead of showing an error. Throws for real HTTP errors
+ * and offer a retry. Throws for real HTTP errors
  * (500, network) so the caller sees them. */
-export async function getAgentTrace(runId: string): Promise<AgentTraceRecord | null> {
+export async function getAgentTrace(runId: string, signal?: AbortSignal): Promise<AgentTraceRecord | null> {
   if (!runId) return null;
   const response = await fetch(`${getApiBase()}/api/v1/agent-trace/${encodeURIComponent(runId)}`, {
     cache: "no-store",
+    signal,
   });
   if (response.status === 404) return null;
   const payload = await parseJson<unknown>(response);

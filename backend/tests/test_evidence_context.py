@@ -197,7 +197,8 @@ def test_disabling_diagnostics_suppresses_context_logs(monkeypatch):
 def test_stream_ledger_receives_request_local_counts_without_leaking_to_next_call(monkeypatch):
     reasoner = _reasoner()
     records = []
-    monkeypatch.setattr("backend.app.services.agent_reasoner.record_call", lambda **entry: records.append(entry))
+    reasoner.settings = replace(reasoner.settings, model_ledger_enabled=True)
+    monkeypatch.setattr("backend.app.services.model_call_observer.record_call", lambda **entry: records.append(entry))
 
     @contextmanager
     def stream(method, url, **kwargs):
@@ -213,7 +214,10 @@ def test_stream_ledger_receives_request_local_counts_without_leaking_to_next_cal
             system_prompt="system policy", user_prompt=user_prompt,
         ) == "ok"
     assert records[0]["stage_key"] == "agent_synthesis"
-    assert records[0]["context_estimate"] == dict(prompt.context_counts)
+    expected = {**prompt.context_counts, "output_reserve": reasoner.settings.llm_max_tokens,
+                "context_limit": reasoner._context_limit("fast-x"),
+                "total_estimated": estimate_tokens("system policy") + estimate_tokens(prompt) + 16 + reasoner.settings.llm_max_tokens}
+    assert records[0]["context_estimate"] == expected
     assert records[1]["context_estimate"] is None
     assert records[1]["stage_key"] is None
 
