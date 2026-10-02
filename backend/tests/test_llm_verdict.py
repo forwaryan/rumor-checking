@@ -52,6 +52,15 @@ def test_completion_fn_none_without_key_skips(monkeypatch):
     assert out[0].verdict == "insufficient"
 
 
+def test_large_review_skips_per_claim_llm_even_with_completion_fn():
+    claims = [_claim("某事。", evidence=[_ev()])]
+    result = llm_judge_claims(
+        claims, completion_fn=lambda *_: pytest.fail("large review must not make per-claim LLM calls"),
+        skip_llm=True,
+    )
+    assert result is claims
+
+
 def test_completion_fn_empty_response_keeps_original():
     claims = [_claim("某事。", evidence=[_ev()])]
     out = llm_judge_claims(claims, completion_fn=lambda s, u: "")

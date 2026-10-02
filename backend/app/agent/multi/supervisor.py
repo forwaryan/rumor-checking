@@ -263,6 +263,7 @@ class Supervisor:
                 completed.discard(AgentRole.CRITIC)
                 state.per_claim_iterations = 0
                 state.per_claim_searches = 0
+                state.searched_claims.clear()
                 state.loop_back_enrichment = True
                 state.done_actions.append("supervisor_loop_back")
 
@@ -297,6 +298,7 @@ class Supervisor:
                 completed.discard(AgentRole.CRITIC)
                 state.per_claim_iterations = 0
                 state.per_claim_searches = 0
+                state.searched_claims.clear()
 
         self._remaining_time(deadline)
         if state.report is None:

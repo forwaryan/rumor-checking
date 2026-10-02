@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from backend.app.models.schemas import ClaimItem, NormalizedEvent
+from backend.app.models.schemas import ClaimItem, ClaimResult, EvidenceGap, NormalizedEvent
 from backend.app.services.per_claim_retriever import _build_focused_query, _claim_needs_retrieval
 from backend.app.services.retrieval_models import RetrievalBundle, SearchResult
 
@@ -224,6 +224,134 @@ def test_per_claim_search_runs_concurrently_and_merges_in_order(monkeypatch):
     assert active["max"] >= 2, "per-claim queries did not run concurrently"
     # The original result plus the three new hits, merged.
     assert len(result.canonical_results) == 4
+
+
+def test_focused_queries_preserve_request_retrieval_controls():
+    from backend.app.services.per_claim_retriever import enrich_retrieval_for_claims
+
+    contexts = []
+
+    class Service:
+        def retrieve_for_event(self, event, request_context):
+            contexts.append(request_context)
+            return RetrievalBundle(query="focused", provider_name="live", canonical_results=(_sr("new"),))
+
+    controls = {"search_sources": ["baidu"], "disable_official_boost": True,
+                "retrieval_cache_only": True, "force_retrieval_query": "stale query"}
+    enrich_retrieval_for_claims([_fact("地铁宣布涨价")], _base_bundle(), Service(), _event(), request_context=controls)
+    assert contexts[0]["search_sources"] == ["baidu"]
+    assert contexts[0]["disable_official_boost"] is True
+    assert contexts[0]["retrieval_cache_only"] is True
+    assert contexts[0]["force_retrieval_query"] != "stale query"
+    assert controls["force_retrieval_query"] == "stale query"
+
+
+def test_focused_queries_rotate_without_starving_unchecked_claims():
+    from backend.app.services.per_claim_retriever import enrich_retrieval_for_claims
+
+    selected = []
+
+    class Service:
+        def retrieve_for_event(self, event, request_context):
+            selected.append(request_context["force_retrieval_query"])
+            return RetrievalBundle(query="focused", provider_name="live", canonical_results=(_sr(str(len(selected))),))
+
+    claims = [_fact(f"博物馆{index}门票免费") for index in range(3)] + [_fact("未被核查的声明")]
+    results = [ClaimResult(claim=claim.claim, claim_type="fact", verdict="supported", confidence="high",
+                           notes="", evidence_gaps=[EvidenceGap(dimension="price", description="票价待核实",
+                                                                   suggested_queries=[f"缺口{index}"])])
+               for index, claim in enumerate(claims[:3])]
+    results.append(ClaimResult(claim=claims[3].claim, claim_type="fact", verdict="insufficient", confidence="low", notes=""))
+    searched = set()
+    for iteration in range(2):
+        enrich_retrieval_for_claims(claims, _base_bundle(), Service(), _event(), iteration=iteration,
+                                    claim_results=results, searched_claims=searched)
+    assert any("未被核查的声明" in query for query in selected)
+    assert searched == {claim.claim for claim in claims}
+
+
+def test_enrich_preserves_existing_ids_and_pins_new_collisions():
+    from backend.app.services.per_claim_retriever import enrich_retrieval_for_claims
+
+    original = _sr("q0-web-1")
+    new = SearchResult(case_id="c", query="q", result_id="q0-web-1", title="Other story",
+                       url="https://example.com/other", source_name="News", source_tier="A",
+                       published_at="", snippet="unrelated")
+
+    class Service:
+        def retrieve_for_event(self, event, request_context):
+            return RetrievalBundle(query="focused", provider_name="live", canonical_results=(new,))
+
+    result = enrich_retrieval_for_claims([_fact("新消息")],
+                                        RetrievalBundle(query="q", provider_name="live", canonical_results=(original,)),
+                                        Service(), _event())
+    assert original.result_id in [item.result_id for item in result.canonical_results]
+    assert len({item.result_id for item in result.canonical_results}) == 2
+    assert any(item.url == new.url for item in result.canonical_results)
+
+
+def test_enrich_preserves_existing_canonical_on_duplicate_url():
+    from dataclasses import replace
+
+    from backend.app.services.per_claim_retriever import enrich_retrieval_for_claims
+
+    original = replace(_sr("old"), source_tier="C")
+    duplicate = replace(original, result_id="incoming", source_tier="S", snippet="新的摘要")
+
+    class Service:
+        def retrieve_for_event(self, event, request_context):
+            return RetrievalBundle(query="focused", provider_name="live", canonical_results=(duplicate,))
+
+    result = enrich_retrieval_for_claims([_fact("新消息")],
+                                        RetrievalBundle(query="q", provider_name="live", canonical_results=(original,)),
+                                        Service(), _event())
+    assert len(result.canonical_results) == 1
+    assert result.canonical_results[0].result_id == original.result_id
+    assert result.canonical_results[0].snippet == "新的摘要"
+
+
+def test_incoming_merged_ids_cannot_replace_unrelated_existing_source():
+    from dataclasses import replace
+
+    from backend.app.services.per_claim_retriever import enrich_retrieval_for_claims
+
+    old = replace(_sr("q0-pw-1"), source_tier="C")
+    official = replace(_sr("q0-pw-2"), source_tier="S", merged_result_ids=(old.result_id,))
+
+    class Service:
+        def retrieve_for_event(self, event, request_context):
+            return RetrievalBundle(query="focused", provider_name="live", canonical_results=(official,))
+
+    merged = enrich_retrieval_for_claims([_fact("新的官方公告")],
+                                         RetrievalBundle(query="q", provider_name="live", canonical_results=(old,)),
+                                         Service(), _event())
+    assert {item.url for item in merged.canonical_results} == {old.url, official.url}
+    assert len({item.result_id for item in merged.canonical_results}) == 2
+    assert any(item.url == official.url and item.source_tier == "S" for item in merged.canonical_results)
+
+
+def test_stronger_original_replaces_cross_url_repost_without_aliasing_body():
+    from dataclasses import replace
+
+    from backend.app.services.per_claim_retriever import enrich_retrieval_for_claims
+
+    repost = replace(_sr("old"), title="公共公告", source_name="聚合转发", source_tier="C",
+                     snippet="相同原文正文" * 10)
+    original = replace(repost, result_id="new", url="https://official.example.org/original",
+                       source_name="政府机构", source_tier="S")
+
+    class Service:
+        def retrieve_for_event(self, event, request_context):
+            return RetrievalBundle(query="focused", provider_name="live", canonical_results=(original,))
+
+    merged = enrich_retrieval_for_claims([_fact("公告事实")],
+                                         RetrievalBundle(query="q", provider_name="live", canonical_results=(repost,)),
+                                         Service(), _event())
+    assert len(merged.canonical_results) == 1
+    assert merged.canonical_results[0].url == original.url
+    assert merged.canonical_results[0].source_tier == "S"
+    assert merged.canonical_results[0].result_id != repost.result_id
+    assert any(item.result_id == repost.result_id and item.url == repost.url for item in merged.raw_results)
 
 
 def test_per_claim_search_degrades_when_one_query_fails(monkeypatch):

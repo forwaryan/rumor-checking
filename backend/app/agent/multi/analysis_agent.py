@@ -11,6 +11,7 @@ import logging
 from backend.app.agent.multi import AgentConfig, AgentRole, AgentStatus, SubAgentResult
 from backend.app.agent.state import AgentState
 from backend.app.agent_tools.base import ToolContext, get_tool_fn
+from backend.app.services.per_claim_retriever import needs_focused_retrieval
 from backend.app.services.progress import emit_log
 
 logger = logging.getLogger(__name__)
@@ -191,10 +192,7 @@ class AnalysisAgent:
     def _has_weak_claims(state: AgentState) -> bool:
         if state.verdict is None:
             return False
-        return any(
-            cr.claim_type == "fact" and cr.verdict == "insufficient"
-            for cr in state.verdict.claim_results
-        )
+        return any(needs_focused_retrieval(cr) for cr in state.verdict.claim_results)
 
     def _debate_rejudge(self, state: AgentState, ctx: ToolContext, actions_taken: list[str]) -> None:
         """In a debate round, run per-claim search + re-judge only on focused claims.
@@ -205,7 +203,7 @@ class AnalysisAgent:
         if state.verdict is None or not state.debate_focus_indices:
             return
 
-        # Run per_claim_search which internally targets insufficient claims
+        # Run per_claim_search for focused claims needing further evidence.
         for iteration in range(_MAX_PER_CLAIM_ITERATIONS):
             if not self._has_debate_weak_claims(state):
                 break

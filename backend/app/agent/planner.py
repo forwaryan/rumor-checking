@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from backend.app.agent.state import AgentState
+from backend.app.services.per_claim_retriever import needs_focused_retrieval
 
 # Action names the runner knows how to dispatch (see runner._SIMPLE_TOOLS).
 NORMALIZE = "normalize"
@@ -147,14 +148,10 @@ def _budget_exhausted(state: AgentState) -> bool:
 
 
 def _has_weak_claims(state: AgentState) -> bool:
-    """True when there are fact claims with insufficient evidence after judging."""
+    """True when fact claims are insufficient or still have an evidence gap."""
     if state.verdict is None:
         return False
-    weak = sum(
-        1 for cr in state.verdict.claim_results
-        if cr.claim_type == "fact" and cr.verdict == "insufficient"
-    )
-    return weak > 0
+    return any(needs_focused_retrieval(cr) for cr in state.verdict.claim_results)
 
 
 def _can_iterate(state: AgentState) -> bool:

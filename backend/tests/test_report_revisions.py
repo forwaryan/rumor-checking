@@ -15,8 +15,8 @@ from backend.app.core.exceptions import AppError
 from backend.app.main import create_app
 from backend.app.models.schemas import AnalysisRecheckRequest, AnalyzeRequest, ClaimResult, EvidenceItem
 from backend.app.services.analysis_runs import AnalysisRunManager, get_analysis_run_manager
-from backend.app.services.evidence_goals import restrict_review_results
 from backend.app.services.report_revisions import compare_reports
+from backend.app.services.review_scope import restrict_review_results
 from backend.app.services.run_control import RunStopped, check_run_control
 from backend.tests.test_analysis_runs import sample_report, wait_for_terminal
 

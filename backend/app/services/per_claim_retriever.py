@@ -32,26 +32,52 @@ from backend.app.services.run_control import check_run_control
 logger = logging.getLogger(__name__)
 
 
+def needs_focused_retrieval(claim: ClaimResult) -> bool:
+    return claim.claim_type == "fact" and (claim.verdict == "insufficient" or bool(claim.evidence_gaps))
+
+
 def refine_evidence_gaps(*, request, event, verdict, bundle, retriever, verdict_engine,
                          max_iterations=3, should_stop=None, completion_fn=None):
     iterations = 0
+    searched_claims: set[str] = set()
     for iteration in range(max_iterations):
-        affected = {claim.claim for claim in verdict.claim_results if claim.evidence_gaps}
+        affected = [index for index, claim in enumerate(verdict.claim_results) if needs_focused_retrieval(claim)]
         if not affected or bundle is None or (should_stop is not None and should_stop()):
             break
         check_run_control()
-        claims = [ClaimItem(claim=claim.claim, claim_type=claim.claim_type)
-                  for claim in verdict.claim_results if claim.claim in affected]
-        enriched = enrich_retrieval_for_claims(claims, bundle, retriever, event, iteration=iteration,
-                                             claim_results=verdict.claim_results)
+        claims = [ClaimItem(claim=verdict.claim_results[index].claim,
+                            claim_type=verdict.claim_results[index].claim_type) for index in affected]
+        enriched = enrich_retrieval_for_claims(
+            claims, bundle, retriever, event, iteration=iteration, claim_results=verdict.claim_results,
+            request_context=request.request_context if request is not None else None,
+            searched_claims=searched_claims,
+        )
         iterations += 1
         if enriched is bundle:
+            if any(verdict.claim_results[index].claim not in searched_claims for index in affected):
+                continue
             break
         bundle = enriched
         judged = verdict_engine.evaluate_with_source(request=request, event=event, claims=claims,
                                                      retrieval_bundle=bundle, completion_fn=completion_fn)
-        updates = {claim.claim: claim for claim in judged.claim_results if claim.claim in affected}
-        verdict = replace(judged, claim_results=[updates.get(claim.claim, claim) for claim in verdict.claim_results])
+        results = list(verdict.claim_results)
+        for index, update in zip(affected, judged.claim_results, strict=False):
+            previous = results[index]
+            if (previous.claim, previous.claim_type) == (update.claim, update.claim_type):
+                if (update.truth_probability is None and previous.verdict == update.verdict
+                        and previous.confidence == update.confidence and previous.evidence == update.evidence):
+                    update = update.model_copy(update={
+                        "truth_probability": previous.truth_probability,
+                        "probability_basis": previous.probability_basis,
+                    })
+                results[index] = update
+        evidence = list(verdict.evidence)
+        for item in judged.evidence:
+            if item not in evidence:
+                evidence.append(item)
+        grade = max((verdict.evidence_grade, judged.evidence_grade, bundle.evidence_grade),
+                    key=lambda value: {"D": 0, "C": 1, "B": 2, "A": 3}.get(value, -1))
+        verdict = replace(judged, claim_results=results, evidence=evidence, evidence_grade=grade)
     return bundle, verdict, iterations
 
 # Maximum number of per-claim queries to avoid excessive latency.
@@ -151,7 +177,9 @@ def _namespace_batch(results: list[SearchResult], batch: int) -> list[SearchResu
             replace(
                 item,
                 result_id=f"{prefix}{item.result_id}",
+                canonical_result_id=f"{prefix}{item.canonical_result_id}" if item.canonical_result_id else None,
                 duplicate_of=f"{prefix}{item.duplicate_of}" if item.duplicate_of else None,
+                merged_result_ids=tuple(f"{prefix}{result_id}" for result_id in item.merged_result_ids),
             )
         )
     return namespaced
@@ -164,6 +192,8 @@ def enrich_retrieval_for_claims(
     resolved_event: NormalizedEvent,
     iteration: int = 0,
     claim_results: list[ClaimResult] | None = None,
+    request_context: dict | None = None,
+    searched_claims: set[str] | None = None,
 ) -> RetrievalBundle:
     """Run per-claim focused retrieval and merge results into the bundle.
 
@@ -192,26 +222,32 @@ def enrich_retrieval_for_claims(
     outcomes_by_claim = {item.claim: item for item in (claim_results or [])}
     if claim_results is not None:
         candidates = [claim for claim in candidates if claim.claim in outcomes_by_claim
-                      and outcomes_by_claim[claim.claim].verdict == "insufficient"]
-        candidates.sort(key=lambda claim: not bool(outcomes_by_claim[claim.claim].evidence_gaps))
+                      and needs_focused_retrieval(outcomes_by_claim[claim.claim])]
+        candidates.sort(key=lambda claim: (
+            claim.claim in (searched_claims or set()),
+            not (outcomes_by_claim[claim.claim].verdict == "insufficient"),
+            not bool(outcomes_by_claim[claim.claim].evidence_gaps),
+        ))
     if not candidates:
         emit_stage(
             stage_key="per_claim_retrieval",
             title="逐 Claim 补充检索",
             status="skipped",
-            summary="初始证据质量充足或无事实型 claim，跳过逐条检索。",
+            summary="无证据不足或属性缺口的事实型 claim，跳过逐条检索。",
             details=[f"evidence_grade={retrieval_bundle.evidence_grade}"],
         )
         return retrieval_bundle
 
     # Cap the number of per-claim queries.
     candidates = candidates[:MAX_PER_CLAIM_QUERIES]
+    if searched_claims is not None:
+        searched_claims.update(claim.claim for claim in candidates)
 
     emit_stage(
         stage_key="per_claim_retrieval",
         title="逐 Claim 补充检索",
         status="running",
-        summary=f"正在为 {len(candidates)} 条弱证据 claim 执行定向检索。",
+        summary=f"正在为 {len(candidates)} 条待补证 claim 执行定向检索。",
         details=[f"claim_{i}={c.claim[:40]}" for i, c in enumerate(candidates)],
     )
 
@@ -272,6 +308,7 @@ def enrich_retrieval_for_claims(
                 details=[f"original_claim={claim.claim[:60]}"],
             )
             per_claim_context = {
+                **(request_context or {}),
                 "force_retrieval_query": focused_query,
                 "retrieval_stage_key": "per_claim_retrieval",
             }
@@ -300,14 +337,11 @@ def enrich_retrieval_for_claims(
         owner_results, owner_exc = outcomes.get(owner_idx, (None, None))
         outcomes[dup_idx] = (list(owner_results) if owner_results else owner_results, owner_exc)
 
-    # Reassemble in candidate order for a deterministic merge. Each per-claim
-    # query ran its own retrieve_for_event, which numbers result_ids from q0-
-    # independently — so the SAME article fetched by two claims arrives with an
-    # IDENTICAL id (q0-web-1 in both). merge_search_results treats identical ids
-    # as already-canonical and skips the URL/title relation, so those cross-batch
-    # duplicates would never merge and canonical_results would just accumulate.
-    # Prefix each batch (existing pool = b0, per-claim batches = b1, b2, …) so
-    # ids are globally unique and genuine duplicates merge on URL/title instead.
+    # Keep existing canonical IDs stable: fetched bodies and checkpoint state use
+    # them as keys. Prefix only incoming batches and avoid collisions even if a
+    # previous enrichment already introduced the same prefixed ID.
+    existing = list(retrieval_bundle.canonical_results)
+    used_ids = {item.result_id for item in existing}
     for index, claim in enumerate(candidates):
         results, exc = outcomes[index]
         if exc is not None:
@@ -320,7 +354,12 @@ def enrich_retrieval_for_claims(
             continue
         queries_executed += 1
         if results:
-            new_results.extend(_namespace_batch(results, index + 1))
+            batch = index + 1
+            while any(f"b{batch}-{item.result_id}" in used_ids for item in results):
+                batch += len(candidates)
+            namespaced = _namespace_batch(results, batch)
+            new_results.extend(namespaced)
+            used_ids.update(item.result_id for item in namespaced)
 
     if not new_results:
         emit_stage(
@@ -335,15 +374,37 @@ def enrich_retrieval_for_claims(
         )
         return retrieval_bundle
 
-    # Merge new results with existing canonical results, deduplicated. Namespace
-    # the existing pool as batch 0 so it can't collide with the per-claim batches.
-    all_results = _namespace_batch(list(retrieval_bundle.canonical_results), 0) + new_results
-    merged_canonical = merge_search_results(all_results)
+    # Only reuse an existing ID when it still identifies the exact same URL.
+    # Different URLs can be copies of one article, but keeping the old ID while
+    # replacing its URL would attach any checkpointed page body to a new source.
+    merged_canonical = merge_search_results(existing + new_results)
+    existing_ids = {item.result_id for item in existing}
+    stable_canonical = []
+    for item in merged_canonical:
+        previous = next((result for result in existing
+                         if result.url == item.url and result.result_id in item.merged_result_ids), None)
+        if previous and item.result_id not in existing_ids:
+            stable_canonical.append(replace(
+                item, result_id=previous.result_id, canonical_result_id=previous.result_id,
+                merged_result_ids=tuple(dict.fromkeys(
+                    [*(value for value in item.merged_result_ids if value != previous.result_id), item.result_id]
+                )),
+            ))
+        else:
+            stable_canonical.append(item)
+    merged_canonical = tuple(stable_canonical)
+
+    # If an incoming original wins over an earlier repost at a different URL,
+    # keep the repost's raw provenance even when its canonical slot is replaced.
+    raw_results = list(retrieval_bundle.raw_results)
+    raw_ids = {item.result_id for item in raw_results}
+    raw_results.extend(item for item in existing if item.result_id not in raw_ids)
+    raw_results.extend(new_results)
 
     enriched_bundle = replace(
         retrieval_bundle,
         canonical_results=merged_canonical,
-        raw_results=tuple(list(retrieval_bundle.raw_results) + new_results),
+        raw_results=tuple(raw_results),
     )
 
     emit_stage(

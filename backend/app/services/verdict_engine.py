@@ -20,11 +20,12 @@ from backend.app.services.entity_anchor import (
     extract_subject_anchors,
     text_contains_subject_mismatch,
 )
-from backend.app.services.evidence_goals import apply_evidence_goals, review_claim_items
+from backend.app.services.evidence_goals import apply_evidence_goals
 from backend.app.services.llm_verdict import llm_judge_claims
 from backend.app.services.page_fetcher import fetch_page_snippets
 from backend.app.services.question_intent import detect_trend_topic, is_broad_trend_claim
 from backend.app.services.retrieval_models import RetrievalBundle
+from backend.app.services.review_scope import review_claim_items, validate_review_claim_scope
 from backend.app.services.run_control import check_run_control
 from backend.app.services.supplemental_evidence import merge_supplemental_evidence
 
@@ -469,7 +470,7 @@ class VerdictEngine:
         retrieval_bundle: RetrievalBundle | None = None,
         completion_fn=None,
     ) -> VerdictEvaluation:
-        claims = review_claim_items(request) or claims
+        validate_review_claim_scope(request, claims)
         retrieval_bundle = merge_supplemental_evidence(request, retrieval_bundle)
         evidence_pool, evidence_grade, evidence_source = self._resolve_evidence_pool(
             request=request,
@@ -528,17 +529,24 @@ class VerdictEngine:
                 )
             )
 
-        results = llm_judge_claims(results, completion_fn=completion_fn)
-
-        results = annotate_claim_corrections(
-            results,
-            page_bodies=page_bodies,
-            all_evidence_titles=[
-                r.title for r in (retrieval_bundle.canonical_results if retrieval_bundle else [])
-                if r.title.strip()
-            ],
-            completion_fn=completion_fn,
+        large_review = len(review_claim_items(request)) > 6
+        results = llm_judge_claims(
+            results, completion_fn=completion_fn,
+            skip_llm=large_review,
         )
+
+        # Large reviews must reserve the remaining run budget for finishing the
+        # full selected scope, not spend another call on optional corrections.
+        if not large_review:
+            results = annotate_claim_corrections(
+                results,
+                page_bodies=page_bodies,
+                all_evidence_titles=[
+                    r.title for r in (retrieval_bundle.canonical_results if retrieval_bundle else [])
+                    if r.title.strip()
+                ],
+                completion_fn=completion_fn,
+            )
 
         # Rule fallback safety net: when the rule/LLM judge path selected almost
         # nothing but the retrieval bundle clearly has high-tier evidence, attach

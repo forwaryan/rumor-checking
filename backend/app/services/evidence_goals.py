@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from backend.app.models.schemas import ClaimItem, ClaimResult, EvidenceGap, EvidenceItem
+from backend.app.models.schemas import ClaimResult, EvidenceGap, EvidenceItem
 from backend.app.services.retrieval_models import RetrievalBundle, SearchResult
 
 _PRICE_CLAIM = re.compile(r"免票|门票|票价|入场费|参观费|(?:博物馆|美术馆|科技馆|景区|公园).{0,30}免费|免费.{0,10}(?:参观|入场)")
@@ -81,42 +81,6 @@ def _attribute_covered(claim: str, dimension: str, text: str) -> bool:
                 ):
                     return True
     return False
-
-
-def review_claim_items(request) -> list[ClaimItem]:
-    texts = request.request_context.get("review_claim_texts", [])
-    if not isinstance(texts, list):
-        return []
-    types = request.request_context.get("review_claim_types", [])
-    selected = []
-    for index, text in enumerate(texts):
-        if not isinstance(text, str) or not text.strip():
-            continue
-        claim_type = types[index] if isinstance(types, list) and index < len(types) else None
-        if not isinstance(claim_type, str) or claim_type not in {"fact", "opinion", "prediction", "unverifiable"}:
-            claim_type = "unverifiable" if "review_claim_types" in request.request_context else "fact"
-        selected.append(ClaimItem(claim=text.strip(), claim_type=claim_type))
-    return selected[:50]
-
-
-def restrict_review_results(results: list[ClaimResult], request) -> list[ClaimResult]:
-    selected = review_claim_items(request)
-    if not selected:
-        return results
-    indexed = {_CLAIM_KEY.sub("", result.claim).lower(): result for result in results}
-    restricted = []
-    for item in selected:
-        result = indexed.get(_CLAIM_KEY.sub("", item.claim).lower()) or ClaimResult(
-            claim=item.claim, claim_type=item.claim_type, verdict="insufficient", confidence="low",
-            notes="本轮仅复核所选声明；当前运行尚未产出可追溯的判定。", evidence=[],
-        )
-        updates = {"claim": item.claim, "claim_type": item.claim_type}
-        if item.claim_type != "fact":
-            updates.update(verdict="insufficient", confidence="low", truth_probability=None,
-                           probability_basis=None, correction=None, evidence_gaps=[],
-                           notes="本轮保留原声明类型；观点、预测及不可核实声明不作事实真假强判。")
-        restricted.append(result.model_copy(update=updates))
-    return restricted
 
 
 def _requirements(claim: str) -> list[tuple[str, str, tuple[str, ...]]]:
