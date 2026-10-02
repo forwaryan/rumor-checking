@@ -12,11 +12,7 @@
     {"stage":"retrieval_initial","query":"青岚市博物馆宣布所有展览 永久免费 传闻 网传 热议 发酵 转发","source_ids":["museum_booking"]},
     {"stage":"per_claim_retrieval","query":"青岚市博物馆宣布所有展览永久免费。 票价 收费标准 免费条件","source_ids":[]},
     {"stage":"per_claim_retrieval","query":"青岚市博物馆宣布所有展览 永久免费 票价 收费标准 免费条件 官方 回应 通报","source_ids":[]},
-    {"stage":"per_claim_retrieval","query":"青岚市博物馆宣布所有展览 永久免费 票价 收费标准 免费条件 传闻 网传 热议","source_ids":[]},
-    {"stage":"per_claim_retrieval","query":"青岚市博物馆宣布所有展览永久免费。 票价 site:gov.cn","source_ids":[]},
-    {"stage":"per_claim_retrieval","query":"青岚市博物馆宣布所有展览永久免费。 票价 site:xinhuanet.com","source_ids":[]},
-    {"stage":"per_claim_retrieval","query":"青岚市博物馆宣布所有展览永久免费。 票价 site:people.com.cn","source_ids":[]},
-    {"stage":"per_claim_retrieval","query":"青岚市博物馆宣布所有展览永久免费。 票价 site:cctv.com","source_ids":[]}
+    {"stage":"per_claim_retrieval","query":"青岚市博物馆宣布所有展览 永久免费 票价 收费标准 免费条件 传闻 网传 热议","source_ids":[]}
   ],
   "completions":[
     {"template":"NEXT_ACTION_SEQUENCE_SYSTEM_PROMPT","response":{"actions":["synthesize"],"reason":"检索完成，进入核查。"}},

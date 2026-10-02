@@ -16,11 +16,7 @@
     {"stage":"investigation_retrieval","query":"青岚市博物馆 周三 门票价格 公告 传闻 网传 热议 发酵","source_ids":["museum_hours","museum_access"]},
     {"stage":"per_claim_retrieval","query":"青岚市博物馆周三免费开放。 票价 收费标准 免费条件","source_ids":[]},
     {"stage":"per_claim_retrieval","query":"青岚市博物馆周三免费开放 票价 收费标准 免费条件 官方 回应 通报 说明","source_ids":[]},
-    {"stage":"per_claim_retrieval","query":"青岚市博物馆周三免费开放 票价 收费标准 免费条件 传闻 网传 热议 发酵","source_ids":[]},
-    {"stage":"per_claim_retrieval","query":"青岚市博物馆周三免费开放。 票价 site:gov.cn","source_ids":[]},
-    {"stage":"per_claim_retrieval","query":"青岚市博物馆周三免费开放。 票价 site:xinhuanet.com","source_ids":[]},
-    {"stage":"per_claim_retrieval","query":"青岚市博物馆周三免费开放。 票价 site:people.com.cn","source_ids":[]},
-    {"stage":"per_claim_retrieval","query":"青岚市博物馆周三免费开放。 票价 site:cctv.com","source_ids":[]}
+    {"stage":"per_claim_retrieval","query":"青岚市博物馆周三免费开放 票价 收费标准 免费条件 传闻 网传 热议 发酵","source_ids":[]}
   ],
   "completions": [
     {"template":"NEXT_ACTION_SEQUENCE_SYSTEM_PROMPT","response":{"actions":["investigate","synthesize"],"reason":"开放时间无法证明是否免费，补查票价公告。"}},

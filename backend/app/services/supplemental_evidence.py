@@ -115,7 +115,7 @@ def merge_supplemental_evidence(request, bundle: RetrievalBundle | None) -> Retr
 
 
 def annotate_review_report(request, report):
-    from backend.app.services.evidence_goals import review_claim_items
+    from backend.app.services.review_scope import review_claim_items
 
     _results, failures = load_supplemental_evidence(request)
     selected = review_claim_items(request)

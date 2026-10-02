@@ -8,9 +8,10 @@ from backend.app.core.config import get_settings
 from backend.app.models.schemas import AnalyzeRequest, ClaimItem, ClaimResult, NormalizedEvent
 from backend.app.services.agent_reasoner import LlmAgentReasoner
 from backend.app.services.analyze_pipeline import AnalyzePipeline
-from backend.app.services.evidence_goals import apply_evidence_goals, restrict_review_results, review_claim_items
+from backend.app.services.evidence_goals import apply_evidence_goals
 from backend.app.services.per_claim_retriever import enrich_retrieval_for_claims, refine_evidence_gaps
 from backend.app.services.retrieval_models import RetrievalBundle, SearchResult
+from backend.app.services.review_scope import restrict_review_results, review_claim_items, select_review_claims
 from backend.app.services.verdict_engine import VerdictEngine, VerdictEvaluation
 
 
@@ -317,6 +318,48 @@ def test_review_scope_drops_unselected_claims_and_keeps_missing_insufficient():
     assert results[1].verdict == "insufficient"
 
 
+def test_review_scope_consumes_duplicate_claim_results_once():
+    evidence = _result("正文")
+    request = AnalyzeRequest(raw_input="旧报告", request_context={
+        "review_claim_texts": ["同一声明", "同一声明"], "review_claim_types": ["fact", "fact"],
+    })
+    one_result = _claim("同一声明。", evidence, "supported")
+    selected = restrict_review_results([one_result], request)
+    assert [result.verdict for result in selected] == ["supported", "insufficient"]
+    assert not selected[1].evidence
+
+    another_result = _claim("同一声明", evidence, "refuted")
+    selected = restrict_review_results([one_result, another_result], request)
+    assert [result.verdict for result in selected] == ["supported", "refuted"]
+
+
+@pytest.mark.parametrize("wrong_type", ["opinion", "prediction", "unverifiable"])
+def test_review_fact_cannot_promote_model_nonfact_verdict(wrong_type):
+    evidence = _result("正文")
+    request = AnalyzeRequest(raw_input="旧报告", request_context={
+        "review_claim_texts": ["待核事实"], "review_claim_types": ["fact"],
+    })
+    misclassified = _claim("待核事实", evidence).model_copy(update={"claim_type": wrong_type})
+    selected = restrict_review_results([misclassified], request)[0]
+    assert selected.claim_type == "fact"
+    assert selected.verdict == "insufficient"
+    assert selected.confidence == "low"
+    assert selected.truth_probability is None
+    assert not selected.evidence
+
+
+def test_review_matches_same_type_before_misclassified_duplicate():
+    evidence = _result("正文")
+    request = AnalyzeRequest(raw_input="旧报告", request_context={
+        "review_claim_texts": ["待核事实"], "review_claim_types": ["fact"],
+    })
+    wrong = _claim("待核事实", evidence).model_copy(update={"claim_type": "prediction"})
+    correct = _claim("待核事实。", evidence, "refuted")
+    selected = restrict_review_results([wrong, correct], request)
+    assert selected[0].verdict == "refuted"
+    assert selected[0].claim_type == "fact"
+
+
 @pytest.mark.parametrize("claim_type", ["opinion", "prediction", "unverifiable"])
 def test_review_preserves_nonfact_type_even_when_synthesis_calls_it_fact(claim_type):
     evidence = _result("相关正文")
@@ -343,6 +386,79 @@ def test_review_preserves_the_full_api_supported_scope():
         "review_claim_texts": texts, "review_claim_types": ["fact"] * len(texts),
     })
     assert [item.claim for item in review_claim_items(request)] == texts
+
+
+def test_verdict_engine_respects_explicit_review_subset(monkeypatch):
+    request = AnalyzeRequest(raw_input="复核", request_context={
+        "review_claim_texts": ["声明一", "声明二"], "review_claim_types": ["fact", "fact"],
+    })
+    subset = [ClaimItem(claim="声明二", claim_type="fact")]
+    assert select_review_claims(request, [ClaimItem(claim="旧抽取", claim_type="fact")]) == review_claim_items(request)
+    monkeypatch.setattr("backend.app.services.verdict_engine.llm_judge_claims", lambda results, **kwargs: results)
+    evaluation = VerdictEngine().evaluate_with_source(
+        request=request, event=NormalizedEvent(summary="复核", raw_input="复核", input_type="text_news"),
+        claims=subset, retrieval_bundle=RetrievalBundle(query="复核"),
+    )
+    assert [result.claim for result in evaluation.claim_results] == ["声明二"]
+
+
+@pytest.mark.parametrize("claims", [
+    [ClaimItem(claim="范围外声明", claim_type="fact")],
+    [ClaimItem(claim="声明一", claim_type="prediction")],
+    [ClaimItem(claim="声明一", claim_type="fact"), ClaimItem(claim="声明一", claim_type="fact")],
+])
+def test_verdict_engine_rejects_out_of_review_scope_claims(claims):
+    request = AnalyzeRequest(raw_input="复核", request_context={
+        "review_claim_texts": ["声明一"], "review_claim_types": ["fact"],
+    })
+    with pytest.raises(ValueError, match="selected review scope"):
+        VerdictEngine().evaluate_with_source(
+            request=request, event=NormalizedEvent(summary="复核", raw_input="复核", input_type="text_news"),
+            claims=claims,
+        )
+
+
+def test_large_review_judges_all_claims_without_per_claim_llm_budget(monkeypatch):
+    from backend.app.services.run_control import RunControl, reset_run_control, set_run_control
+
+    text = "市立博物馆2024年成立"
+    evidence = _result("市立博物馆2024年成立。")
+    claims = [ClaimItem(claim=f"{text}：编号{index}", claim_type="fact") for index in range(31)]
+    request = AnalyzeRequest(raw_input="复核", request_context={
+        "review_claim_texts": [item.claim for item in claims], "review_claim_types": ["fact"] * len(claims),
+    })
+    monkeypatch.setattr("backend.app.services.verdict_engine.fetch_page_snippets", lambda *args: {})
+    monkeypatch.setattr("backend.app.services.verdict_engine.llm_judge_claims", lambda results, **kwargs: (
+        pytest.fail("must not call the per-claim LLM in a large review") if not kwargs.get("skip_llm") else results
+    ))
+    monkeypatch.setattr("backend.app.services.verdict_engine.annotate_claim_corrections",
+                        lambda *args, **kwargs: pytest.fail("large review must skip optional correction LLM"))
+    control = RunControl(max_llm_calls=1)
+    token = set_run_control(control)
+    try:
+        evaluated = VerdictEngine().evaluate_with_source(
+            request=request, event=NormalizedEvent(summary="复核", raw_input="复核", input_type="text_news"),
+            claims=claims, retrieval_bundle=RetrievalBundle(query="复核", canonical_results=(evidence,)),
+        )
+    finally:
+        reset_run_control(token)
+    assert len(evaluated.claim_results) == len(claims)
+    assert control.llm_calls == 0
+
+
+def test_synthesis_does_not_silently_truncate_large_review_scope(monkeypatch):
+    texts = [f"待复核声明{index}" for index in range(7)]
+    request = AnalyzeRequest(raw_input="旧报告", request_context={
+        "review_claim_texts": texts, "review_claim_types": ["fact"] * len(texts),
+    })
+    evidence = _result("公告正文")
+    reasoner = LlmAgentReasoner(settings=replace(get_settings(), analysis_provider="kimi", llm_api_key="test",
+                                                evidence_rerank_enabled=False))
+    monkeypatch.setattr(reasoner, "_request_completion", lambda **kwargs: pytest.fail("不能只核查前六条"))
+    assert reasoner.synthesize(
+        request=request, event=NormalizedEvent(summary="旧报告", raw_input="旧报告", input_type="text_news"),
+        retrieval_bundle=RetrievalBundle(query="旧报告", canonical_results=(evidence,)),
+    ) is None
 
 
 def test_synthesis_applies_review_scope_and_gap_annotation(monkeypatch):
@@ -397,6 +513,128 @@ def test_llm_budget_is_reserved_before_transport(monkeypatch):
         reset_run_control(token)
 
 
+@pytest.mark.parametrize("starting_verdict", ["supported", "refuted", "conflicting"])
+def test_decisive_verdict_with_gap_triggers_targeted_retrieval_and_subset_rejudge(starting_verdict):
+    claim = "市立博物馆周三免费参观"
+    other = "其他声明"
+    evidence = _result("本馆周三9点开放。")
+    bundle = RetrievalBundle(query=claim, canonical_results=(evidence,))
+    missing = apply_evidence_goals([_claim(claim, evidence, starting_verdict)], bundle)[0]
+    preserved = _claim(other, evidence, "refuted")
+    verdict = VerdictEvaluation(claim_results=[missing, preserved], evidence=[],
+                                evidence_grade="B", evidence_source="retrieval_live")
+    request = AnalyzeRequest(raw_input=claim, request_context={
+        "review_claim_texts": [claim, other], "review_claim_types": ["fact", "fact"],
+    })
+    queries = []
+    judged = []
+
+    def retrieve(event, request_context):
+        queries.append(request_context["force_retrieval_query"])
+        return RetrievalBundle(query=claim, canonical_results=(
+            replace(evidence, result_id="e2", url="https://other.example.org", snippet="本馆周三免费开放。"),
+        ))
+
+    def evaluate_with_source(**kwargs):
+        judged.extend(kwargs["claims"])
+        assert [item.claim for item in kwargs["claims"]] == [claim]
+        return replace(verdict, claim_results=[_claim(claim, evidence, starting_verdict)])
+
+    enriched, final, iterations = refine_evidence_gaps(
+        request=request, event=None, verdict=verdict, bundle=bundle,
+        retriever=SimpleNamespace(retrieve_for_event=retrieve),
+        verdict_engine=SimpleNamespace(evaluate_with_source=evaluate_with_source),
+    )
+    assert iterations == len(queries) == 1
+    assert "票价" in queries[0]
+    assert [item.claim for item in judged] == [claim]
+    assert final.claim_results[0].verdict == starting_verdict
+    assert final.claim_results[1] == preserved
+    assert len(enriched.canonical_results) == 2
+
+
+def test_empty_first_batch_does_not_starve_unsearched_claims():
+    texts = [f"待核事实{index}未确认" for index in range(4)]
+    verdict = VerdictEvaluation(claim_results=[
+        ClaimResult(claim=text, claim_type="fact", verdict="insufficient", confidence="low", notes="")
+        for text in texts
+    ], evidence=[], evidence_grade="D", evidence_source="retrieval_live")
+    bundle = RetrievalBundle(query="多条事实", canonical_results=(_result("背景信息"),))
+    queries = []
+
+    def retrieve(event, request_context):
+        query = request_context["force_retrieval_query"]
+        queries.append(query)
+        if texts[3] in query:
+            return RetrievalBundle(query=query, canonical_results=(
+                replace(_result("直接证据"), result_id="new", url="https://example.org/new"),
+            ))
+        return RetrievalBundle(query=query, canonical_results=())
+
+    _bundle, _verdict, iterations = refine_evidence_gaps(
+        request=AnalyzeRequest(raw_input="多条事实"), event=None, verdict=verdict, bundle=bundle,
+        retriever=SimpleNamespace(retrieve_for_event=retrieve),
+        verdict_engine=SimpleNamespace(evaluate_with_source=lambda **kwargs: replace(
+            verdict, claim_results=[claim.model_copy(update={"verdict": "supported"})
+                                    for claim in verdict.claim_results])),
+    )
+    assert iterations == 2
+    assert len(queries) == 6
+    assert all(texts[3] not in query for query in queries[:3])
+    assert any(texts[3] in query for query in queries[3:])
+
+
+def test_gapless_insufficient_synthesis_gets_focused_retrieval():
+    claim = "没有预定义缺口的声明"
+    source = _result("尚无直接证据", title="核查背景")
+    bundle = RetrievalBundle(query=claim, canonical_results=(source,))
+    unresolved = _claim(claim, source, "insufficient")
+    original = VerdictEvaluation(claim_results=[unresolved], evidence=[], evidence_grade="D",
+                                 evidence_source="retrieval_live")
+    queries = []
+
+    def retrieve(event, request_context):
+        queries.append(request_context["force_retrieval_query"])
+        return RetrievalBundle(query=claim, canonical_results=(
+            replace(source, result_id="resolved", url="https://resolved.example.org", snippet="直接证据"),
+        ))
+
+    resolved = _claim(claim, source, "supported")
+    _bundle, final, iterations = refine_evidence_gaps(
+        request=AnalyzeRequest(raw_input=claim), event=None, verdict=original, bundle=bundle,
+        retriever=SimpleNamespace(retrieve_for_event=retrieve),
+        verdict_engine=SimpleNamespace(evaluate_with_source=lambda **kwargs: replace(
+            original, claim_results=[resolved])),
+    )
+    assert iterations == len(queries) == 1
+    assert final.claim_results[0].verdict == "supported"
+
+
+def test_subset_rejudge_retains_unaffected_claim_evidence_pool():
+    claim = "市立博物馆周三免费参观"
+    source = _result("本馆9点开放。")
+    other = replace(source, result_id="other", url="https://other.example.org", snippet="另一声明证据")
+    original_bundle = RetrievalBundle(query=claim, canonical_results=(source, other))
+    missing = apply_evidence_goals([_claim(claim, source)], original_bundle)[0]
+    preserved = _claim("其他声明", other, "refuted")
+    original = VerdictEvaluation(claim_results=[missing, preserved], evidence=[
+        source.to_evidence(relevance_reason="旧来源"), other.to_evidence(relevance_reason="旧来源")],
+        evidence_grade="A", evidence_source="retrieval_live")
+    refined_source = replace(source, result_id="refined", url="https://refined.example.org", snippet="本馆周三免费开放。")
+    incoming = RetrievalBundle(query=claim, canonical_results=(refined_source,))
+    judged = replace(original, claim_results=[_claim(claim, refined_source)],
+                     evidence=[refined_source.to_evidence(relevance_reason="新来源")], evidence_grade="C")
+    _bundle, final, iterations = refine_evidence_gaps(
+        request=AnalyzeRequest(raw_input=claim), event=None, verdict=original, bundle=original_bundle,
+        retriever=SimpleNamespace(retrieve_for_event=lambda *args, **kwargs: incoming),
+        verdict_engine=SimpleNamespace(evaluate_with_source=lambda **kwargs: judged),
+    )
+    assert iterations == 1
+    assert final.claim_results[1] == preserved
+    assert {item.url for item in final.evidence} >= {other.url, refined_source.url}
+    assert final.evidence_grade == "A"
+
+
 def test_synthesis_gap_refinement_preserves_other_claims_and_stops_when_filled(monkeypatch):
     claim = "市立博物馆周三免费参观"
     evidence = _result("本馆9点开放。")
@@ -419,6 +657,52 @@ def test_synthesis_gap_refinement_preserves_other_claims_and_stops_when_filled(m
     assert iterations == len(searches) == 1
     assert final.claim_results[0].verdict == "supported"
     assert final.claim_results[1] == preserved
+
+
+def test_subset_rejudge_keeps_probability_when_judgment_and_citations_are_unchanged():
+    claim = "市立博物馆周三免费参观"
+    evidence = _result("本馆周三9点开放。")
+    original_bundle = RetrievalBundle(query=claim, canonical_results=(evidence,))
+    prior = apply_evidence_goals([_claim(claim, evidence)], original_bundle)[0].model_copy(update={
+        "truth_probability": 97, "probability_basis": "evidence",
+    })
+    verdict = VerdictEvaluation(claim_results=[prior], evidence=[], evidence_grade="B", evidence_source="retrieval_live")
+    added = replace(evidence, result_id="new", url="https://additional.example.org", snippet="背景材料")
+    judged_claim = prior.model_copy(update={"truth_probability": None, "probability_basis": None})
+    _bundle, refined, iterations = refine_evidence_gaps(
+        request=AnalyzeRequest(raw_input=claim), event=None, verdict=verdict, bundle=original_bundle,
+        retriever=SimpleNamespace(retrieve_for_event=lambda *args, **kwargs: RetrievalBundle(
+            query=claim, canonical_results=(added,))),
+        verdict_engine=SimpleNamespace(evaluate_with_source=lambda **kwargs: replace(
+            verdict, claim_results=[judged_claim])),
+        max_iterations=1,
+    )
+    assert iterations == 1
+    assert refined.claim_results[0].truth_probability == 97
+    assert refined.claim_results[0].probability_basis == "evidence"
+
+
+def test_subset_rejudge_clears_probability_when_verdict_changes():
+    claim = "市立博物馆周三免费参观"
+    evidence = _result("本馆周三9点开放。")
+    original_bundle = RetrievalBundle(query=claim, canonical_results=(evidence,))
+    prior = apply_evidence_goals([_claim(claim, evidence)], original_bundle)[0].model_copy(update={
+        "truth_probability": 97, "probability_basis": "evidence",
+    })
+    verdict = VerdictEvaluation(claim_results=[prior], evidence=[], evidence_grade="B", evidence_source="retrieval_live")
+    added = replace(evidence, result_id="new", url="https://additional.example.org", snippet="明确收费")
+    judged_claim = prior.model_copy(update={"verdict": "refuted", "truth_probability": None, "probability_basis": None})
+    _bundle, refined, iterations = refine_evidence_gaps(
+        request=AnalyzeRequest(raw_input=claim), event=None, verdict=verdict, bundle=original_bundle,
+        retriever=SimpleNamespace(retrieve_for_event=lambda *args, **kwargs: RetrievalBundle(
+            query=claim, canonical_results=(added,))),
+        verdict_engine=SimpleNamespace(evaluate_with_source=lambda **kwargs: replace(
+            verdict, claim_results=[judged_claim])),
+        max_iterations=1,
+    )
+    assert iterations == 1
+    assert refined.claim_results[0].truth_probability is None
+    assert refined.claim_results[0].probability_basis is None
 
 
 def test_gap_refinement_obeys_stop_condition(monkeypatch):

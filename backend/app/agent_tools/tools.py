@@ -560,7 +560,7 @@ def enrich(ctx: ToolContext, state: AgentState) -> None:
 
 @tool("extract_claims", description="从事件和检索结果中抽取可核查声明")
 def extract_claims(ctx: ToolContext, state: AgentState) -> None:
-    from backend.app.services.evidence_goals import review_claim_items
+    from backend.app.services.review_scope import select_review_claims
 
     emit_stage(
         stage_key="claim_extraction",
@@ -572,7 +572,7 @@ def extract_claims(ctx: ToolContext, state: AgentState) -> None:
     claim_extraction = ctx.claim_extractor.extract_with_source(
         state.final_event, provider_claims=state.provider_claims
     )
-    claim_extraction = replace(claim_extraction, claims=review_claim_items(state.request) or claim_extraction.claims)
+    claim_extraction = replace(claim_extraction, claims=select_review_claims(state.request, claim_extraction.claims))
     state.claim_extraction = claim_extraction
     emit_stage(
         stage_key="claim_extraction",
@@ -586,24 +586,20 @@ def extract_claims(ctx: ToolContext, state: AgentState) -> None:
 
 @tool("per_claim_search", description="对存疑声明进行定向补充检索", parallelizable=True)
 def per_claim_search(ctx: ToolContext, state: AgentState) -> None:
-    """Per-claim targeted retrieval: for each weak fact claim, run a focused search
-    using the claim text as query, then re-judge all claims with the enriched bundle."""
-    from backend.app.services.per_claim_retriever import enrich_retrieval_for_claims
+    """Search claims with insufficient verdicts or open gaps, then re-judge."""
+    from backend.app.services.per_claim_retriever import enrich_retrieval_for_claims, needs_focused_retrieval
 
     verdict = state.verdict
     if verdict is None or state.retrieval_bundle is None or state.claim_extraction is None:
         return
 
-    has_weak = any(
-        cr.claim_type == "fact" and cr.verdict == "insufficient"
-        for cr in verdict.claim_results
-    )
+    has_weak = any(needs_focused_retrieval(cr) for cr in verdict.claim_results)
     if not has_weak:
         emit_stage(
             stage_key="per_claim_retrieval",
             title="逐条补检索",
             status="skipped",
-            summary="所有 fact claims 都已有足够证据，跳过。",
+            summary="没有证据不足或属性缺口的事实型声明，跳过。",
             details=[],
         )
         return
@@ -616,6 +612,8 @@ def per_claim_search(ctx: ToolContext, state: AgentState) -> None:
             resolved_event=state.resolved_event,
             iteration=state.per_claim_iterations,
             claim_results=verdict.claim_results,
+            request_context=state.request.request_context,
+            searched_claims=state.searched_claims,
         )
 
         if enriched_bundle is not state.retrieval_bundle:

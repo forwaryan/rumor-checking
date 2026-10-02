@@ -12,13 +12,16 @@ from backend.app.services.agent_reasoner import LlmAgentReasoner
 from backend.app.services.cache_policy import evidence_cache_policy, requires_fresh_evidence, verdict_cache_fingerprint
 from backend.app.services.claim_extractor import ClaimExtractor
 from backend.app.services.content_check_builder import ContentCheckBuilder
-from backend.app.services.evidence_goals import review_claim_items
 from backend.app.services.evidence_snapshots import evidence_capture
 from backend.app.services.input_normalizer import InputNormalizer
 from backend.app.services.model_call_observer import model_observation_run
 from backend.app.services.model_health import diff_snapshot, get_model_health_registry
 from backend.app.services.page_fetcher import set_page_fetch_cache
-from backend.app.services.per_claim_retriever import enrich_retrieval_for_claims, refine_evidence_gaps
+from backend.app.services.per_claim_retriever import (
+    enrich_retrieval_for_claims,
+    needs_focused_retrieval,
+    refine_evidence_gaps,
+)
 from backend.app.services.pipeline_trace_builder import PipelineTraceBuilder
 from backend.app.services.progress import (
     StageTimingCollector,
@@ -31,6 +34,7 @@ from backend.app.services.provider_enricher import ProviderEnricher
 from backend.app.services.question_resolver import QuestionResolver
 from backend.app.services.report_builder import ReportBuilder
 from backend.app.services.retrieval_service import RetrievalService
+from backend.app.services.review_scope import select_review_claims
 from backend.app.services.run_control import check_run_control
 from backend.app.services.supplemental_evidence import (
     annotate_review_report,
@@ -496,7 +500,7 @@ class AnalyzePipeline:
                 details=[],
             )
             claim_extraction = self.claim_extractor.extract_with_source(event, provider_claims=provider_claims)
-            claim_extraction = replace(claim_extraction, claims=review_claim_items(request) or claim_extraction.claims)
+            claim_extraction = replace(claim_extraction, claims=select_review_claims(request, claim_extraction.claims))
             emit_stage(
                 stage_key="claim_extraction",
                 title="Claim 拆解",
@@ -535,11 +539,9 @@ class AnalyzePipeline:
             # Fires AFTER initial verdict so we know which specific claims lack evidence.
             # Iterates up to 3 times: search → re-judge → check if still weak → repeat.
             if deep_mode:
+                searched_claims: set[str] = set()
                 for _iteration in range(3):
-                    has_weak = any(
-                        cr.claim_type == "fact" and cr.verdict == "insufficient"
-                        for cr in verdict.claim_results
-                    )
+                    has_weak = any(needs_focused_retrieval(cr) for cr in verdict.claim_results)
                     if not has_weak:
                         break
                     enriched_bundle = enrich_retrieval_for_claims(
@@ -549,6 +551,8 @@ class AnalyzePipeline:
                         resolved_event=resolved_event,
                         iteration=_iteration,
                         claim_results=verdict.claim_results,
+                        request_context=request.request_context,
+                        searched_claims=searched_claims,
                     )
                     if enriched_bundle is retrieval_bundle:
                         break

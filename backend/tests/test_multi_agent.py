@@ -10,7 +10,7 @@ from backend.app.agent.multi.report_agent import ReportAgent
 from backend.app.agent.multi.retrieval_agent import RetrievalAgent
 from backend.app.agent.multi.supervisor import Supervisor
 from backend.app.agent.state import AgentState
-from backend.app.models.schemas import AnalyzeRequest
+from backend.app.models.schemas import AnalyzeRequest, EvidenceGap
 from backend.app.services.analyze_pipeline import AnalyzePipeline
 
 
@@ -379,6 +379,30 @@ def test_analysis_loop_back_starts_with_per_claim_enrichment(monkeypatch):
     assert result.status == AgentStatus.COMPLETED
     assert calls == ["per_claim_search", "re_judge_claims"]
     assert state.loop_back_enrichment is False
+
+
+def test_multi_agent_searches_decisive_claim_with_gap(monkeypatch):
+    calls = []
+
+    def get_tool(action):
+        if action == "per_claim_search":
+            return lambda ctx, state: calls.append(action)
+        if action == "re_judge_claims":
+            def rejudge(ctx, state):
+                calls.append(action)
+                state.verdict = _verdict([_fact_claim("c0", "supported", [_evidence("A")])])
+            return rejudge
+        raise AssertionError(f"unexpected action: {action}")
+
+    monkeypatch.setattr("backend.app.agent.multi.analysis_agent.get_tool_fn", get_tool)
+    state = AgentState(request=AnalyzeRequest(raw_input="x"))
+    claim_result = _fact_claim("c0", "supported", [_evidence("A")])
+    claim_result.evidence_gaps = [EvidenceGap(dimension="price", description="缺少票价原文")]
+    state.verdict = _verdict([claim_result])
+    state.loop_back_enrichment = True
+
+    AnalysisAgent().run(state, _StubCtx(reasoner=None))
+    assert calls == ["per_claim_search", "re_judge_claims"]
 
 
 # --- Supervisor LLM routing ---

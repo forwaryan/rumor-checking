@@ -6,7 +6,7 @@ from backend.app.agent import planner as planner_mod
 from backend.app.agent.planner import LlmPlanner, RulePlanner, legal_actions
 from backend.app.agent.state import AgentState
 from backend.app.core.config import get_settings
-from backend.app.models.schemas import AnalyzeRequest
+from backend.app.models.schemas import AnalyzeRequest, ClaimResult, EvidenceGap
 from backend.app.services.agent_reasoner import NextActionPlan
 from backend.app.services.analyze_pipeline import AnalyzePipeline
 
@@ -118,6 +118,15 @@ def test_loop_reentry_is_counter_driven_not_done_actions():
     reentered = _judged_state(per_claim_searches=1, per_claim_iterations=1)
     reentered.done_actions.extend(["per_claim_search", "re_judge_claims"])
     assert legal_actions(reentered) == [planner_mod.PER_CLAIM_SEARCH, planner_mod.TIMELINE]
+
+
+def test_decisive_claim_with_gap_is_eligible_for_planned_search():
+    state = _judged_state()
+    state.verdict.claim_results[0] = ClaimResult(
+        claim="市立博物馆免费开放", claim_type="fact", verdict="supported", confidence="high", notes="",
+        evidence_gaps=[EvidenceGap(dimension="price", description="缺少门票条件")],
+    )
+    assert legal_actions(state) == [planner_mod.PER_CLAIM_SEARCH]
 
 
 def test_loop_closes_at_iteration_cap():

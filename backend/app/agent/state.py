@@ -107,6 +107,7 @@ class AgentState:
     # exactly 1 while a round's search has run but its re-judge has not; that gap
     # is how legal_actions re-enters the loop without ever mutating done_actions.
     per_claim_searches: int = 0
+    searched_claims: set[str] = field(default_factory=set)
     max_per_claim_iterations: int = 3
     # Supervisor loop-back reuses the existing retrieval bundle and asks the
     # AnalysisAgent to begin directly with per-claim enrichment + re-judging.

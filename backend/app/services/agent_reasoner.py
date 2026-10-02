@@ -41,7 +41,7 @@ from backend.app.services.contract_utils import (
     ensure_datetime_string_or_empty,
 )
 from backend.app.services.evidence_context import ContextBudgetExceeded, build_evidence_prompt
-from backend.app.services.evidence_goals import apply_evidence_goals, restrict_review_results, review_claim_items
+from backend.app.services.evidence_goals import apply_evidence_goals
 from backend.app.services.model_call_observer import model_call_attempt, observe_model_call
 from backend.app.services.model_health import get_model_health_registry
 from backend.app.services.progress import emit_api_call, emit_log
@@ -49,6 +49,7 @@ from backend.app.services.question_intent import is_broad_trend_question
 from backend.app.services.question_resolver import QuestionResolution
 from backend.app.services.report_builder import TIMELINE_COMPLETENESS_WEIGHTS
 from backend.app.services.retrieval_models import RetrievalBundle, SearchResult
+from backend.app.services.review_scope import restrict_review_results, review_claim_items
 from backend.app.services.run_control import check_run_control, reserve_llm_call
 from backend.app.services.supplemental_evidence import merge_supplemental_evidence
 from backend.app.services.timeline_builder import TimelineBuild
@@ -537,6 +538,18 @@ class LlmAgentReasoner:
         fetched_bodies: dict[str, str] | None = None,
     ) -> AgentSynthesis | None:
         if not self.enabled:
+            return None
+        selected = review_claim_items(request)
+        if len(selected) > 6:
+            # Synthesis intentionally accepts at most six atomic claims. A review
+            # can select up to fifty parent claims; truncating the model output
+            # would fill the rest with placeholders instead of checking them.
+            # Let the rule fallback judge the complete parent-selected scope.
+            emit_log(
+                stage_key="agent_synthesis", level="warning", title="复核范围超出综合判定上限",
+                summary="本轮选中超过六条声明，改用完整范围的规则判定链路。",
+                details=[f"review_claims={len(selected)}"],
+            )
             return None
         retrieval_bundle = merge_supplemental_evidence(request, retrieval_bundle)
         if retrieval_bundle is None or not retrieval_bundle.canonical_results:

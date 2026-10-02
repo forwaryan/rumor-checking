@@ -75,6 +75,7 @@ def llm_judge_claims(
     completion_fn: Callable[[str, str], str] | None = None,
     *,
     reference_date: date | None = None,
+    skip_llm: bool = False,
 ) -> list[ClaimResult]:
     """Judge all fact claims with evidence using LLM as primary arbiter.
 
@@ -85,8 +86,11 @@ def llm_judge_claims(
     LLM calls route through it (e.g. the agent reasoner's retry/streaming layer)
     instead of the shared health-aware failover transport.
     reference_date anchors relative claim dates; defaults to the current local
-    evaluation date, never to a source publication date.
+    evaluation date, never to a source publication date. For oversized review
+    scopes skip_llm keeps every rule judgment without spending one call per claim.
     """
+    if skip_llm:
+        return claim_results
     if settings is None:
         settings = get_settings()
     if completion_fn is None and not settings.llm_api_key:
