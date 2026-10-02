@@ -37,14 +37,17 @@ def test_timeout_is_published_before_worker_drains_and_lock_stays_held(tmp_path,
                     SimpleNamespace(role=role, description="blocked", config=None, run=blocked_agent)
                     for role in (AgentRole.RETRIEVAL_BAIDU, AgentRole.RETRIEVAL_XHS)
                 ]
-                supervisor._execute_batch(agents, None, deadline=time.monotonic() + 0.05)
+                # This test verifies cancellation while a worker is draining, not
+                # whether a busy runner can start a thread within 50 ms. Give the
+                # batch time to enter the blocked agent before its deadline.
+                supervisor._execute_batch(agents, None, deadline=time.monotonic() + 1)
             late_effects.append("fallback report")
             return sample_report()
 
     manager = AnalysisRunManager(tmp_path, max_active=1, pipeline_factory=Pipeline)
     try:
         started = manager.create(AnalyzeRequest(raw_input="超时回归"))
-        assert entered.wait(1)
+        assert entered.wait(3)
         stopped = wait_for_terminal(manager, started.run_id)
         assert not release.is_set()
         assert stopped.status == "cancelled"
