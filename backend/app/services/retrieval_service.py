@@ -197,14 +197,7 @@ class RetrievalService:
                 bundle = self._empty_bundle(primary_query, provider_name="skipped", query_plan=query_plan or [])
             # Supplementary sources run after the primary retrieval (including
             # cache path) so they supplement regardless of cache state.
-            if self._source_enabled("xiaohongshu", search_sources):
-                bundle = self._append_xhs_results(bundle, bundle.query, stage_key=stage_key)
-            if self._source_enabled("toutiao", search_sources):
-                bundle = self._append_toutiao_results(bundle, bundle.query, stage_key=stage_key)
-            if self._source_enabled("sogou_weixin", search_sources):
-                bundle = self._append_sogou_weixin_results(bundle, bundle.query, stage_key=stage_key)
-            if self._source_enabled("piyao", search_sources):
-                bundle = self._append_piyao_results(bundle, bundle.query, stage_key=stage_key)
+            bundle = self._append_supplementary_sources(bundle, search_sources=search_sources)
             # Targeted official-source boost runs last so it can inspect
             # everything the other providers already collected before deciding
             # whether to spend a query slot. It reuses the primary provider so
@@ -664,29 +657,76 @@ class RetrievalService:
         )
         return combined
 
-    def _append_supplementary_results(
+    def _append_supplementary_sources(
         self,
         bundle: RetrievalBundle,
-        primary_query: str,
+        *,
+        search_sources: list[str] | None,
+    ) -> RetrievalBundle:
+        sources = [
+            ("xiaohongshu", self.xhs_provider, "xhs", None),
+            ("toutiao", self.toutiao_provider, "toutiao", None),
+            ("sogou_weixin", self.sogou_weixin_provider, "sogou_weixin", None),
+            ("piyao", self.piyao_provider, "piyao", "official_debunking"),
+        ]
+        enabled = [(provider, prefix, category) for name, provider, prefix, category in sources
+                   if self._source_enabled(name, search_sources) and provider.enabled]
+        if not enabled:
+            return bundle
+        short_query = self._shorten_for_supplementary(bundle.query)
+        if not short_query:
+            return bundle
+
+        def fetch(source) -> list[SearchResult]:
+            provider, prefix, category = source
+            return self._fetch_supplementary_results(
+                short_query, provider=provider, log_prefix=prefix, override_source_category=category,
+            )
+
+        # Only the searches are independent. Keep the original source order for
+        # selection: later providers must still see earlier independence keys.
+        # Each worker gets its own copied Context, including trace parentage,
+        # progress callback, retrieval stage, and the shared round failure count.
+        if len(enabled) == 1:
+            results = [fetch(enabled[0])]
+        else:
+            with ThreadPoolExecutor(max_workers=len(enabled)) as executor:
+                futures = [executor.submit(copy_context().run, fetch, source) for source in enabled]
+                results = [future.result() for future in futures]
+
+        for (_, prefix, _), enriched in zip(enabled, results, strict=True):
+            if not enriched:
+                continue
+            existing_keys = {r.independence_key for r in bundle.canonical_results if r.independence_key}
+            with observe_retrieval("selection", provider=prefix,
+                                   raw_result_count=len(enriched)) as observation:
+                new_results = [r for r in enriched if r.independence_key not in existing_keys]
+                observation.update(selected_result_count=len(new_results),
+                                   duplicate_count=len(enriched) - len(new_results),
+                                   status="ok" if new_results else "empty")
+            if new_results:
+                bundle = replace(
+                    bundle,
+                    canonical_results=(*bundle.canonical_results, *new_results),
+                    raw_results=(*bundle.raw_results, *new_results),
+                )
+        return bundle
+
+    def _fetch_supplementary_results(
+        self,
+        short_query: str,
         *,
         provider,
         log_prefix: str,
         override_source_category: str | None = None,
-    ) -> RetrievalBundle:
-        """Run a supplementary provider (XHS / Toutiao / Sogou-WeChat / Piyao) and
-        merge its hits into ``bundle`` under the standard enrichment schema.
+    ) -> list[SearchResult]:
+        """Fetch and enrich one source without reading or mutating other results.
 
-        Supplementary providers are best-effort: any exception is logged and the
-        original bundle is returned unchanged.
+        Search errors remain best-effort; successful sources can still merge.
 
         ``override_source_category`` pins a fixed source_category (e.g. Piyao's
         ``official_debunking``); otherwise the category is inferred per hit.
         """
-        if not provider.enabled:
-            return bundle
-        short_query = self._shorten_for_supplementary(primary_query)
-        if not short_query:
-            return bundle
         try:
             with observe_retrieval("supplement", provider=log_prefix, query_chars=len(short_query)) as observation:
                 hits = provider.search(short_query, max_results=5)
@@ -694,12 +734,12 @@ class RetrievalService:
                 observation["status"] = "ok" if hits else "empty"
         except Exception as exc:
             logger.warning("%s_append_failed error=%s", log_prefix, exc)
-            return bundle
+            return []
         if not hits:
-            return bundle
+            return []
 
         retrieved_at = ensure_datetime_string(datetime.now(UTC).isoformat())
-        enriched = [
+        return [
             replace(
                 item,
                 retrieved_at=retrieved_at,
@@ -713,56 +753,6 @@ class RetrievalService:
             )
             for item in hits
         ]
-
-        existing_keys = {r.independence_key for r in bundle.canonical_results if r.independence_key}
-        with observe_retrieval("selection", provider=log_prefix,
-                               raw_result_count=len(enriched)) as observation:
-            new_results = [r for r in enriched if r.independence_key not in existing_keys]
-            observation.update(selected_result_count=len(new_results),
-                               duplicate_count=len(enriched) - len(new_results),
-                               status="ok" if new_results else "empty")
-        if not new_results:
-            return bundle
-
-        combined_canonical = tuple(list(bundle.canonical_results) + new_results)
-        combined_raw = tuple(list(bundle.raw_results) + new_results)
-        return replace(
-            bundle,
-            canonical_results=combined_canonical,
-            raw_results=combined_raw,
-        )
-
-    def _append_xhs_results(
-        self, bundle: RetrievalBundle, primary_query: str, *, stage_key: str
-    ) -> RetrievalBundle:
-        return self._append_supplementary_results(
-            bundle, primary_query, provider=self.xhs_provider, log_prefix="xhs"
-        )
-
-    def _append_toutiao_results(
-        self, bundle: RetrievalBundle, primary_query: str, *, stage_key: str
-    ) -> RetrievalBundle:
-        return self._append_supplementary_results(
-            bundle, primary_query, provider=self.toutiao_provider, log_prefix="toutiao"
-        )
-
-    def _append_sogou_weixin_results(
-        self, bundle: RetrievalBundle, primary_query: str, *, stage_key: str
-    ) -> RetrievalBundle:
-        return self._append_supplementary_results(
-            bundle, primary_query, provider=self.sogou_weixin_provider, log_prefix="sogou_weixin"
-        )
-
-    def _append_piyao_results(
-        self, bundle: RetrievalBundle, primary_query: str, *, stage_key: str
-    ) -> RetrievalBundle:
-        return self._append_supplementary_results(
-            bundle,
-            primary_query,
-            provider=self.piyao_provider,
-            log_prefix="piyao",
-            override_source_category="official_debunking",
-        )
 
     def _pick_official_whitelist(self, query_text: str) -> tuple[str, ...]:
         """Assemble the site: whitelist for an official-source boost query.
