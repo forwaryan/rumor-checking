@@ -40,7 +40,8 @@ def validate_review_claim_scope(request, claims: list[ClaimItem]) -> None:
         raise ValueError("Claims must belong to the selected review scope.")
 
 
-def restrict_review_results(results: list[ClaimResult], request) -> list[ClaimResult]:
+def restrict_review_results(results: list[ClaimResult], request, *, fill_missing: bool = True) -> list[ClaimResult]:
+    """Match the exact parent scope; optionally defer placeholders until after annotation."""
     selected = review_claim_items(request)
     if not selected:
         return results
@@ -52,6 +53,8 @@ def restrict_review_results(results: list[ClaimResult], request) -> list[ClaimRe
     for item in selected:
         key = (_REVIEW_CLAIM_KEY.sub("", item.claim).lower(), item.claim_type)
         matched = indexed[key].popleft() if indexed[key] else None
+        if matched is None and not fill_missing:
+            continue
         result = matched or ClaimResult(
             claim=item.claim, claim_type=item.claim_type, verdict="insufficient", confidence="low",
             notes="本轮仅复核所选声明；当前运行尚未产出可追溯的判定。", evidence=[],

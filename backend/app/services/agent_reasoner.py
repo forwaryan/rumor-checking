@@ -539,100 +539,76 @@ class LlmAgentReasoner:
     ) -> AgentSynthesis | None:
         if not self.enabled:
             return None
-        selected = review_claim_items(request)
-        if len(selected) > 6:
-            # Synthesis intentionally accepts at most six atomic claims. A review
-            # can select up to fifty parent claims; truncating the model output
-            # would fill the rest with placeholders instead of checking them.
-            # Let the rule fallback judge the complete parent-selected scope.
-            emit_log(
-                stage_key="agent_synthesis", level="warning", title="复核范围超出综合判定上限",
-                summary="本轮选中超过六条声明，改用完整范围的规则判定链路。",
-                details=[f"review_claims={len(selected)}"],
-            )
-            return None
         retrieval_bundle = merge_supplemental_evidence(request, retrieval_bundle)
         if retrieval_bundle is None or not retrieval_bundle.canonical_results:
             return None
 
-        try:
-            user_prompt = self._build_synthesis_prompt(
-                request=request, event=event, retrieval_bundle=retrieval_bundle,
-                fetched_bodies=fetched_bodies,
-            )
-        except ContextBudgetExceeded:
-            emit_log(
-                stage_key="agent_synthesis", level="warning", title="上下文预算不足",
-                summary="完整问题与固定提示超出上下文预算，保留原问题并退回保守核查。",
-                details=["estimate_kind=heuristic"],
-            )
-            return None
+        selected = review_claim_items(request)
+        batched = len(selected) > 6
+        requests = [request]
+        if batched:
+            requests = [request.model_copy(update={"request_context": {
+                **request.request_context,
+                "review_claim_texts": [item.claim for item in selected[offset:offset + 6]],
+                "review_claim_types": [item.claim_type for item in selected[offset:offset + 6]],
+            }}) for offset in range(0, len(selected), 6)]
 
-        content = self._request_completion(
-            stage_key="agent_synthesis",
-            title="调用 Agent synthesis",
-            system_prompt=CLAIMS_ONLY_SYSTEM_PROMPT,
-            user_prompt=user_prompt,
-            # Retry a truncated/garbage completion instead of dropping the whole run
-            # to the rule fallback: "usable" here means the same parser the code path
-            # below relies on recovers an object carrying at least one claim.
-            is_valid=self._synthesis_content_usable,
-            # Synthesis emits the largest JSON and reasoning models spend a long CoT
-            # before it (observed: 11k CoT chars + a partial body hitting the 200s
-            # deadline). Give this one call more wall-clock so the body completes.
-            timeout_multiplier=self.settings.llm_synthesis_timeout_multiplier,
-            # Opt-in: route only synthesis to LLM_SYNTHESIS_MODEL (e.g. a reasoning
-            # model that produces correct claim splits) while the short planner /
-            # investigation calls stay on the fast default.
-            model=self._synthesis_model(),
+        synthesized_event = None
+        batches: list[tuple[AnalyzeRequest, list[ClaimResult]]] = []
+        for index, batch_request in enumerate(requests, start=1):
+            check_run_control()
+            if batched:
+                emit_log(
+                    stage_key="agent_synthesis", title="分批复核声明",
+                    summary=f"正在核查第 {index}/{len(requests)} 批声明，每批最多六条。",
+                    details=[f"batch_index={index}", f"batch_count={len(requests)}",
+                             f"claim_count={len(review_claim_items(batch_request))}"],
+                )
+            try:
+                batch = self._synthesize_claim_batch(
+                    request=batch_request, event=event, retrieval_bundle=retrieval_bundle,
+                    fetched_bodies=fetched_bodies,
+                )
+            except Exception as exc:
+                if not batched:
+                    raise
+                logger.warning("synthesis_batch_failed batch_index=%s error_type=%s", index, type(exc).__name__)
+                batch = None
+            if batch is None:
+                if not batched:
+                    return None
+                # A failed batch cannot erase successful judgments from other
+                # batches or manufacture evidence for its selected claims.
+                batches.append((batch_request, []))
+                emit_log(
+                    stage_key="agent_synthesis", level="warning", title="本批复核未完成",
+                    summary="本批声明保留为证据不足，继续核查其余批次。",
+                    details=[f"batch_index={index}", f"batch_count={len(requests)}"],
+                )
+                continue
+            batch_event, batch_results = batch
+            if synthesized_event is None:
+                synthesized_event = batch_event
+            batches.append((batch_request, batch_results))
+
+        # Preserve the existing rule fallback if no batch produced a synthesis.
+        if synthesized_event is None:
+            return None
+        # Corrections are optional annotations, so batch them once across the
+        # successful judgments rather than spending another LLM call per batch.
+        # Add placeholders only afterwards so failed or omitted claims cannot
+        # acquire a correction for a judgment the model never produced.
+        corrected = self._annotate_corrections(
+            [result for _, results in batches for result in results], retrieval_bundle, fetched_bodies,
         )
-        payload = self._extract_json_payload(content)
-        if payload is None:
-            emit_log(
-                stage_key="agent_synthesis",
-                level="warning",
-                title="Agent synthesis 无法解析",
-                summary="LLM 返回内容不是可解析的 JSON。",
-                details=[],
-            )
-            return None
-
+        claim_results: list[ClaimResult] = []
+        offset = 0
+        for batch_request, batch_results in batches:
+            count = len(batch_results)
+            claim_results.extend(restrict_review_results(corrected[offset:offset + count], batch_request))
+            offset += count
+        claim_results = apply_evidence_goals(claim_results, retrieval_bundle, fetched_bodies)
         result_map = {item.result_id: item for item in retrieval_bundle.canonical_results}
-        synthesized_event = self._build_event(
-            event=event,
-            retrieval_bundle=retrieval_bundle,
-            result_map=result_map,
-            payload=payload.get("event"),
-        )
-        claim_results = self._build_claim_results(
-            event=synthesized_event,
-            result_map=result_map,
-            claims_payload=payload.get("claims"),
-        )
-        if not claim_results:
-            return None
-
-        # Verify pass: a second LLM read checks each decisive verdict against its
-        # OWN cited evidence and can only downgrade unfaithful calls to insufficient.
-        # Purely subtractive, so it can never manufacture a stronger conclusion.
-        claim_results, critic_downgraded_indices = self._critique_claim_results(claim_results)
-
-        # Critic-triggered refinement: if the critic downgraded any claims, give
-        # them one chance to re-verdict against the full evidence pool. This closes
-        # the gap where the agent path had no recovery after a critic downgrade.
-        claim_results = self._refine_after_critic(
-            claim_results,
-            downgraded_indices=critic_downgraded_indices,
-            retrieval_bundle=retrieval_bundle,
-            fetched_bodies=fetched_bodies,
-        )
-
-        # Structured number correction: for claims whose specific numbers/details
-        # the evidence contradicts or refines, attach a {original, actual, source}
-        # correction so the user sees the real figure, not just a bare "refuted".
-        # Number-grounded (actual must appear in evidence) and degrades to no-op.
-        claim_results = self._annotate_corrections(claim_results, retrieval_bundle, fetched_bodies)
-        claim_results = apply_evidence_goals(restrict_review_results(claim_results, request), retrieval_bundle, fetched_bodies)
 
         # Second-phase enrichment: produce timeline, scenarios, and refined event
         # in a SEPARATE lighter call to avoid the truncation the old all-in-one
@@ -681,6 +657,97 @@ class LlmAgentReasoner:
             ),
             possibilities=possibilities,
         )
+
+    def _synthesize_claim_batch(
+        self,
+        *,
+        request: AnalyzeRequest,
+        event: NormalizedEvent,
+        retrieval_bundle: RetrievalBundle,
+        fetched_bodies: dict[str, str] | None,
+    ) -> tuple[NormalizedEvent, list[ClaimResult]] | None:
+        """Judge at most six claims with the existing grounding and critic guards."""
+        try:
+            user_prompt = self._build_synthesis_prompt(
+                request=request, event=event, retrieval_bundle=retrieval_bundle,
+                fetched_bodies=fetched_bodies,
+            )
+        except ContextBudgetExceeded:
+            emit_log(
+                stage_key="agent_synthesis", level="warning", title="上下文预算不足",
+                summary="完整问题与固定提示超出上下文预算，保留原问题并退回保守核查。",
+                details=["estimate_kind=heuristic"],
+            )
+            return None
+
+        content = self._request_completion(
+            stage_key="agent_synthesis",
+            title="调用 Agent synthesis",
+            system_prompt=CLAIMS_ONLY_SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+            # Retry a truncated/garbage completion instead of dropping the whole run
+            # to the rule fallback: "usable" here means the same parser the code path
+            # below relies on recovers an object carrying at least one claim.
+            is_valid=self._synthesis_content_usable,
+            # Synthesis emits the largest JSON and reasoning models spend a long CoT
+            # before it (observed: 11k CoT chars + a partial body hitting the 200s
+            # deadline). Give this one call more wall-clock so the body completes.
+            timeout_multiplier=self.settings.llm_synthesis_timeout_multiplier,
+            # Opt-in: route only synthesis to LLM_SYNTHESIS_MODEL (e.g. a reasoning
+            # model that produces correct claim splits) while the short planner /
+            # investigation calls stay on the fast default.
+            model=self._synthesis_model(),
+        )
+        payload = self._extract_json_payload(content)
+        raw_claims = payload.get("claims") if payload is not None else None
+        # Exhausted retries can still return the last unusable completion. Do
+        # not mistake the parser's synthetic event-summary placeholder for a
+        # successfully judged batch.
+        if not isinstance(raw_claims, list) or not any(
+            isinstance(item, dict) and self._normalize_claim_text(item.get("claim"))
+            for item in raw_claims
+        ):
+            emit_log(
+                stage_key="agent_synthesis",
+                level="warning",
+                title="Agent synthesis 无法解析",
+                summary="LLM 未返回包含有效声明的 JSON。",
+                details=[],
+            )
+            return None
+
+        result_map = {item.result_id: item for item in retrieval_bundle.canonical_results}
+        synthesized_event = self._build_event(
+            event=event,
+            retrieval_bundle=retrieval_bundle,
+            result_map=result_map,
+            payload=payload.get("event"),
+        )
+        claim_results = self._build_claim_results(
+            event=synthesized_event,
+            result_map=result_map,
+            claims_payload=raw_claims,
+        )
+        if not claim_results:
+            return None
+
+        # Verify pass: a second LLM read checks each decisive verdict against its
+        # OWN cited evidence and can only downgrade unfaithful calls to insufficient.
+        # Purely subtractive, so it can never manufacture a stronger conclusion.
+        claim_results, critic_downgraded_indices = self._critique_claim_results(claim_results)
+
+        # Critic-triggered refinement: if the critic downgraded any claims, give
+        # them one chance to re-verdict against the full evidence pool. This closes
+        # the gap where the agent path had no recovery after a critic downgrade.
+        claim_results = self._refine_after_critic(
+            claim_results,
+            downgraded_indices=critic_downgraded_indices,
+            retrieval_bundle=retrieval_bundle,
+            fetched_bodies=fetched_bodies,
+        )
+
+        scoped_results = restrict_review_results(claim_results, request, fill_missing=False)
+        return (synthesized_event, scoped_results) if scoped_results else None
 
     def plan_investigation(
         self,

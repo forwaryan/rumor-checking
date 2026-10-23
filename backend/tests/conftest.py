@@ -32,6 +32,7 @@ def stable_test_env(monkeypatch, tmp_path):
     monkeypatch.setenv("LLM_BASE_URL", "http://127.0.0.1:0/v1")
     monkeypatch.setenv("LLM_MODEL", "")
     monkeypatch.setenv("LLM_SEARCH_MODEL", "")
+    monkeypatch.setenv("EVIDENCE_RERANK_ENABLED", "false")
     monkeypatch.setenv("KIMI_BASE_URL", "http://127.0.0.1:0/v1")
     monkeypatch.setenv("KIMI_MODEL", "")
     monkeypatch.setenv("KIMI_SEARCH_MODEL", "")
