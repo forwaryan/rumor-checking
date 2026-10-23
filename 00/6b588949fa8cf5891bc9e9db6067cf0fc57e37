@@ -1,0 +1,42 @@
+docs/evidence-goals.md
+  s_d70326834e21c0::t_c2e66010c7d897 26
+  s_d70326834e21c0::t_1faccb74ab85e1 25
+backend/tests/test_evidence_goals.py
+  s_d70326834e21c0::t_64f0d3c44cd29f 449-451,457-479,482-490
+backend/tests/test_synthesis_batches.py
+  s_d70326834e21c0::t_504cb38bc3e3dd 208-209,217-220,238-256
+  s_d70326834e21c0::t_8600f76c76a78d 169-187,189-204
+  s_d70326834e21c0::t_b13b2599398a6d 8-12
+  s_d70326834e21c0::t_ce02d21e64be45 1-7,13-79,82-83,85-168
+  s_d70326834e21c0::t_bf851e29458513 188
+  s_d70326834e21c0::t_c6f7b956b20ac2 80-81,84
+  s_d70326834e21c0::t_5800a5c6711c3f 205-207,210-216,221-237
+backend/tests/conftest.py
+  s_d70326834e21c0::t_503edee0fedc72 35
+backend/app/services/agent_reasoner.py
+  s_d70326834e21c0::t_f94a5d6c1a3704 702-709,714,729
+  s_d70326834e21c0::t_bf851e29458513 597-598,601,603
+  s_d70326834e21c0::t_c48aa8c3a6b0ca 546-556,558-581,583-591,593-595,611-669
+  s_d70326834e21c0::t_662592701de72c 557,582,592,599-600,602,604-610,749-750
+  s_d70326834e21c0::t_8f255b4b4a49ee 596
+backend/app/services/review_scope.py
+  s_d70326834e21c0::t_662592701de72c 43-44,56-57
+docs/adr/0015-batched-review-synthesis.md
+  s_d70326834e21c0::t_51914f4e461a07 1-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "006b588949fa8cf5891bc9e9db6067cf0fc57e37",
+  "prompts": {},
+  "sessions": {
+    "s_d70326834e21c0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a16994-c3a8-7f50-9588-15843b056e03",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "forwaryan <2549102420@qq.com>"
+    }
+  }
+}
