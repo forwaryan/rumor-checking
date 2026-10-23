@@ -446,19 +446,48 @@ def test_large_review_judges_all_claims_without_per_claim_llm_budget(monkeypatch
     assert control.llm_calls == 0
 
 
-def test_synthesis_does_not_silently_truncate_large_review_scope(monkeypatch):
-    texts = [f"待复核声明{index}" for index in range(7)]
+@pytest.mark.parametrize("count", [6, 7, 13, 50])
+def test_synthesis_does_not_silently_truncate_large_review_scope(monkeypatch, count):
+    texts = [f"待复核声明{index}" for index in range(count)]
     request = AnalyzeRequest(raw_input="旧报告", request_context={
         "review_claim_texts": texts, "review_claim_types": ["fact"] * len(texts),
     })
     evidence = _result("公告正文")
     reasoner = LlmAgentReasoner(settings=replace(get_settings(), analysis_provider="kimi", llm_api_key="test",
-                                                evidence_rerank_enabled=False))
-    monkeypatch.setattr(reasoner, "_request_completion", lambda **kwargs: pytest.fail("不能只核查前六条"))
-    assert reasoner.synthesize(
+                                                agent_synthesis_critic_enabled=False, evidence_rerank_enabled=False))
+    batches = []
+    enriched = []
+
+    def complete(**kwargs):
+        context = json.loads(kwargs["user_prompt"].split("<untrusted-input>\n", 1)[1].split("\n</untrusted-input>", 1)[0])
+        selected = context["review_claim_texts"]
+        assert 1 <= len(selected) <= 6
+        assert context["raw_input"] == request.raw_input
+        batches.append(selected)
+        return json.dumps({"claims": [{
+            "claim": text, "claim_type": "fact", "verdict": "supported", "confidence": "high",
+            "evidence_result_ids": ["e1"], "notes": "对应公告正文",
+        } for text in reversed(selected)]})
+
+    def enrich(**kwargs):
+        enriched.append([item.claim for item in kwargs["claim_results"]])
+        return {"timeline_nodes": [], "possibilities": [], "event": None}
+
+    monkeypatch.setattr(reasoner, "_request_completion", complete)
+    monkeypatch.setattr(reasoner, "_annotate_corrections", lambda results, *args: results)
+    monkeypatch.setattr(reasoner, "_enrich_synthesis", enrich)
+    synthesis = reasoner.synthesize(
         request=request, event=NormalizedEvent(summary="旧报告", raw_input="旧报告", input_type="text_news"),
         retrieval_bundle=RetrievalBundle(query="旧报告", canonical_results=(evidence,)),
-    ) is None
+    )
+    assert synthesis is not None
+    assert batches == [texts[index:index + 6] for index in range(0, count, 6)]
+    assert [item.claim for item in synthesis.verdict.claim_results] == texts
+    assert [item.claim for item in synthesis.claim_extraction.claims] == texts
+    assert all(item.verdict == "supported" and item.evidence[0].url == evidence.url
+               for item in synthesis.verdict.claim_results)
+    assert enriched == [texts]
+    assert request.request_context["review_claim_texts"] == texts
 
 
 def test_synthesis_applies_review_scope_and_gap_annotation(monkeypatch):

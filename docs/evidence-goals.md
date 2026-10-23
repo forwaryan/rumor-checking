@@ -22,6 +22,8 @@
 
 用户复核范围由父报告确定。当前缺口规则不会把观点、预测或不可核实声明变成事实判断；没有生成对应结果时，以原类型和证据不足占位，并保留旧版本供查阅。
 
+深度综合复核超过 6 条所选声明时，按每批最多 6 条顺序调用模型，并按父报告的选择顺序合并。每批保留原始输入背景、原声明类型和共享证据，继续执行引用约束、Critic 和缺口检查；单批失败仅将该批标为证据不足，全部失败才进入原有规则回退。时间线与可能性只在合并后生成一次。任务取消、调用次数和 token 预算继续生效，不会因分批而放宽，详见 [ADR 0015](adr/0015-batched-review-synthesis.md)。
+
 ```bash
 python -m pytest backend/tests/test_evidence_goals.py backend/tests/test_supplemental_evidence.py -q
 python backend/scripts/replay_agent.py --output artifacts/agent-replay-local.json

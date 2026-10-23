@@ -28,4 +28,6 @@ ADRs capture decisions that are expensive to reverse or easy to misunderstand la
 
 - [0013 — Verdict time and attribute coverage](0013-verdict-time-and-attribute-coverage.md)
 
+- [0014 — Parallel supplementary retrieval](0014-parallel-supplementary-retrieval.md)
+
 Copy `0000-template.md`, assign the next number, and link the new record here.
