@@ -1,0 +1,28 @@
+backend/tests/test_retrieval_supplementary.py
+  s_d70326834e21c0::t_a5f578c31e971b 22-28,157-209
+  s_d70326834e21c0::t_810b41e948e8ec 1-21,29-156,210-227
+docs/adr/README.md
+  s_d70326834e21c0::t_c2e66010c7d897 32
+  s_d70326834e21c0::t_7f96e1c49529ac 31
+backend/app/services/retrieval_service.py
+  s_d70326834e21c0::t_990a638d64dc7a 200,660,663-673,676,678-717,722-723,725,737,739,742
+  s_d70326834e21c0::t_ed5c594c97b6cd 674-675,677
+docs/adr/0014-parallel-supplementary-retrieval.md
+  s_d70326834e21c0::t_545f00189b3ebd 1-33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "a736830317acf8707f786e81616e4f3135235dbc",
+  "prompts": {},
+  "sessions": {
+    "s_d70326834e21c0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a16994-c3a8-7f50-9588-15843b056e03",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "forwaryan <2549102420@qq.com>"
+    }
+  }
+}
