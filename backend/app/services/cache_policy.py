@@ -13,7 +13,7 @@ _VERDICT_SETTING_FIELDS = (
     "llm_synthesis_model", "llm_fast_model", "llm_temperature", "llm_max_tokens",
     "llm_query_extraction_enabled", "agent_orchestrator_enabled", "multi_agent_enabled",
     "multi_agent_retrieval_mode", "lightweight_agent_enabled",
-    "llm_enabled", "llm_base_url", "llm_model_base_urls", "llm_reasoning_models", "llm_reasoning_max_tokens",
+    "llm_enabled", "llm_base_url", "llm_model_base_urls", "joycode_models", "llm_reasoning_models", "llm_reasoning_max_tokens",
     "llm_reasoning_timeout_seconds", "llm_reasoning_retries", "provider_timeout_seconds",
     "xhs_search_enabled", "toutiao_search_enabled", "sogou_weixin_search_enabled", "piyao_search_enabled",
     "searxng_search_enabled", "searxng_base_url", "retrieval_max_results", "retrieval_timeout_seconds",

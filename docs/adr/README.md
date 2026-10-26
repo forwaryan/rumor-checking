@@ -29,5 +29,7 @@ ADRs capture decisions that are expensive to reverse or easy to misunderstand la
 - [0013 — Verdict time and attribute coverage](0013-verdict-time-and-attribute-coverage.md)
 
 - [0014 — Parallel supplementary retrieval](0014-parallel-supplementary-retrieval.md)
+- [0015 — Bounded review synthesis](0015-batched-review-synthesis.md)
+- [0016 — Optional JoyCode model transport](0016-joycode-model-transport.md)
 
 Copy `0000-template.md`, assign the next number, and link the new record here.

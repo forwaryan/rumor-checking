@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from backend.app.services.joycode_transport import prepare_joycode_request
 from backend.app.services.model_call_observer import model_call_attempt, observe_model_call
 from backend.app.services.progress import emit_log
 from backend.app.services.run_control import check_run_control, reserve_llm_call
@@ -243,8 +244,12 @@ def complete_once(
     reasoner's failover, so non-agent failovers are also visible in the trace UI.
     """
     candidates = _fast_model_candidates(settings)
-    if not candidates or not settings.llm_api_key:
+    if not candidates or not (settings.llm_api_key or settings.joycode_models and settings.joycode_auth_file):
         return ""
+    candidates = [
+        model for model in candidates
+        if (settings.joycode_auth_file if settings.uses_joycode(model) else settings.llm_api_key)
+    ]
     registry = get_model_health_registry()
 
     prev_model: str | None = None
@@ -271,13 +276,18 @@ def complete_once(
             }
             # Reserve before opening the observation: rejected budgets are not
             # HTTP attempts. Each failover candidate gets its own usage/parent.
+            if settings.uses_joycode(model):
+                endpoint, headers, body = prepare_joycode_request(settings, body, timeout=timeout)
+            else:
+                endpoint = f"{base_url}/chat/completions"
+                headers = {"Authorization": f"Bearer {settings.llm_api_key}"}
             with model_call_attempt(stage_key, attempt), observe_model_call(
                 settings=settings, provider="completion", model=model,
                 stage_key=stage_key, request=body,
             ) as observation:
                 resp = httpx.post(
-                    f"{base_url}/chat/completions",
-                    headers={"Authorization": f"Bearer {settings.llm_api_key}"},
+                    endpoint,
+                    headers=headers,
                     json=body,
                     timeout=timeout,
                 )
@@ -303,7 +313,7 @@ def complete_once(
         except Exception as exc:
             # Transport error OR a malformed 200 body — either way this model did
             # not usefully answer, so evict it and fail over to the next candidate.
-            logger.debug("complete_once failed on %s: %s", model, exc)
+            logger.debug("complete_once failed on %s: %s", model, type(exc).__name__)
             registry.report_failure(model)
             continue
 

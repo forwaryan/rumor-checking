@@ -9,6 +9,7 @@ import httpx
 from backend.app.core.config import Settings, get_settings
 from backend.app.models.schemas import ClaimItem, NormalizedEvent, ProviderAnalysis, ProviderEventDraft
 from backend.app.services.contract_utils import ensure_datetime_string, loads_lenient_json
+from backend.app.services.joycode_transport import prepare_joycode_request
 from backend.app.services.model_call_observer import observe_model_call
 from backend.app.services.progress import emit_api_call, emit_log
 from backend.app.services.question_intent import is_broad_trend_question
@@ -104,7 +105,7 @@ class LlmStructuredProvider:
 
     @property
     def enabled(self) -> bool:
-        return self.settings.analysis_provider == "kimi" and bool(self.settings.llm_api_key)
+        return self.settings.llm_enabled
 
     def analyze(self, event: NormalizedEvent) -> ProviderAnalysis | None:
         if not self.enabled:
@@ -143,13 +144,24 @@ class LlmStructuredProvider:
         body = {
             "model": model,
             "temperature": self._request_temperature(),
-            "response_format": {"type": "json_object"},
             "max_tokens": max_output,
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
             ],
         }
+        if not self.settings.is_reasoning_model(model) and not self.settings.uses_joycode(model):
+            body["response_format"] = {"type": "json_object"}
+        if self.settings.uses_joycode(model):
+            endpoint, headers, body = prepare_joycode_request(
+                self.settings, body, timeout=self.settings.provider_timeout_seconds,
+            )
+        else:
+            endpoint = f"{self.settings.base_url_for_model(model)}/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {self.settings.llm_api_key}",
+                "Content-Type": "application/json",
+            }
         with observe_model_call(
             settings=self.settings,
             provider="structured",
@@ -158,11 +170,8 @@ class LlmStructuredProvider:
             request=body,
         ) as observation:
             response = httpx.post(
-                f"{self.settings.base_url_for_model(model)}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {self.settings.llm_api_key}",
-                    "Content-Type": "application/json",
-                },
+                endpoint,
+                headers=headers,
                 json=body,
                 timeout=self.settings.provider_timeout_seconds,
             )

@@ -42,6 +42,7 @@ from backend.app.services.contract_utils import (
 )
 from backend.app.services.evidence_context import ContextBudgetExceeded, build_evidence_prompt
 from backend.app.services.evidence_goals import apply_evidence_goals
+from backend.app.services.joycode_transport import prepare_joycode_request
 from backend.app.services.model_call_observer import model_call_attempt, observe_model_call
 from backend.app.services.model_health import get_model_health_registry
 from backend.app.services.progress import emit_api_call, emit_log
@@ -472,7 +473,7 @@ class LlmAgentReasoner:
 
     @property
     def enabled(self) -> bool:
-        return self.settings.analysis_provider == "kimi" and bool(self.settings.llm_api_key)
+        return self.settings.llm_enabled
 
     def resolve_question(
         self,
@@ -624,8 +625,8 @@ class LlmAgentReasoner:
             )
         except Exception as exc:
             logger.warning(
-                "enrich_synthesis_failed error_type=%s error=%s",
-                exc.__class__.__name__, str(exc)[:200],
+                "enrich_synthesis_failed error_type=%s",
+                exc.__class__.__name__,
             )
             enrichment = {"timeline_nodes": [], "possibilities": [], "event": None}
 
@@ -1205,7 +1206,7 @@ class LlmAgentReasoner:
             "stream": True,
             "max_tokens": max_tokens,
             "messages": [
-                {"role": "system", "content": self._system_content(system_prompt)},
+                {"role": "system", "content": system_prompt if self.settings.uses_joycode(model) else self._system_content(system_prompt)},
                 {"role": "user", "content": user_prompt},
             ],
         }
@@ -1214,9 +1215,20 @@ class LlmAgentReasoner:
         # slow-trickle to the deadline and truncate. Both are prompted to "output
         # JSON only" and the caller's lenient parser recovers a fenced/sliced block.
 
-        if getattr(self.settings, "llm_stream_include_usage", True):
+        if getattr(self.settings, "llm_stream_include_usage", True) and not self.settings.uses_joycode(model):
             body["stream_options"] = {"include_usage": True}
         reserve_llm_call(system_prompt=system_prompt, user_prompt=user_prompt, max_output_tokens=max_tokens)
+        if self.settings.uses_joycode(model):
+            try:
+                endpoint, headers, body = prepare_joycode_request(self.settings, body, timeout=timeout_seconds)
+            except (OSError, ValueError, KeyError, RuntimeError, httpx.HTTPError) as exc:
+                logger.warning("joycode_prepare_failed model=%s error_type=%s", model, type(exc).__name__)
+                return ""
+        else:
+            headers = {
+                "Authorization": f"Bearer {self.settings.llm_api_key}",
+                "Content-Type": "application/json",
+            }
         with observe_model_call(
             settings=self.settings, provider="llm", model=model, request=body,
         ) as observation:
@@ -1240,10 +1252,7 @@ class LlmAgentReasoner:
                 with self._client.stream(
                     "POST",
                     endpoint,
-                    headers={
-                        "Authorization": f"Bearer {self.settings.llm_api_key}",
-                        "Content-Type": "application/json",
-                    },
+                    headers=headers,
                     json=body,
                     timeout=timeout_seconds,
                 ) as response:
@@ -1301,8 +1310,8 @@ class LlmAgentReasoner:
             except (httpx.HTTPStatusError, httpx.TransportError) as exc:
                 observation.fail(exc)
                 logger.warning(
-                    "llm_stream_network_error model=%s error_type=%s error=%s",
-                    model, type(exc).__name__, str(exc)[:200],
+                    "llm_stream_network_error model=%s error_type=%s",
+                    model, type(exc).__name__,
                 )
                 return ""
             if not stream_finished:
@@ -1362,6 +1371,8 @@ class LlmAgentReasoner:
             return [self.model_override]
         registry = get_model_health_registry()
         candidates = [primary, *self.settings.available_models]
+        if not self.settings.llm_api_key and self.settings.joycode_models and self.settings.joycode_auth_file:
+            candidates = [model for model in candidates if self.settings.uses_joycode(model)]
         return registry.order_by_health(candidates)
 
     def _synthesis_model(self) -> str:

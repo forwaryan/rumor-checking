@@ -191,6 +191,10 @@ class Settings:
     model_ledger_enabled: bool
     model_ledger_dir: Path
     cors_allow_origin_regex: str
+    joycode_models: tuple[str, ...]
+    joycode_base_url: str
+    joycode_sign_key: str
+    joycode_auth_file: Path | None
 
     @property
     def evidence_rerank_ready(self) -> bool:
@@ -205,7 +209,9 @@ class Settings:
 
     @property
     def llm_enabled(self) -> bool:
-        return self.analysis_provider == "kimi" and bool(self.llm_api_key)
+        return self.analysis_provider == "kimi" and bool(
+            self.llm_api_key or (self.joycode_models and self.joycode_auth_file)
+        )
 
     @property
     def available_models(self) -> tuple[str, ...]:
@@ -240,6 +246,9 @@ class Settings:
         pattern-matched on the name, so a rename never silently flips the path."""
         return bool(model) and model.strip() in self.llm_reasoning_models
 
+    def uses_joycode(self, model: str) -> bool:
+        return bool(model) and model.strip() in self.joycode_models
+
     @property
     def lightweight_agent_ready(self) -> bool:
         return self.lightweight_agent_enabled and self.agent_max_extra_rounds > 0 and self.llm_enabled
@@ -250,7 +259,9 @@ class Settings:
 
     @property
     def llm_ready(self) -> bool:
-        return not self.llm_required or bool(self.llm_api_key)
+        return not self.llm_required or bool(
+            self.llm_api_key or (self.joycode_models and self.joycode_auth_file)
+        )
 
     @property
     def llm_required(self) -> bool:
@@ -385,6 +396,10 @@ def get_settings() -> Settings:
             "CORS_ALLOW_ORIGIN_REGEX",
             r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
         ),
+        joycode_models=tuple(m.strip() for m in (os.getenv("JOYCODE_MODELS") or "").split(",") if m.strip()),
+        joycode_base_url=(os.getenv("JOYCODE_BASE_URL") or "").rstrip("/"),
+        joycode_sign_key=os.getenv("JOYCODE_SIGN_KEY") or "",
+        joycode_auth_file=Path(os.environ["JOYCODE_AUTH_FILE"]).expanduser() if os.getenv("JOYCODE_AUTH_FILE") else None,
     )
 
 

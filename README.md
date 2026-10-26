@@ -217,7 +217,7 @@ LLM_BASE_URL=你的 OpenAI 兼容网关端点
 LLM_MODEL=你的模型名
 ```
 
-> `ANALYSIS_PROVIDER=kimi` 只是历史遗留的开关字面量，不代表具体供应商；LLM 调用层已供应商中立，走标准 OpenAI 兼容 `chat/completions`。内网网关地址和密钥全部放 `backend/.env`（git 忽略），永不进版本库。
+> `ANALYSIS_PROVIDER=kimi` 只是历史遗留的开关字面量，不代表具体供应商；通常走标准 OpenAI 兼容 `chat/completions`。Magpie JoyCode 的 DeepSeek 模型需要额外签名及登录身份：在本地 `backend/.env` 将模型同时列入 `LLM_MODELS` 和 `JOYCODE_MODELS`，并配置 `JOYCODE_BASE_URL`、`JOYCODE_SIGN_KEY`、`JOYCODE_AUTH_FILE`（指向本机 Magpie 的私有授权文件）。这条链路通过相同的模型选择器、流式分析和非流式判定；现有默认模型不变。网关地址和凭据全部留在 git 忽略的本地配置，不进入版本库。
 
 **可选增强(默认关,配了才生效,失败自动回退)**:
 
