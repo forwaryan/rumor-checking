@@ -35,6 +35,19 @@ _SHANGHAI_TZ = timezone(timedelta(hours=8))
 _DATELESS_SENTINEL = datetime(1970, 1, 1, tzinfo=_SHANGHAI_TZ)
 _EXPLICIT_CURRENT_MARKERS = ("目前", "现在", "当前", "今天", "今日", "本周", "本月", "今年")
 _CURRENT_SERVICE_STATE = re.compile(r"开放|闭馆|开馆|营业|停业|开业|停课|复课|停运|运营|收费|免票|门票|票价|购房资格|限购|预约")
+_FREE_PRICE_CLAIM = re.compile(
+    r"免票|(?:门票|入馆|入场|参观|入园|入内).{0,6}(?:免费|零元|0元|不收费)|"
+    r"(?:免费|零元|0元|不收费)(?:开放|入馆|入场|参观|入园|入内|门票)|不收门票"
+)
+_FREE_PRICE_EVIDENCE = re.compile(
+    r"免票|(?:门票|入馆|入场|参观|入园|入内).{0,6}(?:免费|零元|0元|不收费)|"
+    r"(?:免费|零元|0元|不收费)(?:开放|入馆|入场|参观|入园|入内|门票)|"
+    r"不收门票|无需购票|无须购票|门票.{0,6}(?:收费|\d+元)"
+)
+_PAID_ADMISSION_EVIDENCE = re.compile(
+    r"不免票|并非免票|不免费|并非免费|非免费|取消免票|停止免票|"
+    r"恢复收费|门票.{0,6}(?:收费|\d+元)"
+)
 _CALENDAR_DATE = re.compile(r"(?<!\d)((?:19|20)\d{2})(?:年|[-/])(\d{1,2})(?:月|[-/])(\d{1,2})(?:日|号)?(?!\d)")
 
 
@@ -815,6 +828,7 @@ class VerdictEngine:
             return "insufficient", "low", "当前 claim 过于模糊，无法与公开来源稳定对齐。", []
 
         claim_is_negative = self._contains_claim_negation(normalized_claim)
+        free_price_claim = bool(_FREE_PRICE_CLAIM.search(normalized_claim))
         full_scope_claim = any(marker in claim_text or marker in normalized_claim for marker in FULL_SCOPE_CLAIM_MARKERS)
         supporting: list[EvidenceItem] = []
         refuting: list[EvidenceItem] = []
@@ -843,6 +857,7 @@ class VerdictEngine:
                 claim_terms=claim_terms,
                 claim_is_negative=claim_is_negative,
                 full_scope_claim=full_scope_claim,
+                free_price_claim=free_price_claim,
                 subject_anchors=subject_anchors,
                 anchor_context=item.source_name,
                 measurement_attributes=frozenset(item.attribute for item in _measurements(normalized_claim)),
@@ -1105,6 +1120,7 @@ class VerdictEngine:
         claim_terms: list[str],
         claim_is_negative: bool,
         full_scope_claim: bool,
+        free_price_claim: bool = False,
         subject_anchors: list[str] | None = None,
         anchor_context: str | None = None,
         measurement_attributes: frozenset[str] = frozenset(),
@@ -1145,6 +1161,10 @@ class VerdictEngine:
             ):
                 continue
             evidence_is_negative = self._contains_evidence_refutation(haystack)
+            if free_price_claim:
+                if not _FREE_PRICE_EVIDENCE.search(haystack):
+                    continue
+                evidence_is_negative = bool(_PAID_ADMISSION_EVIDENCE.search(haystack))
             if not evidence_is_negative and self._is_context_only_segment(haystack):
                 continue
             if claim_is_negative and not evidence_is_negative and not self._has_negative_claim_refutation_overlap(overlap):

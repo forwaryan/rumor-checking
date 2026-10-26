@@ -44,7 +44,7 @@ jobs:
         # corpus does not support. When a rule change genuinely improves a set, raise
         # its ratchet in the same commit; never raise one ahead of a measured score.
         #   seed 100.0% (8)  hard 62.5% (8)  cfever dev 33.3% (12)
-        #   covid19-health 12.5% (8)  context dev 75.0% (4)
+        #   covid19-health 12.5% (8)  context dev 100.0% (4)
         # covid19-health sits far below that corpus's 87.5% majority-class baseline
         # (see docs/dataset-quality.md): its ratchet only detects regressions and must
         # not be read as evidence that the engine handles health rumours well.
@@ -74,7 +74,7 @@ jobs:
             --dir evals/live_replay/context_challenge \
             --evaluation-split development \
             --run-name "context-ci-${GITHUB_SHA::12}" \
-            --pass-threshold 0.74 \
+            --pass-threshold 1.0 \
             --output artifacts/replay-context.json
       - name: Upload replay report
         uses: actions/upload-artifact@v4

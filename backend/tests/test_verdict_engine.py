@@ -785,6 +785,137 @@ def test_current_state_claim_with_only_undated_evidence_is_insufficient():
     assert selected == pool
 
 
+def test_opening_hours_do_not_support_free_admission_claim():
+    engine = VerdictEngine()
+    hours = EvidenceItem(
+        title="明泉市博物馆公布开放时间",
+        url="https://museum.example/mingquan/hours",
+        source_name="明泉市博物馆",
+        published_at="2026-08-08",
+        snippet="明泉市博物馆每周二至周日上午九点至下午五点开放，每周一闭馆。",
+        relevance_reason="官网开放时间说明。",
+        source_tier="S",
+    )
+
+    verdict, confidence, _notes, selected = engine._evaluate_fact_claim(
+        claim_text="明泉市博物馆每周三免票",
+        evidence_pool=[hours],
+        subject_anchors=[],
+    )
+
+    assert (verdict, confidence) == ("insufficient", "low")
+    assert selected == [hours]
+
+
+def test_free_admission_requires_pricing_in_same_segment():
+    engine = VerdictEngine()
+    evidence = EvidenceItem(
+        title="明泉市博物馆公布开放时间",
+        url="https://museum.example/mingquan/notice",
+        source_name="明泉市博物馆",
+        published_at="2026-08-08",
+        snippet="明泉市博物馆每周三开放。馆内讲座免费。",
+        relevance_reason="官网参观说明。",
+        source_tier="S",
+    )
+
+    verdict, confidence, _notes, _selected = engine._evaluate_fact_claim(
+        claim_text="明泉市博物馆每周三免票",
+        evidence_pool=[evidence],
+        subject_anchors=[],
+    )
+
+    assert (verdict, confidence) == ("insufficient", "low")
+
+
+def test_other_free_service_does_not_require_admission_price_evidence():
+    engine = VerdictEngine()
+    evidence = EvidenceItem(
+        title="明泉市博物馆免费停车公告",
+        url="https://museum.example/mingquan/parking",
+        source_name="明泉市博物馆",
+        published_at="2026-08-08",
+        snippet="明泉市博物馆提供免费停车服务。",
+        relevance_reason="官网停车公告。",
+        source_tier="S",
+    )
+
+    verdict, confidence, _notes, selected = engine._evaluate_fact_claim(
+        claim_text="明泉市博物馆提供免费停车服务",
+        evidence_pool=[evidence],
+        subject_anchors=[],
+    )
+
+    assert (verdict, confidence) == ("supported", "high")
+    assert selected == [evidence]
+
+
+def test_paid_admission_refutes_free_admission_claim():
+    engine = VerdictEngine()
+    evidence = EvidenceItem(
+        title="明泉市博物馆周三门票收费公告",
+        url="https://museum.example/mingquan/tickets",
+        source_name="明泉市博物馆",
+        published_at="2026-08-08",
+        snippet="明泉市博物馆周三门票收费，不免票。",
+        relevance_reason="官网门票公告。",
+        source_tier="S",
+    )
+
+    verdict, confidence, _notes, selected = engine._evaluate_fact_claim(
+        claim_text="明泉市博物馆每周三免票",
+        evidence_pool=[evidence],
+        subject_anchors=[],
+    )
+
+    assert (verdict, confidence) == ("refuted", "high")
+    assert selected == [evidence]
+
+
+def test_free_admission_notice_with_unrelated_negation_still_supports():
+    engine = VerdictEngine()
+    evidence = EvidenceItem(
+        title="明泉市博物馆周三免票公告",
+        url="https://museum.example/mingquan/free",
+        source_name="明泉市博物馆",
+        published_at="2026-08-08",
+        snippet="明泉市博物馆每周三免票，周一不开放。",
+        relevance_reason="官网门票公告。",
+        source_tier="S",
+    )
+
+    verdict, confidence, _notes, selected = engine._evaluate_fact_claim(
+        claim_text="明泉市博物馆每周三免票",
+        evidence_pool=[evidence],
+        subject_anchors=[],
+    )
+
+    assert (verdict, confidence) == ("supported", "high")
+    assert selected == [evidence]
+
+
+def test_explicit_free_admission_remains_supported():
+    engine = VerdictEngine()
+    evidence = EvidenceItem(
+        title="明泉市博物馆周三免票公告",
+        url="https://museum.example/mingquan/free",
+        source_name="明泉市博物馆",
+        published_at="2026-08-08",
+        snippet="明泉市博物馆每周三免票开放。",
+        relevance_reason="官网免票公告。",
+        source_tier="S",
+    )
+
+    verdict, confidence, _notes, selected = engine._evaluate_fact_claim(
+        claim_text="明泉市博物馆每周三免票",
+        evidence_pool=[evidence],
+        subject_anchors=[],
+    )
+
+    assert (verdict, confidence) == ("supported", "high")
+    assert selected == [evidence]
+
+
 def test_incidental_supersession_characters_do_not_override_conflict():
     engine = VerdictEngine()
     pool = [
