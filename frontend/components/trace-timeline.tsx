@@ -54,10 +54,10 @@ function LlmTextBlock({ stageKey, role, text }: { stageKey: string; role: "promp
   if (role === "system") {
     return (
       <div className="exec-llm__block exec-llm__block--system">
-        <div className="exec-llm__head" onClick={() => setSystemOpen(!systemOpen)} style={{ cursor: "pointer" }}>
+        <button type="button" className="exec-llm__head" onClick={() => setSystemOpen(!systemOpen)} aria-expanded={systemOpen}>
           <span className="exec-llm__label exec-llm__label--s">系统指令</span>
-          <span className={`section-card__arrow${systemOpen ? " section-card__arrow--open" : ""}`}>&#9660;</span>
-        </div>
+          <span className={`section-card__arrow${systemOpen ? " section-card__arrow--open" : ""}`} aria-hidden="true">&#9660;</span>
+        </button>
         {systemOpen && <pre className="exec-llm__text">{text}</pre>}
       </div>
     );
@@ -70,12 +70,14 @@ function LlmTextBlock({ stageKey, role, text }: { stageKey: string; role: "promp
         <span className={`exec-llm__label exec-llm__label--${role === "prompt" ? "q" : "a"}`}>{label}</span>
         <div className="exec-llm__tabs">
           <button
+            type="button"
             className={`exec-llm__tab${view === "human" ? " exec-llm__tab--active" : ""}`}
             onClick={() => setView("human")}
           >
             人类可读
           </button>
           <button
+            type="button"
             className={`exec-llm__tab${view === "json" ? " exec-llm__tab--active" : ""}`}
             onClick={() => setView("json")}
           >
@@ -88,129 +90,8 @@ function LlmTextBlock({ stageKey, role, text }: { stageKey: string; role: "promp
   );
 }
 
-/**
- * Log-scale axis span. Every timeline coordinate is projected via
- * ``log10(max(ms, LOG_FLOOR_MS))`` so a run that spans 1ms → 3 minutes
- * (5 orders of magnitude) still shows the sub-second steps as visible bars
- * instead of hairlines. The floor collapses "0ms" and sub-millisecond
- * events into the leftmost decade — they render as a small marker rather
- * than mathematically inflating to -infinity.
- */
-const LOG_FLOOR_MS = 1;
-
-function toLog(ms: number): number {
-  return Math.log10(Math.max(ms, LOG_FLOOR_MS));
-}
-
-/** Project a raw millisecond count to a 0-100 percentage on the log axis. */
-function logPercent(ms: number, totalMs: number): number {
-  const denom = toLog(Math.max(totalMs, LOG_FLOOR_MS));
-  if (denom <= 0) return 0;
-  return Math.max(0, Math.min(100, (toLog(ms) / denom) * 100));
-}
-
-/**
- * Log-scale ticks: decades that fit inside the run (1ms, 10ms, ..., 10m, 1h)
- * plus an endpoint tick at the exact total. If the endpoint would land within
- * 6% (log-space) of the last decade tick their labels overlap in practice, so
- * we drop the decade and keep the endpoint — the exact total is more useful
- * than a nearby round decade the user can already tell from context.
- */
-function pickLogTicks(totalMs: number): number[] {
-  const decades = [1, 10, 100, 1_000, 10_000, 60_000, 600_000, 3_600_000];
-  const ticks = decades.filter((t) => t <= totalMs);
-  if (ticks.length === 0) return [totalMs];
-  if (ticks[ticks.length - 1] === totalMs) return ticks;
-  const denom = toLog(totalMs);
-  if (denom > 0) {
-    // Percentage-space collision check: at 10% (log-space) apart the two labels
-    // still visually crowd on typical decade→endpoint pairs like "10s" vs
-    // "22.7s" (5+ chars). 6% was too tight and left the endpoint colliding with
-    // the last decade in real runs — see the 22.66s screenshot.
-    const OVERLAP_PCT = 10;
-    while (ticks.length > 0) {
-      const lastPct = (toLog(ticks[ticks.length - 1]) / denom) * 100;
-      const endPct = 100; // endpoint is by definition at 100%
-      if (endPct - lastPct < OVERLAP_PCT) {
-        ticks.pop();
-        continue;
-      }
-      break;
-    }
-  }
-  ticks.push(totalMs);
-  return ticks;
-}
-
-/** Compact tick label — like formatDuration but strips trailing zeros on the
- * seconds decimal so `10s` doesn't show up as `10.00s` and crowd its neighbor. */
-function formatTickLabel(ms: number): string {
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  if (ms < 60_000) {
-    const s = ms / 1000;
-    // Whole-second decade ticks render as "10s"; non-round labels get one decimal.
-    if (Math.abs(s - Math.round(s)) < 0.05) return `${Math.round(s)}s`;
-    return `${s.toFixed(1)}s`;
-  }
-  const totalSec = Math.round(ms / 1000);
-  const m = Math.floor(totalSec / 60);
-  const s = totalSec % 60;
-  if (s === 0) return `${m}m`;
-  return `${m}m${s}s`;
-}
-
-/**
- * Pick a "nice" tick step (1s / 2s / 5s / 10s / 30s / 1m / 5m) so the axis
- * renders 4–8 labels regardless of run length. Kept as a plain lookup — no need
- * to be clever about arbitrary durations for a UI ruler.
- *
- * NOTE: unused since the ruler switched to log-scale ticks; retained in case
- * we need a linear ruler again for a run-analysis mode.
- */
-function pickTickStepMs(totalMs: number): number {
-  const target = totalMs / 6;
-  const candidates = [
-    500, 1_000, 2_000, 5_000, 10_000, 15_000, 30_000,
-    60_000, 120_000, 300_000, 600_000, 1_800_000, 3_600_000,
-  ];
-  for (const c of candidates) {
-    if (c >= target) return c;
-  }
-  return candidates[candidates.length - 1];
-}
-
-/** Ruler across the top of the timeline. Aligned with .gantt-row__track.
- *
- * Uses a log scale so the 1ms → 3m spread in a typical run doesn't collapse
- * short steps to hairlines. Each decade (1ms, 10ms, 100ms, 1s, 10s, 1m, 10m)
- * gets its own tick, plus an endpoint marker at the exact total. */
-function TimelineRuler({ totalMs }: { totalMs: number }) {
-  const ticks = pickLogTicks(totalMs);
-  return (
-    <div className="gantt-ruler">
-      <div className="gantt-ruler__labels" aria-hidden="true" />
-      <div className="gantt-ruler__track">
-        {ticks.map((t, i) => {
-          const left = logPercent(t, totalMs);
-          const label = formatTickLabel(t);
-          return (
-            <div key={i} className="gantt-ruler__tick" style={{ left: `${left}%` }}>
-              <span className="gantt-ruler__tick-mark" />
-              <span className="gantt-ruler__tick-label">{label}</span>
-            </div>
-          );
-        })}
-      </div>
-      <div className="gantt-ruler__timing" aria-hidden="true" />
-    </div>
-  );
-}
-
-/**
- * Compute the total wall-clock of the run, plus min/max child durations across
- * all leaves (used for fastest/slowest markers inside a parallel group).
- */
-function computeTotals(steps: TraceStep[]): { totalMs: number | null; minMs: number; maxMs: number } {
+/** Compute the total wall-clock duration of the run. */
+function computeTotalMs(steps: TraceStep[]): number | null {
   let earliestStart = Infinity;
   let latestEnd = -Infinity;
   let anyRunning = false;
@@ -227,18 +108,12 @@ function computeTotals(steps: TraceStep[]): { totalMs: number | null; minMs: num
   };
   steps.forEach(walk);
   const total = anyRunning || earliestStart === Infinity || latestEnd === -Infinity ? null : latestEnd - earliestStart;
-  return { totalMs: total, minMs: 0, maxMs: 0 };
+  return total;
 }
 
-/**
- * Render one step as a Gantt row: an inline time bar positioned by offsetMs and
- * sized by durationMs, followed by the details body. For parent (parallel-group)
- * steps, the body includes nested child rows.
- */
+/** Render a step with its start offset, duration, and expandable details. */
 function GanttRow({
   step,
-  runTotalMs,
-  runIsInProgress,
   isChild,
   fastestSiblingKey,
   slowestSiblingKey,
@@ -247,8 +122,6 @@ function GanttRow({
   onToggle,
 }: {
   step: TraceStep;
-  runTotalMs: number;
-  runIsInProgress: boolean;
   isChild: boolean;
   fastestSiblingKey?: string;
   slowestSiblingKey?: string;
@@ -260,16 +133,6 @@ function GanttRow({
   // startedAt to now (live tick) or show "—".
   const liveMs = step.durationMs ?? (step.status === "running" ? elapsedSince(step.startedAt, nowMs) : null);
   const durationLabel = formatDuration(liveMs);
-  // Log-scale positioning: a stage running from offsetMs (start) to
-  // offsetMs+durationMs (end) is projected as [log(start), log(end)] on the
-  // shared log axis. Steps that started at exactly t=0 collapse to log(1ms);
-  // steps with sub-millisecond duration still get a visible minimum width so
-  // they don't disappear into a hairline.
-  const effectiveDuration = liveMs ?? 0;
-  const endMs = step.offsetMs + effectiveDuration;
-  const barLeft = logPercent(step.offsetMs, runTotalMs);
-  const barRight = logPercent(endMs, runTotalMs);
-  const barWidth = Math.max(barRight - barLeft, 0.6);
 
   const isParallelParent = step.isParallelGroup && step.children.length > 0;
   const wallClock = isParallelParent ? parallelWallClockMs(step.children) : null;
@@ -285,9 +148,9 @@ function GanttRow({
 
   return (
     <div className={`gantt-row gantt-row--${step.status}${isChild ? " gantt-row--child" : " gantt-row--parent"}${isParallelParent ? " gantt-row--group" : ""}`}>
-      <div className="gantt-row__head" onClick={onToggle}>
-        <div className="gantt-row__label-block">
-          <span className={`gantt-row__caret${expanded ? " gantt-row__caret--open" : ""}`}>▸</span>
+      <button type="button" className="gantt-row__head" onClick={onToggle} aria-expanded={expanded}>
+        <span className="gantt-row__label-block">
+          <span className={`gantt-row__caret${expanded ? " gantt-row__caret--open" : ""}`} aria-hidden="true">▸</span>
           <span className="gantt-row__label">{step.label}</span>
           <span className={`gantt-row__status gantt-row__status--${step.status}`}>
             {step.status === "running"
@@ -301,18 +164,12 @@ function GanttRow({
                     : "出错"}
           </span>
           {speedMark && <span className={`gantt-mark ${speedMark.cls}`}>{speedMark.label}</span>}
-        </div>
-        <div className="gantt-row__track" title={`开始 +${formatDuration(step.offsetMs)} · 耗时 ${durationLabel}`}>
-          <div
-            className={`gantt-bar gantt-bar--${step.status}${step.status === "running" && runIsInProgress ? " gantt-bar--live" : ""}`}
-            style={{ left: `${barLeft}%`, width: `${barWidth}%` }}
-          />
-        </div>
-        <div className="gantt-row__timing">
-          <span className="gantt-row__duration">{durationLabel}</span>
-          <span className="gantt-row__offset">起 +{formatDuration(step.offsetMs)}</span>
-        </div>
-      </div>
+        </span>
+        <span className="gantt-row__timing">
+          <span className="gantt-row__offset">开始 +{formatDuration(step.offsetMs)}</span>
+          <span className="gantt-row__duration">{step.status === "running" ? "已运行 " : "耗时 "}{durationLabel}</span>
+        </span>
+      </button>
 
       {expanded && (
         <div className="gantt-row__body">
@@ -408,8 +265,7 @@ export interface TraceTimelineProps {
 }
 
 export function TraceTimeline({ traceSteps, isStreaming, traceOpen, onToggleTrace }: TraceTimelineProps) {
-  // Live tick: while any step is running, refresh nowMs every 250ms so bars
-  // and duration labels grow in real time.
+  // Refresh elapsed time while the run is streaming.
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
   useEffect(() => {
     if (!isStreaming) return;
@@ -424,15 +280,16 @@ export function TraceTimeline({ traceSteps, isStreaming, traceOpen, onToggleTrac
     if (step.stageKey in expanded) return expanded[step.stageKey];
     return step.children.length > 0 || step.status === "error" || step.status === "warning";
   };
-  const toggleRow = (stageKey: string) => {
-    setExpanded((prev) => ({ ...prev, [stageKey]: !(stageKey in prev ? prev[stageKey] : true) }));
+  const toggleRow = (step: TraceStep) => {
+    setExpanded((prev) => ({
+      ...prev,
+      [step.stageKey]: !(step.stageKey in prev ? prev[step.stageKey] : step.children.length > 0 || step.status === "error" || step.status === "warning"),
+    }));
   };
 
   if (traceSteps.length === 0) return null;
 
-  const { totalMs } = computeTotals(traceSteps);
-  // While the run is in flight, use "now - min start" as the denominator so bars
-  // grow smoothly instead of jumping when a step finishes.
+  const totalMs = computeTotalMs(traceSteps);
   let effectiveTotal = totalMs;
   if (effectiveTotal === null) {
     const earliestStart = Math.min(
@@ -444,23 +301,21 @@ export function TraceTimeline({ traceSteps, isStreaming, traceOpen, onToggleTrac
       effectiveTotal = 1;
     }
   }
-  const runTotalDenom = Math.max(effectiveTotal, 1);
 
   // Count leaves for the header badge.
   const leafCount = traceSteps.reduce((n, s) => n + (s.children.length > 0 ? s.children.length : 1), 0);
 
   return (
     <div className="trace-section">
-      <button className="trace-toggle" onClick={onToggleTrace}>
-        <span>{traceOpen ? "▼" : "▶"}</span>
+      <button type="button" className="trace-toggle" onClick={onToggleTrace} aria-expanded={traceOpen}>
+        <span aria-hidden="true">{traceOpen ? "▼" : "▶"}</span>
         <span>
           执行过程 ({leafCount} 步{isStreaming ? " · 进行中" : ""} · 总耗时 {formatDuration(effectiveTotal)})
         </span>
       </button>
       {traceOpen && (
         <div className="gantt-timeline">
-          <div className="gantt-hint">位置 = 阶段开始时间 · 宽度 = 阶段耗时 · 对数刻度（毫秒到分钟同屏可见）</div>
-          <TimelineRuler totalMs={runTotalDenom} />
+          <p className="gantt-hint">按开始顺序显示；并行步骤可展开查看。时间均从本次核查开始计算。</p>
           {traceSteps.map((step, i) => {
             // For parallel groups, pre-compute fastest/slowest child by duration
             // (skip in-progress children so an unfinished branch isn't ranked).
@@ -479,12 +334,10 @@ export function TraceTimeline({ traceSteps, isStreaming, traceOpen, onToggleTrac
               <div key={`${step.stageKey}-${i}`} className="gantt-group">
                 <GanttRow
                   step={step}
-                  runTotalMs={runTotalDenom}
-                  runIsInProgress={isStreaming}
                   isChild={false}
                   nowMs={nowMs}
                   expanded={parentExpanded}
-                  onToggle={() => toggleRow(step.stageKey)}
+                  onToggle={() => toggleRow(step)}
                 />
                 {parentExpanded && step.children.length > 0 && (
                   <div className="gantt-children">
@@ -492,14 +345,12 @@ export function TraceTimeline({ traceSteps, isStreaming, traceOpen, onToggleTrac
                       <GanttRow
                         key={`${child.stageKey}-${j}`}
                         step={child}
-                        runTotalMs={runTotalDenom}
-                        runIsInProgress={isStreaming}
                         isChild
                         fastestSiblingKey={fastKey}
                         slowestSiblingKey={slowKey}
                         nowMs={nowMs}
                         expanded={isRowExpanded(child)}
-                        onToggle={() => toggleRow(child.stageKey)}
+                        onToggle={() => toggleRow(child)}
                       />
                     ))}
                   </div>
