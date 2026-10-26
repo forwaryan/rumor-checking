@@ -14,7 +14,10 @@ function isDebunkingClaim(claim: string): boolean {
   return DEBUNK_MARKERS.some(marker => (claim || "").includes(marker));
 }
 
-function getOverallVerdict(report: Report): string {
+export function getOverallVerdict(report: Report): string {
+  if (report.overall_credibility_label === "insufficient_evidence") {
+    return "insufficient";
+  }
   const supported = report.claim_results.filter(
     c => c.verdict === "supported" && !isDebunkingClaim(c.claim)
   ).length;

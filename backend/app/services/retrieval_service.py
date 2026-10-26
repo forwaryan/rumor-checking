@@ -676,6 +676,10 @@ class RetrievalService:
         short_query = self._shorten_for_supplementary(bundle.query)
         if not short_query:
             return bundle
+        relevance_query = next(
+            (spec.query for spec in bundle.query_groups if self._is_subject_layoff_query(spec.query)),
+            short_query,
+        )
 
         def fetch(source) -> list[SearchResult]:
             provider, prefix, category = source
@@ -700,9 +704,22 @@ class RetrievalService:
             existing_keys = {r.independence_key for r in bundle.canonical_results if r.independence_key}
             with observe_retrieval("selection", provider=prefix,
                                    raw_result_count=len(enriched)) as observation:
-                new_results = [r for r in enriched if r.independence_key not in existing_keys]
+                new_results = [
+                    r for r in enriched
+                    if r.independence_key not in existing_keys
+                    and (
+                        not self._is_subject_layoff_query(relevance_query)
+                        or (
+                            not self._is_noise_result(r)
+                            and not self._is_navigational_non_evidence(replace(r, query=relevance_query))
+                            and self._result_matches_query(replace(r, query=relevance_query))
+                        )
+                    )
+                ]
+                duplicate_count = sum(r.independence_key in existing_keys for r in enriched)
                 observation.update(selected_result_count=len(new_results),
-                                   duplicate_count=len(enriched) - len(new_results),
+                                   duplicate_count=duplicate_count,
+                                   filtered_relevance_count=len(enriched) - len(new_results) - duplicate_count,
                                    status="ok" if new_results else "empty")
             if new_results:
                 bundle = replace(
@@ -804,6 +821,10 @@ class RetrievalService:
         short_query = self._shorten_for_supplementary(primary_query) or primary_query
         if not short_query:
             return bundle
+        relevance_query = next(
+            (spec.query for spec in bundle.query_groups if self._is_subject_layoff_query(spec.query)),
+            short_query,
+        )
         whitelist = self._pick_official_whitelist(f"{primary_query} {bundle.query}")
         if not whitelist:
             return bundle
@@ -849,6 +870,8 @@ class RetrievalService:
             if not hits:
                 continue
             hits = self._filter_relevant_results(hits)
+            if self._is_subject_layoff_query(relevance_query):
+                hits = [item for item in hits if self._result_matches_query(replace(item, query=relevance_query))]
             if not hits:
                 continue
             retrieved_at = ensure_datetime_string(datetime.now(UTC).isoformat())
@@ -945,11 +968,18 @@ class RetrievalService:
                     grounded.append(item)
             selected = grounded
             fallback = False
-            if len(grounded) > 1:
-                on_topic = [item for item in grounded if self._result_matches_query(item)]
-                fallback = not on_topic
-                selected = on_topic or grounded
-                rejected["filtered_relevance_count"] = len(grounded) - len(selected)
+            if len(grounded) > 1 or any(self._is_subject_layoff_query(item.query or "") for item in grounded):
+                selected = []
+                for item in grounded:
+                    if self._result_matches_query(item):
+                        selected.append(item)
+                    else:
+                        rejected["filtered_relevance_count"] += 1
+                strict = all(self._is_subject_layoff_query(item.query or "") for item in grounded)
+                if not selected and not strict:
+                    selected = grounded
+                    rejected["filtered_relevance_count"] = 0
+                    fallback = True
             observation.update(rejected)
             observation.update(selected_result_count=len(selected),
                                filtered_result_count=len(results) - len(selected),
@@ -1097,6 +1127,9 @@ class RetrievalService:
                     break
         return tokens
 
+    def _is_subject_layoff_query(self, query: str) -> bool:
+        return "裁员" in query and bool(self._query_subject_tokens(query))
+
     def _result_matches_query(self, result: SearchResult) -> bool:
         raw_text = " ".join([result.title, result.snippet, result.source_name])
         text = self._normalize_query(raw_text)
@@ -1116,13 +1149,25 @@ class RetrievalService:
         #
         # Fix: when the query names a subject brand (美团/京东/…), require the
         # result text to mention that brand — no brand mention, not evidence.
+        # For a layoff query, also require layoff context and reject another
+        # brand's headline that mentions the target only in its snippet.
         # When the query has no brand (e.g. a pure question), fall back to
         # event-specific tokens so we don't drop everything for open queries.
         # If neither exists (very short query), keep the pre-existing accept-all
         # behavior so this never returns an empty set for legitimate queries.
         subjects = self._query_subject_tokens(result.query or "")
         if subjects:
-            return any(subject in text for subject in subjects)
+            if not any(subject in text for subject in subjects):
+                return False
+            if self._is_subject_layoff_query(result.query or ""):
+                title_and_snippet = self._normalize_query(" ".join([result.title, result.snippet]))
+                if not any(term in title_and_snippet for term in ("裁员", "裁撤", "人员优化", "岗位调整")):
+                    return False
+                if any(other in result.title for other in self._SUBJECT_BRANDS if other not in subjects) and not any(
+                    subject in result.title for subject in subjects
+                ):
+                    return False
+            return True
         event_terms = self._event_specific_terms(result.query or "")
         if event_terms:
             return any(term.casefold() in text_folded for term in event_terms)

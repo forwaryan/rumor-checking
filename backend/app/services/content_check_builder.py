@@ -13,7 +13,9 @@ from backend.app.models.schemas import (
     EvidenceItem,
     Report,
 )
+from backend.app.services.entity_anchor import extract_subject_anchors
 from backend.app.services.model_health import complete_once
+from backend.app.services.primary_claim import primary_fact_claim
 from backend.app.services.question_intent import (
     is_broad_trend_question,
     safe_trend_summary,
@@ -165,8 +167,17 @@ class ContentCheckBuilder:
         top_controversial = controversial[0] if controversial else None
         top_uncertain = uncertain[0] if uncertain else None
         top_opinion = opinions[0] if opinions else None
+        primary = primary_fact_claim(original_input, report.claim_results)
 
-        if trend_question and top_true:
+        if primary and primary.verdict == "insufficient" and not trend_question and extract_subject_anchors(original_input) and not top_false and not any(
+            "辟谣" in item.claim or "否认" in item.claim or "不实" in item.claim
+            for item in report.claim_results if item.verdict == "supported"
+        ):
+            push(
+                "直接回答",
+                f"关于“{_trim_claim(primary.claim)}”，目前缺少直接证据，不能用其他已核实的背景事实代替判断。",
+            )
+        elif trend_question and top_true:
             push(
                 "直接回答",
                 supported_trend_summary(original_input) or "当前公开来源更倾向于：最近确实有相关消息，但它不是单一事件。",

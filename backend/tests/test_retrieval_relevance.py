@@ -7,7 +7,7 @@ must not keep Amazon/Meta/辛选 layoff titles just because they mention 裁员)
 from __future__ import annotations
 
 from backend.app.core.config import get_settings
-from backend.app.services.retrieval_models import SearchResult
+from backend.app.services.retrieval_models import RetrievalBundle, RetrievalQuerySpec, SearchResult
 from backend.app.services.retrieval_service import RetrievalService
 
 
@@ -40,14 +40,11 @@ def _service() -> RetrievalService:
 class TestSubjectRequired:
     """When the query names a brand subject, results must mention it."""
 
-    def test_meituan_layoff_query_keeps_meituan_hits(self) -> None:
+    def test_meituan_layoff_query_requires_event_context(self) -> None:
         svc = _service()
         query = "美团 产品 裁员 70%"
         assert svc._result_matches_query(_hit(query, "讲述:我被美团裁员的过程!_主管_工作_公司"))
-        assert svc._result_matches_query(
-            _hit(query, "普渡科技宣布裁员,近两年密集融资12亿,曾多次获腾讯、红杉、美团投资"),
-        )
-        assert svc._result_matches_query(
+        assert not svc._result_matches_query(
             _hit(query, "王兴:美团要减少登味,以后别叫我兴哥"),
         )
 
@@ -71,10 +68,16 @@ class TestSubjectRequired:
             _hit(query, "茅台涨价通报"),
         )
 
-    def test_subject_may_appear_only_in_snippet(self) -> None:
+    def test_subject_and_action_may_appear_only_in_snippet(self) -> None:
         svc = _service()
-        # Title doesn't say 美团 but the snippet does — should still keep it.
         assert svc._result_matches_query(
+            _hit(
+                "美团 产品 裁员 70%",
+                title="快讯:人员调整最新回应",
+                snippet="美团回应裁员传闻，称目前尚无明确方案",
+            ),
+        )
+        assert not svc._result_matches_query(
             _hit(
                 "美团 产品 裁员 70%",
                 title="快讯:一季度净亏损48.5亿元",
@@ -92,6 +95,38 @@ class TestSubjectRequired:
                 snippet="经核实此内容与本次事件无关。",
             ),
         )
+
+
+class TestLayoffSelection:
+    def test_single_irrelevant_hit_and_entire_irrelevant_batch_are_rejected(self) -> None:
+        svc = _service()
+        shopping = _hit("京东 裁员", "京东购物节优惠活动")
+        competitor = _hit("京东 裁员", "阿里巴巴裁员公告", "京东季度营收另有报道")
+        assert svc._filter_relevant_results([shopping]) == []
+        assert svc._filter_relevant_results([shopping, competitor]) == []
+
+    def test_recent_layoff_response_is_retained_without_asserting_it_proves_layoffs(self) -> None:
+        svc = _service()
+        response = _hit("京东 裁员", "京东回应近期大规模裁员传闻")
+        assert svc._filter_relevant_results([response]) == [response]
+
+    def test_supplementary_hits_follow_focused_query_when_primary_is_noisy(self) -> None:
+        from types import SimpleNamespace
+
+        svc = _service()
+        svc.xhs_provider = SimpleNamespace(
+            enabled=True,
+            search=lambda *args, **kwargs: [
+                _hit("裁员 京东有一", "京东购物节活动", url="https://shopping.example.com/a"),
+                _hit("裁员 京东有一", "京东回应裁员传闻", url="https://news.example.com/b"),
+            ],
+        )
+        bundle = RetrievalBundle(
+            query="裁员 京东有一",
+            query_groups=(RetrievalQuerySpec(label="question_claim", query="京东 裁员", rationale="focused"),),
+        )
+        result = svc._append_supplementary_sources(bundle, search_sources=["xiaohongshu"])
+        assert [item.title for item in result.canonical_results] == ["京东回应裁员传闻"]
 
 
 class TestNoSubjectFallback:
