@@ -1,7 +1,8 @@
 "use client";
 
+import React from "react";
 import type { Report, ReportProvenanceState } from "@/types/report";
-import { collectEvidence } from "@/lib/report-utils";
+import { getReportProvenanceMeta } from "@/lib/report-utils";
 import { getOverallCredibilityMeta } from "@/lib/report-high-score";
 
 // A supported claim whose predicate DENIES the rumor ("…辟谣/否认/不实") is
@@ -71,7 +72,16 @@ export interface VerdictCardProps {
 export function VerdictCard({ report, reportProvenance }: VerdictCardProps) {
   const verdict = getOverallVerdict(report);
   const overallMeta = getOverallCredibilityMeta(report, reportProvenance);
-  const evidence = collectEvidence(report);
+  const citedEvidenceCount = new Set(report.claim_results.flatMap(claim => claim.evidence.map(item => item.url))).size;
+  const provenance = getReportProvenanceMeta(report, reportProvenance);
+  const sourceLabel = provenance?.sourceKind === "backend_live"
+    ? (!report.provenance ? "分析已运行 · 证据来源待确认"
+      : report.provenance.evidence_source === "retrieval_live"
+        ? citedEvidenceCount > 0 ? "联网检索 · 有采信证据" : "联网检索 · 暂无采信证据"
+        : report.provenance.evidence_source === "retrieval_mock" || report.provenance.evidence_source === "request_mock"
+          ? "分析已运行 · 模拟或注入证据"
+          : "分析已运行 · 证据链未建立")
+    : provenance?.sourceLabel ?? "来源待确认";
 
   return (
     <div className={`verdict-card verdict-card--${verdict}`}>
@@ -83,13 +93,14 @@ export function VerdictCard({ report, reportProvenance }: VerdictCardProps) {
       {overallMeta?.summary && overallMeta.summary !== report.final_summary && (
         <div className="verdict-card__detail">{overallMeta.summary}</div>
       )}
+      {report.risks.length > 0 && <p className="verdict-card__risk"><strong>核查边界</strong> {report.risks[0]}</p>}
+      {citedEvidenceCount === 0 && <p className="verdict-card__risk"><strong>证据边界</strong> 当前没有被核查点引用的证据，检索命中不能视为已采信证据；请结合原始来源进一步核实。</p>}
       <div className="verdict-card__meta">
-        <span className="meta-tag">证据 {evidence.length} 条</span>
+        <span className="meta-tag">证据 {citedEvidenceCount} 条</span>
         <span className="meta-tag">核查点 {report.claim_results.length} 个</span>
         {report.timeline.length > 0 && <span className="meta-tag">时间线 {report.timeline.length} 节点</span>}
-        <span className="meta-tag">
-          {report.provenance?.evidence_source === "retrieval_live" ? "实时检索" : "模拟数据"}
-        </span>
+        <span className="meta-tag">{sourceLabel}</span>
+        {provenance?.fallbackLabel && <span className="meta-tag">{provenance.fallbackLabel}</span>}
       </div>
     </div>
   );

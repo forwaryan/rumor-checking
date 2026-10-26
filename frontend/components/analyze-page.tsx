@@ -30,6 +30,7 @@ function buildReportProvenance(report: Report): ReportProvenanceState {
 export function AnalyzePage() {
   const idleDemoCases = useMemo(() => getLocalDemoCaseSummaries(), []);
   const [inputValue, setInputValue] = useState("");
+  const [demoInput, setDemoInput] = useState<string | null>(null);
   const [status, setStatus] = useState<AnalysisStatus>("idle");
   const [report, setReport] = useState<Report | null>(null);
   const [reportProvenance, setReportProvenance] = useState<ReportProvenanceState | null>(null);
@@ -115,6 +116,7 @@ export function AnalyzePage() {
         const validation = validateInput(target.request.raw_input, "auto");
         if (validation) { setStatus("error"); setErrorMessage(validation); return cleanup; }
         setInputValue(target.request.raw_input);
+        setDemoInput(null);
         setLastQuery(target.request.raw_input);
         setActiveMode(target.request.request_context?.mode === "deep" ? "deep" : "fast");
       }
@@ -142,6 +144,7 @@ export function AnalyzePage() {
           if (!isCurrent()) return;
           setRunId(run.run_id); setRunState(run); setActiveMode(run.mode);
           setInputValue(run.raw_input); setLastQuery(run.raw_input);
+          setDemoInput((current) => current?.trim() === run.raw_input.trim() ? current : null);
           if (run.report) { setReport(run.report); setReportProvenance(buildReportProvenance(run.report)); }
           window.history.replaceState(null, "", runLocation(window.location.pathname, run.run_id));
         },
@@ -170,6 +173,7 @@ export function AnalyzePage() {
 
   function selectVersion(nextRunId: string) {
     setReport(null); setReportProvenance(null); setLiveEvents([]); setRunState(null);
+    setDemoInput(null);
     setRunId(nextRunId); setStopping(false); stoppingRef.current = false;
     sessionRef.current = createRunSession({ runId: nextRunId });
     void watchRun(sessionRef.current);
@@ -215,6 +219,7 @@ export function AnalyzePage() {
     // Any named model, including the server default, pins that model for the run.
     const explicitModel = model && models.includes(model) ? model : "";
     window.history.replaceState(null, "", runLocation(window.location.pathname));
+    setDemoInput((current) => current === trimmed ? current : null);
     setLastQuery(trimmed); setActiveMode(mode); setIsStreaming(true);
     setStatus("submitting"); setErrorMessage(null); setReport(null);
     setReportProvenance(null); setLiveEvents([]); setClaimsOpen(true);
@@ -231,7 +236,7 @@ export function AnalyzePage() {
     sessionRef.current = null; busyRef.current = false;
     setIsStreaming(false); setRunId(null); setRunState(null);
     setStopping(false); stoppingRef.current = false;
-    setInputValue(""); setStatus("idle"); setReport(null); setReportProvenance(null);
+    setInputValue(""); setDemoInput(null); setStatus("idle"); setReport(null); setReportProvenance(null);
     setErrorMessage(null); setLiveEvents([]); setLastQuery("");
     if (typeof window !== "undefined") window.history.replaceState(null, "", window.location.pathname);
   }
@@ -266,10 +271,11 @@ export function AnalyzePage() {
 
   if (!showResult) {
     return (
-      <SearchInput inputValue={inputValue} onInputChange={setInputValue}
+      <SearchInput inputValue={inputValue} onInputChange={(value) => { setInputValue(value); setDemoInput(null); }}
         onSubmit={() => void handleSubmit(activeMode)} mode={activeMode} onModeChange={setActiveMode}
         models={models} selectedModel={selectedModel} defaultModel={serverDefaultModel} onModelChange={setSelectedModel} isStreaming={isStreaming}
-        demoCases={idleDemoCases} onSelectExample={(d) => setInputValue(d.sample_input)}
+        demoCases={idleDemoCases} isDemoInput={demoInput !== null && inputValue === demoInput}
+        onSelectExample={(d) => { setInputValue(d.sample_input); setDemoInput(d.sample_input); }}
         backendState={backendState}
         searchSources={searchSources} activeSources={activeSources} onToggleSource={handleToggleSource} />
     );
@@ -296,7 +302,7 @@ export function AnalyzePage() {
             <span className="result-header__brand-dot" aria-hidden="true" />
             较真核查
           </div>
-          <span className="result-header__query" title={lastQuery || runState?.input_preview}>{lastQuery || runState?.input_preview}</span>
+          <span className="result-header__query" title={lastQuery || runState?.input_preview}>{demoInput && lastQuery.trim() === demoInput.trim() ? "演示输入示例 · " : ""}{lastQuery || runState?.input_preview}</span>
         </header>
 
         {runState && <RunVersions run={runState} history={runHistory} comparison={comparison} error={versionError} onSelect={selectVersion} />}
@@ -308,8 +314,8 @@ export function AnalyzePage() {
         {runState?.status === "cancelled" && <div className="review-panel" role="status"><strong>核查已停止</strong><p>已有信息已保留。停止只表示任务结束，不代表传闻为真或为假。</p></div>}
 
         {status === "submitting" && !report && (
-          <div className="loading-card">
-            <div className="loading-card__spinner" />
+          <div className="loading-card" role="status" aria-live="polite">
+            <div className="loading-card__spinner" aria-hidden="true" />
             <div className="loading-card__text">{activeMode === "deep" ? "AI 深度核查中，可能需要几分钟..." : "正在联网核查..."}</div>
             {lastLiveEvent && (
               <div className="loading-card__step">
@@ -334,7 +340,12 @@ export function AnalyzePage() {
         )}
 
         {report && <VerdictCard report={report} reportProvenance={reportProvenance} />}
-        {report && <CredibilityHeader report={report} reportProvenance={reportProvenance} />}
+        {report && demoInput && lastQuery.trim() === demoInput.trim() && <div className="result-page__evidence-guide">演示输入示例，示例内容不代表真实事件；本次结果须按实际采信证据理解。</div>}
+        {report && <div className="result-page__evidence-guide">{evidence.length === 0
+          ? "本次没有可采信的判定证据，不能据此确认传闻；检索命中仅供查找线索，不代表已采信。"
+          : report.claim_results.some((claim) => claim.evidence.length > 0)
+            ? "展开下方逐条核查中的“判定依据”，查看本次采信的来源。"
+            : "本次列有证据来源，但核查点未附判定依据；请勿将来源列表当作已证实结论。"}</div>}
         {report && lastQuery && activeMode === "fast" && !isStreaming && status !== "error" && (
           <div className="deep-cta">
             <div className="deep-cta__text">还不确定？可以深入核查：多轮检索、逐条判定、交叉比对来源。</div>
@@ -351,6 +362,7 @@ export function AnalyzePage() {
         {report?.content_check && <PossibleAnswers answers={report.content_check.possible_answers} isOpen={answersOpen} onToggle={() => setAnswersOpen(!answersOpen)} />}
         {report?.investigation && <PossibilitiesDistribution possibilities={report.investigation.possibilities} isOpen={possibilitiesOpen} onToggle={() => setPossibilitiesOpen(!possibilitiesOpen)} />}
         {report && <ClaimList claims={report.claim_results} snapshots={report.evidence_snapshots} isOpen={claimsOpen} onToggle={() => setClaimsOpen(!claimsOpen)} />}
+        {report && <details className="result-method"><summary>核查方法与评分细节</summary><CredibilityHeader report={report} reportProvenance={reportProvenance} />{report.risks.length > 1 && <ul className="result-method__risks">{report.risks.slice(1).map((risk, i) => <li key={`${risk}-${i}`}>{risk}</li>)}</ul>}</details>}
         {report && runState?.status === "completed" && <RecheckPanel key={runId} report={report} disabled={isStreaming} onSubmit={handleRecheck} />}
         {report && <EvidenceList evidence={evidence} isOpen={evidenceOpen} onToggle={() => setEvidenceOpen(!evidenceOpen)} report={report} />}
         {report && <RetrievalHitsList hits={retrievalOnlyHits} isOpen={retrievalHitsOpen} onToggle={() => setRetrievalHitsOpen(!retrievalHitsOpen)} />}

@@ -5,6 +5,7 @@ import { getVerdictLabel, formatConfidence, formatProbability, getBasisLabel } f
 import { getClaimAccent, type ClaimAccent } from "@/lib/claim-accent";
 import { splitEvidenceByStance } from "@/lib/evidence-stance";
 import { EvidenceCard } from "@/components/evidence-list";
+import { SectionHeader } from "@/components/section-header";
 
 export interface ClaimListProps {
   claims: ClaimResult[];
@@ -45,15 +46,9 @@ export function ClaimList({ claims, snapshots, isOpen, onToggle }: ClaimListProp
 
   return (
     <div className="section-card">
-      <div className="section-card__header" onClick={onToggle}>
-        <span className="section-card__title">
-          逐条核查
-          <span className="section-card__badge">{claims.length}</span>
-        </span>
-        <span className={`section-card__arrow${isOpen ? " section-card__arrow--open" : ""}`}>&#9660;</span>
-      </div>
-      {isOpen && (
-        <div className="section-card__body">
+      <SectionHeader title="逐条核查" count={claims.length} id="claim-section" isOpen={isOpen} onToggle={onToggle} />
+      <div id="claim-section" className="section-card__body" hidden={!isOpen}>
+        {isOpen && (
           <div className="claim-list">
             {claims.map((claim, i) => {
               const prob = formatProbability(claim.truth_probability);
@@ -132,8 +127,8 @@ export function ClaimList({ claims, snapshots, isOpen, onToggle }: ClaimListProp
               );
             })}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

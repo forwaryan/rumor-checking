@@ -2,6 +2,7 @@
 
 import type { AnswerSuggestion, PossibilityItem } from "@/types/report";
 import { formatProbability, getBasisLabel } from "@/lib/report-utils";
+import { SectionHeader } from "@/components/section-header";
 
 function getLikelihoodLabel(likelihood: string): string {
   switch (likelihood) {
@@ -22,15 +23,9 @@ export function PossibleAnswers({ answers, isOpen, onToggle }: PossibleAnswersPr
 
   return (
     <div className="section-card">
-      <div className="section-card__header" onClick={onToggle}>
-        <span className="section-card__title">
-          更可能的答案
-          <span className="section-card__badge">{answers.length}</span>
-        </span>
-        <span className={`section-card__arrow${isOpen ? " section-card__arrow--open" : ""}`}>&#9660;</span>
-      </div>
-      {isOpen && (
-        <div className="section-card__body">
+      <SectionHeader title="更可能的答案" count={answers.length} id="answers-section" isOpen={isOpen} onToggle={onToggle} />
+      <div id="answers-section" className="section-card__body" hidden={!isOpen}>
+        {isOpen && <>
           <div className="section-card__hint">基于当前证据给出的更可能正确的说法，用来纠正被夸大或失真的部分。</div>
           <div className="answer-list">
             {answers.map((item, i) => (
@@ -40,8 +35,8 @@ export function PossibleAnswers({ answers, isOpen, onToggle }: PossibleAnswersPr
               </div>
             ))}
           </div>
-        </div>
-      )}
+        </>}
+      </div>
     </div>
   );
 }
@@ -60,15 +55,9 @@ export function PossibilitiesDistribution({ possibilities, isOpen, onToggle }: P
 
   return (
     <div className="section-card">
-      <div className="section-card__header" onClick={onToggle}>
-        <span className="section-card__title">
-          可能性分布
-          <span className="section-card__badge">{possibilities.length}</span>
-        </span>
-        <span className={`section-card__arrow${isOpen ? " section-card__arrow--open" : ""}`}>&#9660;</span>
-      </div>
-      {isOpen && (
-        <div className="section-card__body">
+      <SectionHeader title="可能性分布" count={possibilities.length} id="possibilities-section" isOpen={isOpen} onToggle={onToggle} />
+      <div id="possibilities-section" className="section-card__body" hidden={!isOpen}>
+        {isOpen && (
           <div className="possibility-list">
             {possibilities.map((item, i) => {
               const prob = formatProbability(item.probability);
@@ -93,8 +82,8 @@ export function PossibilitiesDistribution({ possibilities, isOpen, onToggle }: P
               );
             })}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

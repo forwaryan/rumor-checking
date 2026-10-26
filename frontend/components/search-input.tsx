@@ -16,6 +16,7 @@ export interface SearchInputProps {
   onModelChange: (model: string) => void;
   isStreaming: boolean;
   demoCases: DemoCaseSummary[];
+  isDemoInput: boolean;
   onSelectExample: (demo: DemoCaseSummary) => void;
   backendState: "checking" | "online" | "offline" | "degraded";
   searchSources: SearchSource[];
@@ -35,6 +36,7 @@ export function SearchInput({
   onModelChange,
   isStreaming,
   demoCases,
+  isDemoInput,
   onSelectExample,
   backendState,
   searchSources,
@@ -64,6 +66,7 @@ export function SearchInput({
 
         <div className="search-panel">
           <label className="search-panel__label" htmlFor="claim-input">你想核查什么？</label>
+          {isDemoInput && <p>演示输入示例：示例内容不代表真实事件；提交后将按当前检索范围核查。</p>}
           <div className="search-box">
             <textarea
               id="claim-input"
@@ -92,7 +95,7 @@ export function SearchInput({
           </div>
 
           <p id="claim-input-limit" role={inputError ? "alert" : undefined}>
-            {inputError ?? `最多 ${MAX_ANALYSIS_INPUT_CHARACTERS.toLocaleString("zh-CN")} 个字符。`}
+            {inputError ?? `输入最多 ${MAX_ANALYSIS_INPUT_CHARACTERS.toLocaleString("zh-CN")} 个字符；超出后请缩短内容再核查。`}
           </p>
 
           <fieldset className="search-mode">
@@ -107,6 +110,12 @@ export function SearchInput({
                 <span><strong>普通核查</strong><small>快速检索并给出初步结果</small></span>
               </label>
             </div>
+          </fieldset>
+
+          <details className="search-advanced">
+            <summary>
+              高级设置 · {mode === "deep" ? "分析模型与检索范围" : "检索范围"}
+            </summary>
             {mode === "deep" && (
               <div className="search-mode__model">
                 <label htmlFor="analysis-model">分析模型</label>
@@ -116,37 +125,36 @@ export function SearchInput({
                 </select>
               </div>
             )}
-          </fieldset>
-
-          {enabledSources.length > 0 && (
-            <fieldset className="search-sources">
-              <legend className="search-sources__label">检索范围</legend>
-              <div className="search-sources__options">
-                {enabledSources.map((source) => {
-                  const checked = activeSources.includes(source.id);
-                  const isLastActive = checked && activeSources.length <= 1;
-                  return (
-                    <label
-                      key={source.id}
-                      className="search-sources__item"
-                      title={isLastActive ? "至少保留一个搜索源" : source.description}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => onToggleSource(source.id)}
-                        disabled={isStreaming || isLastActive}
-                      />
-                      <span className="search-sources__name">{source.label}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            </fieldset>
-          )}
+            {enabledSources.length > 0 && (
+              <fieldset className="search-sources">
+                <legend className="search-sources__label">检索范围</legend>
+                <div className="search-sources__options">
+                  {enabledSources.map((source) => {
+                    const checked = activeSources.includes(source.id);
+                    const isLastActive = checked && activeSources.length <= 1;
+                    return (
+                      <label
+                        key={source.id}
+                        className="search-sources__item"
+                        title={isLastActive ? "至少保留一个搜索源" : source.description}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => onToggleSource(source.id)}
+                          disabled={isStreaming || isLastActive}
+                        />
+                        <span className="search-sources__name">{source.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
+            )}
+          </details>
 
           <div className="examples-block">
-            <span className="examples-block__label">试试这些</span>
+            <span className="examples-block__label">演示输入 · 点击后填入输入框</span>
             <div className="examples">
               {demoCases.slice(0, 4).map((demo) => (
                 <button key={demo.id} className="examples__chip" onClick={() => onSelectExample(demo)}>

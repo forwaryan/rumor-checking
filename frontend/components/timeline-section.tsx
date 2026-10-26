@@ -1,6 +1,7 @@
 "use client";
 
 import type { TimelineNode } from "@/types/report";
+import { SectionHeader } from "@/components/section-header";
 
 interface TimelineSectionProps {
   timeline: TimelineNode[];
@@ -22,15 +23,9 @@ export function TimelineSection({ timeline, isOpen, onToggle }: TimelineSectionP
   if (timeline.length === 0) return null;
   return (
     <div className="section-card">
-      <div className="section-card__header" onClick={onToggle}>
-        <span className="section-card__title">
-          传播时间线
-          <span className="section-card__badge">{timeline.length}</span>
-        </span>
-        <span className={`section-card__arrow${isOpen ? " section-card__arrow--open" : ""}`}>&#9660;</span>
-      </div>
-      {isOpen && (
-        <div className="section-card__body">
+      <SectionHeader title="传播时间线" count={timeline.length} id="timeline-section" isOpen={isOpen} onToggle={onToggle} />
+      <div id="timeline-section" className="section-card__body" hidden={!isOpen}>
+        {isOpen && (
           <div className="timeline">
             {timeline.map((node, i) => (
               <div key={`${node.url}-${i}`} className={`timeline__node timeline__node--${node.node_type}`}>
@@ -46,8 +41,8 @@ export function TimelineSection({ timeline, isOpen, onToggle }: TimelineSectionP
               </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

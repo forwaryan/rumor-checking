@@ -4,6 +4,7 @@ import type { Evidence, EvidenceSnapshot, Report } from "@/types/report";
 import { getSourceTierMeta } from "@/lib/report-utils";
 import { buildEvidenceClaimAccents, type ClaimAccent } from "@/lib/claim-accent";
 import { getEvidenceSnapshotView } from "@/lib/evidence-snapshot";
+import { SectionHeader } from "@/components/section-header";
 
 const acquisitionLabels: Record<EvidenceSnapshot["acquisition"], string> = {
   fetched: "本轮抓取", cached: "缓存内容", retrieved: "搜索返回", restored: "恢复的留存内容",
@@ -134,16 +135,9 @@ export function EvidenceList({ evidence, isOpen, onToggle, report }: EvidenceLis
 
   return (
     <div className="section-card">
-      <div className="section-card__header" onClick={onToggle}>
-        <span className="section-card__title">
-          证据来源
-          <span className="section-card__badge">{evidence.length}</span>
-        </span>
-        <span className={`section-card__arrow${isOpen ? " section-card__arrow--open" : ""}`}>&#9660;</span>
-      </div>
-      {isOpen && (
-        <div className="section-card__body">
-          {evidence.map((item, i) => (
+      <SectionHeader title="证据来源" count={evidence.length} id="evidence-section" isOpen={isOpen} onToggle={onToggle} />
+      <div id="evidence-section" className="section-card__body" hidden={!isOpen}>
+        {isOpen && evidence.map((item, i) => (
             <EvidenceCard
               key={`${item.url}-${i}`}
               item={item}
@@ -151,8 +145,7 @@ export function EvidenceList({ evidence, isOpen, onToggle, report }: EvidenceLis
               claimAccents={accentMap?.get(item.url)}
             />
           ))}
-        </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -168,21 +161,15 @@ export function RetrievalHitsList({ hits, isOpen, onToggle }: RetrievalHitsListP
 
   return (
     <div className="section-card">
-      <div className="section-card__header" onClick={onToggle}>
-        <span className="section-card__title">
-          检索命中（未被采信）
-          <span className="section-card__badge">{hits.length}</span>
-        </span>
-        <span className={`section-card__arrow${isOpen ? " section-card__arrow--open" : ""}`}>&#9660;</span>
-      </div>
-      {isOpen && (
-        <div className="section-card__body">
+      <SectionHeader title="检索命中（未被采信）" count={hits.length} id="retrieval-hits-section" isOpen={isOpen} onToggle={onToggle} />
+      <div id="retrieval-hits-section" className="section-card__body" hidden={!isOpen}>
+        {isOpen && <>
           <div className="section-card__hint">这些是检索到、但没有被任何核查点当作判定证据的结果，仅供参考。</div>
           {hits.map((item, i) => (
             <EvidenceCard key={`${item.url}-${i}`} item={item} />
           ))}
-        </div>
-      )}
+        </>}
+      </div>
     </div>
   );
 }
