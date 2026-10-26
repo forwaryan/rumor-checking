@@ -333,8 +333,8 @@ class AnalyzePipeline:
         emit_stage(
             stage_key="retrieval_initial",
             title="首轮检索",
-            status="completed",
-            summary="首轮检索已返回结果集。",
+            status="completed" if initial_retrieval_bundle.canonical_results else "warning",
+            summary="首轮检索已返回结果集。" if initial_retrieval_bundle.canonical_results else "首轮检索没有找到与说法相关的可用证据。",
             details=_retrieval_bundle_details(initial_retrieval_bundle),
         )
 

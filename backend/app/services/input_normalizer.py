@@ -147,7 +147,7 @@ def _infer_input_type(raw_input: str) -> InternalInputType:
     compact = raw_input.strip()
     if looks_like_url(compact):
         return "url_news"
-    if compact.endswith(("?", "？")) or "真的吗" in compact:
+    if compact.endswith(("?", "？")) or "真的吗" in compact or re.search(r"(?:是不是|是否|有没有).{0,30}[。.!！]?$", compact):
         return "question_only"
     return "text_news"
 

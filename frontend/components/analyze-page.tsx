@@ -41,11 +41,6 @@ export function AnalyzePage() {
   const [activeMode, setActiveMode] = useState<"fast" | "deep">("deep");
   const [models, setModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>("");
-  // The server's own default model. We surface it in the picker for display, but
-  // must NOT send it as an explicit request_context.model: the backend reads any
-  // explicit model as "user pinned this — never fail over", which disables the
-  // health-aware failover and lets one flaky model collapse a run into safe_mode.
-  // Only a model the user actively chose (≠ this default) is sent.
   const [serverDefaultModel, setServerDefaultModel] = useState<string>("");
   const [searchSources, setSearchSources] = useState<SearchSource[]>([]);
   const [activeSources, setActiveSources] = useState<string[]>([]);
@@ -98,7 +93,7 @@ export function AnalyzePage() {
       if (!active) return;
       setModels(res.models);
       setServerDefaultModel(res.default || res.models[0] || "");
-      setSelectedModel((cur) => cur || res.default || res.models[0] || "");
+      setSelectedModel((cur) => cur && res.models.includes(cur) ? cur : "");
     }).catch(() => {});
     return () => { active = false; };
   }, []);
@@ -216,9 +211,9 @@ export function AnalyzePage() {
     const validation = validateInput(trimmed, "auto");
     if (validation) { setStatus("error"); setErrorMessage(validation); return; }
     const model = modelOverride ?? selectedModel;
-    // Only treat it as an explicit pick when it differs from the server default —
-    // otherwise omit it so the backend keeps failover enabled (see serverDefaultModel).
-    const explicitModel = model && model !== serverDefaultModel ? model : "";
+    // An empty selection means automatic model routing with health-aware failover.
+    // Any named model, including the server default, pins that model for the run.
+    const explicitModel = model && models.includes(model) ? model : "";
     window.history.replaceState(null, "", runLocation(window.location.pathname));
     setLastQuery(trimmed); setActiveMode(mode); setIsStreaming(true);
     setStatus("submitting"); setErrorMessage(null); setReport(null);
@@ -273,7 +268,7 @@ export function AnalyzePage() {
     return (
       <SearchInput inputValue={inputValue} onInputChange={setInputValue}
         onSubmit={() => void handleSubmit(activeMode)} mode={activeMode} onModeChange={setActiveMode}
-        models={models} selectedModel={selectedModel} onModelChange={setSelectedModel} isStreaming={isStreaming}
+        models={models} selectedModel={selectedModel} defaultModel={serverDefaultModel} onModelChange={setSelectedModel} isStreaming={isStreaming}
         demoCases={idleDemoCases} onSelectExample={(d) => setInputValue(d.sample_input)}
         backendState={backendState}
         searchSources={searchSources} activeSources={activeSources} onToggleSource={handleToggleSource} />
@@ -344,11 +339,10 @@ export function AnalyzePage() {
           <div className="deep-cta">
             <div className="deep-cta__text">还不确定？可以深入核查：多轮检索、逐条判定、交叉比对来源。</div>
             <div className="deep-cta__actions">
-              {models.length > 1 && (
-                <select className="deep-cta__model" value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} aria-label="选择分析模型">
-                  {models.map((m) => <option key={m} value={m}>{m}</option>)}
-                </select>
-              )}
+              <select className="deep-cta__model" value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} aria-label="选择分析模型" disabled={models.length === 0}>
+                <option value="">自动选择{serverDefaultModel ? `（首选 ${serverDefaultModel}，可切换）` : "（可切换）"}</option>
+                {models.map((m) => <option key={m} value={m}>{m}（固定）</option>)}
+              </select>
               <button className="deep-cta__button" onClick={() => void handleSubmit("deep")}>深度核查（较慢）</button>
             </div>
           </div>

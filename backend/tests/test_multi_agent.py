@@ -182,6 +182,42 @@ def test_model_isolation_between_agents(tool_context):
     assert getattr(reasoner, "model_override", None) is None
 
 
+def test_selected_model_overrides_agent_defaults(tool_context):
+    from dataclasses import replace
+
+    from backend.app.agent.multi import AgentConfig
+
+    tool_context.settings = replace(tool_context.settings, llm_model="selected-model", llm_models=("selected-model", "other-model"))
+    supervisor = Supervisor(
+        tool_context,
+        agent_configs={AgentRole.ANALYSIS: AgentConfig(model="other-model")},
+        retrieval_mode="sequential",
+    )
+    request = AnalyzeRequest(raw_input="测试指定模型", request_context={"model": "selected-model"})
+
+    supervisor._apply_request_model_overrides(request)
+
+    assert all(agent.config.model == "selected-model" for agent in supervisor.agents)
+
+
+def test_selected_model_preserves_parallel_source_isolation(tool_context):
+    from dataclasses import replace
+
+    tool_context.settings = replace(tool_context.settings, llm_model="selected-model", llm_models=("selected-model",))
+    supervisor = Supervisor(tool_context, retrieval_mode="parallel")
+    request = AnalyzeRequest(raw_input="测试并行检索", request_context={"model": "selected-model"})
+
+    supervisor._apply_request_model_overrides(request)
+
+    source_roles = {
+        AgentRole.RETRIEVAL_BAIDU, AgentRole.RETRIEVAL_XHS,
+        AgentRole.RETRIEVAL_TOUTIAO, AgentRole.RETRIEVAL_WEIXIN,
+        AgentRole.RETRIEVAL_PIYAO,
+    }
+    assert all(agent.config.model is None for agent in supervisor.agents if agent.role in source_roles)
+    assert all(agent.config.model == "selected-model" for agent in supervisor.agents if agent.role not in source_roles)
+
+
 def test_request_level_model_override(tool_context):
     """Per-request agent_models in request_context should override agent configs."""
     supervisor = Supervisor(tool_context, retrieval_mode="sequential")

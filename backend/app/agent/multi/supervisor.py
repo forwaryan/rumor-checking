@@ -166,7 +166,7 @@ class Supervisor:
         state.max_url_fetches = int(getattr(self.ctx.settings, "agent_max_url_fetches", 0) or 0)
         state.max_token_budget = int(getattr(self.ctx.settings, "agent_max_token_budget", 0) or 0)
 
-        # Per-request agent model overrides from request_context
+        # A user-selected model takes precedence over per-role defaults for this run.
         self._apply_request_model_overrides(request)
 
         reasoner = self.ctx.agent_reasoner
@@ -479,7 +479,7 @@ class Supervisor:
         return decision
 
     def _apply_request_model_overrides(self, request: AnalyzeRequest) -> None:
-        """Apply per-request agent model overrides from request_context.
+        """Apply a selected run model or per-role overrides from request_context.
 
         Frontend can pass:
           request_context: {
@@ -490,6 +490,18 @@ class Supervisor:
             }
           }
         """
+        selected = request.request_context.get("model")
+        available = getattr(self.ctx.settings, "available_models", ())
+        if isinstance(selected, str) and selected.strip() in available:
+            for agent in self.agents:
+                if hasattr(agent, "config") and agent.role not in {
+                    AgentRole.RETRIEVAL_BAIDU, AgentRole.RETRIEVAL_XHS,
+                    AgentRole.RETRIEVAL_TOUTIAO, AgentRole.RETRIEVAL_WEIXIN,
+                    AgentRole.RETRIEVAL_PIYAO,
+                }:
+                    agent.config.model = selected.strip()
+            return
+
         agent_models = request.request_context.get("agent_models")
         if not isinstance(agent_models, dict):
             return

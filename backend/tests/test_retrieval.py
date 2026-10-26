@@ -436,6 +436,27 @@ def test_deep_mode_splits_multi_fact_rumor_into_subclaim_queries():
     assert not any(s.label.startswith("subclaim_") for s in fast)
 
 
+def test_layoff_question_without_question_mark_uses_short_subject_action_query():
+    from backend.app.services.input_normalizer import InputNormalizer
+
+    text = "京东最近是不是有一次大裁员。"
+    event = InputNormalizer().normalize(AnalyzeRequest(raw_input=text))
+    svc = RetrievalService(settings=replace(get_settings(), retrieval_provider="playwright"))
+
+    assert event.input_type == "question_only"
+    plan = svc._build_query_plan(event, request_context={"mode": "deep"})
+    assert any(spec.query == "京东 裁员" for spec in plan)
+
+
+def test_layoff_statement_has_focused_claim_query():
+    svc = RetrievalService(settings=replace(get_settings(), retrieval_provider="playwright"))
+    text = "京东最近有一次大裁员"
+    event = NormalizedEvent(summary=text, title=text, input_type="text_news", raw_input=text)
+
+    plan = svc._build_query_plan(event, request_context={"mode": "deep"})
+    assert any(spec.query == "京东 裁员" for spec in plan)
+
+
 def test_single_fact_rumor_gets_no_subclaim_queries():
     # A single-action rumor should not be split — one focused query is redundant.
     svc = RetrievalService(settings=replace(get_settings(), retrieval_provider="playwright"))

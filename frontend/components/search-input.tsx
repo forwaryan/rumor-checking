@@ -12,6 +12,7 @@ export interface SearchInputProps {
   onModeChange: (mode: "fast" | "deep") => void;
   models: string[];
   selectedModel: string;
+  defaultModel: string;
   onModelChange: (model: string) => void;
   isStreaming: boolean;
   demoCases: DemoCaseSummary[];
@@ -30,6 +31,7 @@ export function SearchInput({
   onModeChange,
   models,
   selectedModel,
+  defaultModel,
   onModelChange,
   isStreaming,
   demoCases,
@@ -109,7 +111,8 @@ export function SearchInput({
               <div className="search-mode__model">
                 <label htmlFor="analysis-model">分析模型</label>
                 <select id="analysis-model" value={selectedModel} onChange={(e) => onModelChange(e.target.value)} disabled={isStreaming || models.length === 0}>
-                  {models.length === 0 ? <option value="">默认模型（加载中）</option> : models.map((model) => <option key={model} value={model}>{model}</option>)}
+                  <option value="">自动选择{defaultModel ? `（首选 ${defaultModel}，可切换）` : "（可切换）"}</option>
+                  {models.map((model) => <option key={model} value={model}>{model}（固定）</option>)}
                 </select>
               </div>
             )}

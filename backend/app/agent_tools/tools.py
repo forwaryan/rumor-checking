@@ -96,8 +96,8 @@ def search_news(ctx: ToolContext, state: AgentState) -> None:
     emit_stage(
         stage_key="retrieval_initial",
         title="首轮检索",
-        status="completed",
-        summary="首轮检索已返回结果集。",
+        status="completed" if bundle.canonical_results else "warning",
+        summary="首轮检索已返回结果集。" if bundle.canonical_results else "首轮检索没有找到与说法相关的可用证据。",
         details=_retrieval_bundle_details(bundle),
     )
     state.record("search_news", "首轮检索完成", _retrieval_bundle_details(bundle))

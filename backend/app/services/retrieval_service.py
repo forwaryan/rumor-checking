@@ -1348,6 +1348,7 @@ class RetrievalService:
         if not primary_query:
             return []
 
+        core_action_query = self._subject_action_query(event)
         keyword_query = self._build_term_query(event.title, event.summary, " ".join(event.keywords[:5]), self._real_source_name(event.source_name))
         first_clause_query = self._build_term_query(*self._extract_claim_clauses(event.title, event.summary))
 
@@ -1395,7 +1396,7 @@ class RetrievalService:
                     ),
                     RetrievalQuerySpec(
                         label="question_claim",
-                        query=rewritten_query,
+                        query=core_action_query or rewritten_query,
                         rationale="收紧到 claim-first 的核心实体和动作，避免只命中泛化传闻。",
                         claim_hint=rewritten_query or primary_query,
                     ),
@@ -1436,7 +1437,7 @@ class RetrievalService:
                 ),
                 RetrievalQuerySpec(
                     label="event_claim",
-                    query=first_clause_query or keyword_query,
+                    query=core_action_query or first_clause_query or keyword_query,
                     rationale="把事件摘要压到更接近单条 claim 的 query，补足细粒度证据。",
                     claim_hint=event.summary or primary_query,
                 ),
@@ -1501,6 +1502,14 @@ class RetrievalService:
         if source_name and source_name in INPUT_PLACEHOLDER_SOURCE_NAMES:
             return None
         return source_name
+
+    def _subject_action_query(self, event: NormalizedEvent) -> str:
+        text = event.raw_input.strip()
+        for subject in sorted(self._query_subject_tokens(text), key=len, reverse=True):
+            for action in ("裁员", "停课", "停航", "停运", "收购", "投资", "辟谣"):
+                if action in text:
+                    return f"{subject} {action}"
+        return ""
 
     def _build_primary_query(self, event: NormalizedEvent) -> str:
         if event.input_type == "question_only":
