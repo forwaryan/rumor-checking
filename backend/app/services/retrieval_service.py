@@ -1788,6 +1788,14 @@ class RetrievalService:
             query = re.sub(pattern, replacement, query)
         query = strip_question_tail(query)
 
+        # A named subject and action are a better search query than overlapping
+        # character windows such as 京东有一 / 有一次大 from conversational wording.
+        action_query = self._subject_action_query(
+            NormalizedEvent(summary=query, input_type="question_only", raw_input=raw_input)
+        )
+        if action_query:
+            return action_query
+
         terms = []
         seen = set()
 

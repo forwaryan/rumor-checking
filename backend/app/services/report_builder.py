@@ -148,6 +148,7 @@ class ReportBuilder:
         )
         score_computation = self._build_score_computation(
             mode=mode,
+            input_type=event.input_type,
             original_input=original_input or event.raw_input,
             claim_results=claim_results,
             timeline=timeline,
@@ -281,7 +282,7 @@ class ReportBuilder:
         trend_question = is_broad_trend_question(original_input)
         primary = primary_fact_claim(original_input, claim_results)
 
-        if primary and primary.verdict == "insufficient" and supported_core_claims and not trend_question and extract_subject_anchors(original_input) and not against_rumor_claims:
+        if event.input_type == "question_only" and primary and primary.verdict == "insufficient" and not trend_question and extract_subject_anchors(original_input):
             summary = f"关于“{primary.claim.rstrip('。')}”，当前缺少直接证据，仍不能确定；其他已核实的背景事实不能代替这条主张。"
         elif trend_question and supported_core_claims:
             summary = supported_trend_summary(original_input) or "当前公开来源更倾向于：最近确实有相关消息，但它不是单一事件。"
@@ -589,8 +590,7 @@ class ReportBuilder:
         if (
             primary and primary.verdict == "insufficient" and not trend_question
             and extract_subject_anchors(original_input)
-            and refuted is None and supported is not None
-            and not any(_claim_is_debunking(item.claim) for item in claim_results if item.verdict == "supported")
+            and supported is not None
         ):
             conclusion = f"关于“{primary.claim.rstrip('。')}”，目前仍缺少直接证据，不能根据其他背景事实认定它属实。"
         elif trend_question and supported is not None:
@@ -627,13 +627,15 @@ class ReportBuilder:
         self,
         *,
         mode: str,
+        input_type: str,
         original_input: str,
         claim_results: list[ClaimResult],
         timeline: list[TimelineNode],
         evidence: list[EvidenceItem],
         retrieval_hits: list[EvidenceItem],
     ) -> ScoreComputation:
-        independent_source_count = self._estimate_independent_source_count(retrieval_hits or evidence)
+        cited_evidence = self._cited_sources(claim_results, fallback=evidence, mode=mode)
+        independent_source_count = self._estimate_independent_source_count(cited_evidence)
         timeline_confidence = self._estimate_timeline_confidence(
             timeline=timeline,
             retrieval_hits=retrieval_hits,
@@ -652,13 +654,13 @@ class ReportBuilder:
         claim_contributions = self._build_claim_contributions(claim_results)
         claim_score = self._compute_claim_score(claim_results, claim_contributions)
         source_quality_score = self._compute_source_quality_score(
-            evidence=evidence,
-            retrieval_hits=retrieval_hits,
+            evidence=cited_evidence,
+            retrieval_hits=[],
             independent_source_count=independent_source_count,
         )
         cross_source_agreement_score = self._compute_cross_source_agreement_score(
             claim_results=claim_results,
-            evidence=evidence,
+            evidence=cited_evidence,
             independent_source_count=independent_source_count,
         )
         timeline_score = float(timeline_confidence or 0.0)
@@ -672,22 +674,19 @@ class ReportBuilder:
         label = self._derive_credibility_label(
             overall_score=overall_score,
             claim_results=claim_results,
-            evidence=evidence,
+            evidence=cited_evidence,
         )
         primary = primary_fact_claim(original_input, claim_results)
         if (
-            mode != "complete_mode" and primary and primary.verdict == "insufficient" and len(claim_results) > 1
+            input_type == "question_only" and primary and primary.verdict == "insufficient"
             and extract_subject_anchors(original_input)
-            and not any(
-                item.verdict == "refuted" or (item.verdict == "supported" and _claim_is_debunking(item.claim))
-                for item in claim_results
-            )
+            and not is_broad_trend_question(original_input)
         ):
             label = "insufficient_evidence"
         overall_score = self._cap_score_for_label(overall_score, label)
         limiting_factors = self._build_limiting_factors(
             claim_results=claim_results,
-            evidence=evidence,
+            evidence=cited_evidence,
             independent_source_count=independent_source_count,
             timeline_confidence=timeline_confidence,
         )

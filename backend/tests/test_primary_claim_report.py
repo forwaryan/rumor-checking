@@ -65,6 +65,48 @@ def test_supported_industry_context_does_not_confirm_unproven_company_layoff():
         report=reversed_report, original_input="京东最近是不是有一次大裁员"
     )
     assert reversed_report.overall_credibility_label == "insufficient_evidence"
+    assert reversed_report.independent_source_count == 1
     assert "京东近期" in reversed_report.final_summary
     assert "京东近期" in reversed_report.investigation.reframed_question
     assert "缺少直接证据" in reversed_answer.possible_answers[0].answer
+
+
+def test_old_denials_do_not_answer_a_recent_company_layoff_question():
+    denial = EvidenceItem(
+        title="2023年京东否认当年的裁员传闻", url="https://news.example.org/2023-denial",
+        source_name="行业新闻", published_at="2023-12-01", snippet="京东称当时没有类似计划",
+        relevance_reason="historical context", source_tier="A",
+    )
+    question = "京东最近是不是有一次大裁员"
+    claims = [
+        ClaimResult(
+            claim="2023年12月京东否认了裁员传闻，称没有类似计划并仍在招聘。",
+            claim_type="fact", verdict="supported", confidence="high", evidence=[denial], notes="旧闻",
+        ),
+        ClaimResult(
+            claim="京东历史上曾多次否认裁员传闻。",
+            claim_type="fact", verdict="supported", confidence="high", evidence=[denial], notes="背景",
+        ),
+        ClaimResult(
+            claim="京东近期发生了一次大规模裁员。",
+            claim_type="fact", verdict="insufficient", confidence="low", evidence=[denial], notes="缺少近期证据",
+        ),
+    ]
+    for ordered in (claims, list(reversed(claims))):
+        report = ReportBuilder().build(
+            event=NormalizedEvent(title="京东裁员传闻", summary=question, input_type="question_only", raw_input=question),
+            claim_results=ordered, timeline=[], evidence=[denial], evidence_grade="A",
+            provenance=ReportProvenance(
+                source_type="backend_live", event_source="input_normalized", claim_source="provider",
+                evidence_source="retrieval_live", timeline_source="none",
+            ),
+            retrieval_hits=[denial],
+        )
+        answer = ContentCheckBuilder().build(report=report, original_input=question)
+        assert report.overall_credibility_label == "insufficient_evidence"
+        assert report.overall_credibility_score <= 49
+        assert "京东近期" in report.final_summary and "缺少直接证据" in report.final_summary
+        assert "京东近期" in report.investigation.reframed_question
+        assert "缺少直接证据" in report.investigation.final_conclusion
+        assert "京东近期" in answer.possible_answers[0].answer
+        assert "缺少直接证据" in answer.possible_answers[0].answer

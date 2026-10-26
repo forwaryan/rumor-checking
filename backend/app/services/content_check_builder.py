@@ -169,10 +169,7 @@ class ContentCheckBuilder:
         top_opinion = opinions[0] if opinions else None
         primary = primary_fact_claim(original_input, report.claim_results)
 
-        if primary and primary.verdict == "insufficient" and not trend_question and extract_subject_anchors(original_input) and not top_false and not any(
-            "辟谣" in item.claim or "否认" in item.claim or "不实" in item.claim
-            for item in report.claim_results if item.verdict == "supported"
-        ):
+        if primary and primary.verdict == "insufficient" and not trend_question and extract_subject_anchors(original_input):
             push(
                 "直接回答",
                 f"关于“{_trim_claim(primary.claim)}”，目前缺少直接证据，不能用其他已核实的背景事实代替判断。",

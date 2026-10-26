@@ -111,6 +111,33 @@ def test_sources_dedupe_across_claims():
     assert len(report.sources) == 1
 
 
+def test_unrelated_retrieval_hits_do_not_inflate_report_source_count():
+    cited = _hit("https://news.example.com/context", "互联网行业曾有裁员")
+    unrelated = _hit("https://gov.example.org/unrelated", "其他地区市场公告")
+    claims = [
+        ClaimResult(
+            claim="京东近期发生大规模裁员。", claim_type="fact", verdict="insufficient",
+            confidence="low", evidence=[], notes="未核实",
+        ),
+        ClaimResult(
+            claim="互联网行业曾有裁员。", claim_type="fact", verdict="supported",
+            confidence="medium", evidence=[cited], notes="背景资料",
+        ),
+    ]
+    report = ReportBuilder().build(
+        event=NormalizedEvent(
+            title="京东裁员传闻", summary="京东近期裁员？",
+            input_type="question_only", raw_input="京东近期裁员？",
+        ),
+        claim_results=claims, timeline=[], evidence=[cited, unrelated],
+        evidence_grade="A", provenance=_provenance(), retrieval_hits=[cited, unrelated],
+    )
+    assert report.independent_source_count == 1
+    assert report.overall_credibility_label == "insufficient_evidence"
+    assert report.sources == [cited]
+    assert report.score_breakdown.source_quality_score < 70
+
+
 def test_independent_source_count_dedupes_subdomains():
     """m.163.com / news.163.com / www.163.com should collapse to one source.
 

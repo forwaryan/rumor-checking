@@ -3,19 +3,27 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from backend.app.models.schemas import ClaimResult
-from backend.app.services.entity_anchor import KNOWN_BRANDS, extract_subject_anchors
+from backend.app.services.entity_anchor import ACTION_MARKERS, KNOWN_BRANDS, TEMPORAL_ADVERBS, extract_subject_anchors
 
 
 def primary_fact_claim(original_input: str, claims: Sequence[ClaimResult]) -> ClaimResult | None:
-    """Prefer a fact about the named subject over a broader background fact."""
+    """Prefer the asked subject, action and timeframe over related background facts."""
     facts = [item for item in claims if item.claim_type == "fact"]
     if not facts:
         return None
     anchors = extract_subject_anchors(original_input)
+    recent = any(marker in original_input for marker in TEMPORAL_ADVERBS)
+    actions = [marker for marker in ACTION_MARKERS if marker in original_input]
     for anchor in anchors:
         if anchor not in KNOWN_BRANDS and not anchor.endswith(("公司", "集团", "生物", "科技", "医院", "学校", "大学")):
             continue
-        for item in facts:
-            if anchor in extract_subject_anchors(item.claim):
-                return item
+        matching = [item for item in facts if anchor in extract_subject_anchors(item.claim)]
+        if matching:
+            return max(
+                matching,
+                key=lambda item: (
+                    recent and any(marker in item.claim for marker in TEMPORAL_ADVERBS),
+                    any(action in item.claim for action in actions),
+                ),
+            )
     return facts[0]

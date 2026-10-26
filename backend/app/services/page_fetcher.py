@@ -130,7 +130,13 @@ def _fetch_single_page(url: str) -> str | None:
     )
     if resp.status_code != 200:
         return None
-    text = _strip_tags(resp.text)
+    from backend.app.services.url_content_extractor import UrlContentExtractor
+
+    decoded_html = (
+        UrlContentExtractor(settings=settings)._decode_response(resp)
+        if hasattr(resp, "content") else resp.text
+    )
+    text = _strip_tags(decoded_html)
     capture_evidence_text(url=url, final_url=str(resp.url), text=text, kind="page_text",
                           acquisition="fetched", extractor="tag-strip-v1")
 
@@ -138,7 +144,7 @@ def _fetch_single_page(url: str) -> str | None:
     if cache_enabled and text:
         try:
             from backend.app.models.schemas import MockFetchResult
-            _cache.write(url=url, result=MockFetchResult(status="ok", body=resp.text, final_url=str(resp.url)), namespace=_CACHE_NAMESPACE)
+            _cache.write(url=url, result=MockFetchResult(status="ok", body=decoded_html, final_url=str(resp.url)), namespace=_CACHE_NAMESPACE)
         except Exception:
             pass
 

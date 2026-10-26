@@ -1523,6 +1523,35 @@ def test_question_query_rewrite_preserves_core_rumor_terms():
     assert "死亡" in query
 
 
+def test_question_query_rewrite_uses_named_subject_and_action():
+    service = RetrievalService()
+    assert service._rewrite_question_query("京东最近是不是有一次大裁员") == "京东 裁员"
+    assert service._rewrite_question_query("晨星生物裁员40%是真的吗？") != "裁员"
+
+
+def test_named_layoff_question_filters_industry_context_from_first_round(tmp_path: Path):
+    question = "京东最近是不是有一次大裁员"
+    service = RetrievalService(
+        settings=replace(get_settings(), retrieval_provider="gdelt"),
+        provider=FakeProvider(results=[
+            _make_result(
+                result_id="industry", title="互联网行业裁员观察", snippet="各公司人员调整汇总",
+                published_at="2026-10-20T09:00:00+08:00", source_tier="A",
+            ),
+            _make_result(
+                result_id="company", title="京东回应裁员传闻", snippet="京东谈近期人员调整",
+                published_at="2026-10-21T09:00:00+08:00", source_tier="A",
+            ),
+        ]),
+        cache=RetrievalCache(cache_root=tmp_path, ttl_seconds=3600),
+    )
+    event = NormalizedEvent(summary=question, input_type="question_only", raw_input=question)
+
+    bundle = service.retrieve_for_event(event, request_context={"disable_official_boost": True})
+    assert bundle.query == "京东 裁员"
+    assert {item.title for item in bundle.canonical_results} == {"京东回应裁员传闻"}
+
+
 def test_question_query_rewrite_collapses_broad_trend_question_to_topic():
     service = RetrievalService()
 

@@ -125,7 +125,9 @@ def annotate_claim_corrections(
             pool_numbers |= _extract_numbers_from_text(t)
         evidence_numbers = _extract_evidence_numbers(candidates, page_bodies)
         updated = list(claim_results)
-        for (i, _cr), corr in zip(candidates, corrections, strict=True):
+        for (i, cr), corr in zip(candidates, corrections, strict=True):
+            if cr.verdict == "insufficient":
+                continue
             if corr and isinstance(corr, dict):
                 # Validate the structured correction has required fields
                 original = corr.get("original", "")

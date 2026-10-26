@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import httpx
+
 from backend.app.models.schemas import MockFetchResult
 from backend.app.services import page_fetcher
 from backend.app.services.page_fetcher import _strip_tags, fetch_page_snippets
@@ -36,6 +38,16 @@ def test_strip_tags_drops_style_and_script_contents():
     assert "g-layout-wrap" not in out
     assert "height" not in out
     assert "function" not in out
+
+
+def test_page_fetcher_decodes_legacy_chinese_news_page(monkeypatch, tmp_path: Path):
+    html = '<html><head><meta charset="gb2312"></head><body>京东回应裁员传闻</body></html>'
+    response = httpx.Response(200, content=html.encode("gb18030"), request=httpx.Request("GET", "https://example.org/news"))
+    monkeypatch.setattr(page_fetcher, "is_safe_url", lambda url: True)
+    monkeypatch.setattr(page_fetcher, "reliable_get", lambda *args, **kwargs: response)
+    monkeypatch.setattr(page_fetcher, "_cache", UrlFetchCache(cache_root=tmp_path, ttl_seconds=3600))
+    assert "京东回应裁员传闻" in page_fetcher._fetch_single_page("https://example.org/news")
+    assert "京东回应裁员传闻" in page_fetcher._fetch_single_page("https://example.org/news")
 
 
 def test_fetch_page_snippets_keyed_by_url(monkeypatch):

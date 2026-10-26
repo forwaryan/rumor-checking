@@ -39,6 +39,22 @@ def test_correction_grounds_against_pool_titles_when_claim_has_no_bound_evidence
     assert out[0].correction["actual"] == "员工规模突破2000人"
 
 
+def test_insufficient_current_claim_cannot_inherit_old_denial_as_correction():
+    stale_denial = _ev("2023年京东否认当年的裁员传闻，仍在招聘")
+    claims = [_claim("京东近期发生了一次大规模裁员。", "insufficient", evidence=[stale_denial])]
+    calls = []
+
+    def complete(system, user):
+        calls.append(user)
+        return json.dumps([{"correction": {
+            "original": "京东近期大规模裁员", "actual": "京东否认裁员，仍在招聘", "source": stale_denial.title,
+        }}])
+
+    result = annotate_claim_corrections(claims, completion_fn=complete)
+    assert result[0].correction is None
+    assert len(calls) == 1
+
+
 def test_correction_still_discards_ungrounded_number():
     # Monotonic anti-hallucination: an actual figure absent from BOTH bound evidence
     # and the pool must still be dropped, even with the pool now in the grounding set.
