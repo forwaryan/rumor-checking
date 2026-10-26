@@ -1,0 +1,56 @@
+backend/tests/test_report_sources.py
+  s_498f322db6e44c::t_0414de85faa9a7 114-140
+backend/app/services/primary_claim.py
+  s_498f322db6e44c::t_16375ecc27e414 6,10,15-16,20-28
+backend/tests/test_retrieval.py
+  s_498f322db6e44c::t_fad4f4213ce1c9 1532-1554
+  s_498f322db6e44c::t_579002498dbd2a 1526-1529
+  s_498f322db6e44c::t_02d41202d39d42 1530-1531
+backend/tests/test_claim_correction.py
+  s_498f322db6e44c::t_8f3e5455e759e6 42-54,56-57
+  s_498f322db6e44c::t_f859dfb514d9fa 55
+backend/tests/test_primary_claim_report.py
+  s_498f322db6e44c::t_68abc2770c0b5e 68
+  s_498f322db6e44c::t_e838d8a2e1061c 72-112
+backend/app/services/report_builder.py
+  s_498f322db6e44c::t_92d6da4816f996 285
+  s_498f322db6e44c::t_3a32a17644e7c8 689
+  s_498f322db6e44c::t_9cabb051448a17 593
+  s_498f322db6e44c::t_565097fad9b6f6 677
+  s_498f322db6e44c::t_ad12b7f94013bf 657-658
+  s_498f322db6e44c::t_da37ac8729c820 663
+  s_498f322db6e44c::t_6f9ef206cdeff5 630
+  s_498f322db6e44c::t_c9baace45cdabb 681
+  s_498f322db6e44c::t_0a98b3b612906f 151
+  s_498f322db6e44c::t_71ddfe197f0304 637-638
+  s_498f322db6e44c::t_d3e47f92cf894a 683
+backend/app/services/claim_correction.py
+  s_498f322db6e44c::t_6f2c9790fa4a67 128-130
+backend/app/services/page_fetcher.py
+  s_498f322db6e44c::t_64224c404adaa5 133-134,139
+  s_498f322db6e44c::t_6404c004226b18 135-138
+  s_498f322db6e44c::t_323a2cca103e75 147
+backend/tests/test_page_fetcher.py
+  s_498f322db6e44c::t_6e043e22337a43 5-6
+  s_498f322db6e44c::t_5039a98fc6fcde 43-52
+backend/app/services/retrieval_service.py
+  s_498f322db6e44c::t_f3a67d05c82303 1791-1798
+backend/app/services/content_check_builder.py
+  s_498f322db6e44c::t_944346ea6b77ce 172
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "0694ae857c048d7322c8b64622328d2b6a9604a7",
+  "prompts": {},
+  "sessions": {
+    "s_498f322db6e44c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "67e026a9-392e-4dba-9e80-2557b957fd4e",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "forwaryan <2549102420@qq.com>"
+    }
+  }
+}
