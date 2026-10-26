@@ -1,0 +1,35 @@
+backend/app/services/verdict_engine.py
+  s_498f322db6e44c::t_6571a86b3c756f 45-49
+  s_498f322db6e44c::t_fd37801f5019b4 42,50
+  s_498f322db6e44c::t_4dab0169dfc283 1164-1167
+  s_498f322db6e44c::t_e8a6dbba781be6 1123
+  s_498f322db6e44c::t_2d197fd06cc723 43-44
+  s_498f322db6e44c::t_ff7ba5d057c8a2 831
+  s_498f322db6e44c::t_e704df1b28ce27 860
+  s_498f322db6e44c::t_38f3964248a909 38-41
+README.md
+  s_498f322db6e44c::t_f4445ecf8df8ad 330
+backend/tests/test_verdict_engine.py
+  s_498f322db6e44c::t_177831a13847f8 831-852
+  s_498f322db6e44c::t_09b424cd3d8e2c 853-896
+  s_498f322db6e44c::t_83266a783be256 788-830,897-918
+.github/workflows/ci.yml
+  s_498f322db6e44c::t_61a5bba94add46 47
+  s_498f322db6e44c::t_a4323c94b568c6 77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "373924da474ff6481197efdd9718bc38e83cd3a9",
+  "prompts": {},
+  "sessions": {
+    "s_498f322db6e44c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "67e026a9-392e-4dba-9e80-2557b957fd4e",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "forwaryan <2549102420@qq.com>"
+    }
+  }
+}
