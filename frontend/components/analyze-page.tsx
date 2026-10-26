@@ -38,7 +38,7 @@ export function AnalyzePage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [liveEvents, setLiveEvents] = useState<AnalysisLiveEvent[]>([]);
   const [lastQuery, setLastQuery] = useState("");
-  const [activeMode, setActiveMode] = useState<"fast" | "deep">("fast");
+  const [activeMode, setActiveMode] = useState<"fast" | "deep">("deep");
   const [models, setModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>("");
   // The server's own default model. We surface it in the picker for display, but
@@ -272,7 +272,8 @@ export function AnalyzePage() {
   if (!showResult) {
     return (
       <SearchInput inputValue={inputValue} onInputChange={setInputValue}
-        onSubmit={() => void handleSubmit("fast")} isStreaming={isStreaming}
+        onSubmit={() => void handleSubmit(activeMode)} mode={activeMode} onModeChange={setActiveMode}
+        models={models} selectedModel={selectedModel} onModelChange={setSelectedModel} isStreaming={isStreaming}
         demoCases={idleDemoCases} onSelectExample={(d) => setInputValue(d.sample_input)}
         backendState={backendState}
         searchSources={searchSources} activeSources={activeSources} onToggleSource={handleToggleSource} />

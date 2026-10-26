@@ -8,6 +8,11 @@ export interface SearchInputProps {
   inputValue: string;
   onInputChange: (value: string) => void;
   onSubmit: () => void;
+  mode: "fast" | "deep";
+  onModeChange: (mode: "fast" | "deep") => void;
+  models: string[];
+  selectedModel: string;
+  onModelChange: (model: string) => void;
   isStreaming: boolean;
   demoCases: DemoCaseSummary[];
   onSelectExample: (demo: DemoCaseSummary) => void;
@@ -21,6 +26,11 @@ export function SearchInput({
   inputValue,
   onInputChange,
   onSubmit,
+  mode,
+  onModeChange,
+  models,
+  selectedModel,
+  onModelChange,
   isStreaming,
   demoCases,
   onSelectExample,
@@ -82,6 +92,28 @@ export function SearchInput({
           <p id="claim-input-limit" role={inputError ? "alert" : undefined}>
             {inputError ?? `最多 ${MAX_ANALYSIS_INPUT_CHARACTERS.toLocaleString("zh-CN")} 个字符。`}
           </p>
+
+          <fieldset className="search-mode">
+            <legend className="search-mode__label">核查方式</legend>
+            <div className="search-mode__options">
+              <label className={`search-mode__option${mode === "deep" ? " search-mode__option--selected" : ""}`}>
+                <input type="radio" name="analysis-mode" value="deep" checked={mode === "deep"} onChange={() => onModeChange("deep")} disabled={isStreaming} />
+                <span><strong>大模型深度核查</strong><small>多轮检索、逐条判定，可能需要几分钟</small></span>
+              </label>
+              <label className={`search-mode__option${mode === "fast" ? " search-mode__option--selected" : ""}`}>
+                <input type="radio" name="analysis-mode" value="fast" checked={mode === "fast"} onChange={() => onModeChange("fast")} disabled={isStreaming} />
+                <span><strong>普通核查</strong><small>快速检索并给出初步结果</small></span>
+              </label>
+            </div>
+            {mode === "deep" && (
+              <div className="search-mode__model">
+                <label htmlFor="analysis-model">分析模型</label>
+                <select id="analysis-model" value={selectedModel} onChange={(e) => onModelChange(e.target.value)} disabled={isStreaming || models.length === 0}>
+                  {models.length === 0 ? <option value="">默认模型（加载中）</option> : models.map((model) => <option key={model} value={model}>{model}</option>)}
+                </select>
+              </div>
+            )}
+          </fieldset>
 
           {enabledSources.length > 0 && (
             <fieldset className="search-sources">
