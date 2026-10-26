@@ -1,0 +1,27 @@
+frontend/components/analyze-page.tsx
+  s_498f322db6e44c::t_58bda2f68b9591 41
+  s_498f322db6e44c::t_9547eba05eadd6 275-276
+frontend/components/search-input.tsx
+  s_498f322db6e44c::t_930060c300c9c5 96-117
+  s_498f322db6e44c::t_80ac872d4f6b93 29-33
+  s_498f322db6e44c::t_c9cac040b71d33 11-15
+frontend/app/globals.css
+  s_498f322db6e44c::t_a23623b868b841 2163-2220
+  s_498f322db6e44c::t_b190b882f9e7f2 2419
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "58a11dedcb98c8abe2eab0a92b23e2f6aae1870f",
+  "prompts": {},
+  "sessions": {
+    "s_498f322db6e44c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "67e026a9-392e-4dba-9e80-2557b957fd4e",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "forwaryan <2549102420@qq.com>"
+    }
+  }
+}
