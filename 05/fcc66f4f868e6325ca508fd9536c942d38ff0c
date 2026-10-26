@@ -1,0 +1,51 @@
+frontend/components/analyze-page.tsx
+  s_498f322db6e44c::t_5cd49a96b41145 271
+  s_498f322db6e44c::t_9b0476f058abb2 214-216
+  s_498f322db6e44c::t_cf488a4e993e41 96
+  s_498f322db6e44c::t_36c6cf73483ab8 342-345
+backend/app/services/input_normalizer.py
+  s_498f322db6e44c::t_e8408d730ca560 150
+backend/tests/test_retrieval.py
+  s_498f322db6e44c::t_f879dbc59b7738 439-459
+backend/app/agent/multi/supervisor.py
+  s_498f322db6e44c::t_48346501e3b3ba 498-500
+  s_498f322db6e44c::t_be4573125ddc89 169
+  s_498f322db6e44c::t_05c7257266765d 482
+  s_498f322db6e44c::t_a5c43e9d429574 497,501
+  s_498f322db6e44c::t_faba4beca61f2e 493-496,502-504
+backend/app/services/retrieval_service.py
+  s_498f322db6e44c::t_b6bd7d5aaee772 1440
+  s_498f322db6e44c::t_73b4891811477a 1508
+  s_498f322db6e44c::t_a0f650227ea9f2 1351
+  s_498f322db6e44c::t_a968e82d7e20d4 1399
+  s_498f322db6e44c::t_3e43f84e058d7c 1506-1507,1509-1513
+backend/tests/test_multi_agent.py
+  s_498f322db6e44c::t_8014883eebd303 204-206
+  s_498f322db6e44c::t_53ebd0f3a3ec7b 187-188
+  s_498f322db6e44c::t_4b0f6b45e23dd3 185,191-203,207-220
+  s_498f322db6e44c::t_38bf8b8345380b 186,189-190
+backend/app/agent_tools/tools.py
+  s_498f322db6e44c::t_e589c791f13818 99-100
+frontend/components/search-input.tsx
+  s_498f322db6e44c::t_d0b06c87c2cfb1 34
+  s_498f322db6e44c::t_b9262ab30017ad 114-115
+  s_498f322db6e44c::t_0a8ab2f3f6bd7b 15
+backend/app/services/analyze_pipeline.py
+  s_498f322db6e44c::t_574e2613d2bf8d 336-337
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "05fcc66f4f868e6325ca508fd9536c942d38ff0c",
+  "prompts": {},
+  "sessions": {
+    "s_498f322db6e44c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "67e026a9-392e-4dba-9e80-2557b957fd4e",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "forwaryan <2549102420@qq.com>"
+    }
+  }
+}
