@@ -1,0 +1,39 @@
+frontend/components/trace-timeline.tsx
+  s_498f322db6e44c::t_f1cfa1fbf50c75 340
+  s_498f322db6e44c::t_eb1daf0d30de21 93-94
+  s_498f322db6e44c::t_d06a7fbdbbda60 310
+  s_498f322db6e44c::t_89a338aaddc18f 268
+  s_498f322db6e44c::t_dc8bcbce68a7c6 151
+  s_498f322db6e44c::t_26ca2ed9feb51f 57,59-60
+  s_498f322db6e44c::t_028fbac29ee76f 80
+  s_498f322db6e44c::t_55ae333fe2c22f 292
+  s_498f322db6e44c::t_316b79fb4afd29 111,114
+  s_498f322db6e44c::t_9e2abccfa39fa7 318
+  s_498f322db6e44c::t_045f19b953ddb6 311
+  s_498f322db6e44c::t_a624f35acb9040 152-153,167-172
+  s_498f322db6e44c::t_3c7eabcec1654c 353
+  s_498f322db6e44c::t_5cf8580cd1a9fe 73
+  s_498f322db6e44c::t_b96f5da244627b 283-287
+frontend/app/globals.css
+  s_498f322db6e44c::t_a3d9bcf27f5062 1468-1471
+  s_498f322db6e44c::t_f6a1171cd10334 1519,1522-1531
+  s_498f322db6e44c::t_b491a8626e1e5d 1389,1391-1393,1395,1397-1398,1402-1408
+  s_498f322db6e44c::t_bb531cd15951b3 1671-1674
+  s_498f322db6e44c::t_cceca8679243af 1360
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "1eb1ab5efdbb2d34cab3101a464dfdb3a48b96ec",
+  "prompts": {},
+  "sessions": {
+    "s_498f322db6e44c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "67e026a9-392e-4dba-9e80-2557b957fd4e",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "forwaryan <2549102420@qq.com>"
+    }
+  }
+}
