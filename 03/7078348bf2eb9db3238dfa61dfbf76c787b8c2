@@ -1,0 +1,76 @@
+backend/tests/test_primary_claim_report.py
+  s_498f322db6e44c::t_1e706a5c88cf7a 54-70
+  s_498f322db6e44c::t_292947c2dbd8dd 44
+  s_498f322db6e44c::t_acf57211733ea8 1-43,45-53
+backend/app/services/report_builder.py
+  s_498f322db6e44c::t_e393c393a3a71f 686
+  s_498f322db6e44c::t_e004e91a063c1b 398
+  s_498f322db6e44c::t_54250263ec6583 595-596
+  s_498f322db6e44c::t_00abd7fde802fe 22
+  s_498f322db6e44c::t_8e117e5cd9c12a 151
+  s_498f322db6e44c::t_f64a56e1b7aef5 591
+  s_498f322db6e44c::t_3cd0b102a8a8ba 282,397,497,587,677
+  s_498f322db6e44c::t_bff74023e83645 399
+  s_498f322db6e44c::t_247d71d83aaab2 23
+  s_498f322db6e44c::t_6cf85d6cfe83c7 284
+  s_498f322db6e44c::t_9600426e29eb64 285-286
+  s_498f322db6e44c::t_351549088772bc 523-525
+  s_498f322db6e44c::t_83372f79dd552f 679
+  s_498f322db6e44c::t_8fede69e8d5c11 589-590,592-594
+  s_498f322db6e44c::t_e394dd6c0d121e 630
+  s_498f322db6e44c::t_a7855ec4353d45 678,680-684
+  s_498f322db6e44c::t_b0c1df0bc58bef 685
+frontend/components/verdict-card.tsx
+  s_498f322db6e44c::t_17f4672b57784e 17,19-20
+  s_498f322db6e44c::t_f759c0c5b5fdf7 18
+backend/tests/test_retrieval_relevance.py
+  s_498f322db6e44c::t_6b3d34d608523b 10
+  s_498f322db6e44c::t_910598a2a901ac 43,47
+  s_498f322db6e44c::t_0bec16162f44ef 100-112,131
+  s_498f322db6e44c::t_5211a3dddfc1d9 113-130
+  s_498f322db6e44c::t_001890549f39d5 71,74-80
+backend/app/services/content_check_builder.py
+  s_498f322db6e44c::t_458d33c01c9a01 172
+  s_498f322db6e44c::t_681546c551768a 170
+  s_498f322db6e44c::t_6e2a48c51a640f 18
+  s_498f322db6e44c::t_8436be90116b04 16
+  s_498f322db6e44c::t_fb0f84afe6d28d 173-175
+  s_498f322db6e44c::t_d8ee7f92a2f525 176-180
+backend/app/services/retrieval_service.py
+  s_498f322db6e44c::t_935ca402ce993f 1152-1153
+  s_498f322db6e44c::t_da741627a78b79 1160-1161
+  s_498f322db6e44c::t_2e75b5f82a8fd5 971-982
+  s_498f322db6e44c::t_1350a8a1c3ee16 1163-1169
+  s_498f322db6e44c::t_5c5959f98d519d 707-709,718
+  s_498f322db6e44c::t_82ffa0b43aa70b 679-682
+  s_498f322db6e44c::t_6a186c9014eb4c 1162,1170
+  s_498f322db6e44c::t_7ba67054695124 824-827
+  s_498f322db6e44c::t_344c63686c0eb9 710,712-713,716-717
+  s_498f322db6e44c::t_646e3f8342555a 711,714-715
+  s_498f322db6e44c::t_a9331c6f11159c 873-874
+  s_498f322db6e44c::t_1a368f38e5303c 719,721-722
+  s_498f322db6e44c::t_8781018ac6af34 1130-1132
+backend/app/services/primary_claim.py
+  s_498f322db6e44c::t_87323f4190e197 1-5,7-15,18-21
+  s_498f322db6e44c::t_fc39553a4bb1cd 16-17
+  s_498f322db6e44c::t_2816cfdb62a807 6
+frontend/lib/__tests__/verdict-card.test.ts
+  s_498f322db6e44c::t_1e6396503ec986 1-15,17-28
+  s_498f322db6e44c::t_f10e8866581c23 16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "037078348bf2eb9db3238dfa61dfbf76c787b8c2",
+  "prompts": {},
+  "sessions": {
+    "s_498f322db6e44c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "67e026a9-392e-4dba-9e80-2557b957fd4e",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "forwaryan <2549102420@qq.com>"
+    }
+  }
+}
