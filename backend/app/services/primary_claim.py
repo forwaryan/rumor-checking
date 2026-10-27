@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 
 from backend.app.models.schemas import ClaimResult
@@ -14,6 +15,11 @@ def primary_fact_claim(original_input: str, claims: Sequence[ClaimResult]) -> Cl
     anchors = extract_subject_anchors(original_input)
     recent = any(marker in original_input for marker in TEMPORAL_ADVERBS)
     actions = [marker for marker in ACTION_MARKERS if marker in original_input]
+    input_terms = set(re.findall(r"[一-鿿]{2}|[A-Za-z0-9]{2,}", original_input))
+
+    def relevance(item: ClaimResult) -> tuple[int, int]:
+        claim_terms = set(re.findall(r"[一-鿿]{2}|[A-Za-z0-9]{2,}", item.claim))
+        return len(input_terms & claim_terms), -len(claim_terms)
     for anchor in anchors:
         if anchor not in KNOWN_BRANDS and not anchor.endswith(("公司", "集团", "生物", "科技", "医院", "学校", "大学")):
             continue
@@ -24,6 +30,7 @@ def primary_fact_claim(original_input: str, claims: Sequence[ClaimResult]) -> Cl
                 key=lambda item: (
                     recent and any(marker in item.claim for marker in TEMPORAL_ADVERBS),
                     any(action in item.claim for action in actions),
+                    relevance(item),
                 ),
             )
-    return facts[0]
+    return max(facts, key=relevance)

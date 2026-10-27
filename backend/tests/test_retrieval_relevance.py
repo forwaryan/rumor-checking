@@ -37,6 +37,15 @@ def _service() -> RetrievalService:
     return RetrievalService(settings=get_settings())
 
 
+def test_search_navigation_links_are_not_evidence() -> None:
+    svc = _service()
+    navigation = _hit(
+        "景甜 孙宇晨 包养", "景甜 孙宇晨 包养 - 视频大全 - 高清在线观看",
+        source_name="8-28", url="/sf/vsearch?pd=video&wd=rumor",
+    )
+    assert svc._filter_relevant_results([navigation]) == []
+
+
 class TestSubjectRequired:
     """When the query names a brand subject, results must mention it."""
 

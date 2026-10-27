@@ -7,6 +7,7 @@ from contextvars import copy_context
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlparse
 
 from backend.app.core.config import Settings, get_settings
 from backend.app.core.exceptions import AppError
@@ -870,8 +871,11 @@ class RetrievalService:
             if not hits:
                 continue
             hits = self._filter_relevant_results(hits)
-            if self._is_subject_layoff_query(relevance_query):
-                hits = [item for item in hits if self._result_matches_query(replace(item, query=relevance_query))]
+            hits = [
+                item for item in hits
+                if self._is_official_domain_hit(item, domain)
+                and self._result_matches_query(replace(item, query=relevance_query))
+            ]
             if not hits:
                 continue
             retrieved_at = ensure_datetime_string(datetime.now(UTC).isoformat())
@@ -907,6 +911,13 @@ class RetrievalService:
             canonical_results=combined_canonical,
             raw_results=combined_raw,
         )
+
+    def _is_official_domain_hit(self, item: SearchResult, domain: str) -> bool:
+        try:
+            host = (urlparse(item.url).hostname or "").lower()
+        except ValueError:
+            return False
+        return bool(host) and (host == domain or host.endswith(f".{domain}"))
 
     def _shorten_for_supplementary(self, query: str) -> str:
         """Produce a short query suitable for supplementary providers (XHS,
@@ -975,7 +986,11 @@ class RetrievalService:
                         selected.append(item)
                     else:
                         rejected["filtered_relevance_count"] += 1
-                strict = all(self._is_subject_layoff_query(item.query or "") for item in grounded)
+                strict = all(
+                    self._is_subject_layoff_query(item.query or "")
+                    or "site:" in (item.query or "").lower()
+                    for item in grounded
+                )
                 if not selected and not strict:
                     selected = grounded
                     rejected["filtered_relevance_count"] = 0
@@ -991,6 +1006,11 @@ class RetrievalService:
         title = result.title
         title_lower = title.lower()
         url = result.url.lower()
+        try:
+            if not urlparse(result.url).hostname:
+                return True
+        except ValueError:
+            return True
         snippet_lower = (result.snippet or "").lower()
         noise_title_patterns = (
             "百度百科", "汉语", "拼音", "笔顺", "部首", "笔画",

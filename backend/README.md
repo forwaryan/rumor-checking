@@ -100,5 +100,5 @@ curl -X POST http://127.0.0.1:8000/api/v1/analyze/stream \
 - **共享 httpx client**：`LlmAgentReasoner._client` 是模块级 singleton（`_SHARED_HTTPX_CLIENT`），跨请求复用连接池，避免 per-request TLS 握手浪费。见 `backend/app/services/agent_reasoner.py::_get_shared_client`
 - **health-aware failover**：`_candidate_models` 通过 `get_model_health_registry().order_by_health()` 排序候选，健康模型优先；不健康模型不 drop 而是排到后面（picker override 例外）
 - **空返回短路**：单候选连续 2 次 empty 直接 break，避免耿同学/Nature 撤稿类 case 里 3 次 timeout 共花 2m 40s。见 `backend/tests/test_stream_completion.py::test_empty_streak_shortcircuits_when_only_one_candidate`
-- **规则兜底证据回填**：LLM synthesis 空返回 3 次时若 pool 里有 ≥3 条 B/A/S 高信度证据，`_backfill_rule_fallback_evidence` 会将 top 3 附给主 fact claim，避免"20+ 证据但报告只挂 1 条"
+- **规则路径证据边界**：检索命中仍在 `retrieval_hits` 供人工查看；只有针对具体 claim 判定并引用的来源进入核查点证据，不能仅凭来源等级回填。
 - **JSON 结构化日志**（opt-in）：`APP_LOG_FORMAT=json` 切换到 `_JsonFormatter`（`backend/app/core/logging.py`）。每行一个 JSON，`timestamp` / `level` / `logger` / `message` + 任意 `extra={run_id, stage_key, model}` 作为顶层字段。默认 `text` 走原有人类可读格式，无回归

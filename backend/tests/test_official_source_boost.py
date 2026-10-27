@@ -122,7 +122,7 @@ def test_boost_skips_when_grade_is_A_or_B():
 
 
 def test_boost_fires_and_merges_when_bundle_is_thin():
-    boost_hit = _result("https://www.nature.com/articles/xxxx", "Nature", "S", title="Retracted paper")
+    boost_hit = _result("https://www.gov.cn/articles/xxxx", "政府网站", "S", title="耿同学 Nature 论文撤稿通报")
     provider = _StubProvider(hits=[boost_hit])
     svc = _service_with_provider(provider)
     thin = _bundle([
@@ -144,10 +144,32 @@ def test_boost_fires_and_merges_when_bundle_is_thin():
     for call in provider.calls:
         assert call.count("site:") == 1
         assert " OR " not in call
-    # The new nature.com hit is now in canonical + independent high-trust count reflects it
+    # The matching official hit is now in canonical + independent high-trust count reflects it.
     urls = {r.url for r in out.canonical_results}
-    assert "https://www.nature.com/articles/xxxx" in urls
+    assert "https://www.gov.cn/articles/xxxx" in urls
     assert out.independent_high_trust_source_count == 1
+
+
+def test_boost_rejects_unrelated_official_hits_and_cross_domain_results():
+    class _MixedProvider:
+        name = "stub"
+        enabled = True
+
+        def search(self, query: str) -> list[SearchResult]:
+            if "site:gov.cn" not in query:
+                return []
+            return [
+                _result("https://www.gov.cn/unrelated", "政府网站", "S", title="全市科技工作会议召开"),
+                _result("https://www.gov.cn/related", "政府网站", "S", title="耿同学 Nature 论文撤稿说明"),
+                _result("https://other.example.org/related", "其他网站", "B", title="耿同学 Nature 论文撤稿说明"),
+            ]
+
+    svc = _service_with_provider(_MixedProvider())
+    thin = _bundle([_result("https://zhihu.com/q/1", "知乎", "C")])
+    out = svc._append_official_source_results(thin, "耿同学 Nature 撤稿", stage_key="s")
+    assert {item.url for item in out.canonical_results} == {
+        "https://zhihu.com/q/1", "https://www.gov.cn/related",
+    }
 
 
 def test_boost_issues_one_query_per_whitelist_domain():

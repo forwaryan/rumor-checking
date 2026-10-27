@@ -19,7 +19,6 @@ from backend.app.models.schemas import (
 )
 from backend.app.services.claim_timeliness import apply_timeliness_downgrade
 from backend.app.services.contract_utils import default_source_name, default_source_url, ensure_datetime_string
-from backend.app.services.entity_anchor import extract_subject_anchors
 from backend.app.services.primary_claim import primary_fact_claim
 from backend.app.services.question_intent import (
     is_broad_trend_question,
@@ -282,8 +281,10 @@ class ReportBuilder:
         trend_question = is_broad_trend_question(original_input)
         primary = primary_fact_claim(original_input, claim_results)
 
-        if event.input_type == "question_only" and primary and primary.verdict == "insufficient" and not trend_question and extract_subject_anchors(original_input):
+        if primary and primary.verdict == "insufficient" and not trend_question and (event.input_type == "question_only" or len(original_input.strip()) <= 60):
             summary = f"关于“{primary.claim.rstrip('。')}”，当前缺少直接证据，仍不能确定；其他已核实的背景事实不能代替这条主张。"
+            if debunk_claims:
+                summary += " 相关传闻已有辟谣或否认报道，仍需核对回应针对的具体说法。"
         elif trend_question and supported_core_claims:
             summary = supported_trend_summary(original_input) or "当前公开来源更倾向于：最近确实有相关消息，但它不是单一事件。"
         elif trend_question and mode == "safe_mode":
@@ -357,14 +358,23 @@ class ReportBuilder:
             retrieval_hits=retrieval_hits,
             provenance=provenance,
         )
-        possibilities = possibilities_override if possibilities_override else self._build_possibilities(
-            mode=mode,
-            original_input=original_input,
-            public_event=public_event,
-            claim_results=claim_results,
-            evidence=evidence,
-            retrieval_hits=retrieval_hits,
-            provenance=provenance,
+        primary = primary_fact_claim(original_input, claim_results)
+        unproven_rumor = (
+            primary is not None and primary.verdict == "insufficient"
+            and not is_broad_trend_question(original_input)
+            and len(original_input.strip()) <= 60
+        )
+        possibilities = (
+            self._build_possibilities(
+                mode=mode,
+                original_input=original_input,
+                public_event=public_event,
+                claim_results=claim_results,
+                evidence=evidence,
+                retrieval_hits=retrieval_hits,
+                provenance=provenance,
+            )
+            if unproven_rumor or not possibilities_override else possibilities_override
         )
         final_conclusion = self._build_investigation_conclusion(
             mode=mode,
@@ -396,7 +406,7 @@ class ReportBuilder:
         if trend_claim:
             return trend_claim.rstrip("。")
         primary = primary_fact_claim(original_input, claim_results)
-        if primary and primary.verdict == "insufficient" and extract_subject_anchors(original_input) and any(item.verdict == "supported" for item in claim_results):
+        if primary and primary.verdict == "insufficient" and len(original_input.strip()) <= 60 and any(item.verdict == "supported" for item in claim_results):
             return primary.claim.rstrip("。")
         decisive = next((item.claim.rstrip("。") for item in claim_results if item.verdict in {"supported", "refuted", "conflicting"}), None)
         if decisive:
@@ -522,7 +532,7 @@ class ReportBuilder:
                 f"当前最强的反向线索是“{refuted.claim}”，备注为：{refuted.notes}",
             )
         if supported is not None and not trend_question and (
-            primary is None or primary.verdict != "insufficient" or not extract_subject_anchors(original_input)
+            primary is None or primary.verdict != "insufficient" or len(original_input.strip()) > 60
         ):
             push(
                 "相关事件大体存在，但原话可能把细节说满了",
@@ -589,8 +599,7 @@ class ReportBuilder:
 
         if (
             primary and primary.verdict == "insufficient" and not trend_question
-            and extract_subject_anchors(original_input)
-            and supported is not None
+            and len(original_input.strip()) <= 60 and supported is not None
         ):
             conclusion = f"关于“{primary.claim.rstrip('。')}”，目前仍缺少直接证据，不能根据其他背景事实认定它属实。"
         elif trend_question and supported is not None:
@@ -678,8 +687,8 @@ class ReportBuilder:
         )
         primary = primary_fact_claim(original_input, claim_results)
         if (
-            input_type == "question_only" and primary and primary.verdict == "insufficient"
-            and extract_subject_anchors(original_input)
+            primary and primary.verdict == "insufficient"
+            and (input_type == "question_only" or len(original_input.strip()) <= 60)
             and not is_broad_trend_question(original_input)
         ):
             label = "insufficient_evidence"

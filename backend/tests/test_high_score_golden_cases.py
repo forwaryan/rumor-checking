@@ -194,7 +194,7 @@ def test_score_fields_are_either_computed_or_explicitly_empty(client):
 
     independent_source_count = report["independent_source_count"]
     assert independent_source_count is not None
-    assert independent_source_count >= 2
+    assert 1 <= independent_source_count <= len(report["sources"])
 
 
 def test_partial_demo_candidate_emits_conservative_score(client):
