@@ -1,0 +1,59 @@
+backend/app/services/primary_claim.py
+  s_1c25e3ba378983::t_3078c9a106aa49 3
+  s_1c25e3ba378983::t_b43462a357f7d8 18-22
+  s_1c25e3ba378983::t_b2a06d225399b9 33,36
+backend/tests/test_official_source_boost.py
+  s_1c25e3ba378983::t_3af1434bbac171 153-174
+  s_1c25e3ba378983::t_cdb0c5a803f465 147,149
+  s_1c25e3ba378983::t_479663e2bfbbb3 125
+backend/tests/test_rule_fallback_evidence_backfill.py
+  s_1c25e3ba378983::t_3b644e20399a0c 41-43
+  s_1c25e3ba378983::t_b900884af26664 1,25-27
+  s_1c25e3ba378983::t_68b3dc30444ae9 4,9,11,13-15,19-20,23-24,28-29
+backend/tests/test_primary_claim_report.py
+  s_1c25e3ba378983::t_f6c3183d14cee1 89-118,123-124,126-134
+  s_1c25e3ba378983::t_951396a4c652a9 1
+  s_1c25e3ba378983::t_ec199f2c64f1a5 3,7-18
+  s_1c25e3ba378983::t_c789ebb194941c 119-122,125
+  s_1c25e3ba378983::t_8a8631948145d8 19-20
+backend/app/services/report_builder.py
+  s_1c25e3ba378983::t_eb695eb5dd64ea 602
+  s_1c25e3ba378983::t_d866e2215f69f1 361-377
+  s_1c25e3ba378983::t_e0525870336947 691
+  s_1c25e3ba378983::t_8123758b2d738a 284,286-287
+  s_1c25e3ba378983::t_0c9ad5162f0152 409
+  s_1c25e3ba378983::t_c47631fb8582b3 535
+  s_1c25e3ba378983::t_03e73f19293032 690
+backend/tests/test_retrieval_relevance.py
+  s_1c25e3ba378983::t_b4de29ff148ec5 40-48
+backend/README.md
+  s_1c25e3ba378983::t_4dace6de6310bd 103
+backend/tests/test_high_score_golden_cases.py
+  s_1c25e3ba378983::t_23a37ddcedd937 197
+backend/app/services/retrieval_service.py
+  s_1c25e3ba378983::t_6bffb47390af05 915-921
+  s_1c25e3ba378983::t_3f2502f80da0df 1013
+  s_1c25e3ba378983::t_ebfcde42495034 989-993
+  s_1c25e3ba378983::t_122cfa03056596 1009-1012
+  s_1c25e3ba378983::t_c21bab46c8601c 876
+  s_1c25e3ba378983::t_60f004747771e3 10
+  s_1c25e3ba378983::t_dcdbfb86bb93e5 874-875,877-878
+backend/app/services/content_check_builder.py
+  s_1c25e3ba378983::t_79e8ea805d2e3e 171
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "b5c1c79ac2390bbd2268e47d2d9ada7d022178ac",
+  "prompts": {},
+  "sessions": {
+    "s_1c25e3ba378983": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d584ee2e-31e7-4f28-ae0b-90d572748934",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "forwaryan <2549102420@qq.com>"
+    }
+  }
+}
